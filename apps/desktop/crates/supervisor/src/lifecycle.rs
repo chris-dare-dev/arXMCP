@@ -60,6 +60,33 @@ const FORCE_AFTER_MS: u64 = 5_000;
 /// returns -1, which the caller records as `shutdown-unclean`.
 const REAP_BUDGET_MS: u64 = 2_000;
 
+/// #497: how long `codesign` gets to answer before the launch is refused.
+///
+/// Intact-bundle verification was measured at **0.42 s**, so this is ~35x
+/// headroom: no healthy machine reaches it. A launch that does trip it has a
+/// real problem — a stalled network mount, an unresponsive FUSE volume, an
+/// external disk spinning up, or a `syspolicyd`/Gatekeeper stall (XProtect
+/// scan, translocation, notary-ticket lookup) — because `codesign` is I/O
+/// bound on every sealed resource it hashes.
+/// `#[allow(dead_code)]`: read only by the macOS verifiers. Kept unconditional
+/// rather than `cfg`-gated so the budget and its rationale stay in one place
+/// with the other lifecycle deadlines, next to `PS_BUDGET`, which every unix
+/// build does use.
+#[allow(dead_code)]
+const CODESIGN_BUDGET: Duration = Duration::from_secs(15);
+
+/// #497: how long the `ps` state read gets on the shutdown ladder.
+///
+/// Two orders of magnitude tighter than [`CODESIGN_BUDGET`] because it sits
+/// INSIDE the timeout mechanism: an unbounded read here defeats
+/// [`FORCE_AFTER_MS`] and [`REAP_BUDGET_MS`], which is a hole in the very
+/// thing that bounds shutdown. A single `ps -o state=` answers in single-digit
+/// milliseconds or it is not going to.
+const PS_BUDGET: Duration = Duration::from_millis(500);
+
+/// Poll granularity for [`output_within`]. Matches `wait_exit`'s.
+const SUBPROCESS_POLL_INTERVAL: Duration = Duration::from_millis(25);
+
 pub struct ChildControl {
     child: Child,
     /// Retained stdin IS the parent-lifetime lease; dropped at shutdown.
@@ -278,23 +305,41 @@ fn cycle(
     #[cfg(not(debug_assertions))]
     {
         let child_path = std::path::Path::new(&plan.child_argv[0]);
-        if let Err(detail) = verify_signature(child_path) {
-            let _ = recorder.record("child-signature-invalid", json!({"detail": detail}));
-            return Err("child code signature invalid");
+        // #497: a timeout REFUSES the launch, and says so in its own words.
+        // Failing open would make the seal bypassable by anyone who can stall
+        // `codesign`, which is a weaker guarantee than the one #436 closed.
+        match verify_signature(child_path) {
+            Ok(()) => {}
+            Err(VerifyError::TimedOut { budget_ms }) => {
+                let _ = recorder.record("child-signature-timeout", json!({"budget_ms": budget_ms}));
+                return Err("child signature check timed out");
+            }
+            Err(VerifyError::Rejected(detail)) => {
+                let _ = recorder.record("child-signature-invalid", json!({"detail": detail}));
+                return Err("child code signature invalid");
+            }
         }
         // #436/#484: the executable is a PyInstaller LAUNCHER. Consult the
         // outer seal too, which covers the `_internal/` runtime it will load
         // — the part that check verifies nothing about.
         match enclosing_app_bundle(child_path) {
-            Some(app) => {
-                if let Err(detail) = verify_bundle_seal(&app) {
+            Some(app) => match verify_bundle_seal(&app) {
+                Ok(()) => {}
+                Err(VerifyError::TimedOut { budget_ms }) => {
+                    let _ = recorder.record(
+                        "payload-seal-timeout",
+                        json!({"budget_ms": budget_ms, "bundle": app.to_string_lossy()}),
+                    );
+                    return Err("child payload seal check timed out");
+                }
+                Err(VerifyError::Rejected(detail)) => {
                     let _ = recorder.record(
                         "payload-seal-invalid",
                         json!({"detail": detail, "bundle": app.to_string_lossy()}),
                     );
                     return Err("child payload seal invalid");
                 }
-            }
+            },
             None => {
                 // The onedir layout: no bundle, so no seal to consult. Record
                 // it rather than passing silently — "not checked" and
@@ -704,26 +749,173 @@ fn navigate_window(handle: &tauri::AppHandle, bound: &Bound) -> Result<(), &'sta
 /// copy, a failed update, a bad disk, an edited binary — none of which
 /// re-sign themselves. That is worth catching before exec, and it is exactly
 /// the case #436 reproduced.
+/// **A timeout refuses the launch (#497).** Bounded by [`CODESIGN_BUDGET`];
+/// exhausting it is a verification failure, not permission to proceed. The
+/// reasoning is written out in full on [`verify_bundle_seal`]. Recorded as
+/// `child-signature-timeout`, never as `child-signature-invalid` — a stalled
+/// mount and a tampered binary are different operator problems.
+///
 /// `#[allow(dead_code)]`: the only call site is release-gated, so a debug
 /// build sees this as unused. It stays compiled in BOTH profiles on purpose —
 /// the unit tests below exercise the real verifier against a real signed
 /// binary, which they could not do if the release-only shape were the only
 /// one that existed.
-/// Absolute on purpose: a PATH lookup would let a planted `codesign` earlier
-/// on PATH answer this question. Verified present at this path on macOS 26.6;
-/// it is NOT `/usr/sbin/codesign`, which is where the first draft looked.
-#[cfg(target_os = "macos")]
-const CODESIGN: &str = "/usr/bin/codesign";
-
+/// Why a verification failed. #497.
+///
+/// The two arms are different operator problems with different fixes, and
+/// collapsing them into one string is the mistake #444 already corrected once
+/// for the child log. "The signature is invalid" means a corrupt or tampered
+/// payload; "we could not check in time" means a stalled mount or a wedged
+/// `syspolicyd`. Both refuse the launch — see [`verify_signature`] on why a
+/// timeout fails CLOSED — but they must not render alike.
+/// `#[allow(dead_code)]`: both variants are constructed only by the macOS
+/// `codesign_verify`. A non-macOS build compiles the type (the stub verifiers
+/// return `Result<(), VerifyError>` so the signature is one shape everywhere)
+/// without ever building one. Same reason as [`CODESIGN_BUDGET`] below.
 #[allow(dead_code)]
+#[derive(Debug, PartialEq, Eq)]
+pub enum VerifyError {
+    /// `codesign` answered, and the answer was no — or it could not be run at
+    /// all. Both are "this payload is not what it should be" and both already
+    /// failed closed before #497; they stay folded together.
+    Rejected(String),
+    /// `codesign` did not answer within its budget.
+    TimedOut { budget_ms: u64 },
+}
+
+/// Why a bounded subprocess did not produce output. #497.
+#[allow(dead_code)]
+#[derive(Debug)]
+enum RunFailure {
+    /// The process could not be started.
+    Spawn(String),
+    /// It started but did not finish inside the budget, or its state could not
+    /// be established. Both mean the same thing to a caller: no answer.
+    TimedOut,
+}
+
+/// Run a command to completion, or kill it and report a timeout. #497.
+///
+/// `Command::output()` blocks until the child exits AND both pipes reach EOF,
+/// with no deadline whatsoever. That is the defect this closes: three call
+/// sites used it, two of them before `exec` on the launch path, where a hang
+/// means no child, no window and no dialog — the invisible cold-start failure
+/// #444 exists to prevent, reintroduced through a different cause.
+///
+/// **The pipes are drained on threads, deliberately.** The obvious shape — a
+/// `try_wait()` poll loop over a piped child — deadlocks the moment the child
+/// fills a 64 KiB pipe buffer nobody is reading: it blocks on write, never
+/// exits, and the poll loop runs to its deadline against a child that was
+/// merely chatty. `spawn_stderr_relay` documents the same trap from the other
+/// side. `codesign` is not chatty, but a bounded helper that is only correct
+/// for quiet children is a trap for its next caller.
+///
+/// A timed-out child is killed AND reaped. Leaving it would leak a process per
+/// launch attempt against whatever stalled it in the first place.
+#[allow(dead_code)]
+fn output_within(
+    command: &mut Command,
+    budget: Duration,
+) -> Result<std::process::Output, RunFailure> {
+    command
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    // Its own process group, so the timeout path can kill a GRANDCHILD too --
+    // see `process_control::force_kill_group` for what that costs when it is
+    // missing. It also stops these helpers receiving terminal signals aimed
+    // at the supervisor.
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        command.process_group(0);
+    }
+    let mut child = command
+        .spawn()
+        .map_err(|err| RunFailure::Spawn(err.to_string()))?;
+
+    let mut out_pipe = child.stdout.take();
+    let mut err_pipe = child.stderr.take();
+    let drain_out = std::thread::spawn(move || {
+        let mut buf = Vec::new();
+        if let Some(pipe) = out_pipe.as_mut() {
+            let _ = pipe.read_to_end(&mut buf);
+        }
+        buf
+    });
+    let drain_err = std::thread::spawn(move || {
+        let mut buf = Vec::new();
+        if let Some(pipe) = err_pipe.as_mut() {
+            let _ = pipe.read_to_end(&mut buf);
+        }
+        buf
+    });
+
+    let deadline = Instant::now() + budget;
+    let finished = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break Some(status),
+            // A `try_wait` error is "we cannot establish that it finished",
+            // which is the same situation for a caller as a timeout.
+            Err(_) => break None,
+            Ok(None) => {}
+        }
+        if Instant::now() >= deadline {
+            break None;
+        }
+        std::thread::sleep(SUBPROCESS_POLL_INTERVAL);
+    };
+
+    let Some(status) = finished else {
+        // The GROUP, not just the child: a grandchild holding the inherited
+        // pipes keeps the drains from ever seeing EOF, and joining them would
+        // block for as long as it lives. Then the direct child is killed and
+        // reaped regardless, so nothing is left for the OS to collect.
+        process_control::force_kill_group(child.id());
+        let _ = child.kill();
+        let _ = child.wait();
+        // With the group gone the pipes are closed, so both drains hit EOF.
+        // Joined rather than detached so no thread outlives the call.
+        let _ = drain_out.join();
+        let _ = drain_err.join();
+        return Err(RunFailure::TimedOut);
+    };
+
+    Ok(std::process::Output {
+        status,
+        stdout: drain_out.join().unwrap_or_default(),
+        stderr: drain_err.join().unwrap_or_default(),
+    })
+}
+
+/// One bounded `codesign --verify` invocation. #497.
+///
+/// `tool` is a parameter only so the tests can drive the TIMEOUT arm against a
+/// stand-in that is guaranteed to hang; every production caller passes the
+/// absolute [`CODESIGN`]. It is deliberately NOT an env override — the whole
+/// point of that constant is that nothing the environment controls gets to
+/// answer this question.
 #[cfg(target_os = "macos")]
-pub fn verify_signature(path: &std::path::Path) -> Result<(), String> {
-    let output = Command::new(CODESIGN)
-        .arg("--verify")
-        .arg("--strict")
-        .arg(path)
-        .output()
-        .map_err(|err| format!("codesign could not be run: {err}"))?;
+fn codesign_verify(
+    tool: &str,
+    budget: Duration,
+    args: &[&std::ffi::OsStr],
+) -> Result<(), VerifyError> {
+    let mut command = Command::new(tool);
+    command.args(args);
+    let output = match output_within(&mut command, budget) {
+        Ok(output) => output,
+        Err(RunFailure::Spawn(err)) => {
+            return Err(VerifyError::Rejected(format!(
+                "codesign could not be run: {err}"
+            )))
+        }
+        Err(RunFailure::TimedOut) => {
+            return Err(VerifyError::TimedOut {
+                budget_ms: u64::try_from(budget.as_millis()).unwrap_or(u64::MAX),
+            })
+        }
+    };
     if output.status.success() {
         return Ok(());
     }
@@ -732,7 +924,27 @@ pub fn verify_signature(path: &std::path::Path) -> Result<(), String> {
     // modified)") without the architecture trailer.
     let stderr = String::from_utf8_lossy(&output.stderr);
     let reason = stderr.lines().next().unwrap_or("unspecified").trim();
-    Err(reason.to_owned())
+    Err(VerifyError::Rejected(reason.to_owned()))
+}
+
+/// Absolute on purpose: a PATH lookup would let a planted `codesign` earlier
+/// on PATH answer this question. Verified present at this path on macOS 26.6;
+/// it is NOT `/usr/sbin/codesign`, which is where the first draft looked.
+#[cfg(target_os = "macos")]
+const CODESIGN: &str = "/usr/bin/codesign";
+
+#[allow(dead_code)]
+#[cfg(target_os = "macos")]
+pub fn verify_signature(path: &std::path::Path) -> Result<(), VerifyError> {
+    codesign_verify(
+        CODESIGN,
+        CODESIGN_BUDGET,
+        &[
+            std::ffi::OsStr::new("--verify"),
+            std::ffi::OsStr::new("--strict"),
+            path.as_os_str(),
+        ],
+    )
 }
 
 /// Non-macOS builds have no equivalent seal to consult. Returning Ok is the
@@ -741,7 +953,7 @@ pub fn verify_signature(path: &std::path::Path) -> Result<(), String> {
 /// integrity story.
 #[allow(dead_code)]
 #[cfg(not(target_os = "macos"))]
-pub fn verify_signature(_path: &std::path::Path) -> Result<(), String> {
+pub fn verify_signature(_path: &std::path::Path) -> Result<(), VerifyError> {
     Ok(())
 }
 
@@ -810,6 +1022,18 @@ fn enclosing_app_bundle(child_exe: &std::path::Path) -> Option<std::path::PathBu
 /// ~0.3 s on the launch path is the cost. That buys the difference between
 /// "the file we exec is intact" and "the payload it will load is intact".
 ///
+/// **A timeout refuses the launch (#497).** `codesign` is bounded by
+/// [`CODESIGN_BUDGET`], and exhausting it is treated as a verification
+/// failure, not as permission to proceed. Failing open would make this seal
+/// bypassable by anyone who can stall `codesign` — which is exactly the
+/// property #436 and #484 exist to provide, given away to whoever can arrange
+/// slow I/O. An integrity check that can be skipped by stalling it is not an
+/// integrity check. The accepted cost is that a machine where `codesign` is
+/// reliably slow is a machine where the app refuses to start; that cost is
+/// bounded by a budget no healthy machine reaches (0.42 s measured, 15 s
+/// allowed). The refusal is recorded as `payload-seal-timeout`, never as
+/// `payload-seal-invalid`.
+///
 /// **Bound honestly:** this consults an AD-HOC seal, which anyone can
 /// re-create over modified bytes. It detects tampering, not a determined
 /// attacker, and says nothing about Apple's notary — ADR Decision 3, still
@@ -817,18 +1041,12 @@ fn enclosing_app_bundle(child_exe: &std::path::Path) -> Option<std::path::PathBu
 /// there the caller falls back to the executable check alone.
 #[allow(dead_code)]
 #[cfg(target_os = "macos")]
-pub fn verify_bundle_seal(app: &std::path::Path) -> Result<(), String> {
-    let output = Command::new(CODESIGN)
-        .arg("--verify")
-        .arg(app)
-        .output()
-        .map_err(|err| format!("codesign could not be run: {err}"))?;
-    if output.status.success() {
-        return Ok(());
-    }
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    let reason = stderr.lines().next().unwrap_or("unspecified").trim();
-    Err(reason.to_owned())
+pub fn verify_bundle_seal(app: &std::path::Path) -> Result<(), VerifyError> {
+    codesign_verify(
+        CODESIGN,
+        CODESIGN_BUDGET,
+        &[std::ffi::OsStr::new("--verify"), app.as_os_str()],
+    )
 }
 
 /// Non-macOS builds have no bundle seal to consult: `codesign` is a macOS
@@ -843,7 +1061,7 @@ pub fn verify_bundle_seal(app: &std::path::Path) -> Result<(), String> {
 /// real function rather than a `compile_error!`.
 #[allow(dead_code)]
 #[cfg(not(target_os = "macos"))]
-pub fn verify_bundle_seal(_app: &std::path::Path) -> Result<(), String> {
+pub fn verify_bundle_seal(_app: &std::path::Path) -> Result<(), VerifyError> {
     Ok(())
 }
 
@@ -1071,10 +1289,13 @@ pub fn shutdown_child(mut control: ChildControl) -> i64 {
 /// rather than force-killing a healthy server on a bad reading.
 #[cfg(unix)]
 fn is_stopped(pid: u32) -> bool {
-    let Ok(output) = Command::new("/bin/ps")
-        .args(["-o", "state=", "-p", &pid.to_string()])
-        .output()
-    else {
+    // #497: bounded. This sits INSIDE the shutdown ladder, so an unbounded
+    // read here defeats FORCE_AFTER_MS and REAP_BUDGET_MS. Note this does NOT
+    // fail closed the way the verifiers do -- a timeout takes the same safe
+    // default as every other unreadable state, per the docstring above.
+    let mut command = Command::new("/bin/ps");
+    command.args(["-o", "state=", "-p", &pid.to_string()]);
+    let Ok(output) = output_within(&mut command, PS_BUDGET) else {
         return false;
     };
     // BSD/macOS state codes: T = stopped by a signal, plus optional
@@ -1329,7 +1550,10 @@ mod tests {
         let _ = std::fs::create_dir_all(dir.join("Contents").join("MacOS"));
         let result = super::verify_bundle_seal(&dir);
         let _ = std::fs::remove_dir_all(&dir);
-        let detail = result.expect_err("an unsigned directory must not verify");
+        let detail = match result.expect_err("an unsigned directory must not verify") {
+            VerifyError::Rejected(detail) => detail,
+            other => panic!("an unsigned directory is a rejection, not {other:?}"),
+        };
         assert!(!detail.is_empty(), "the refusal must name a reason");
     }
 
@@ -1710,6 +1934,144 @@ mod tests {
             elapsed >= Duration::from_secs(3),
             "a running child must still get its full grace — took {elapsed:?}"
         );
+    }
+
+    // ---- issue #497: the subprocesses are bounded ------------------------
+
+    #[test]
+    fn output_within_returns_a_fast_child_whole() {
+        let mut command = Command::new("/bin/echo");
+        command.arg("hello");
+        let output = output_within(&mut command, Duration::from_secs(5))
+            .expect("a fast child must not time out");
+        assert!(output.status.success());
+        assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "hello");
+    }
+
+    #[test]
+    fn output_within_does_not_deadlock_on_a_chatty_child() {
+        // The whole reason the pipes are drained on threads. A `try_wait`
+        // poll loop over an undrained pipe wedges once the child fills the
+        // 64 KiB buffer: it blocks on write, never exits, and the loop burns
+        // its entire budget against a child that was only verbose. 4 MB is
+        // far past any pipe buffer, and the budget is far below the time a
+        // deadlocked version would take to give up.
+        let mut command = Command::new("/bin/sh");
+        command.args([
+            "-c",
+            "i=0; while [ $i -lt 65536 ]; do printf '0123456789012345678901234567890123456789012345678901234567890123'; i=$((i+1)); done",
+        ]);
+        let started = Instant::now();
+        let output = output_within(&mut command, Duration::from_secs(30))
+            .expect("a chatty child must complete, not deadlock");
+        assert!(output.status.success());
+        assert_eq!(output.stdout.len(), 65_536 * 64);
+        assert!(
+            started.elapsed() < Duration::from_secs(30),
+            "completed only by exhausting the budget, which means it deadlocked",
+        );
+    }
+
+    #[test]
+    fn output_within_kills_a_slow_child_rather_than_orphaning_it() {
+        // The child records its own pid, so the kill can be VERIFIED rather
+        // than assumed. A timed-out `codesign` left running against whatever
+        // stalled it would leak one process per launch attempt.
+        let dir = scratch("arxmcp-bounded-kill");
+        let pid_file = dir.join("pid");
+        let mut command = Command::new("/bin/sh");
+        command.args(["-c", &format!("echo $$ > {}; sleep 30", pid_file.display())]);
+        let started = Instant::now();
+        let failure = output_within(&mut command, Duration::from_millis(300))
+            .expect_err("a 30s child must not finish inside a 300ms budget");
+        let elapsed = started.elapsed();
+        assert!(
+            matches!(failure, RunFailure::TimedOut),
+            "expected a timeout, got {failure:?}",
+        );
+        // The budget is the point: it must give up ON TIME, not eventually.
+        assert!(
+            elapsed < Duration::from_secs(5),
+            "the budget was not honoured — took {elapsed:?}",
+        );
+
+        let pid: u32 = std::fs::read_to_string(&pid_file)
+            .expect("the child must have recorded its pid")
+            .trim()
+            .parse()
+            .expect("pid parses");
+        // The direct child is reaped by `output_within` itself, so `ps` can
+        // no longer see it. Poll briefly: the kill is not instantaneous.
+        let gone = poll_until(Duration::from_secs(5), || {
+            !Command::new("/bin/ps")
+                .args(["-o", "state=", "-p", &pid.to_string()])
+                .output()
+                .is_ok_and(|out| !out.stdout.trim_ascii().is_empty())
+        });
+        assert!(gone.is_ok(), "pid {pid} outlived the timeout — orphaned");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_codesign_that_never_answers_is_a_timeout_not_a_rejection() {
+        // #497 AC4. The stand-in hangs the way a `codesign` blocked on a
+        // stalled mount would, and the verdict must be TimedOut: the launch
+        // path picks `child-signature-timeout` off this variant, and a
+        // rejection here would render a stalled disk as a tampered binary.
+        let started = Instant::now();
+        let result = codesign_verify(
+            "/bin/sleep",
+            Duration::from_millis(300),
+            &[std::ffi::OsStr::new("30")],
+        );
+        let elapsed = started.elapsed();
+        assert_eq!(result, Err(VerifyError::TimedOut { budget_ms: 300 }));
+        assert!(
+            elapsed < Duration::from_secs(5),
+            "the launch must fail WITHIN the budget — took {elapsed:?}",
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_missing_codesign_is_still_a_rejection_not_a_timeout() {
+        // Fail-closed on an unrunnable tool predates #497 and must survive it:
+        // it is a rejection, and it must not be reported as a stall.
+        let result = codesign_verify(
+            "/nonexistent/codesign",
+            Duration::from_secs(5),
+            &[std::ffi::OsStr::new("--verify")],
+        );
+        match result.expect_err("a missing tool must not verify") {
+            VerifyError::Rejected(detail) => {
+                assert!(detail.contains("could not be run"), "got {detail:?}")
+            }
+            other => panic!("a missing tool is a rejection, not {other:?}"),
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn the_healthy_verification_path_never_reaches_its_budget() {
+        // The other half of the fail-closed trade: refusing on timeout is only
+        // acceptable while no healthy machine trips it. Measured at ~0.42s
+        // against a real bundle; asserted well inside CODESIGN_BUDGET so a
+        // regression that makes verification slow is caught here rather than
+        // by an operator whose app stops starting.
+        let dir = std::env::temp_dir().join("arxmcp-sig-budget");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("scratch dir");
+        let binary = signed_fixture(&dir, "child");
+        let started = Instant::now();
+        assert_eq!(verify_signature(&binary), Ok(()));
+        let elapsed = started.elapsed();
+        assert!(
+            elapsed * 3 < CODESIGN_BUDGET,
+            "healthy verification took {elapsed:?}, uncomfortably close to the \
+             {CODESIGN_BUDGET:?} budget that refuses a launch",
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

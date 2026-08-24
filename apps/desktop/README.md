@@ -97,6 +97,16 @@ trusted, and the difference between them matters (issues #435 / #436):
    than passing silently, so "not checked" and "checked and clean" do not
    read alike in the event log.
 
+   **If the check does not finish (#497):** `codesign` is bounded at 15 s and
+   a timeout **refuses the launch**. Failing open would make the seal
+   bypassable by anyone who can stall `codesign` — a stalled network mount, an
+   unresponsive FUSE volume, a wedged `syspolicyd` — which would give back the
+   whole guarantee. Healthy verification was measured at 0.42 s, so no working
+   machine reaches the budget. The refusal is recorded as
+   `child-signature-timeout` or `payload-seal-timeout`, never as the
+   corresponding `-invalid` event: a stalled disk and a tampered payload are
+   different operator problems and must not render alike.
+
 **The assumption an operator needs to know:** write access to the payload
 directory — whichever layout is in force — is equivalent to arbitrary code
 execution as the operator. Nothing in the supervisor can close that; the

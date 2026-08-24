@@ -324,8 +324,10 @@ README: str = (
 def test_the_signature_is_verified_before_exec() -> None:
     """#436. `codesign` catches a flipped byte; nothing used to run it."""
     assert "pub fn verify_signature(" in LIFECYCLE_RS
-    cycle = LIFECYCLE_RS[LIFECYCLE_RS.index("fn cycle(") :]
-    cycle = cycle[: cycle.index("\n}\n")]
+    # #495: a real block boundary. Cutting at the first "\n}\n" is the same
+    # guess-a-length family of bug -- it ends the slice at whatever nested
+    # item happens to close at column 0 first.
+    cycle = rust_fn(LIFECYCLE_RS, "fn cycle(")
     spawn_at = cycle.index("command.spawn()")
     verify_at = cycle.index("verify_signature(")
     assert verify_at < spawn_at, (
@@ -335,6 +337,75 @@ def test_the_signature_is_verified_before_exec() -> None:
     assert 'record("child-signature-invalid"' in cycle, (
         "a refused launch must record why, or the operator sees only the "
         "generic failure page"
+    )
+
+
+def test_a_verification_timeout_is_refused_and_named_separately() -> None:
+    """#497. Fail closed, and do not call a stalled disk a tampered binary.
+
+    Both halves matter. Failing OPEN would make the seal bypassable by anyone
+    who can stall `codesign`, giving back what #436/#484 bought. And reporting
+    a timeout as `child-signature-invalid` would tell an operator with a hung
+    network mount that their payload has been tampered with -- the same
+    conflation #444 already corrected once for the child log.
+    """
+    cycle = rust_fn(LIFECYCLE_RS, "fn cycle(")
+    # The event NAME, not `record("<name>"`: rustfmt wraps the call once the
+    # payload grows, so the two tokens are not adjacent in the source.
+    for event in ('"child-signature-timeout"', '"payload-seal-timeout"'):
+        assert event in cycle, f"a timeout must record {event} of its own (#497)"
+    for refusal in (
+        '"child signature check timed out"',
+        '"child payload seal check timed out"',
+    ):
+        assert f"return Err({refusal})" in cycle, (
+            f"a timeout must REFUSE the launch with {refusal}; failing open "
+            "would make the seal bypassable by stalling codesign (#497)"
+        )
+    # The distinctness is the point: one shared string would defeat both.
+    for event in ('"child-signature-invalid"', '"payload-seal-invalid"'):
+        assert event in cycle, f"{event} must survive alongside its timeout twin"
+    # And the refusals must be distinguishable to whatever renders them: four
+    # event kinds are no use if two of them return the same operator string.
+    refusals = {
+        line.split("return Err(")[1].split(")")[0]
+        for line in cycle.splitlines()
+        if "return Err(" in line and "timed out" in line or
+           "return Err(" in line and "invalid" in line
+    }
+    assert len(refusals) == 4, f"expected four distinct refusals, got {refusals}"
+
+
+def test_the_bounded_subprocess_helper_kills_the_group() -> None:
+    """#497. Killing only the direct child leaves a grandchild holding the
+    inherited pipes, so the drain never sees EOF and the bound is not a bound.
+    Measured while building the fix: a 300ms budget took 30.007s."""
+    helper = rust_fn(LIFECYCLE_RS, "fn output_within(")
+    assert "process_group(0)" in helper, (
+        "the child needs its own process group, or force_kill_group cannot "
+        "reach a grandchild (#497)"
+    )
+    assert "force_kill_group(child.id())" in helper, (
+        "the timeout path must kill the GROUP, not just the child (#497)"
+    )
+    # Production code only. The test module below legitimately uses
+    # `Command::output()` to OBSERVE processes -- bounding those would be
+    # bounding the observer, not the thing under test.
+    production = strip_rust_comments(LIFECYCLE_RS.split("#[cfg(test)]")[0])
+    assert ".output()" not in production, (
+        "no launch- or shutdown-path subprocess may use the unbounded "
+        "Command::output() any more (#497)"
+    )
+
+
+def test_the_ps_read_keeps_its_safe_default_on_timeout() -> None:
+    """#497 excludes `is_stopped` from fail-closed, deliberately. Refusing a
+    shutdown because `ps` was slow would force-kill a healthy server."""
+    fn = rust_fn(LIFECYCLE_RS, "fn is_stopped(pid: u32)")
+    assert "PS_BUDGET" in fn, "the ps read must be bounded (#497)"
+    assert "return false" in fn, (
+        "an unreadable state -- timeout included -- must keep the full "
+        "cooperative ladder, never force-kill on a bad reading"
     )
 
 
