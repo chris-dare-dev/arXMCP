@@ -15,7 +15,7 @@
 .PHONY: daily-report parser-failures-report sbom refresh-arxiv-ca
 .PHONY: wheel-check wheel-check-full desktop-conformance
 .PHONY: desktop-package desktop-package-check desktop-package-clean desktop-model-check
-.PHONY: desktop-bundle desktop-bundle-check
+.PHONY: desktop-bundle desktop-bundle-check desktop-icons
 
 # NOTEBOOK CRUD (m2) — first-class Make verbs for the notebook
 # lifecycle (proposal §9; backed by tools/notebook_*.py + /ui/api/*).
@@ -101,6 +101,7 @@ help:
 	@echo "  make desktop-package        Build the PyInstaller onedir desktop bundle from the committed spec into var/desktop-package/dist/ (macOS/Linux only; first run provisions the pinned build venv and NEEDS NETWORK; fails on any build-machine path in the artifact)"
 	@echo "  make desktop-package-check  Packaging gate: two consecutive cold-cache builds + determinism/hygiene proofs (AC1-AC5) with zero skips (macOS/Linux only; ~150s of builds after the one-time network provisioning)"
 	@echo "  make desktop-model-check    Real-model gate: build the bundle, then load the REAL BGE-M3 + reranker weights from the EXTERNAL HuggingFace cache and check the production encode/rerank output against the committed golden fixture (both pinned revisions must already be cached)"
+	@echo "  make desktop-icons          Regenerate apps/desktop/crates/supervisor/icons/icon.ico from icon.png via the pinned Tauri CLI (NEEDS NETWORK; run only when icon.png changes)"
 	@echo "  make desktop-bundle         Assemble the macOS .app: build the frozen child, pre-sign every nested Mach-O bottom-up, build the Tauri shell and place the payload at Contents/Resources/arxmcp-desktop-child/, then seal the outer bundle (macOS only; first run compiles the pinned tauri-cli and NEEDS NETWORK)"
 	@echo "  make desktop-bundle-check   Bundle gate: assemble, then measure the artifact — containment against the real bundle root, placed-child byte identity, m7/m8/m9 guards re-run over the assembled tree, and both minos declarations — with zero skips"
 	@echo "  make desktop-package-clean  Reclaim var/desktop-package/ AND apps/desktop/target/release (build venv ~1 GB, onedir ~0.75 GB, assembled .app ~0.75 GB, Rust release profile)"
@@ -218,6 +219,34 @@ desktop-model-check: desktop-package
 # compares against that artifact rather than against a fresh look-alike.
 # First run compiles the pinned tauri-cli from source (NEEDS NETWORK, several
 # minutes); afterwards it is reused from var/desktop-package/tauri-cli.
+# The Tauri CLI version is pinned so the committed artifact is reproducible.
+# It is NOT the same number as the `tauri` crate (=2.11.5): @tauri-apps/cli has
+# no 2.11.5 release, and npm refuses the install outright rather than resolving
+# to something near it.
+TAURI_CLI_VERSION := 2.11.4
+
+# Regenerate icons/icon.ico from the committed icons/icon.png (#502).
+#
+# tauri-build REQUIRES icons/icon.ico to emit the Windows resource file and
+# fails the build without it, so its absence meant there was no Windows build
+# path at all. Generated rather than hand-rolled: a one-off .ico with no
+# provenance is a binary nobody can regenerate consistently, and a 6-size ICO
+# is not something to hand-assemble.
+#
+# `tauri icon` also emits Android, iOS and Windows-Store assets. Only icon.ico
+# is copied back, because those targets are not built here and committing
+# assets nothing consumes is noise that rots. Widen the copy when a target
+# that needs them actually exists.
+#
+# NEEDS NETWORK (npx fetches the pinned CLI). Run it only when icon.png changes.
+desktop-icons:
+	@tmp=$$(mktemp -d) && \
+	npx --yes @tauri-apps/cli@$(TAURI_CLI_VERSION) icon \
+		apps/desktop/crates/supervisor/icons/icon.png --output $$tmp >/dev/null && \
+	cp $$tmp/icon.ico apps/desktop/crates/supervisor/icons/icon.ico && \
+	rm -rf $$tmp && \
+	echo "regenerated apps/desktop/crates/supervisor/icons/icon.ico from icon.png"
+
 desktop-bundle: desktop-package
 	$(PYTHON) apps/desktop/pyinstaller/desktop_package.py assemble
 

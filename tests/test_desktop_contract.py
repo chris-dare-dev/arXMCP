@@ -733,6 +733,67 @@ def test_desktop_readme_never_claims_a_descendant_free_child() -> None:
         )
 
 
+def test_the_windows_resource_icon_exists_and_is_real() -> None:
+    """#502. `tauri-build` REQUIRES `icons/icon.ico` to emit the Windows
+    resource file and fails the build without it — so its absence meant there
+    was no Windows build path at all, before any Windows-specific code was
+    even considered.
+
+    Checked structurally rather than by building: a Windows build cannot run
+    in this suite, and the failure this guards against is the file quietly not
+    being there.
+    """
+    ico = DESKTOP_ROOT / "crates" / "supervisor" / "icons" / "icon.ico"
+    assert ico.is_file(), (
+        "icons/icon.ico is required by tauri-build for the Windows resource "
+        "file; regenerate it with `make desktop-icons` (#502)"
+    )
+    data = ico.read_bytes()
+    # ICONDIR: reserved=0, type=1 (icon), count=N.
+    assert data[:4] == b"\x00\x00\x01\x00", (
+        f"not an ICO container: leading bytes {data[:4]!r}"
+    )
+    count = int.from_bytes(data[4:6], "little")
+    assert count >= 4, (
+        f"an ICO with {count} image(s) is a hand-rolled placeholder; Windows "
+        "picks a size per context and needs a real set (#502)"
+    )
+    # A single 1x1 stub would satisfy the header checks above but nothing else.
+    assert len(data) > 2048, f"icon.ico is {len(data)} bytes — a stub, not an icon"
+
+
+def test_the_bundle_config_names_the_windows_icon() -> None:
+    """#502 AC3. Present-on-disk is what unblocks `tauri-build`, but the
+    bundler finds the icon through `bundle.icon`, so the next platform should
+    not have to rediscover this."""
+    config = json.loads(
+        (DESKTOP_ROOT / "crates" / "supervisor" / "tauri.conf.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    icons = config["bundle"]["icon"]
+    assert "icons/icon.ico" in icons, (
+        "bundle.icon must name the Windows icon, not only the PNG (#502)"
+    )
+    assert "icons/icon.png" in icons, "the macOS/source PNG must stay listed"
+
+
+def test_the_icon_is_regenerable_rather_than_hand_rolled() -> None:
+    """#502 AC2. A one-off binary with no provenance is one nobody can
+    reproduce; the command that made it has to live in the tree."""
+    makefile = (REPO_ROOT / "Makefile").read_text(encoding="utf-8")
+    assert "desktop-icons:" in makefile, (
+        "the regeneration command must be a documented target (#502)"
+    )
+    assert "@tauri-apps/cli@$(TAURI_CLI_VERSION)" in makefile, (
+        "the generator must be version-pinned, or the committed artifact is "
+        "not reproducible"
+    )
+    assert (DESKTOP_ROOT / "crates" / "supervisor" / "icons" / "icon.png").is_file(), (
+        "the SOURCE image must stay committed, or the icon cannot be remade"
+    )
+
+
 def test_desktop_lockfile_has_no_git_sources() -> None:
     """No-fork policy (CLAUDE.md §4.7): every crate in the shipped desktop
     dependency graph resolves from the crates.io registry."""
