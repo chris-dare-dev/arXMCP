@@ -1013,7 +1013,18 @@ def _build_module_app() -> FastAPI:
         from server.cli import emit_config_error  # noqa: PLC0415
 
         emit_config_error(exc, context="app construction")
-        raise
+        # #475 round 3: `raise` re-threw the pydantic ValidationError, and
+        # `uvicorn server.main:app` printed the compact FATAL line followed by
+        # the full multi-screen traceback WITH the input-value dump -- exactly
+        # the output the ticket exists to remove. The console-script path was
+        # already clean because `cli.main` catches and returns 1; this path has
+        # no outer handler, so it has to exit itself.
+        #
+        # `SystemExit` rather than `sys.exit`: identical semantics, but it is
+        # visibly an exception at a `raise` site inside an `except` block.
+        # `from None` suppresses the "During handling..." chain, which would
+        # reprint the very traceback this is removing.
+        raise SystemExit(1) from None
 
 
 app = _build_module_app() if __name__ != "__main__" else None
