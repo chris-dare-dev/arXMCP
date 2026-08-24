@@ -879,10 +879,28 @@ fn child_log_tail(path: &std::path::Path, max_lines: usize) -> Option<String> {
     let mut bytes = Vec::new();
     file.take(WINDOW).read_to_end(&mut bytes).ok()?;
     let text = String::from_utf8_lossy(&bytes);
-    let tail: Vec<&str> = text
+    let lines: Vec<&str> = text
         .lines()
         // A partial first line when the window cut mid-line.
         .skip(usize::from(start > 0))
+        .collect();
+    // #444 round 2: only THIS launch's lines. The boundary is written by
+    // `open_private_log` before the child can produce anything, so a failure
+    // that happens before the child speaks finds nothing after it and this
+    // returns None — the failure page then shows the supervisor's reason with
+    // no "The server reported:" block, rather than quoting the last run.
+    //
+    // Absent from the window means this launch already wrote 8 KiB, so
+    // everything in the window is still this launch's. (A log written by a
+    // build that predates the boundary has none at all; there the old
+    // whole-window behaviour stands, once, until the next launch.)
+    let after_banner = lines
+        .iter()
+        .rposition(|line| line.starts_with(LAUNCH_BANNER))
+        .map_or(0, |index| index + 1);
+    let tail: Vec<&str> = lines[after_banner..]
+        .iter()
+        .copied()
         .filter(|line| !line.trim().is_empty())
         .collect();
     if tail.is_empty() {
@@ -962,8 +980,8 @@ pub fn show_failure(handle: &tauri::AppHandle, reason: &str, log_path: &str) {
          <p class=\"r\">{reason}</p>\
          {detail}\
          <p>The full log for this launch is at:</p><p><code>{log}</code></p>\
-         <p>That file is rewritten on every launch, so copy it before starting \
-         arXMCP again if you need to report this.</p>",
+         <p>That file keeps the last two launches, so it is safe to try \
+         again before reporting this.</p>",
         reason = html_escape(reason),
         detail = detail,
         log = html_escape(log_path),
@@ -1054,6 +1072,28 @@ fn is_stopped(_pid: u32) -> bool {
     false
 }
 
+/// Rotate `desktop-child.log` once it passes this size (#464).
+///
+/// One generation only (`desktop-child.log.1`). Two launches' worth of
+/// evidence is what the append change was for; an unbounded file was not.
+const LOG_ROTATE_BYTES: u64 = 4 * 1024 * 1024;
+
+/// Per-launch ceiling on relayed child stderr (#464).
+///
+/// Separate from [`DRAIN_CAP_BYTES`], which bounds the post-bound STDOUT
+/// drain. A spewing child hits this one first; the relay keeps READING after
+/// it (never writing), because a reader that stops draining a pipe blocks the
+/// child on its next write.
+const RELAY_CAP_BYTES: u64 = 1024 * 1024;
+
+/// First token of the per-launch boundary line written by [`open_private_log`].
+///
+/// A child could emit this string itself. That can only SHORTEN the tail —
+/// the forged line is still inside the launch that wrote it, so lines after
+/// it still belong to that launch — never attribute one launch's output to
+/// another, which is the failure this boundary exists to prevent.
+const LAUNCH_BANNER: &str = "===== arXMCP launch";
+
 /// #488: open a log file readable only by its owner.
 ///
 /// `mode()` covers creation; `set_permissions` covers a file that already
@@ -1069,6 +1109,17 @@ pub fn open_private_log(path: &std::path::Path) -> Result<std::fs::File, &'stati
     // place a cold-start failure's real reason exists (#444), so a user who
     // double-clicks a second time destroyed the evidence before anyone could
     // ask them for it.
+    // #464 round 2: appending forever is unbounded, and the docstring that
+    // shipped with the append change deflected that onto #486 — which is the
+    // post-bound STDOUT DRAIN cap, a different path entirely. Nothing capped
+    // this file. Rotate one generation instead: the previous launch's
+    // evidence survives a second double-click, which is the whole point of
+    // appending, while total growth is bounded at 2x.
+    if let Ok(meta) = std::fs::metadata(path) {
+        if meta.len() > LOG_ROTATE_BYTES {
+            let _ = std::fs::rename(path, path.with_extension("log.1"));
+        }
+    }
     let mut options = std::fs::OpenOptions::new();
     options.create(true).append(true);
     #[cfg(unix)]
@@ -1076,7 +1127,14 @@ pub fn open_private_log(path: &std::path::Path) -> Result<std::fs::File, &'stati
         use std::os::unix::fs::OpenOptionsExt;
         options.mode(0o600);
     }
-    let file = options.open(path).map_err(|_| "child log unwritable")?;
+    let mut file = options.open(path).map_err(|_| "child log unwritable")?;
+    // #444 round 2: mark where THIS launch begins. Without a boundary,
+    // `child_log_tail` showed the previous launch's last twelve lines under
+    // "The server reported:" for any failure that happened before the child
+    // wrote anything — a signature refusal, a spawn failure — which is worse
+    // than showing nothing, because it is confidently wrong.
+    let _ = writeln!(file, "{LAUNCH_BANNER} pid={} =====", std::process::id());
+    let _ = file.flush();
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -1092,8 +1150,15 @@ pub fn open_private_log(path: &std::path::Path) -> Result<std::fs::File, &'stati
 /// bytes are lossily decoded AFTER the split. Scrubbing happens before the
 /// write, never after, so a boundary can never leave half a secret on disk.
 ///
-/// Unbounded, matching the previous direct-fd behaviour — a spewing child
-/// could still grow this file. That is #486's concern, unchanged here.
+/// Capped at [`RELAY_CAP_BYTES`] per launch (#464). Past the cap the thread
+/// keeps READING and stops WRITING: a reader that stops draining the pipe
+/// blocks the child on its next write, which would turn a chatty child into a
+/// hung one. One truncation notice is written, so a reader of the log can
+/// tell a quiet child from a silenced one.
+///
+/// An earlier revision of this docstring called the relay unbounded and
+/// deflected the concern onto #486. That was wrong: #486 caps the post-bound
+/// STDOUT DRAIN, which is a different path and never touched this file.
 fn spawn_stderr_relay(
     stderr: std::process::ChildStderr,
     mut log_file: std::fs::File,
@@ -1102,16 +1167,31 @@ fn spawn_stderr_relay(
     std::thread::spawn(move || {
         let mut reader = BufReader::new(stderr);
         let mut line: Vec<u8> = Vec::new();
+        let mut written: u64 = 0;
+        let mut capped = false;
         loop {
             line.clear();
             match reader.read_until(b'\n', &mut line) {
                 Ok(0) | Err(_) => break,
                 Ok(_) => {}
             }
+            if capped {
+                // Drain and discard. Still reading is the point.
+                continue;
+            }
             let text = String::from_utf8_lossy(&line);
             let scrubbed = redact::scrub_child_text(&text, token.expose());
             if log_file.write_all(scrubbed.as_bytes()).is_err() {
                 break;
+            }
+            written += scrubbed.len() as u64;
+            if written > RELAY_CAP_BYTES {
+                capped = true;
+                let _ = writeln!(
+                    log_file,
+                    "[arXMCP] child stderr exceeded {RELAY_CAP_BYTES} bytes \
+                     this launch; further output is being read and discarded."
+                );
             }
             let _ = log_file.flush();
         }
@@ -1219,6 +1299,156 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("scratch dir");
         dir
+    }
+
+    /// #444 round 2: THE case. A failure before the child speaks must show
+    /// nothing, not the previous launch.
+    #[test]
+    fn a_pre_spawn_failure_quotes_nothing_from_the_previous_launch() {
+        let dir = scratch("arxmcp-tail-boundary");
+        let path = dir.join("desktop-child.log");
+        // Launch 1 ran and said something memorable.
+        std::fs::write(&path, "ModuleNotFoundError: no module named 'torch'\n")
+            .expect("seed the previous launch");
+        // Launch 2 opens the log and then fails before the child writes.
+        let _file = super::open_private_log(&path).expect("open");
+        assert!(
+            super::child_log_tail(&path, 12).is_none(),
+            "a launch whose child never spoke must contribute no tail; \
+             quoting launch 1 here is worse than silence — it reads as the \
+             cause of launch 2's failure",
+        );
+    }
+
+    #[test]
+    fn the_tail_is_this_launch_only() {
+        let dir = scratch("arxmcp-tail-thislaunch");
+        let path = dir.join("desktop-child.log");
+        std::fs::write(&path, "OLD LAUNCH LINE\n").expect("seed");
+        let mut file = super::open_private_log(&path).expect("open");
+        writeln!(file, "fresh failure detail").expect("write");
+        let tail = super::child_log_tail(&path, 12).expect("tail");
+        assert!(tail.contains("fresh failure detail"), "{tail}");
+        assert!(!tail.contains("OLD LAUNCH LINE"), "{tail}");
+    }
+
+    #[test]
+    fn a_log_without_a_boundary_still_tails() {
+        // Backwards compatibility: a file written by a build that predates
+        // the boundary must not silently stop producing diagnostics.
+        let dir = scratch("arxmcp-tail-legacy");
+        let path = dir.join("desktop-child.log");
+        std::fs::write(&path, "legacy line one\nlegacy line two\n").expect("seed");
+        let tail = super::child_log_tail(&path, 12).expect("tail");
+        assert!(tail.contains("legacy line two"), "{tail}");
+    }
+
+    #[test]
+    fn a_forged_banner_can_only_shorten_the_tail() {
+        // A child emitting the boundary string itself is possible. The bound
+        // that matters: lines after ANY banner still belong to the launch
+        // that wrote them, so no other launch's output can be attributed here.
+        let dir = scratch("arxmcp-tail-forged");
+        let path = dir.join("desktop-child.log");
+        std::fs::write(&path, "PREVIOUS LAUNCH\n").expect("seed");
+        let mut file = super::open_private_log(&path).expect("open");
+        writeln!(file, "early line").expect("write");
+        writeln!(file, "{} pid=999 =====", super::LAUNCH_BANNER).expect("forge");
+        writeln!(file, "late line").expect("write");
+        let tail = super::child_log_tail(&path, 12).expect("tail");
+        assert!(tail.contains("late line"), "{tail}");
+        assert!(
+            !tail.contains("PREVIOUS LAUNCH"),
+            "the bound that matters: {tail}"
+        );
+    }
+
+    /// #464 round 2: the append change made growth unbounded, and the fix
+    /// that shipped pointed at #486, which caps a different path.
+    #[test]
+    fn an_oversized_log_rotates_one_generation() {
+        let dir = scratch("arxmcp-log-rotate");
+        let path = dir.join("desktop-child.log");
+        let previous = path.with_extension("log.1");
+        std::fs::write(&path, vec![b'x'; (super::LOG_ROTATE_BYTES + 1) as usize])
+            .expect("seed an oversized log");
+        let _file = super::open_private_log(&path).expect("open");
+        assert!(previous.is_file(), "the oversized log must be kept as .1");
+        let fresh = std::fs::metadata(&path).expect("fresh log").len();
+        assert!(
+            fresh < super::LOG_ROTATE_BYTES,
+            "the live log must start fresh, found {fresh} bytes",
+        );
+    }
+
+    #[test]
+    fn a_log_under_the_threshold_is_not_rotated() {
+        // The negative control. Rotating every launch would destroy exactly
+        // the evidence #464 exists to preserve.
+        let dir = scratch("arxmcp-log-norotate");
+        let path = dir.join("desktop-child.log");
+        std::fs::write(&path, b"small\n").expect("seed");
+        let _file = super::open_private_log(&path).expect("open");
+        assert!(!path.with_extension("log.1").is_file());
+        let text = std::fs::read_to_string(&path).expect("read");
+        assert!(text.contains("small"), "the previous launch must survive");
+    }
+
+    /// #464 round 2: a spewing child must not grow the log without bound —
+    /// and must not be blocked by the relay that stops writing.
+    #[test]
+    fn the_relay_caps_its_writes_and_keeps_draining() {
+        let dir = scratch("arxmcp-relay-cap");
+        let path = dir.join("desktop-child.log");
+        let log = super::open_private_log(&path).expect("open");
+        // A child that writes far more than the cap and then exits 0. If the
+        // relay stopped READING, this would block on a full pipe and never
+        // reach the exit.
+        let mut child = std::process::Command::new("/bin/sh")
+            .arg("-c")
+            // NOT hex characters. The first draft spewed 'a' x 60 and the
+            // cap never fired: `scrub_child_text` collapses any run of >= 32
+            // hex digits to `[REDACTED-HEX]` (#439), so each 61-byte line
+            // reached the log as ~15 bytes and the size assertion below
+            // passed for entirely the wrong reason.
+            .arg(
+                "i=0; while [ $i -lt 40000 ]; do echo \
+                 'zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz' >&2; \
+                 i=$((i+1)); done; exit 0",
+            )
+            .stderr(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::null())
+            .spawn()
+            .expect("spawn a chatty child");
+        let stderr = child.stderr.take().expect("stderr");
+        super::spawn_stderr_relay(
+            stderr,
+            log,
+            StartupToken::parse("0".repeat(64)).expect("fixture token"),
+        );
+        let status = child
+            .wait()
+            .expect("the child must not block on a full pipe");
+        assert!(status.success(), "child exited {status:?}");
+        // Give the relay a moment to finish draining after the child exits.
+        for _ in 0..100 {
+            if std::fs::read_to_string(&path).is_ok_and(|text| text.contains("exceeded")) {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        let len = std::fs::metadata(&path).expect("log").len();
+        let produced = 40_000_u64 * 61;
+        assert!(
+            len < produced / 2,
+            "the log must be capped well below the {produced} bytes written, found {len}",
+        );
+        let text = std::fs::read_to_string(&path).expect("read");
+        assert!(
+            text.contains("exceeded"),
+            "a truncated log must SAY it was truncated, or a quiet child and \
+             a silenced one read alike",
+        );
     }
 
     #[test]

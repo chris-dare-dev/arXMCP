@@ -13,6 +13,36 @@ REPO_ROOT: Path = Path(__file__).resolve().parents[1]
 SUP: Path = REPO_ROOT / "apps" / "desktop" / "crates" / "supervisor" / "src"
 MAIN_RS: str = (SUP / "main.rs").read_text(encoding="utf-8")
 LIFECYCLE_RS: str = (SUP / "lifecycle.rs").read_text(encoding="utf-8")
+
+
+def _rust_fn(source: str, signature: str) -> str:
+    """The whole body of a top-level Rust fn, brace-balanced.
+
+    Replaces the `source[source.index(sig):][:900]` shape that this file used
+    throughout. A fixed window is wrong in both directions and fails silently
+    each way: it OVERRUNS into the next function when a block shrinks (so an
+    assertion passes against a neighbour's code) and TRUNCATES when a block
+    grows (so an assertion fails against code that is still correct). The
+    latter happened four separate times in this session's work -- most
+    recently when #464's rotation block pushed `.append(true)` past character
+    900 of `open_private_log`.
+
+    rustfmt puts a top-level fn's closing brace at column 0, but braces are
+    counted rather than trusted so a nested item cannot end the slice early.
+    """
+    start = source.index(signature)
+    depth = 0
+    seen_open = False
+    for pos in range(start, len(source)):
+        char = source[pos]
+        if char == "{":
+            depth += 1
+            seen_open = True
+        elif char == "}":
+            depth -= 1
+            if seen_open and depth == 0:
+                return source[start : pos + 1]
+    raise AssertionError(f"unbalanced braces after {signature!r}")
 MAIN_PY: str = (REPO_ROOT / "server" / "main.py").read_text(encoding="utf-8")
 CLI_PY: str = (REPO_ROOT / "server" / "cli.py").read_text(encoding="utf-8")
 SESSION_PY: str = (REPO_ROOT / "server" / "session.py").read_text(encoding="utf-8")
@@ -233,7 +263,7 @@ def test_payload_completeness_is_checked_at_plan_time() -> None:
         "the PyInstaller runtime directory is part of a complete payload too "
         "(#484 round 2)"
     )
-    plan = MAIN_RS[MAIN_RS.index("fn self_authored_plan(") :][:1600]
+    plan = _rust_fn(MAIN_RS, "fn self_authored_plan(")
     assert "check_payload_completeness(" in plan
 
 
@@ -257,6 +287,6 @@ def test_the_data_root_probe_refuses_an_unusable_derivation() -> None:
     """#485. It emitted a path for a $HOME that is a file and for a RELATIVE
     $HOME — output the program itself would reject."""
     assert "fn check_data_root_shape(" in MAIN_RS
-    fn = MAIN_RS[MAIN_RS.index("fn check_data_root_shape(") :][:800]
+    fn = _rust_fn(MAIN_RS, "fn check_data_root_shape(")
     assert "is_absolute()" in fn
     assert "is_dir()" in fn
