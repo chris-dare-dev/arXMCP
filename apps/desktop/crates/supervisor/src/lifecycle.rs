@@ -1103,6 +1103,23 @@ const LOG_ROTATE_BYTES: u64 = 4 * 1024 * 1024;
 /// child on its next write.
 const RELAY_CAP_BYTES: u64 = 1024 * 1024;
 
+/// The most of ONE stderr record held in memory at a time (#464 round 2).
+///
+/// [`RELAY_CAP_BYTES`] bounds the launch TOTAL, but it is only consulted
+/// between records, so it bounded nothing on its own: `read_until(b'\n')`
+/// against a child that never emits a newline buffers the whole stream into
+/// one `Vec` before the cap is ever read. A faulty child could exhaust memory
+/// and write far past the advertised cap in a single record.
+///
+/// So the read itself is bounded. A newline-free record simply arrives as
+/// successive 64 KiB pieces: memory stays flat, the total cap is re-checked
+/// every piece, and the overshoot past `RELAY_CAP_BYTES` is at most one
+/// piece instead of unbounded. Scrubbing still happens before every write.
+///
+/// 64 KiB because a real stderr line is orders of magnitude smaller, so no
+/// legitimate record is ever split, and a split one is still readable.
+const RELAY_RECORD_CAP_BYTES: u64 = 64 * 1024;
+
 /// First token of the per-launch boundary line written by [`open_private_log`].
 ///
 /// A child could emit this string itself. That can only SHORTEN the tail —
@@ -1167,7 +1184,10 @@ pub fn open_private_log(path: &std::path::Path) -> Result<std::fs::File, &'stati
 /// bytes are lossily decoded AFTER the split. Scrubbing happens before the
 /// write, never after, so a boundary can never leave half a secret on disk.
 ///
-/// Capped at [`RELAY_CAP_BYTES`] per launch (#464). Past the cap the thread
+/// Capped two ways (#464): [`RELAY_RECORD_CAP_BYTES`] bounds any single
+/// record held in memory, and [`RELAY_CAP_BYTES`] bounds the launch total.
+/// The first exists because the second alone is bypassable — see its
+/// docstring. Past the total cap the thread
 /// keeps READING and stops WRITING: a reader that stops draining the pipe
 /// blocks the child on its next write, which would turn a chatty child into a
 /// hung one. One truncation notice is written, so a reader of the log can
@@ -1188,7 +1208,12 @@ fn spawn_stderr_relay(
         let mut capped = false;
         loop {
             line.clear();
-            match reader.read_until(b'\n', &mut line) {
+            // #464: bound ONE record. `Take` is re-applied each iteration, so
+            // `Ok(0)` still means EOF and not "limit reached".
+            match (&mut reader)
+                .take(RELAY_RECORD_CAP_BYTES)
+                .read_until(b'\n', &mut line)
+            {
                 Ok(0) | Err(_) => break,
                 Ok(_) => {}
             }
@@ -1467,6 +1492,68 @@ mod tests {
             "a truncated log must SAY it was truncated, or a quiet child and \
              a silenced one read alike",
         );
+    }
+
+    #[test]
+    fn a_newline_free_child_cannot_outrun_the_relay_cap() {
+        // #464 round 2. The launch-total cap is only consulted BETWEEN
+        // records, so before `RELAY_RECORD_CAP_BYTES` a child that never
+        // emits a newline held the whole stream in one `Vec` and wrote it
+        // out in one go -- unbounded memory, and a log far past the cap.
+        //
+        // `printf` in a loop with no trailing newline, and NOT hex bytes:
+        // `scrub_child_text` collapses long hex runs, which is how the
+        // sibling test above first passed for the wrong reason.
+        let dir = scratch("arxmcp-relay-noeol");
+        let path = dir.join("desktop-child.log");
+        let log = super::open_private_log(&path).expect("open");
+        let mut child = std::process::Command::new("/bin/sh")
+            .arg("-c")
+            .arg(
+                "i=0; while [ $i -lt 40000 ]; do \
+                 printf 'zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz' >&2; \
+                 i=$((i+1)); done; exit 0",
+            )
+            .stderr(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::null())
+            .spawn()
+            .expect("spawn a newline-free child");
+        let stderr = child.stderr.take().expect("stderr");
+        super::spawn_stderr_relay(
+            stderr,
+            log,
+            StartupToken::parse("0".repeat(64)).expect("fixture token"),
+        );
+        let status = child
+            .wait()
+            .expect("the child must not block on a full pipe");
+        assert!(status.success(), "child exited {status:?}");
+        for _ in 0..100 {
+            if std::fs::read_to_string(&path).is_ok_and(|text| text.contains("exceeded")) {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        let len = std::fs::metadata(&path).expect("log").len();
+        let produced = 40_000_u64 * 60;
+        assert!(
+            text_contains_truncation_notice(&path),
+            "a silenced newline-free child must still say it was truncated",
+        );
+        // The overshoot past the total cap is now bounded by ONE record
+        // buffer, so a generous ceiling still fails loudly on a regression:
+        // before the fix this file was the full 2.4 MB the child produced.
+        let ceiling = RELAY_CAP_BYTES + 4 * RELAY_RECORD_CAP_BYTES;
+        assert!(
+            len <= ceiling,
+            "the log must stay within {ceiling} bytes (cap plus one record's \
+             overshoot) of the {produced} bytes written, found {len}",
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    fn text_contains_truncation_notice(path: &std::path::Path) -> bool {
+        std::fs::read_to_string(path).is_ok_and(|text| text.contains("exceeded"))
     }
 
     #[test]
