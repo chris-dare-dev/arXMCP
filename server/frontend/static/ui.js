@@ -242,28 +242,53 @@
    * acts on a request it has actually seen succeed. Absence of a verdict is
    * now "do nothing" instead of "assume success".
    */
+  /* #494 round 2: the verdict is keyed to the REQUEST, not to the element.
+   *
+   * Keying it to the element raced whenever htmx had more than one request
+   * in flight or queued from the same element. Reproduced in a browser
+   * against the vendored htmx 2.0.10: two rapid submissions from one form,
+   * the first succeeded and the second returned 409, and the 409's
+   * afterRequest deleted the element from the set before the first
+   * request's afterSettle ran — so a successful action was silently
+   * dropped. The reverse interleaving is worse: a failed request's settle
+   * consuming a later success's verdict runs `remove:` on a 4xx.
+   *
+   * `evt.detail.xhr` is the same object on `htmx:afterRequest` and
+   * `htmx:afterSettle` for one request, so it identifies the request
+   * without htmx exposing an id. Requests cannot collide the way elements
+   * can: there is exactly one XMLHttpRequest per request.
+   *
+   * Absence of an xhr is still "do nothing" — the gate fails CLOSED in
+   * every direction. */
   var succeeded = new WeakSet();
 
+  function requestId(detail) {
+    return detail && detail.xhr ? detail.xhr : null;
+  }
+
   document.body.addEventListener("htmx:afterRequest", function (evt) {
-    var elt = requestingElement(evt.detail);
-    if (!elt) {
+    var xhr = requestId(evt.detail);
+    if (!xhr) {
       return;
     }
-    if (evt.detail && evt.detail.successful === true) {
-      succeeded.add(elt);
+    if (evt.detail.successful === true) {
+      succeeded.add(xhr);
     } else {
-      succeeded.delete(elt);
+      /* Not strictly needed — a WeakSet is only ever added to on success —
+       * but explicit, so a future edit that adds elsewhere stays safe. */
+      succeeded.delete(xhr);
     }
   });
 
   document.body.addEventListener("htmx:afterSettle", function (evt) {
+    var xhr = requestId(evt.detail);
     var elt = requestingElement(evt.detail);
-    if (!elt || !succeeded.has(elt)) {
+    if (!xhr || !elt || !succeeded.has(xhr)) {
       return;
     }
-    /* One settle per verdict: clear it so a later swap on the same element —
-     * a polled fragment, say — cannot replay a stale success. */
-    succeeded.delete(elt);
+    /* One settle per verdict: clear it so a later swap carrying the same
+     * xhr — a polled fragment, say — cannot replay a stale success. */
+    succeeded.delete(xhr);
     runSuccessTokens(elt);
   });
 

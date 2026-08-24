@@ -261,13 +261,26 @@ def test_success_actions_only_run_on_success() -> None:
         "the verdict must be an explicit success, read on afterRequest where "
         "htmx documents it"
     )
-    assert "succeeded.has(elt)" in UI_JS_CODE, (
+    assert "succeeded.has(xhr)" in UI_JS_CODE, (
         "afterSettle must act only on a request it saw succeed, rather than "
         "re-reading a field htmx documents for afterRequest"
     )
-    assert "succeeded.delete(elt)" in UI_JS_CODE, (
-        "the verdict must be consumed, or a later swap on the same element "
-        "replays a stale success"
+    assert "succeeded.delete(xhr)" in UI_JS_CODE, (
+        "the verdict must be consumed, or a later settle carrying the same "
+        "request replays a stale success"
+    )
+    # #494 round 2: the verdict must be keyed to the REQUEST, not the element.
+    # Keying it to the element raced whenever htmx had two requests in flight
+    # or queued from one element: reproduced in a browser against the vendored
+    # htmx 2.0.10, where a 409's afterRequest deleted the element before the
+    # earlier success's afterSettle ran, and the successful action was dropped.
+    assert "succeeded.add(elt)" not in UI_JS_CODE, (
+        "an element-keyed verdict races across concurrent requests from the "
+        "same element (#494)"
+    )
+    assert "detail.xhr" in UI_JS_CODE, (
+        "the verdict must be keyed on evt.detail.xhr, which is the same object "
+        "on afterRequest and afterSettle for one request"
     )
 
 
