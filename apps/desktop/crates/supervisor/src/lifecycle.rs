@@ -1298,6 +1298,18 @@ pub fn shutdown_child(mut control: ChildControl) -> i64 {
     // plus the descendants that used to be left behind.
     let pgid = control.pgid;
     let recorder = control.recorder.clone();
+    // #499: while the child is ALIVE. Once it is reaped its descendants
+    // reparent to launchd and the PPID edge that identifies them as ours is
+    // gone, so a snapshot taken afterwards finds nothing.
+    //
+    // Accumulated across the ladder rather than taken once. A single snapshot
+    // here was measured leaking against the real supervisor: the child had not
+    // spawned anything yet when shutdown began, created its descendant during
+    // the grace window, and was then killed — so the one snapshot was empty
+    // and the sweep had nothing to act on. Each rung re-reads the tree while
+    // the child is still there to be walked.
+    let mut detached: Vec<Descendant> = Vec::new();
+    accumulate_descendants(&mut detached, control.child.id());
     // Fields, not `&mut control`: `control.stdin` was moved out by the drop
     // above, so the struct is partially moved and cannot be reborrowed whole.
     let code = ladder(
@@ -1305,17 +1317,27 @@ pub fn shutdown_child(mut control: ChildControl) -> i64 {
         pgid,
         control.grace_ms,
         control.force_after_ms,
+        &mut detached,
     );
     // The ladder ends when the DIRECT child is reaped, which says nothing
     // about its descendants: a child that exits cleanly at the grace rung
     // never signals them at all. Sweep whatever is left.
     sweep_descendants(pgid, &recorder);
+    // #499: and the ones that left the group entirely.
+    sweep_detached(&detached, &recorder);
     code
 }
 
 /// The grace -> TERM -> KILL -> reap escalation, unchanged in shape by #467.
-fn ladder(child: &mut Child, pgid: u32, grace_ms: u64, force_after_ms: u64) -> i64 {
+fn ladder(
+    child: &mut Child,
+    pgid: u32,
+    grace_ms: u64,
+    force_after_ms: u64,
+    detached: &mut Vec<Descendant>,
+) -> i64 {
     if is_stopped(child.id()) {
+        accumulate_descendants(detached, child.id());
         process_control::force_kill_group(pgid);
         let _ = child.kill();
         return wait_exit(child, REAP_BUDGET_MS).unwrap_or(-1);
@@ -1323,14 +1345,195 @@ fn ladder(child: &mut Child, pgid: u32, grace_ms: u64, force_after_ms: u64) -> i
     if let Some(code) = wait_exit(child, grace_ms) {
         return code;
     }
+    // #499: re-read before every signal. A descendant created DURING the grace
+    // window is invisible to the snapshot taken before it, and that is the
+    // shape that leaked against the real supervisor.
+    accumulate_descendants(detached, child.id());
     let _ = process_control::request_terminate_group(pgid);
     if let Some(code) = wait_exit(child, force_after_ms) {
         return code;
     }
+    accumulate_descendants(detached, child.id());
     process_control::force_kill_group(pgid);
     let _ = child.kill();
     wait_exit(child, REAP_BUDGET_MS).unwrap_or(-1)
 }
+
+/// Merge a fresh walk of `root`'s descendants into `known`. #499.
+///
+/// Deduplicated on PID **and** start time: the same PID with a different start
+/// time is a different process, and both entries deserve to be carried (the
+/// identity check at sweep time discards whichever one is stale).
+#[cfg(unix)]
+fn accumulate_descendants(known: &mut Vec<Descendant>, root: u32) {
+    for found in descendant_snapshot(root) {
+        if !known.contains(&found) {
+            known.push(found);
+        }
+    }
+}
+
+#[cfg(not(unix))]
+fn accumulate_descendants(_known: &mut Vec<()>, _root: u32) {}
+
+/// One descendant, with enough identity to signal it safely later. #499.
+///
+/// `started` is `ps -o lstart=`, the process's wall-clock start time. It is
+/// the guard against PID reuse: between the snapshot and the sweep the whole
+/// ladder runs (up to several seconds), and a PID that exits in that window
+/// can be recycled by an unrelated process. A bare PID is not proof of
+/// identity; PID plus start time is.
+#[cfg(unix)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Descendant {
+    pid: u32,
+    /// Its process group. Equals `pid` when it called `setsid()` — which is
+    /// how the sweep decides between taking a whole group and one process.
+    pgid: u32,
+    started: String,
+}
+
+/// Every descendant of `root`, at any depth, INCLUDING session-detached ones.
+/// #499.
+///
+/// **Why this works where `killpg` does not.** `setsid()` changes a process's
+/// session and process group; it does NOT change its parent. Measured:
+/// a `subprocess.Popen(..., start_new_session=True)` child shows
+/// `ppid=<spawner> pgid=<itself>`. So the PPID graph still reaches it, and one
+/// `ps -eo pid,ppid,pgid,lstart` plus a walk finds the whole tree — MinerU,
+/// LaTeXML and `cdm_eval` included, which #467's group signal could not touch.
+///
+/// **This MUST run before the child is reaped.** Once it dies its descendants
+/// reparent to launchd and the PPID edge that identifies them as ours is gone
+/// for good. That ordering is the entire reason the snapshot is taken at the
+/// top of `shutdown_child` rather than in the sweep that uses it.
+///
+/// Best effort by design: an unreadable `ps` yields an empty snapshot and the
+/// sweep does nothing, exactly as before #499. Failing to enumerate must never
+/// be a reason to refuse a shutdown.
+#[cfg(unix)]
+fn descendant_snapshot(root: u32) -> Vec<Descendant> {
+    let mut command = Command::new("/bin/ps");
+    command.args(["-eo", "pid=,ppid=,pgid=,lstart="]);
+    let Ok(output) = output_within(&mut command, PS_BUDGET) else {
+        return Vec::new();
+    };
+    let listing = String::from_utf8_lossy(&output.stdout);
+    // pid, ppid, pgid, then lstart -- which contains spaces, so it is the
+    // REMAINDER of the line rather than a fourth whitespace-delimited field.
+    let mut rows: Vec<(u32, u32, Descendant)> = Vec::new();
+    for line in listing.lines() {
+        let mut fields = line.split_whitespace();
+        let (Some(pid), Some(ppid), Some(pgid)) = (fields.next(), fields.next(), fields.next())
+        else {
+            continue;
+        };
+        let (Ok(pid), Ok(ppid), Ok(pgid)) =
+            (pid.parse::<u32>(), ppid.parse::<u32>(), pgid.parse::<u32>())
+        else {
+            continue;
+        };
+        let started = fields.collect::<Vec<_>>().join(" ");
+        rows.push((pid, ppid, Descendant { pid, pgid, started }));
+    }
+
+    // Breadth-first over the PPID graph. `seen` is not an optimization: a
+    // stale or wrapped table could describe a cycle, and this runs on the
+    // shutdown path where an infinite loop is a hang at quit.
+    let mut found: Vec<Descendant> = Vec::new();
+    let mut seen: Vec<u32> = vec![root];
+    let mut frontier: Vec<u32> = vec![root];
+    while let Some(parent) = frontier.pop() {
+        for (pid, ppid, descendant) in &rows {
+            if *ppid != parent || seen.contains(pid) {
+                continue;
+            }
+            seen.push(*pid);
+            frontier.push(*pid);
+            found.push(descendant.clone());
+        }
+    }
+    found
+}
+
+/// `ps` identity for one pid, or `None` if it is gone. #499.
+#[cfg(unix)]
+fn process_identity(pid: u32) -> Option<String> {
+    let mut command = Command::new("/bin/ps");
+    command.args(["-o", "lstart=", "-p", &pid.to_string()]);
+    let output = output_within(&mut command, PS_BUDGET).ok()?;
+    let started = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+    (!started.is_empty()).then_some(started)
+}
+
+/// #499: take the descendants that left the process group.
+///
+/// Runs after [`sweep_descendants`], so anything still here either detached
+/// itself with `setsid()` or ignored the group signals. TERM first for the
+/// same reason: `run_mineru_sandboxed` has a sandbox directory to put down,
+/// and it may simply never have been asked, since the group signal could not
+/// reach it.
+///
+/// **Every signal is identity-checked first.** A snapshot entry is a PID plus
+/// the start time observed with it; if the PID is gone, or is present with a
+/// DIFFERENT start time, it was recycled and must not be signalled. Skipping
+/// that check would let a shutdown kill an unrelated process of the operator's
+/// that happened to inherit the number.
+///
+/// A group leader (`pgid == pid`, which is what `setsid()` produces) is taken
+/// as a group so its own children go with it; anything else is taken alone,
+/// because its group is the child's and [`sweep_descendants`] already owns it.
+#[cfg(unix)]
+fn sweep_detached(snapshot: &[Descendant], recorder: &Recorder) {
+    let survivors: Vec<&Descendant> = snapshot
+        .iter()
+        .filter(|d| process_identity(d.pid).is_some_and(|started| started == d.started))
+        .collect();
+    if survivors.is_empty() {
+        return;
+    }
+    for descendant in &survivors {
+        if descendant.pgid == descendant.pid {
+            let _ = process_control::request_terminate_group(descendant.pgid);
+        } else {
+            let _ = process_control::request_terminate(descendant.pid);
+        }
+    }
+    let still_here = || {
+        survivors
+            .iter()
+            .filter(|d| process_identity(d.pid).is_some_and(|started| started == d.started))
+            .count()
+    };
+    let cleared = poll_until(DESCENDANT_SWEEP_GRACE, || still_here() == 0).is_ok();
+    if !cleared {
+        for descendant in &survivors {
+            if process_identity(descendant.pid).is_some_and(|s| s == descendant.started) {
+                if descendant.pgid == descendant.pid {
+                    process_control::force_kill_group(descendant.pgid);
+                } else {
+                    process_control::force_kill_pid(descendant.pid);
+                }
+            }
+        }
+    }
+    let _ = recorder.record(
+        "detached-descendants-swept",
+        json!({
+            "count": survivors.len(),
+            "pids": survivors.iter().map(|d| d.pid).collect::<Vec<_>>(),
+            "needed_kill": !cleared,
+        }),
+    );
+}
+
+#[cfg(not(unix))]
+fn descendant_snapshot(_root: u32) -> Vec<()> {
+    Vec::new()
+}
+
+#[cfg(not(unix))]
+fn sweep_detached(_snapshot: &[()], _recorder: &Recorder) {}
 
 /// #467: take anything still in the child's process group after the ladder.
 ///
@@ -2276,6 +2479,174 @@ mod tests {
             "a clean child exit must not leave {grandchild} running (#467)",
         );
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // ---- issue #499: descendants that left the process group -------------
+
+    #[test]
+    fn a_setsid_descendant_does_not_outlive_the_forced_path() {
+        // #467's sweep signals the child's process GROUP, which by
+        // construction cannot reach anything that called setsid(). This is
+        // the MinerU / LaTeXML / cdm_eval shape: `subprocess.Popen(...,
+        // start_new_session=True)`. Measured while writing #499: such a child
+        // shows ppid=<spawner> pgid=<itself>, so the PPID walk finds it and
+        // the group signal does not.
+        //
+        // `/usr/bin/python3` because the shell has no setsid builtin on macOS
+        // and there is no /usr/bin/setsid; this is also exactly how the
+        // production spawners do it.
+        let dir = scratch("arxmcp-setsid-forced");
+        let pid_file = dir.join("detached");
+        let script = format!(
+            "import subprocess,time;\
+             p=subprocess.Popen(['/bin/sleep','300'],start_new_session=True);\
+             open('{}','w').write(str(p.pid));\
+             time.sleep(300)",
+            pid_file.display()
+        );
+        let control =
+            stubborn_control_running(&format!("exec /usr/bin/python3 -c \"{script}\""), 200);
+        let recorded = poll_until(Duration::from_secs(10), || pid_file.exists());
+        assert!(recorded.is_ok(), "the child never recorded its descendant");
+        let detached: u32 = std::fs::read_to_string(&pid_file)
+            .expect("detached pid")
+            .trim()
+            .parse()
+            .expect("pid parses");
+        assert!(
+            pid_alive(detached),
+            "fixture broken: descendant not running"
+        );
+        // The fixture must actually be DETACHED, or this test passes for the
+        // wrong reason -- #467's group sweep would have taken it.
+        let pgid = Command::new("/bin/ps")
+            .args(["-o", "pgid=", "-p", &detached.to_string()])
+            .output()
+            .expect("ps")
+            .stdout;
+        let pgid: u32 = String::from_utf8_lossy(&pgid).trim().parse().expect("pgid");
+        assert_eq!(
+            pgid, detached,
+            "fixture is not session-detached; it would be caught by #467 alone",
+        );
+
+        let started = Instant::now();
+        let _ = shutdown_child(control);
+        assert!(
+            started.elapsed() < Duration::from_secs(15),
+            "the detached sweep must stay inside a bounded shutdown",
+        );
+        assert!(
+            !pid_alive(detached),
+            "setsid descendant {detached} outlived shutdown — this is #499",
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_snapshot_finds_a_detached_grandchild_the_group_cannot_see() {
+        // The mechanism on its own: setsid() changes session and process
+        // group but NOT the parent, so the PPID walk still reaches it.
+        let dir = scratch("arxmcp-setsid-snapshot");
+        let pid_file = dir.join("detached");
+        let script = format!(
+            "import subprocess,time;\
+             p=subprocess.Popen(['/bin/sleep','30'],start_new_session=True);\
+             open('{}','w').write(str(p.pid));\
+             time.sleep(30)",
+            pid_file.display()
+        );
+        let mut child = Command::new("/usr/bin/python3")
+            .args(["-c", &script])
+            .spawn()
+            .expect("spawn detaching parent");
+        let ok = poll_until(Duration::from_secs(10), || pid_file.exists());
+        assert!(ok.is_ok(), "no descendant recorded");
+        let detached: u32 = std::fs::read_to_string(&pid_file)
+            .expect("pid")
+            .trim()
+            .parse()
+            .expect("parses");
+
+        let snapshot = descendant_snapshot(child.id());
+        let found = snapshot.iter().find(|d| d.pid == detached);
+        assert!(
+            found.is_some(),
+            "the PPID walk must reach a setsid descendant; found {snapshot:?}",
+        );
+        let found = found.expect("checked");
+        assert_eq!(found.pgid, found.pid, "a setsid child leads its own group");
+        assert!(!found.started.is_empty(), "identity needs a start time");
+
+        let _ = child.kill();
+        let _ = child.wait();
+        let _ = process_control::force_kill_group(detached);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_descendant_spawned_during_the_grace_window_is_still_swept() {
+        // The gap the FIRST version of #499 shipped with, caught only by
+        // running the real supervisor rather than this test file.
+        //
+        // A single snapshot taken before the ladder is empty whenever the
+        // child has not spawned anything YET. Measured against the real
+        // binary: the child created its setsid descendant during the grace
+        // window, the one snapshot had nothing in it, and `sleep 300` walked
+        // away. Each rung now re-walks the tree while the child is still
+        // there to walk.
+        let dir = scratch("arxmcp-setsid-race");
+        let pid_file = dir.join("detached");
+        // Sleeps FIRST, so nothing exists when shutdown_child starts.
+        let script = format!(
+            "import subprocess,time;\
+             time.sleep(0.6);\
+             p=subprocess.Popen(['/bin/sleep','300'],start_new_session=True);\
+             open('{}','w').write(str(p.pid));\
+             time.sleep(300)",
+            pid_file.display()
+        );
+        let control =
+            stubborn_control_running(&format!("exec /usr/bin/python3 -c \"{script}\""), 1_500);
+        assert!(
+            !pid_file.exists(),
+            "the fixture must not have spawned yet when shutdown begins",
+        );
+        let _ = shutdown_child(control);
+        let detached: u32 = std::fs::read_to_string(&pid_file)
+            .expect("the descendant must have been created mid-ladder")
+            .trim()
+            .parse()
+            .expect("pid parses");
+        assert!(
+            !pid_alive(detached),
+            "descendant {detached} spawned during grace outlived shutdown (#499)",
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_recycled_pid_is_not_signalled() {
+        // The guard that keeps this safe. A snapshot entry whose start time
+        // no longer matches is a DIFFERENT process wearing a recycled number,
+        // and signalling it would kill something of the operator's that has
+        // nothing to do with arXMCP.
+        let mut victim = Command::new("/bin/sleep")
+            .arg("30")
+            .spawn()
+            .expect("spawn bystander");
+        let stale = Descendant {
+            pid: victim.id(),
+            pgid: victim.id(),
+            started: "Thu Jan  1 00:00:00 1970".to_owned(),
+        };
+        sweep_detached(&[stale], &test_recorder());
+        assert!(
+            pid_alive(victim.id()),
+            "a mismatched start time must veto the signal (#499)",
+        );
+        let _ = victim.kill();
+        let _ = victim.wait();
     }
 
     #[test]

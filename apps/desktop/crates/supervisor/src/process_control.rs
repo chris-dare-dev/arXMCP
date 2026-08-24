@@ -49,6 +49,28 @@ pub fn request_terminate_group(_pgid: u32) -> bool {
     false
 }
 
+/// Forcibly kill ONE process that is not our direct child. #499.
+///
+/// `Child::kill()` only works on a `Child` handle this process owns. A
+/// `setsid()`-detached descendant is not one: it left the process group, so
+/// [`force_kill_group`] cannot see it either, and the supervisor only knows
+/// its PID from a `ps` walk. Callers MUST verify process identity first (see
+/// `lifecycle::sweep_detached`) — a bare PID is not proof it is still the
+/// process we meant.
+#[cfg(unix)]
+pub fn force_kill_pid(pid: u32) -> bool {
+    let Ok(pid) = i32::try_from(pid) else {
+        return false;
+    };
+    // SAFETY: pid is caller-verified as the same process it observed; SIGKILL.
+    (unsafe { libc::kill(pid, libc::SIGKILL) }) == 0
+}
+
+#[cfg(not(unix))]
+pub fn force_kill_pid(_pid: u32) -> bool {
+    false
+}
+
 /// Does this process group still have any member? #467.
 ///
 /// Signal 0 performs the permission and existence checks without delivering

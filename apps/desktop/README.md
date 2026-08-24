@@ -426,37 +426,44 @@ universal cleanup:
   SIGKILL cleanup is proven only for a cooperating child that is alive and
   observing stdin EOF; a child parked in uninterruptible I/O (for example a
   stalled LanceDB/Kuzu read) would outlive its dead parent.
-- **The child's process group is closed; anything that calls `setsid()`
-  escapes it (#467, partially).** The supervisor spawns the child with
-  `process_group(0)`, signals the GROUP at every rung of the ladder, and
-  sweeps whatever remains after the direct child is reaped — recording
-  `descendants-swept`. Before this it signalled only the direct child PID,
-  and a complete grace → TERM → KILL → reap sequence could report success
-  while a grandchild reparented to launchd, still holding a notebook's
-  LanceDB staging directory. The cooperative path is covered too, which is
-  the rung easiest to miss: a child that exits cleanly never signals its
+- **The child's whole process tree is closed on shutdown (#467, #499).** The
+  supervisor spawns the child with `process_group(0)` and signals the GROUP at
+  every rung of the ladder, which covers in-group descendants at any depth —
+  `ingest_tracker`'s `tools.notebook_ingest`, for instance, which used to
+  reparent to launchd still holding a notebook's LanceDB staging directory.
+
+  A group signal cannot reach a descendant that called `setsid()`, and several
+  do so deliberately: `parse_tracker` reaches MinerU through
+  `subprocess.Popen(..., start_new_session=True)`, as do LaTeXML
+  (`tools/arxiv_fetch.py`) and `tools/cdm_eval.py`, each pairing it with its
+  own wall-timeout `os.killpg` so it can kill a runaway tree without killing
+  itself. That containment is kept. Instead the supervisor snapshots the
+  child's descendants by PPID **while the child is still alive** — `setsid()`
+  changes a process's session and group but not its parent, so the PPID graph
+  still reaches it — and sweeps the survivors afterwards, recording
+  `descendants-swept` and `detached-descendants-swept`.
+
+  The walk is repeated at **every rung**, not taken once up front. A single
+  snapshot before the ladder was measured leaking against the real supervisor:
+  the child had spawned nothing yet when shutdown began, created its
+  descendant during the grace window, and was then killed — so the snapshot
+  was empty and the sweep had nothing to act on.
+
+  Both sweeps run on the cooperative path too, which is the rung easiest to
+  miss: a child that exits cleanly at the grace rung never signals its
   descendants at all.
 
-  **The line is `start_new_session`, not depth.** `ingest_tracker` spawns
-  `tools.notebook_ingest` with a plain `asyncio.create_subprocess_exec` and
-  **no** `start_new_session`, so it stays in the group and the sweep reaches
-  it — that is the case #467 measured, and it is closed. But `parse_tracker`
-  reaches MinerU through `ingest.textbook_parser.run_mineru_sandboxed`,
-  which uses `subprocess.Popen(..., start_new_session=True)` — literally
-  `setsid()`. That process is only ONE level down, exactly like
-  `notebook_ingest`, and the sweep still cannot reach it, because it left
-  the process group by design. The same is true of LaTeXML
-  (`tools/arxiv_fetch.py`) and `tools/cdm_eval.py` further down.
-
-  So the honest boundary is: **in-group descendants at any depth are swept;
-  any descendant that starts its own session is not**, regardless of how
-  close to the child it sits. Each `setsid` spawner carries its own
-  wall-timeout `os.killpg` for its own tree, but nothing addresses them at
-  supervisor shutdown, and the next-boot `mark_orphaned_runs_failed` /
-  `mark_orphaned_parses_failed` sweeps repair the database row, not the
-  process. Closing that needs process-tree walking or a per-run session
-  registry rather than a group signal. Tracked as issue #499; not covered
-  here and must not be read as covered.
+  **The remaining limits, stated precisely.** The snapshot is best effort: an
+  unreadable `ps` yields an empty snapshot and the sweep does nothing, because
+  failing to enumerate must never refuse a shutdown. Every signal is
+  identity-checked against the process start time observed in the snapshot, so
+  a PID recycled during the ladder is skipped rather than killed. A descendant
+  created *after the last rung's walk* — in the final milliseconds before the
+  child is reaped — is still missed; closing that fully needs kernel support
+  this platform does not offer. And a
+  supervisor that is itself SIGKILLed runs no sweep at all; there the
+  next-boot `mark_orphaned_runs_failed` / `mark_orphaned_parses_failed` sweeps
+  still repair the database row, not the process.
 
 - **The wildcard-bind arms were not ported.** The spike's `wildcard-v4` /
   `wildcard-v6` faults are absent from this matrix, so nothing exercises a

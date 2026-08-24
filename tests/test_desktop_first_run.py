@@ -412,7 +412,7 @@ def test_the_ps_read_keeps_its_safe_default_on_timeout() -> None:
 def test_the_shutdown_ladder_signals_the_group_not_one_pid() -> None:
     """#467. A complete grace/TERM/KILL/reap ladder reported success while a
     grandchild reparented to launchd, still holding a LanceDB staging dir."""
-    ladder = rust_fn(LIFECYCLE_RS, "fn ladder(child: &mut Child")
+    ladder = rust_fn(LIFECYCLE_RS, "fn ladder(")
     assert "request_terminate_group(pgid)" in ladder, (
         "the cooperative rung must address the group; per-PID SIGTERM is "
         "exactly what left the grandchild behind (#467)"
@@ -448,31 +448,91 @@ def test_a_clean_child_exit_still_sweeps_the_group() -> None:
     )
 
 
-def test_the_setsid_gap_is_documented_not_claimed_closed() -> None:
-    """#467 closes IN-GROUP descendants at any depth; anything that calls
-    `setsid()` still escapes, however shallow it sits.
+def test_the_detached_sweep_snapshots_before_the_ladder() -> None:
+    """#499. Ordering is the whole mechanism.
 
-    The distinction is not depth and the README must not imply it is:
-    `parse_tracker` reaches MinerU through `subprocess.Popen(...,
-    start_new_session=True)`, which is the SAME distance from the child as
-    the `notebook_ingest` grandchild the sweep does catch — and it escapes
-    anyway, because it left the process group by design.
+    `setsid()` changes a process's session and group but NOT its parent, so a
+    PPID walk reaches what `killpg` cannot. That only holds while the child is
+    ALIVE: once it is reaped its descendants reparent to launchd and the edge
+    identifying them as ours is gone. A snapshot taken after the ladder finds
+    nothing, and the bug looks fixed while nothing is fixed.
     """
+    shutdown = rust_fn(LIFECYCLE_RS, "pub fn shutdown_child(")
+    snapshot_at = shutdown.index("accumulate_descendants(")
+    ladder_at = shutdown.index("let code = ladder(")
+    sweep_at = shutdown.index("sweep_detached(")
+    assert snapshot_at < ladder_at < sweep_at, (
+        "the walk must start BEFORE the ladder and be used after it; "
+        "after reaping, the PPID edge is gone (#499)"
+    )
+    # And once is not enough. A single walk up front is empty whenever the
+    # child has not spawned yet, which is what leaked against the real
+    # supervisor: the descendant was created during the grace window.
+    ladder = rust_fn(LIFECYCLE_RS, "fn ladder(")
+    assert ladder.count("accumulate_descendants(detached, child.id())") >= 2, (
+        "every rung must re-walk the tree while the child is still alive, "
+        "or a descendant spawned mid-ladder is never seen (#499)"
+    )
+    assert "a_descendant_spawned_during_the_grace_window_is_still_swept" in LIFECYCLE_RS, (
+        "the mid-ladder race needs a test that would catch its return"
+    )
+
+
+def test_every_detached_signal_is_identity_checked() -> None:
+    """#499. A PID is not an identity.
+
+    Several seconds of ladder pass between snapshot and sweep, and a PID that
+    exits in that window can be recycled. Signalling on the number alone would
+    let a shutdown kill an unrelated process of the operator's.
+    """
+    sweep = rust_fn(LIFECYCLE_RS, "fn sweep_detached(")
+    assert "process_identity(" in sweep, (
+        "the sweep must re-verify each pid before signalling it (#499)"
+    )
+    assert "started == d.started" in sweep or "s == descendant.started" in sweep, (
+        "identity means the observed START TIME must still match, not merely "
+        "that something with that pid exists (#499)"
+    )
+    assert "a_recycled_pid_is_not_signalled" in LIFECYCLE_RS, (
+        "the recycled-pid veto needs a test that would catch its removal"
+    )
+
+
+def test_the_spawners_keep_their_own_containment() -> None:
+    """#499 AC2. The fix must NOT work by removing `start_new_session`.
+
+    Each spawner pairs it with its own wall-timeout `os.killpg` so it can kill
+    a runaway LaTeXML/MinerU tree without killing itself; `arxiv_fetch`
+    documents it as containment for a hostile `.tex`. Dropping it would make
+    the supervisor's group sweep sufficient and break that containment — a
+    tempting shortcut that must stay closed.
+    """
+    for rel in ("tools/arxiv_fetch.py", "ingest/textbook_parser.py", "tools/cdm_eval.py"):
+        source = (REPO_ROOT / rel).read_text(encoding="utf-8")
+        assert "start_new_session=True" in source, (
+            f"{rel} must keep its session containment; the supervisor now "
+            "reaches detached descendants by PPID instead (#499)"
+        )
+        assert "killpg" in source, f"{rel} must keep its own wall-timeout killpg"
+
+
+def test_the_readme_states_the_remaining_limits_precisely() -> None:
+    """The non-claim #467 needed is gone because #499 closed that gap. What
+    replaces it must be specific, not a vague reassurance."""
     readme = (REPO_ROOT / "apps" / "desktop" / "README.md").read_text(encoding="utf-8")
-    # Whitespace-normalised: the phrases below are line-wrapped in the source,
-    # so a raw substring scan reports a missing non-claim that is right there.
     flat = " ".join(readme.split())
-    assert "start_new_session" in flat, "the residual setsid gap must stay written down"
-    assert "must not be read as covered" in flat, (
-        "the non-claim must survive the #467 rewrite"
-    )
-    # And the claim must be true: nothing in the tree may spawn the direct
-    # supervisor child's notebook_ingest with start_new_session.
-    tracker = (REPO_ROOT / "server" / "ingest_tracker.py").read_text(encoding="utf-8")
-    assert "start_new_session" not in tracker, (
-        "if ingest_tracker ever adds start_new_session, the sweep stops "
-        "reaching notebook_ingest and #467 silently reopens"
-    )
+    for required in (
+        "start_new_session",          # names the mechanism it now handles
+        "while the child is still alive",  # the ordering that makes it work
+        "repeated at **every rung**",      # once up front is not enough
+        "best effort",                # ps may be unreadable
+        "identity-checked",           # pid reuse
+        "after the last rung's walk*",  # the honest residual hole
+    ):
+        assert required in flat, (
+            f"the process-tree section must state {required!r} — a vague "
+            "limit is not an honest one"
+        )
 
 
 def test_codesign_is_invoked_by_absolute_path() -> None:
@@ -566,7 +626,7 @@ def test_the_cooperative_grace_is_skipped_only_for_a_stopped_child() -> None:
     )
     # #467 split the escalation out of `shutdown_child` into `ladder` so the
     # descendant sweep could wrap it. The discriminator moved with it.
-    ladder = rust_fn(LIFECYCLE_RS, "fn ladder(child: &mut Child")
+    ladder = rust_fn(LIFECYCLE_RS, "fn ladder(")
     assert "is_stopped(child.id())" in ladder
     assert "control.bound" not in LIFECYCLE_RS, (
         "the never-bound discriminator was wrong and must not come back"
