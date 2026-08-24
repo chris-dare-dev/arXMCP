@@ -49,6 +49,122 @@ pub fn request_terminate_group(_pgid: u32) -> bool {
     false
 }
 
+/// Owns the means of killing a bounded helper AND everything it spawned. #498.
+///
+/// `lifecycle::output_within` promises two things: it returns inside its
+/// budget, and it does not orphan what it killed. Both need a way to address a
+/// process TREE, and the two platforms have nothing in common there:
+///
+/// * **Unix** — the child is spawned into its own process group with
+///   `process_group(0)`, and one `killpg` takes the group. See
+///   [`force_kill_group`] for what it cost when only the direct child was
+///   signalled.
+/// * **Windows** — there are no process groups. A Job Object is created,
+///   the child is assigned to it, and `TerminateJobObject` takes every
+///   process in the job, at any depth. This is the implementation the module
+///   header has promised since the Unix side was written, and #419 wants the
+///   same primitive for the long-running server child.
+///
+/// Before this, the non-Windows arm of [`force_kill_group`] returned `false`
+/// and `output_within` fell back to killing the direct child alone — so a
+/// grandchild holding the inherited pipes kept the drain threads from ever
+/// seeing EOF, and the "bounded" helper blocked for as long as it lived. The
+/// bound was not a bound (#498).
+pub struct TreeKiller {
+    #[cfg(windows)]
+    job: windows_sys::Win32::Foundation::HANDLE,
+}
+
+#[cfg(unix)]
+impl TreeKiller {
+    /// Nothing to allocate: the group is established by the spawn itself.
+    pub fn new() -> Self {
+        Self {}
+    }
+
+    /// The group is set via `process_group(0)` at spawn, so there is nothing
+    /// to adopt after the fact. Always succeeds.
+    pub fn adopt(&self, _child: &std::process::Child) -> bool {
+        true
+    }
+
+    pub fn kill_tree(&self, child: &std::process::Child) -> bool {
+        force_kill_group(child.id())
+    }
+}
+
+#[cfg(windows)]
+impl TreeKiller {
+    pub fn new() -> Self {
+        // SAFETY: null name and null security attributes are the documented
+        // way to create an unnamed, non-inheritable job object.
+        let job = unsafe {
+            windows_sys::Win32::System::JobObjects::CreateJobObjectW(
+                std::ptr::null(),
+                std::ptr::null(),
+            )
+        };
+        Self { job }
+    }
+
+    /// Put `child` in the job.
+    ///
+    /// **The assignment race is real and is not closed here.** A process
+    /// created and then assigned can, in principle, spawn a descendant in the
+    /// window between the two, and that descendant is never in the job. The
+    /// airtight form is `CREATE_SUSPENDED` -> assign -> `ResumeThread`, which
+    /// `std::process::Command` cannot express: it does not hand back the
+    /// primary thread handle, so there is nothing to resume without
+    /// enumerating threads by hand. The window is microseconds and the
+    /// helpers this runs (`codesign`, `ps`) spawn nothing at all, so the
+    /// trade is taken deliberately rather than overlooked. Revisit with
+    /// #419, which needs the same primitive for a child that DOES spawn.
+    pub fn adopt(&self, child: &std::process::Child) -> bool {
+        use std::os::windows::io::AsRawHandle;
+        if self.job.is_null() {
+            return false;
+        }
+        // SAFETY: `job` came from CreateJobObjectW above and the handle is
+        // owned by the live `child`, so both are valid for this call.
+        let assigned = unsafe {
+            windows_sys::Win32::System::JobObjects::AssignProcessToJobObject(
+                self.job,
+                child.as_raw_handle() as windows_sys::Win32::Foundation::HANDLE,
+            )
+        };
+        assigned != 0
+    }
+
+    pub fn kill_tree(&self, _child: &std::process::Child) -> bool {
+        if self.job.is_null() {
+            return false;
+        }
+        // SAFETY: `job` is the handle created above; exit code 1 marks a
+        // forced termination.
+        let terminated =
+            unsafe { windows_sys::Win32::System::JobObjects::TerminateJobObject(self.job, 1) };
+        terminated != 0
+    }
+}
+
+#[cfg(windows)]
+impl Drop for TreeKiller {
+    fn drop(&mut self) {
+        if !self.job.is_null() {
+            // SAFETY: the handle is ours and is dropped exactly once.
+            //
+            // The job is created WITHOUT `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`
+            // on purpose: closing it must dissolve the job, not kill whatever
+            // is still in it. That keeps the success path identical to Unix,
+            // where a helper that exits normally leaves its descendants alone
+            // and only the TIMEOUT path takes the tree.
+            unsafe {
+                windows_sys::Win32::Foundation::CloseHandle(self.job);
+            }
+        }
+    }
+}
+
 /// Forcibly kill ONE process that is not our direct child. #499.
 ///
 /// `Child::kill()` only works on a `Child` handle this process owns. A

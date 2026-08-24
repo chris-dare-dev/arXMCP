@@ -385,8 +385,14 @@ def test_the_bounded_subprocess_helper_kills_the_group() -> None:
         "the child needs its own process group, or force_kill_group cannot "
         "reach a grandchild (#497)"
     )
-    assert "force_kill_group(child.id())" in helper, (
-        "the timeout path must kill the GROUP, not just the child (#497)"
+    assert "killer.kill_tree(&child)" in helper, (
+        "the timeout path must kill the TREE, not just the child (#497). "
+        "#498 moved this behind process_control::TreeKiller so the Windows "
+        "arm is a Job Object rather than a no-op"
+    )
+    assert "killer.adopt(&child)" in helper, (
+        "the child must be adopted into the kill mechanism immediately after "
+        "spawn, or the Windows Job Object owns nothing (#498)"
     )
     # Production code only. The test module below legitimately uses
     # `Command::output()` to OBSERVE processes -- bounding those would be
@@ -586,6 +592,36 @@ def test_the_orphan_record_carries_identity_not_just_a_pid() -> None:
         "a_record_for_a_dead_child_is_discarded_without_an_incident",
     ):
         assert required in LIFECYCLE_RS, f"{required} must pin this exclusion"
+
+
+def test_the_tree_killer_has_a_real_windows_arm() -> None:
+    """#498. Before this, `force_kill_group`'s non-Unix arm returned false and
+    `output_within` fell back to killing the direct child alone — so a
+    grandchild holding the inherited pipes kept the drain threads from ever
+    seeing EOF and the "bounded" helper blocked for as long as it lived. The
+    bound was not a bound."""
+    source = (SUPERVISOR_SRC / "process_control.rs").read_text(encoding="utf-8")
+    code = strip_rust_comments(source)
+    assert "pub struct TreeKiller" in code, (
+        "the tree-kill mechanism must be a named seam, not an inline cfg"
+    )
+    for required in (
+        "CreateJobObjectW",
+        "AssignProcessToJobObject",
+        "TerminateJobObject",
+    ):
+        assert required in code, (
+            f"the Windows arm must use {required}; there are no process "
+            "groups on Windows (#498)"
+        )
+    # The unix arm must stay the process group -- a Job Object is not a
+    # substitute for it and vice versa.
+    assert "force_kill_group(child.id())" in code, (
+        "the unix arm of TreeKiller must still take the process group"
+    )
+    assert "output_within_kills_a_windows_process_tree" in LIFECYCLE_RS, (
+        "the Windows arm needs a test that runs on Windows (#498 AC2)"
+    )
 
 
 def test_codesign_is_invoked_by_absolute_path() -> None:

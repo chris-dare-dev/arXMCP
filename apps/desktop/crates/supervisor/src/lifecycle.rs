@@ -847,8 +847,11 @@ enum RunFailure {
 /// side. `codesign` is not chatty, but a bounded helper that is only correct
 /// for quiet children is a trap for its next caller.
 ///
-/// A timed-out child is killed AND reaped. Leaving it would leak a process per
-/// launch attempt against whatever stalled it in the first place.
+/// A timed-out child is killed AND reaped, together with everything it
+/// spawned. Leaving it would leak a process per launch attempt against
+/// whatever stalled it in the first place. The tree is addressed through
+/// [`process_control::TreeKiller`] -- a process group on Unix, a Job Object on
+/// Windows -- so the bound holds on both (#497, #498).
 #[allow(dead_code)]
 fn output_within(
     command: &mut Command,
@@ -867,9 +870,14 @@ fn output_within(
         use std::os::unix::process::CommandExt;
         command.process_group(0);
     }
+    // #498: the means of killing the TREE, established before the child can
+    // spawn anything. On Unix the group is already set above; on Windows this
+    // creates the Job Object the child is assigned to next.
+    let killer = process_control::TreeKiller::new();
     let mut child = command
         .spawn()
         .map_err(|err| RunFailure::Spawn(err.to_string()))?;
+    killer.adopt(&child);
 
     let mut out_pipe = child.stdout.take();
     let mut err_pipe = child.stderr.take();
@@ -904,11 +912,13 @@ fn output_within(
     };
 
     let Some(status) = finished else {
-        // The GROUP, not just the child: a grandchild holding the inherited
+        // The TREE, not just the child: a grandchild holding the inherited
         // pipes keeps the drains from ever seeing EOF, and joining them would
-        // block for as long as it lives. Then the direct child is killed and
-        // reaped regardless, so nothing is left for the OS to collect.
-        process_control::force_kill_group(child.id());
+        // block for as long as it lives. `TreeKiller` is a process group on
+        // Unix and a Job Object on Windows -- before #498 the Windows arm did
+        // nothing and this bound was not a bound. Then the direct child is
+        // killed and reaped regardless, so nothing is left for the OS.
+        killer.kill_tree(&child);
         let _ = child.kill();
         let _ = child.wait();
         // With the group gone the pipes are closed, so both drains hit EOF.
@@ -2470,6 +2480,49 @@ mod tests {
         });
         assert!(gone.is_ok(), "pid {pid} outlived the timeout — orphaned");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// #498. The Windows twin of
+    /// `output_within_kills_a_slow_child_rather_than_orphaning_it`.
+    ///
+    /// **The elapsed assertion IS the descendant assertion here**, which is
+    /// why it is not merely a bound check. `start /B` hands the grandchild the
+    /// inherited stdout/stderr pipes, so if the tree is not taken the drain
+    /// threads never see EOF and `output_within` blocks for the grandchild's
+    /// whole lifetime — the exact defect #498 describes, where
+    /// `force_kill_group`'s non-Unix arm returned false and only the direct
+    /// child was killed. Returning inside the budget is therefore only
+    /// possible if the Job Object took the descendant too.
+    ///
+    /// Enumerating the grandchild by PID would be the more direct assertion,
+    /// but Windows has no `echo $!` and matching `ping.exe` in `tasklist`
+    /// would collide with anything else the operator is running. This proves
+    /// the property that matters without that fragility.
+    #[cfg(windows)]
+    #[test]
+    fn output_within_kills_a_windows_process_tree() {
+        let mut command = Command::new("cmd.exe");
+        // A grandchild that outlives the direct child's budget, holding the
+        // inherited pipes. `ping -n` is the standard Windows sleep.
+        command.args([
+            "/C",
+            "start /B ping -n 300 127.0.0.1 >NUL & ping -n 300 127.0.0.1 >NUL",
+        ]);
+        let started = Instant::now();
+        let failure = output_within(&mut command, Duration::from_millis(500))
+            .expect_err("a 300s tree must not finish inside a 500ms budget");
+        let elapsed = started.elapsed();
+        assert!(
+            matches!(failure, RunFailure::TimedOut),
+            "expected a timeout, got {failure:?}",
+        );
+        assert!(
+            elapsed < Duration::from_secs(10),
+            "the budget was not honoured — took {elapsed:?}. A grandchild \
+             holding the inherited pipes keeps the drain threads from seeing \
+             EOF, so this only returns promptly if the Job Object took the \
+             whole tree (#498)",
+        );
     }
 
     #[cfg(target_os = "macos")]

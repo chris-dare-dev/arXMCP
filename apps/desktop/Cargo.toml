@@ -22,6 +22,16 @@ sha2 = "=0.10.9"
 tauri = "=2.11.5"
 tauri-build = "=2.6.3"
 tauri-plugin-single-instance = "=2.4.3"
+# #498: Job Objects for bounded-helper tree termination on Windows. Already in
+# the graph transitively via tauri; pinned here because the supervisor calls it
+# directly. Windows-only target dependency, so no other platform pays for it.
+windows-sys = { version = "=0.60.2", features = [
+    "Win32_Foundation",
+    # CreateJobObjectW takes a SECURITY_ATTRIBUTES pointer, so its binding is
+    # gated behind Win32_Security even though a null is passed.
+    "Win32_Security",
+    "Win32_System_JobObjects",
+] }
 
 [profile.dev]
 debug = 0
