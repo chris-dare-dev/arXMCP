@@ -455,8 +455,8 @@ universal cleanup:
   supervisor shutdown, and the next-boot `mark_orphaned_runs_failed` /
   `mark_orphaned_parses_failed` sweeps repair the database row, not the
   process. Closing that needs process-tree walking or a per-run session
-  registry rather than a group signal. Tracked separately; not covered here
-  and must not be read as covered.
+  registry rather than a group signal. Tracked as issue #499; not covered
+  here and must not be read as covered.
 
 - **The wildcard-bind arms were not ported.** The spike's `wildcard-v4` /
   `wildcard-v6` faults are absent from this matrix, so nothing exercises a
