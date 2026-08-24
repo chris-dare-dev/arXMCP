@@ -71,11 +71,11 @@ The repo enforces a strict doc-placement rule (see [CLAUDE.md §1](CLAUDE.md)):
 - **GPG signing is required** (`commit.gpgsign=true`). Never `--no-gpg-sign`.
 - **Pre-commit hooks are honored.** Never `--no-verify`; fix the underlying
   issue and make a new commit.
-- **Co-author trailer** on every agent-assisted commit:
-
-  ```
-  Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
-  ```
+- **No co-author or attribution trailers.** Do not add `Co-Authored-By:`,
+  `Generated-with:` or any equivalent naming an AI agent or tool. This
+  replaces an earlier rule that required one; it was removed at the
+  maintainer's direction on 2026-08-24. Commits before that date carry the
+  trailer and are not the convention.
 
 - If you open a PR, describe what changed and why, link the issue, and
   confirm `make test` is green locally.

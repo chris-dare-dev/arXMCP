@@ -60,7 +60,7 @@ When `--github` is passed:
 | Conventional commits, `<type>(<scope>): <subject>` ≤ 50 chars after prefix | [recent commits](.git) | Any commit the skill or its scripts produce |
 | Conventional scopes: `server`, `ingest`, `shim`, `infra`, `tests`, `skill`, `roadmap`, `notes` | repo history | Pick the closest match |
 | GPG signing (`commit.gpgsign=true`) | git config | Commits the user makes from skill output; never `--no-gpg-sign` |
-| Co-author trailer: `Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>` | repo history | Suggest in `create-tickets.sh` and any commit suggestions |
+| **No** co-author or attribution trailer — never `Co-Authored-By:`, `Generated-with:` or similar | [CLAUDE.md §4.3](../../CLAUDE.md) | Never emit one from `create-tickets.sh` or any commit suggestion. Older commits carry one; that is history, not the convention |
 | Pre-commit hooks honored | git config | Never `--no-verify` |
 | Project check: `make test` (once E01_S01 lands a Makefile); fallback `ruff check . && pytest -q` | [.claude/roadmap/epic-01-vertical-slice.md](.claude/roadmap/epic-01-vertical-slice.md) | Reference in story AC; run during MATERIALIZE validation if available |
 | Python 3.11+, ruff, pytest | [E01_S01 acceptance criteria](.claude/roadmap/epic-01-vertical-slice.md) | Story AC for any Python milestone |

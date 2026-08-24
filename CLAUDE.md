@@ -211,11 +211,19 @@ change touches more than ~3 files or adds new tests, run the pipeline.
      bookkeeping
 - **GPG signing is enabled** (`commit.gpgsign=true`). **Never**
   `--no-gpg-sign`.
-- **Co-author trailer naming the actual authoring model is mandatory** on
-  every commit:
-  ```
-  Co-Authored-By: <authoring Claude model> <noreply@anthropic.com>
-  ```
+- **No co-author or attribution trailers. Ever.** (Pinned by
+  `tests/test_attribution_trailer_ban.py`.) Do NOT add
+  `Co-Authored-By:`, `Generated-with:`, `Assisted-by:` or any equivalent
+  naming Claude, Codex, or any other agent or tool. This applies to every
+  commit, every agent, and every tool in this repo.
+
+  This REPLACES a previous rule that made a `Co-Authored-By:` trailer
+  mandatory. It was removed at the maintainer's direction on 2026-08-24.
+  Authorship is recorded by the maintainer, not asserted in commit
+  metadata by the tool that typed it. Do not reinstate it, and do not
+  "helpfully" re-add a trailer because an older doc, an older commit in
+  `git log`, or a habit says to — the history before that date is full of
+  them and is not the convention.
 - **Pre-commit hooks are honored.** **Never** `--no-verify`. If a hook
   fails, fix the underlying issue and create a NEW commit (don't `--amend`
   the failing one).
@@ -225,8 +233,6 @@ change touches more than ~3 files or adds new tests, run the pipeline.
   feat(scope): subject line
 
   Body text with 'apostrophes', "quotes", and $vars all survive.
-
-  Co-Authored-By: <authoring Claude model> <noreply@anthropic.com>
   COMMIT_EOF
   ```
 

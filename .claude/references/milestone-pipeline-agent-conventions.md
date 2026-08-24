@@ -179,8 +179,6 @@ thread via `status: "blocked"`.
 <type>(<scope>): <subject in imperative mood, ≤ 50 chars after type prefix>
 
 <Body: explain the WHY, not just the what. Two to five sentences.>
-
-Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
 ```
 
 **Types in this repo:** `feat`, `rect`, `chore`, `docs`
@@ -192,8 +190,13 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
 - **Pre-commit hooks are honored.** Never `--no-verify`. Hook failure is a real failure
   — investigate and fix, then create a **NEW** commit (never `--amend` a hook-failed
   commit, which modifies the PREVIOUS commit and hides the rectification record).
-- **Co-author trailer is mandatory** on every commit:
-  `Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>`
+- **No co-author or attribution trailers. Ever.** Never add
+  `Co-Authored-By:`, `Generated-with:`, `Assisted-by:` or any equivalent naming
+  Claude, Codex, or any other agent or tool. This REPLACES a rule that made the
+  trailer mandatory, removed at the maintainer's direction on 2026-08-24. Do
+  not reinstate it from an older doc or from the shape of older commits in
+  `git log` — the history before that date is full of them and is not the
+  convention. See CLAUDE.md §4.3.
 
 ### HEREDOC form for multi-line commit messages
 
@@ -208,8 +211,6 @@ Closes Threat 1 (path traversal via paper_id) from
 .claude/notes/08-security-observability-ops.md. The handler chain
 now validates paper_id against the canonical regex in
 ingest/identifiers.py before any LanceDB query is executed.
-
-Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
 COMMIT_EOF
 ```
 

@@ -9,10 +9,12 @@ arXMCP is built and maintained by the people below. Thank you.
 
 ## Acknowledgements
 
-- Much of the implementation is produced by **Claude** (Anthropic) agents
-  driven through the project's four-phase milestone pipeline, under the
-  maintainer's direction and review. Agent-assisted commits carry a
-  `Co-Authored-By: Claude …` trailer.
+- Much of the implementation is produced by **Claude** (Anthropic) and other
+  agents driven through the project's four-phase milestone pipeline, under the
+  maintainer's direction and review. Those commits carry **no** co-author or
+  attribution trailer: agents do not sign their own work here, and authorship
+  is the maintainer's to record. Commits made before 2026-08-24 carry a
+  `Co-Authored-By:` trailer from the earlier convention.
 
 ## Adding yourself
 
