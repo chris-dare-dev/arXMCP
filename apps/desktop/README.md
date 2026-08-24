@@ -459,11 +459,13 @@ universal cleanup:
   identity-checked against the process start time observed in the snapshot, so
   a PID recycled during the ladder is skipped rather than killed. A descendant
   created *after the last rung's walk* — in the final milliseconds before the
-  child is reaped — is still missed; closing that fully needs kernel support
-  this platform does not offer. And a
-  supervisor that is itself SIGKILLed runs no sweep at all; there the
-  next-boot `mark_orphaned_runs_failed` / `mark_orphaned_parses_failed` sweeps
-  still repair the database row, not the process.
+  child is reaped — is still missed. Reparenting happens when the parent dies,
+  not when it is reaped, so no later walk can help; closing it means the child
+  terminating its own detached subprocesses on shutdown (issue #500). And a
+  supervisor that is itself SIGKILLed runs no sweep at all, and nothing
+  collects the tree on the way back in either; there the next-boot
+  `mark_orphaned_runs_failed` / `mark_orphaned_parses_failed` sweeps still
+  repair the database row, not the process (issue #501).
 
 - **The wildcard-bind arms were not ported.** The spike's `wildcard-v4` /
   `wildcard-v6` faults are absent from this matrix, so nothing exercises a
