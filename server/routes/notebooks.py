@@ -1190,11 +1190,25 @@ def _recount_notebook_lancedb(
     """
     import pyarrow.compute as pc  # noqa: PLC0415
 
-    from server.corpus import open_chunks_table  # local
+    from server.corpus import open_chunks_table, project_columns  # local
 
     tbl = open_chunks_table(notebook_lance_path, version=version)
     chunk_count = tbl.count_rows()
-    arrow_tbl = tbl.to_arrow()
+    # #496: one column at the scanner, not all fourteen. `to_arrow()` takes no
+    # arguments in lancedb 0.30.x, so `tbl.to_arrow()["paper_id"]` allocated
+    # both 1024-float vector columns for every row -- ~14 KB/row against
+    # ~14 B/row -- to count distinct values in one narrow column.
+    arrow_tbl = project_columns(tbl, ["paper_id"], expected_rows=chunk_count)
+    if arrow_tbl is None:
+        # The handle is pinned to `version` by `open_chunks_table`, so
+        # `count_rows()` and this scan see the same MVCC snapshot and a
+        # concurrent ingest cannot shorten it. A short read is therefore a
+        # failed read, and a distinct-paper count off a partial scan is a
+        # wrong number that would be WRITTEN INTO THE MARKER by the
+        # reconciliation caller. Refuse instead of persisting it.
+        raise RuntimeError(
+            f"paper_id projection came back short at pinned version {version}"
+        )
     paper_count = int(pc.count_distinct(arrow_tbl["paper_id"]).as_py())
     return chunk_count, paper_count
 

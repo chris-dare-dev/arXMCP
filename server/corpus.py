@@ -137,6 +137,7 @@ from ingest.store import CORPUS_VERSION_MARKER_NAME, DEFAULT_LANCEDB_PATH
 
 if TYPE_CHECKING:  # pragma: no cover
     import lancedb.table
+    import pyarrow as pa
 
 logger = logging.getLogger(__name__)
 
@@ -239,6 +240,33 @@ def _smoke_read(tbl: lancedb.table.Table) -> None:
     exception means the data cannot be reached.
     """
     tbl.search().select(["chunk_id"]).limit(1).to_arrow()
+
+
+def project_columns(
+    tbl: lancedb.table.Table, columns: list[str], *, expected_rows: int
+) -> pa.Table | None:
+    """Several columns of the whole table, projected at the SCANNER.
+
+    The multi-column form of :func:`project_column`, and the same reasoning
+    applies verbatim: ``LanceTable.to_arrow()`` takes no arguments in lancedb
+    0.30.x, so every ``to_arrow()`` in a read path materializes both 1024-float
+    vector columns before anything is selected off the copy. At ~14 KB/row
+    against ~14 B/row that is a request-triggerable multi-gigabyte allocation
+    on a production-scale corpus, not a micro-optimization (#496).
+
+    ``expected_rows`` is REQUIRED and checked for the same reason it is on
+    :func:`project_column`: the query builder needs an explicit ``limit``, and
+    a short read must be reported as "could not project" (``None``) rather
+    than silently passed off as a real result.
+    """
+    if expected_rows < 0:
+        return None
+    if expected_rows == 0:
+        return tbl.search().select(columns).limit(1).to_arrow().slice(0, 0)
+    arrow = tbl.search().select(columns).limit(expected_rows).to_arrow()
+    if arrow.num_rows != expected_rows:
+        return None
+    return arrow
 
 
 def project_column(

@@ -212,7 +212,27 @@ async def _in_memory_scan_fallback(
     ``retrieval_mode="in_memory_scan_fallback"`` so callers can
     detect the degraded path.
     """
-    arrow = r.chunks_table.to_arrow()
+    # #496: project at the scanner. `LanceTable.to_arrow()` takes no arguments
+    # in lancedb 0.30.x, so the previous shape materialized all 14 columns --
+    # including two 1024-float vector columns, ~14 KB/row -- and then read four
+    # of them. On a production-scale corpus an ordinary request down this
+    # fallback path was a multi-gigabyte allocation. Projected, it is ~14 B/row.
+    from server.corpus import project_columns  # noqa: PLC0415
+
+    wanted = ["chunk_id", "paper_id", "theorem_name", "section_path"]
+    arrow = project_columns(
+        r.chunks_table, wanted, expected_rows=r.chunks_table.count_rows()
+    )
+    if arrow is None:
+        # `chunks_table` is opened at a PINNED version (`resources.py` ->
+        # `open_chunks_table_with_fallback(version=...)`), so a scan cannot
+        # come back short because of a concurrent ingest; a short read here
+        # means the read itself failed. Refuse rather than answer from a
+        # partial scan, which would render as "no such lemma" for a lemma
+        # that exists -- a wrong answer stated confidently.
+        raise RuntimeError(
+            "lemma fallback scan came back short at a pinned corpus version"
+        )
     chunk_ids = arrow.column("chunk_id").to_pylist()
     paper_ids = arrow.column("paper_id").to_pylist()
     theorem_names = arrow.column("theorem_name").to_pylist()
