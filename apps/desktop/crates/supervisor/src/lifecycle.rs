@@ -90,6 +90,11 @@ const PS_BUDGET: Duration = Duration::from_millis(500);
 /// courtesy for a process that was merely slow to notice, not a second grace.
 const DESCENDANT_SWEEP_GRACE: Duration = Duration::from_millis(500);
 
+/// #501: how long an orphaned child from a previous boot gets to honour
+/// SIGTERM before the startup collection escalates. It has already outlived
+/// its supervisor, so this is a courtesy, not a grace period.
+const ORPHAN_COLLECT_GRACE: Duration = Duration::from_millis(2_000);
+
 /// Poll granularity for [`output_within`]. Matches `wait_exit`'s.
 const SUBPROCESS_POLL_INTERVAL: Duration = Duration::from_millis(25);
 
@@ -405,6 +410,9 @@ fn cycle(
     let mut child = command.spawn().map_err(|_| "child spawn failed")?;
     let child_pid = child.id();
     let _ = recorder.record("child-spawn", json!({"child_pid": child_pid}));
+    // #501: so a boot after a SIGKILLed supervisor can find this tree.
+    #[cfg(unix)]
+    record_owned_child(std::path::Path::new(&plan.data_root), child_pid, recorder);
     // #438: relay stderr -> scrubber -> log. Started immediately so nothing
     // the child writes during startup can bypass it.
     if let Some(stderr) = child.stderr.take() {
@@ -1535,6 +1543,142 @@ fn descendant_snapshot(_root: u32) -> Vec<()> {
 #[cfg(not(unix))]
 fn sweep_detached(_snapshot: &[()], _recorder: &Recorder) {}
 
+/// #501: the file recording which child this data root owns.
+const OWNED_CHILD_FILE: &str = "owned-child.json";
+
+/// Note the child we just spawned, so a LATER boot can collect it if this
+/// supervisor never gets to shut it down. #501.
+///
+/// Everything #467 and #499 added runs inside `shutdown_child`. A supervisor
+/// that is SIGKILLed — Force Quit, `kill -9`, an OOM kill — executes none of
+/// it, and nothing noticed on the way back in either: the existing next-boot
+/// `mark_orphaned_runs_failed` / `mark_orphaned_parses_failed` sweeps repair
+/// the DATABASE ROW, not the process. So a crash could leave a healthy-looking
+/// database and a MinerU still burning CPU, with no record anywhere.
+///
+/// **Identity, not just a PID.** The record carries the start time and the
+/// command, because the next boot may be days later and PIDs recycle freely
+/// across reboots. Collecting on a bare PID would let a startup kill an
+/// unrelated process of the operator's that inherited the number.
+///
+/// Best effort: a failed write is logged as an event and never blocks a
+/// launch. Not collecting an orphan is a bounded cost; refusing to start is
+/// not.
+#[cfg(unix)]
+fn record_owned_child(root: &std::path::Path, pid: u32, recorder: &Recorder) {
+    let Some(identity) = process_identity(pid) else {
+        return;
+    };
+    let command = process_command(pid).unwrap_or_default();
+    let payload = json!({"pid": pid, "started": identity, "command": command});
+    let path = root.join(OWNED_CHILD_FILE);
+    let tmp = root.join(format!("{OWNED_CHILD_FILE}.{}.tmp", std::process::id()));
+    let wrote =
+        std::fs::write(&tmp, payload.to_string()).and_then(|()| std::fs::rename(&tmp, &path));
+    if wrote.is_err() {
+        let _ = std::fs::remove_file(&tmp);
+        let _ = recorder.record("owned-child-record-failed", json!({"pid": pid}));
+    }
+}
+
+/// `ps -o command=` for one pid.
+#[cfg(unix)]
+fn process_command(pid: u32) -> Option<String> {
+    let mut command = Command::new("/bin/ps");
+    command.args(["-o", "command=", "-p", &pid.to_string()]);
+    let output = output_within(&mut command, PS_BUDGET).ok()?;
+    let text = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+    (!text.is_empty()).then_some(text)
+}
+
+/// Collect a tree orphaned by a previous supervisor that never shut down. #501.
+///
+/// **Only ever called after the supervisor lock is held.** That is what makes
+/// it safe: holding the lock proves no live supervisor owns this data root, so
+/// anything the record points at belongs to a dead one. A second install, a
+/// developer's own run and a different data root all keep their own record
+/// file under their own root and are never consulted here.
+///
+/// Three ways this declines to act, all deliberate:
+///
+/// * no record — nothing was ever spawned, or the file is gone;
+/// * the recorded PID is gone — the normal case after a clean quit, since the
+///   record is not deleted at shutdown. Discarded silently: a stale record is
+///   the expected state, not an incident;
+/// * the PID is alive but its start time or command does NOT match — the
+///   number was recycled. Recorded as `orphan-record-stale` and **nothing is
+///   signalled**. Guessing here would kill an unrelated process.
+///
+/// When it does match, the child is still alive, so the PPID edge to its
+/// descendants is intact and [`descendant_snapshot`] works exactly as it does
+/// on the shutdown path — including for `setsid` descendants (#499).
+#[cfg(unix)]
+pub fn collect_orphan_tree(root: &std::path::Path, recorder: &Recorder) {
+    let path = root.join(OWNED_CHILD_FILE);
+    let Ok(raw) = std::fs::read_to_string(&path) else {
+        return;
+    };
+    let _ = std::fs::remove_file(&path);
+    let Ok(record) = serde_json::from_str::<Value>(&raw) else {
+        let _ = recorder.record("orphan-record-unreadable", json!({}));
+        return;
+    };
+    let (Some(pid), Some(started)) = (
+        record.get("pid").and_then(Value::as_u64),
+        record.get("started").and_then(Value::as_str),
+    ) else {
+        let _ = recorder.record("orphan-record-unreadable", json!({}));
+        return;
+    };
+    let Ok(pid) = u32::try_from(pid) else {
+        let _ = recorder.record("orphan-record-unreadable", json!({}));
+        return;
+    };
+    let Some(live) = process_identity(pid) else {
+        // The ordinary case: the child died with its supervisor.
+        return;
+    };
+    // Start time ONLY. `command` is recorded for diagnostics and deliberately
+    // NOT compared: a child that `exec`s replaces its argv while keeping its
+    // PID and start time, so gating on the command vetoes a legitimate
+    // collection. Measured end to end — a `/bin/sh` wrapper that execs into
+    // its real interpreter was refused as `orphan-record-stale` while the
+    // orphaned tree it left was sitting right there. That failure is SAFE but
+    // useless, which is the worst way for this feature to break, because it
+    // looks like it is working.
+    //
+    // PID plus an exact wall-clock start time is the strong part regardless:
+    // across a reboot the same PID would have to be re-issued at the same
+    // absolute second, and boot times differ.
+    if live != started {
+        let _ = recorder.record("orphan-record-stale", json!({"pid": pid}));
+        return;
+    }
+
+    // Alive, and provably the process we spawned. Take the tree.
+    let detached = descendant_snapshot(pid);
+    let _ = process_control::request_terminate_group(pid);
+    let cleared = poll_until(ORPHAN_COLLECT_GRACE, || process_identity(pid).is_none()).is_ok();
+    if !cleared {
+        process_control::force_kill_group(pid);
+    }
+    sweep_detached(&detached, recorder);
+    let _ = recorder.record(
+        "orphan-tree-collected",
+        json!({
+            "pid": pid,
+            "descendants": detached.len(),
+            "needed_kill": !cleared,
+        }),
+    );
+}
+
+#[cfg(not(unix))]
+fn record_owned_child(_root: &std::path::Path, _pid: u32, _recorder: &Recorder) {}
+
+#[cfg(not(unix))]
+pub fn collect_orphan_tree(_root: &std::path::Path, _recorder: &Recorder) {}
+
 /// #467: take anything still in the child's process group after the ladder.
 ///
 /// The chaos run's measured failure: the supervisor reported a complete
@@ -2392,6 +2536,25 @@ mod tests {
 
     // ---- issue #467: the ladder closes the TREE, not one PID ------------
 
+    /// A bystander in ITS OWN process group.
+    ///
+    /// `process_group(0)` is not incidental. A plain `Command::spawn()` leaves
+    /// the process in the TEST RUNNER's group, so `killpg(child_pid)` targets
+    /// a group id that leads nothing and fails harmlessly — which makes any
+    /// "it survived" assertion pass whether the guard under test works or not.
+    /// Both recycled-PID tests did exactly that until a differential run
+    /// showed them still green with the guard defeated.
+    fn bystander(seconds: &str) -> Child {
+        let mut command = Command::new("/bin/sleep");
+        command.arg(seconds);
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::CommandExt;
+            command.process_group(0);
+        }
+        command.spawn().expect("spawn bystander")
+    }
+
     /// Is this pid alive? Direct `/bin/ps`, deliberately not `is_stopped`:
     /// the assertion must not depend on the code under test.
     fn pid_alive(pid: u32) -> bool {
@@ -2631,10 +2794,7 @@ mod tests {
         // no longer matches is a DIFFERENT process wearing a recycled number,
         // and signalling it would kill something of the operator's that has
         // nothing to do with arXMCP.
-        let mut victim = Command::new("/bin/sleep")
-            .arg("30")
-            .spawn()
-            .expect("spawn bystander");
+        let mut victim = bystander("30");
         let stale = Descendant {
             pid: victim.id(),
             pgid: victim.id(),
@@ -2642,11 +2802,173 @@ mod tests {
         };
         sweep_detached(&[stale], &test_recorder());
         assert!(
-            pid_alive(victim.id()),
+            victim.try_wait().expect("try_wait").is_none(),
             "a mismatched start time must veto the signal (#499)",
         );
         let _ = victim.kill();
         let _ = victim.wait();
+    }
+
+    // ---- issue #501: a tree orphaned by a SIGKILLed supervisor ----------
+
+    /// A stand-in for an orphaned child: its own process group (as `cycle`
+    /// spawns the real one) plus a `setsid` descendant, so the collection has
+    /// to do everything the shutdown path does.
+    fn orphan_fixture(dir: &std::path::Path) -> (Child, u32) {
+        let pid_file = dir.join("descendant");
+        let script = format!(
+            "import subprocess,time;\
+             p=subprocess.Popen(['/bin/sleep','300'],start_new_session=True);\
+             open('{}','w').write(str(p.pid));\
+             time.sleep(300)",
+            pid_file.display()
+        );
+        let mut command = Command::new("/usr/bin/python3");
+        command.args(["-c", &script]);
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::CommandExt;
+            command.process_group(0);
+        }
+        let child = command.spawn().expect("spawn orphan fixture");
+        let ok = poll_until(Duration::from_secs(10), || pid_file.exists());
+        assert!(ok.is_ok(), "fixture never recorded its descendant");
+        let descendant: u32 = std::fs::read_to_string(&pid_file)
+            .expect("descendant pid")
+            .trim()
+            .parse()
+            .expect("pid parses");
+        (child, descendant)
+    }
+
+    #[test]
+    fn an_orphaned_tree_is_collected_at_the_next_boot() {
+        let dir = scratch("arxmcp-orphan-collect");
+        let (mut child, descendant) = orphan_fixture(&dir);
+        let pid = child.id();
+        let recorder = Recorder::new(&dir).expect("recorder");
+        record_owned_child(&dir, pid, &recorder);
+        assert!(
+            dir.join(OWNED_CHILD_FILE).exists(),
+            "record must be written"
+        );
+
+        collect_orphan_tree(&dir, &recorder);
+
+        // `pid_alive` is NOT usable for the direct child here: it is this
+        // TEST's child, so once killed it stays a zombie in `ps` until the
+        // test reaps it. In production the orphan's parent is the dead
+        // supervisor, so launchd reaps it immediately and the distinction
+        // never arises. Reap it and read the exit status instead, which says
+        // something `ps` cannot: that it died from a SIGNAL.
+        let status = child.wait().expect("reap the fixture");
+        assert!(
+            std::os::unix::process::ExitStatusExt::signal(&status).is_some(),
+            "the orphaned child must be SIGNALLED, not left running (#501); \
+             status {status:?}",
+        );
+        assert!(
+            !pid_alive(descendant),
+            "its setsid descendant {descendant} must go with it (#501)",
+        );
+        assert!(
+            !dir.join(OWNED_CHILD_FILE).exists(),
+            "the record must be consumed, or every later boot re-signals it",
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_recycled_pid_is_never_collected() {
+        // The exclusion that matters most. Days can pass between the crash
+        // and the next boot, and PIDs recycle freely across reboots. Acting
+        // on the number alone would kill an unrelated process of the
+        // operator's — so a start time that does not match must veto it.
+        let dir = scratch("arxmcp-orphan-recycled");
+        let mut bystander = bystander("30");
+        let recorder = Recorder::new(&dir).expect("recorder");
+        std::fs::write(
+            dir.join(OWNED_CHILD_FILE),
+            json!({
+                "pid": bystander.id(),
+                // The start time is the whole guard: `command` is recorded
+                // for diagnostics but never compared, because a child that
+                // `exec`s keeps its pid and start time while replacing argv.
+                "started": "Thu Jan  1 00:00:00 1970",
+                "command": "/whatever/it/happens/to/be",
+            })
+            .to_string(),
+        )
+        .expect("write record");
+
+        collect_orphan_tree(&dir, &recorder);
+
+        assert!(
+            bystander.try_wait().expect("try_wait").is_none(),
+            "a mismatched identity must veto the collection (#501)",
+        );
+        let _ = bystander.kill();
+        let _ = bystander.wait();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_record_for_a_dead_child_is_discarded_without_an_incident() {
+        // The ordinary case: the record is NOT deleted at clean shutdown, so
+        // every normal boot finds a stale one. That must be silent — an
+        // event per boot would train an operator to ignore the log.
+        let dir = scratch("arxmcp-orphan-dead");
+        let mut gone = Command::new("/usr/bin/true").spawn().expect("spawn");
+        let _ = gone.wait();
+        let recorder = Recorder::new(&dir).expect("recorder");
+        std::fs::write(
+            dir.join(OWNED_CHILD_FILE),
+            json!({"pid": gone.id(), "started": "whenever", "command": "x"}).to_string(),
+        )
+        .expect("write record");
+
+        collect_orphan_tree(&dir, &recorder);
+
+        assert!(
+            !dir.join(OWNED_CHILD_FILE).exists(),
+            "a stale record must be cleared, not left to be re-read forever",
+        );
+        let events = std::fs::read_to_string(dir.join("logs").join("supervisor-events.ndjson"))
+            .unwrap_or_default();
+        assert!(
+            !events.contains("orphan-record-stale") && !events.contains("orphan-tree-collected"),
+            "a dead child is the NORMAL post-shutdown state and must not be \
+             reported as an incident; got {events}",
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn another_data_root_is_never_consulted() {
+        // Two installs, or a developer's run beside the shipped app. The
+        // record lives under its own root and this one has none, so the
+        // collection has nothing to act on and must not go looking.
+        let ours = scratch("arxmcp-orphan-root-a");
+        let theirs = scratch("arxmcp-orphan-root-b");
+        let (mut child, descendant) = orphan_fixture(&theirs);
+        let recorder = Recorder::new(&theirs).expect("recorder");
+        record_owned_child(&theirs, child.id(), &recorder);
+
+        // Collect against the OTHER root.
+        collect_orphan_tree(&ours, &Recorder::new(&ours).expect("recorder"));
+
+        // `try_wait` rather than `pid_alive`: a killed child of this test
+        // would linger as a zombie and still show up in `ps`, so a liveness
+        // probe would pass even on failure. Still-running is the real claim.
+        assert!(
+            child.try_wait().expect("try_wait").is_none(),
+            "a different data root's child must not be touched (#501)",
+        );
+        let _ = child.kill();
+        let _ = child.wait();
+        let _ = process_control::force_kill_group(descendant);
+        let _ = std::fs::remove_dir_all(&ours);
+        let _ = std::fs::remove_dir_all(&theirs);
     }
 
     #[test]

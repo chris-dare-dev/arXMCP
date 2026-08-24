@@ -1126,6 +1126,19 @@ fn main() {
         serde_json::json!({"owns_lock": true, "plan_source": plan_source}),
     );
 
+    // #501: AFTER the lock destructure, on the WINNER path only. Holding the
+    // lock is what makes this safe — it proves no live supervisor owns this
+    // data root, so anything the ownership record points at belongs to a dead
+    // one. Running it before the destructure would put it on the LOSER path
+    // too, where a second instance would collect the live winner's tree; that
+    // is the single worst thing this feature could do, and the placement is
+    // the only thing preventing it.
+    //
+    // Before the child spawns, so a previous tree cannot still be holding the
+    // LanceDB staging directory this launch is about to use.
+    #[cfg(unix)]
+    lifecycle::collect_orphan_tree(&root, &recorder);
+
     // Shared child handle so a window-close exit can still run the bounded
     // normal-shutdown sequence (RunEvent::Exit below).
     let child_slot: Arc<Mutex<Option<lifecycle::ChildControl>>> = Arc::new(Mutex::new(None));

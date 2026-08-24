@@ -535,6 +535,59 @@ def test_the_readme_states_the_remaining_limits_precisely() -> None:
         )
 
 
+def test_the_orphan_collection_runs_only_on_the_lock_winner_path() -> None:
+    """#501. The single worst thing this feature could do.
+
+    Holding the supervisor lock is the ENTIRE safety argument: it proves no
+    live supervisor owns this data root, so anything the ownership record
+    points at belongs to a dead one. Placed before the lock destructure it
+    would also run on the LOSER path, where a second instance would collect
+    the live winner's tree — killing a healthy running server. I made exactly
+    that mistake writing this; the placement is the only thing preventing it.
+    """
+    code = strip_rust_comments(MAIN_RS)
+    lock_at = code.index("let Some(supervisor_lock) = supervisor_lock else {")
+    # The end of the loser block: the winner path resumes after it.
+    loser_end = code.index("owns_lock", lock_at)
+    collect_at = code.index("collect_orphan_tree(")
+    assert collect_at > loser_end, (
+        "collect_orphan_tree must run AFTER the lock-loser branch has exited, "
+        "or a second instance collects the live winner's tree (#501)"
+    )
+
+
+def test_the_orphan_record_carries_identity_not_just_a_pid() -> None:
+    """#501. Days can pass between the crash and the next boot, and PIDs
+    recycle freely across reboots. Acting on the number alone would kill an
+    unrelated process of the operator's."""
+    record = rust_fn(LIFECYCLE_RS, "fn record_owned_child(")
+    for field in ('"pid"', '"started"', '"command"'):
+        assert field in record, f"the record must carry {field} (#501)"
+    collect = rust_fn(LIFECYCLE_RS, "pub fn collect_orphan_tree(")
+    assert "live != started" in collect, (
+        "a start time that does not match must veto the collection (#501)"
+    )
+    # And must NOT gate on the command. A child that `exec`s keeps its pid and
+    # start time while replacing its argv, so comparing the command refuses a
+    # legitimate collection -- measured end to end, where a /bin/sh wrapper
+    # that exec'd into python was logged orphan-record-stale while the tree it
+    # orphaned was still running. Safe but useless is the worst failure here,
+    # because it looks like it works.
+    assert "live_command" not in collect, (
+        "the command must be diagnostics only, never a veto (#501)"
+    )
+    assert '"orphan-record-stale"' in collect, (
+        "a vetoed collection must be recorded — silently doing nothing hides "
+        "the case most worth knowing about"
+    )
+    for required in (
+        "a_recycled_pid_is_never_collected",
+        "another_data_root_is_never_consulted",
+        "a_record_for_a_dead_child_is_discarded_without_an_incident",
+    ):
+        assert required in LIFECYCLE_RS, f"{required} must pin this exclusion"
+
+
 def test_codesign_is_invoked_by_absolute_path() -> None:
     """A PATH lookup would let a planted `codesign` answer for itself."""
     assert '"/usr/bin/codesign"' in LIFECYCLE_RS, (

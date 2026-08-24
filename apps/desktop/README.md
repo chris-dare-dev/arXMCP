@@ -467,10 +467,17 @@ universal cleanup:
   `IngestTaskTracker` already stopped its child), and the spawner holds the
   handle with no race at all. The window remains only on the FORCED path,
   where the child is SIGKILLed and runs no shutdown handler. And a
-  supervisor that is itself SIGKILLed runs no sweep at all, and nothing
-  collects the tree on the way back in either; there the next-boot
-  `mark_orphaned_runs_failed` / `mark_orphaned_parses_failed` sweeps still
-  repair the database row, not the process (issue #501).
+  supervisor that is itself SIGKILLed runs no sweep at all — but the NEXT boot
+  collects what it left (#501). The supervisor records the child's PID, start
+  time and command under `<data_root>/owned-child.json` when it spawns it, and
+  on the next launch — **after** taking the supervisor lock, which proves no
+  live supervisor owns this root — verifies that record and takes the tree if
+  it matches, logging `orphan-tree-collected`. A PID whose start time or
+  command has changed is a recycled number: it is logged as
+  `orphan-record-stale` and nothing is signalled. A PID that is simply gone is
+  the ordinary post-shutdown state and is discarded silently. The database-row
+  recovery (`mark_orphaned_runs_failed` / `mark_orphaned_parses_failed`) is
+  unchanged and still repairs the row, not the process.
 
 - **The wildcard-bind arms were not ported.** The spike's `wildcard-v4` /
   `wildcard-v6` faults are absent from this matrix, so nothing exercises a
