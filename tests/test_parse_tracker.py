@@ -13,11 +13,14 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
+import os
+import subprocess
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from ingest import textbook_parser
 from ingest.textbook_parser import MinerUResult
 from ingest.textbook_renderer import RenderResult
 from server.parse_tracker import (
@@ -278,3 +281,99 @@ class TestParseTaskTrackerSurface:
         )
         with pytest.raises(dataclasses.FrozenInstanceError):
             rr.latex_error_annotations = 99  # type: ignore[misc]
+
+
+# ---------------------------------------------------------------------------
+# Issue #500 — shutdown terminates the subprocess, not just the wrapper
+# ---------------------------------------------------------------------------
+
+
+def _pid_alive(pid: int) -> bool:
+    """Direct signal-0 probe. Deliberately not the code under test."""
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+@pytest.mark.skipif(
+    not hasattr(os, "getpgid"), reason="POSIX process groups required"
+)
+class TestShutdownTerminatesMineru:
+    """The gap #500 exists to close.
+
+    Cancelling the task raises ``CancelledError`` in the awaiting coroutine
+    while the offloaded THREAD stays blocked in ``proc.communicate()``. Before
+    this, MinerU kept running until its own wall timeout — minutes — and the
+    supervisor could not reach it either, because ``start_new_session=True``
+    puts it outside the process group the supervisor sweeps (#467, #499).
+    """
+
+    def test_a_registered_subprocess_is_terminated(self) -> None:
+        # A real, session-detached process standing in for MinerU: same
+        # spawn discipline, so the registry and the group signal are
+        # exercised exactly as they are in production.
+        proc = subprocess.Popen(  # noqa: S603
+            ["/bin/sleep", "300"],  # noqa: S607
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            start_new_session=True,
+        )
+        assert os.getpgid(proc.pid) == proc.pid, (
+            "the stand-in must be session-detached, or this test passes "
+            "for the wrong reason — the supervisor's group sweep would "
+            "already have caught it (#499)"
+        )
+        with textbook_parser._LIVE_LOCK:
+            textbook_parser._LIVE_MINERU.add(proc)
+        try:
+            terminated = textbook_parser.terminate_live_mineru(grace_s=1.0)
+            assert terminated == 1
+            proc.wait(timeout=5)
+            assert not _pid_alive(proc.pid), "MinerU stand-in outlived shutdown"
+        finally:
+            with textbook_parser._LIVE_LOCK:
+                textbook_parser._LIVE_MINERU.discard(proc)
+            if proc.poll() is None:
+                proc.kill()
+                proc.wait(timeout=5)
+
+    def test_shutdown_reaches_the_terminator(self) -> None:
+        """The tracker must actually call it, in a thread, before gathering."""
+        proc = subprocess.Popen(  # noqa: S603
+            ["/bin/sleep", "300"],  # noqa: S607
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            start_new_session=True,
+        )
+        with textbook_parser._LIVE_LOCK:
+            textbook_parser._LIVE_MINERU.add(proc)
+
+        async def _run() -> None:
+            tracker = ParseTaskTracker()
+            # shutdown() returns early on an empty registry, so give it a
+            # task to make the real path run.
+            tracker._tasks["slug"] = asyncio.create_task(asyncio.sleep(60))
+            await tracker.shutdown(timeout_seconds=5.0)
+
+        try:
+            asyncio.run(_run())
+            proc.wait(timeout=5)
+            assert not _pid_alive(proc.pid), (
+                "ParseTaskTracker.shutdown must terminate live MinerU "
+                "subprocesses, not only cancel the wrappers (#500)"
+            )
+        finally:
+            with textbook_parser._LIVE_LOCK:
+                textbook_parser._LIVE_MINERU.discard(proc)
+            if proc.poll() is None:
+                proc.kill()
+                proc.wait(timeout=5)
+
+    def test_terminating_nothing_is_safe(self) -> None:
+        with textbook_parser._LIVE_LOCK:
+            assert not textbook_parser._LIVE_MINERU
+        assert textbook_parser.terminate_live_mineru() == 0

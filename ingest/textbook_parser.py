@@ -29,6 +29,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -374,6 +375,80 @@ def _locate_outputs(output_dir: Path, pdf_stem: str) -> tuple[Path, Path]:
     )
 
 
+# ---------------------------------------------------------------------------
+# Live-process registry (issue #500)
+# ---------------------------------------------------------------------------
+#
+# ``run_mineru_sandboxed`` is sync and is called through
+# ``asyncio.to_thread`` by ``server.parse_tracker``. Cancelling that task
+# raises ``CancelledError`` in the awaiting coroutine but does NOT stop the
+# thread: it stays blocked in ``proc.communicate()`` until MinerU exits on its
+# own wall timeout, which can be many minutes. So daemon shutdown left MinerU
+# running, and the supervisor could not reach it either -- ``start_new_session``
+# puts it in its own process group, outside anything ``killpg`` on the child's
+# group can touch (issues #467, #499).
+#
+# The spawner is the only place that holds the handle with no race at all, so
+# the handle is registered here and daemon shutdown asks for it by name.
+_LIVE_LOCK = threading.Lock()
+_LIVE_MINERU: set[subprocess.Popen] = set()
+
+
+def _signal_process_group(proc: subprocess.Popen, sig: int) -> None:
+    """Signal ``proc``'s whole process group, falling back to the process.
+
+    ``os.killpg``/``getpgid`` are POSIX-only and ``start_new_session`` is a
+    no-op on Windows; ``AttributeError`` there is NOT an ``OSError``, so the
+    platform is checked explicitly rather than suppressed. On Windows this
+    reaches only the direct child -- MinerU's grandchild FastAPI service may
+    survive, an accepted gap (security-pdf-sandbox.md §"explicitly does NOT
+    do"; CLAUDE.md gotcha #10).
+    """
+    with contextlib.suppress(ProcessLookupError, OSError):
+        if hasattr(os, "getpgid"):
+            os.killpg(os.getpgid(proc.pid), sig)
+        elif sig == signal.SIGKILL:
+            proc.kill()
+        else:
+            proc.terminate()
+
+
+def terminate_live_mineru(*, grace_s: float = 2.0) -> int:
+    """Terminate every MinerU subprocess this process currently has running.
+
+    Issue #500. Called from ``ParseTaskTracker.shutdown``. Returns how many
+    were signalled, so the caller can log a real number instead of a guess.
+
+    SIGTERM first, then SIGKILL after ``grace_s``: MinerU has a sandbox output
+    directory open, and it may simply never have been asked to stop -- nothing
+    signals it on the shutdown path today. The whole GROUP is signalled, so
+    MinerU's own children go with it, which is the same discipline the
+    wall-timeout path already uses.
+
+    Safe to call when nothing is running: returns 0 and signals nothing.
+    """
+    with _LIVE_LOCK:
+        procs = list(_LIVE_MINERU)
+    if not procs:
+        return 0
+    for proc in procs:
+        _signal_process_group(proc, signal.SIGTERM)
+    deadline = time.monotonic() + grace_s
+    while time.monotonic() < deadline:
+        if all(proc.poll() is not None for proc in procs):
+            break
+        time.sleep(0.05)
+    survivors = [proc for proc in procs if proc.poll() is None]
+    for proc in survivors:
+        _signal_process_group(proc, signal.SIGKILL)
+    logger.warning(
+        "textbook_parser: shutdown terminated %d live mineru process(es); "
+        "%d needed SIGKILL",
+        len(procs), len(survivors),
+    )
+    return len(procs)
+
+
 def run_mineru_sandboxed(
     pdf_path: Path,
     output_dir: Path,
@@ -460,6 +535,9 @@ def run_mineru_sandboxed(
         env=sandbox_env,
         **spawn_kwargs,  # type: ignore[arg-type]
     )
+    # #500: visible to `terminate_live_mineru` for as long as it runs.
+    with _LIVE_LOCK:
+        _LIVE_MINERU.add(proc)
     try:
         stdout, stderr = proc.communicate(timeout=effective_timeout)
     except subprocess.TimeoutExpired:
@@ -468,17 +546,9 @@ def run_mineru_sandboxed(
         # the PIPEs to avoid deadlock during cleanup. Capture the
         # drain output and surface in the WARN log — closes m5 F5
         # (timeout-path observability gap).
-        with contextlib.suppress(ProcessLookupError, OSError):
-            # os.killpg/getpgid are POSIX-only and start_new_session is a
-            # no-op on Windows; AttributeError there is NOT caught by the
-            # suppress above, so guard explicitly. proc.kill() reaps only
-            # the direct child on Windows — MinerU's grandchild FastAPI
-            # service may survive, an accepted gap (security-pdf-sandbox.md
-            # §"explicitly does NOT do"; CLAUDE.md gotcha #10).
-            if hasattr(os, "getpgid"):
-                os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
-            else:
-                proc.kill()
+        # #500: one implementation of "signal the group", shared with the
+        # shutdown path so the two cannot drift.
+        _signal_process_group(proc, signal.SIGKILL)
         drained_stderr: str = ""
         with contextlib.suppress(subprocess.TimeoutExpired):
             drained = proc.communicate(timeout=_DRAIN_TIMEOUT_S)
@@ -490,6 +560,13 @@ def run_mineru_sandboxed(
             _tail(drained_stderr, 1024),
         )
         raise
+    finally:
+        # #500: the registry only needs to hold it while it could still be
+        # running. Once `communicate` has returned or raised, the process is
+        # finished or has just been killed above, so this is the last moment
+        # it is interesting to a shutdown sweep.
+        with _LIVE_LOCK:
+            _LIVE_MINERU.discard(proc)
 
     wall_clock_s = time.monotonic() - started
 

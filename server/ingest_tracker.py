@@ -345,13 +345,20 @@ class IngestTaskTracker:
     async def shutdown(self, *, timeout_seconds: float = 5.0) -> None:
         """Cancel every in-flight task and await with a short timeout.
 
-        Cancellation is best-effort: the subprocess receives no
-        signal from cancelling the asyncio wrapper; on the next
-        event-loop tick the wrapper's `await proc.communicate()`
-        sees a CancelledError. The subprocess continues running
-        until the OS reaps it. The startup-recovery in
-        ``mark_orphaned_runs_failed`` covers the resulting orphan
-        row on the next boot.
+        The cancelled wrapper DOES stop its subprocess. ``m9 rect F1`` added
+        that to ``_run_ingest_subprocess``'s ``CancelledError`` branch --
+        SIGTERM, a 2 s grace, then SIGKILL -- and this docstring went on
+        claiming the opposite ("the subprocess receives no signal... continues
+        running until the OS reaps it") long after it stopped being true. It
+        was quoted as evidence of a leak in ``apps/desktop/README.md`` and in
+        issue #500 before anyone checked it against the code. Corrected here.
+
+        What is still best-effort is DEPTH, and it is a different statement:
+        the notebook-ingest child is signalled, but anything IT spawned with
+        ``start_new_session=True`` -- LaTeXML, via ``tools/arxiv_fetch.py`` --
+        is in its own process group and is that child's to clean up, not this
+        tracker's. The startup-recovery in ``mark_orphaned_runs_failed``
+        covers a row this misses; it repairs the row, not the process.
         """
         if not self._tasks:
             return

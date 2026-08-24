@@ -459,9 +459,14 @@ universal cleanup:
   identity-checked against the process start time observed in the snapshot, so
   a PID recycled during the ladder is skipped rather than killed. A descendant
   created *after the last rung's walk* — in the final milliseconds before the
-  child is reaped — is still missed. Reparenting happens when the parent dies,
-  not when it is reaped, so no later walk can help; closing it means the child
-  terminating its own detached subprocesses on shutdown (issue #500). And a
+  child is reaped — is missed by the supervisor. Reparenting happens when the
+  parent dies, not when it is reaped, so no later walk can help. On the
+  cooperative path this no longer matters: the child terminates its own
+  detached subprocesses before exiting (issue #500 —
+  `ParseTaskTracker.shutdown` signals MinerU's process group, and
+  `IngestTaskTracker` already stopped its child), and the spawner holds the
+  handle with no race at all. The window remains only on the FORCED path,
+  where the child is SIGKILLed and runs no shutdown handler. And a
   supervisor that is itself SIGKILLed runs no sweep at all, and nothing
   collects the tree on the way back in either; there the next-boot
   `mark_orphaned_runs_failed` / `mark_orphaned_parses_failed` sweeps still

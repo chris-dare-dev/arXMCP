@@ -299,19 +299,46 @@ class ParseTaskTracker:
             )
 
     async def shutdown(self, *, timeout_seconds: float = 5.0) -> None:
-        """Cancel every in-flight parse task; await with a short timeout.
+        """Cancel every in-flight parse task AND terminate MinerU.
 
-        Cancellation cannot signal MinerU's or LaTeXML's subprocess
-        from inside ``asyncio.to_thread``; those subprocesses continue
-        running until their own wall-timeouts fire. The lifespan-
-        startup ``mark_orphaned_parses_failed`` covers the resulting
-        orphan row on the next boot.
+        Issue #500. Cancelling the task is not enough and never was:
+        ``run_mineru_sandboxed`` runs through :func:`asyncio.to_thread`, so
+        ``CancelledError`` reaches the awaiting coroutine while the THREAD
+        stays blocked in ``proc.communicate()`` until MinerU exits on its own
+        wall timeout -- minutes, typically. Nothing else could reach it
+        either: ``start_new_session=True`` puts MinerU in its own process
+        group, outside what the supervisor's group sweep can signal
+        (issues #467, #499). So the spawner is asked to stop it, since it is
+        the only holder of the handle and has no race.
+
+        Killing the subprocess is also what UNBLOCKS the offloaded thread, so
+        it happens before the gather rather than after: cancel, terminate,
+        then wait for the wrappers to unwind.
+
+        The ordering leaves the DB row correct either way -- ``_run_parse``'s
+        ``CancelledError`` branch writes the failed row, and the lifespan
+        ``mark_orphaned_parses_failed`` still covers a row this misses.
         """
         if not self._tasks:
             return
         for task in self._tasks.values():
             if not task.done():
                 task.cancel()
+        # Lazy import, matching `_run_parse`: the MinerU helpers stay out of
+        # the daemon's import graph until a parse has actually run.
+        from ingest.textbook_parser import (  # noqa: PLC0415
+            terminate_live_mineru,
+        )
+
+        # In a thread: it signals, waits out a short grace, then SIGKILLs, and
+        # the event loop should not block on that.
+        terminated = await asyncio.to_thread(terminate_live_mineru)
+        if terminated:
+            logger.info(
+                "ParseTaskTracker.shutdown: terminated %d live mineru "
+                "subprocess(es)",
+                terminated,
+            )
         tasks_snapshot = list(self._tasks.values())
         try:
             await asyncio.wait_for(
