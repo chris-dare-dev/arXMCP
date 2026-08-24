@@ -1003,9 +1003,23 @@ def write_chunks(
         # count through WriteStats so callers can accumulate run-level
         # chunks_written for ingest-summary.json without an extra count_rows().
         stats.total_rows_after_commit = chunk_count
-        paper_count = len(
-            set(tbl.to_arrow().select(["paper_id"])["paper_id"].to_pylist())
-        )
+        # Projected at the SCANNER, not after materializing every column
+        # (issue #447). `to_arrow().select([...])` reads both 1024-float
+        # vector columns to keep one string column — ~14 KB/row measured
+        # against ~14 B/row. This runs on EVERY marker write, so the ingest
+        # path was paying it per commit.
+        # Function-local for the same circular-import reason as
+        # ``read_corpus_version`` above (see the module-level NB).
+        from server.corpus import project_column  # noqa: PLC0415
+
+        projected = project_column(tbl, "paper_id", expected_rows=chunk_count)
+        if projected is None:
+            # Short read: fall back rather than write a marker with a
+            # paper_count computed off a partial scan — an under-counted
+            # marker is exactly the #429 bug class this marker exists to
+            # avoid.
+            projected = tbl.to_arrow().column("paper_id").to_pylist()
+        paper_count = len(set(projected))
         write_corpus_version_marker(
             target_path,
             version=dataset_version,

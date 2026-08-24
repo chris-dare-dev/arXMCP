@@ -62,6 +62,34 @@ def _function_body(func: object) -> str:
 # ---------------------------------------------------------------------------
 # #428 — READY means answerable
 # ---------------------------------------------------------------------------
+def _enclosing_call(source: str, needle: str) -> str:
+    """The whole call expression containing ``needle``, paren-balanced.
+
+    A fixed-size window (`source[i : i + 700]`) is the recurring trap in this
+    file's history: it silently overruns into the NEXT statement when a block
+    shrinks, and silently truncates the assertion target when a block grows —
+    which is exactly what happened when the two divergence warnings were
+    merged into one shared validator and gained a `caller` argument. Balance
+    the parens instead of guessing a length.
+    """
+    index = source.index(needle)
+    start = source.rindex("(", 0, index)
+    while start > 0 and source[start - 1] not in "\n ":
+        prev = source.rindex("(", 0, start)
+        if source[start - 1].isidentifier() or source[start - 1] in "._":
+            break
+        start = prev
+    depth = 0
+    for pos in range(start, len(source)):
+        if source[pos] == "(":
+            depth += 1
+        elif source[pos] == ")":
+            depth -= 1
+            if depth == 0:
+                return source[start : pos + 1]
+    raise AssertionError(f"unbalanced parens around {needle!r}")
+
+
 def test_the_table_open_path_reads_a_row() -> None:
     """A manifest that parses is not a corpus that answers."""
     assert "def _smoke_read(" in CORPUS_PY, (
@@ -137,32 +165,36 @@ def test_the_marker_is_written_from_the_committed_table() -> None:
         "batch — per-paper callers overwrite it, so len(chunks) records only "
         "the last paper (#429)"
     )
-    assert 'select(["paper_id"])' in STORE_PY, (
-        "paper_count must likewise be the distinct set across the table"
+    assert 'project_column(tbl, "paper_id"' in STORE_PY, (
+        "paper_count must likewise be the distinct set across the table — "
+        "projected at the SCANNER (#447 round 2). The previous form, "
+        "`to_arrow().select([\"paper_id\"])`, materialized all fourteen "
+        "columns (both 1024-float vectors) and projected the copy, on every "
+        "marker write."
     )
 
 
-@pytest.mark.parametrize("occurrence", [0, 1])
-def test_divergence_advice_names_the_cheap_remedy(occurrence: int) -> None:
+def test_divergence_advice_names_the_cheap_remedy() -> None:
     """Advice that costs hours is advice an operator learns to ignore.
 
     And an ignored degrade signal cannot report a real divergence — which is
     the actual harm in #429, not the wrong number itself.
     """
-    # Anchor on the warning itself. Both call sites emit it — the startup
-    # bind and the post-ingest rebind — and an anchor like "Resources.startup"
-    # matches the module docstring first.
+    # ONE occurrence, deliberately. This assertion used to require TWO — the
+    # startup bind and the post-ingest rebind each carrying their own copy of
+    # the warning — and that duplication was the mechanism of #448: the two
+    # copies drifted until only one of them checked the embedder pin. They are
+    # now one shared validator (`reconcile_corpus_marker`), so a second
+    # occurrence would mean the duplication has come back.
     anchor = "corpus chunk_count DIVERGED"
-    assert RESOURCES_PY.count(anchor) == 2, (
-        f"expected two divergence warnings, found {RESOURCES_PY.count(anchor)}"
+    assert RESOURCES_PY.count(anchor) == 1, (
+        f"expected exactly one divergence warning (one shared validator), "
+        f"found {RESOURCES_PY.count(anchor)}"
     )
-    start = -1
-    for _ in range(occurrence + 1):
-        start = RESOURCES_PY.index(anchor, start + 1)
-    block = RESOURCES_PY[start : start + 700]
+    block = _enclosing_call(RESOURCES_PY, anchor)
     assert "make reconcile" in block, (
-        f"divergence warning #{occurrence} must name `make reconcile`, which "
-        "recounts from the committed table in seconds"
+        "the divergence warning must name `make reconcile`, which recounts "
+        "from the committed table in seconds"
     )
 
 
@@ -194,9 +226,13 @@ def test_the_reconcile_remedy_actually_exists() -> None:
 
 
 def test_the_divergence_advice_names_the_reachable_form() -> None:
-    """Both warnings must offer the path form, not only the slug form."""
-    assert RESOURCES_PY.count("--lancedb-path") >= 2, (
-        "both divergence sites must name the form that reaches a "
+    """The warning must offer the path form, not only the slug form.
+
+    Was ">= 2", one per duplicated call site; the sites are now one shared
+    validator (#448), so a single occurrence is the whole surface.
+    """
+    assert RESOURCES_PY.count("--lancedb-path") >= 1, (
+        "the divergence warning must name the form that reaches a "
         "non-default index path"
     )
 

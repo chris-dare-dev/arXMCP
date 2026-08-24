@@ -81,6 +81,7 @@ from server.corpus import (
     CorpusVersionInfo,
     DegradedState,
     open_chunks_table_with_fallback,
+    project_column,
     read_corpus_version,
 )
 from server.corpus_freshness import (
@@ -316,6 +317,263 @@ def compute_unindexed_rows(table: Any) -> tuple[int, list[str]]:
     if index_count == 0:
         return -1, breakdown
     return total, breakdown
+
+
+# ---------------------------------------------------------------------------
+# Marker reconciliation — ONE implementation, three callers (issue #448)
+# ---------------------------------------------------------------------------
+#
+# `startup`, `late_bind` and `refresh_corpus_if_stale` all bind this process to
+# a corpus, and each one used to carry its own copy of "check the marker
+# against the table". They drifted, which is the whole of #448: the embedder
+# pin was checked at startup ONLY, so bootstrap promotion — the desktop
+# first-run path, the one most likely to bind a corpus built by a different
+# embedder — published with no embedder verdict at all. A second copy of the
+# check would have drifted the same way; this is the shared one.
+
+#: Explicit severity ranking for `DegradedState.reason`.
+#:
+#: `DegradedState` carries exactly one reason, so concurrent conditions must be
+#: ordered rather than raced. The ordering principle: a reason that means "we
+#: cannot answer" outranks one that means "our answers are WRONG", which
+#: outranks one that means "a NUMBER we report is wrong".
+#:
+#: Before #448 this ordering existed only as assignment order plus a comment
+#: claiming "only the FIRST match sets degraded" — and the embedder branch
+#: assigned unconditionally, so it silently overwrote `corpus_corruption`. The
+#: comment described behavior the code did not have. Ranking it makes the
+#: precedence testable instead of emergent.
+_DEGRADED_SEVERITY: dict[str, int] = {
+    "corpus_corruption": 40,
+    "hosted_embedder_outage": 35,
+    "embedder_version_mismatch": 30,
+    "chunk_count_diverged": 20,
+    "paper_count_diverged": 10,
+}
+
+
+def _escalate(
+    current: DegradedState | None, candidate: DegradedState
+) -> DegradedState:
+    """Keep whichever of the two is more severe; ties keep ``current``.
+
+    An unknown reason ranks 0 — a new reason added without a rank never
+    displaces a known one, which is the safe direction for a mistake.
+    """
+    if current is None:
+        return candidate
+    if _DEGRADED_SEVERITY.get(candidate.reason, 0) > _DEGRADED_SEVERITY.get(
+        current.reason, 0
+    ):
+        return candidate
+    return current
+
+
+@dataclass(frozen=True)
+class MarkerReconciliation:
+    """What :func:`reconcile_corpus_marker` concluded.
+
+    ``chunk_count`` / ``paper_count`` use the -1 sentinel for "could not
+    determine" (FM-2), never 0 — a real empty corpus and a failed count must
+    not read alike.
+    """
+
+    degraded: DegradedState | None
+    chunk_count: int
+    paper_count: int
+
+
+#: Rows above which the paper_count reconciliation is skipped.
+#:
+#: The projection is now pushed into the scanner (see `project_column`), so
+#: this is a bound on SCAN TIME, not on the multi-GB materialization the first
+#: cut of #447 shipped.
+_PAPER_COUNT_SCAN_LIMIT = 250_000
+
+
+def reconcile_corpus_marker(
+    chunks_table: object,
+    *,
+    corpus_info: CorpusVersionInfo,
+    tolerance: float,
+    degraded: DegradedState | None,
+    caller: str,
+) -> MarkerReconciliation:
+    """Check the marker against the table it claims to describe.
+
+    Synchronous — every step is blocking Lance I/O, so callers run it in an
+    executor. Never raises: a marker cross-check must never be the thing that
+    stops a server from serving (FM-2), so each check degrades to its sentinel
+    and logs.
+
+    ``degraded`` is whatever the open path already concluded (typically
+    ``corpus_corruption`` from the N-1 fallback). It is not overwritten unless
+    a strictly more severe condition is found.
+    """
+    from ingest.embedder import EMBEDDER_VERSION  # noqa: PLC0415
+
+    # --- The embedder pin. Free (a string compare), so unlike the counts it
+    # runs even under an existing degrade: knowing the vector space is wrong is
+    # useful while diagnosing corruption, and `_escalate` keeps corruption on
+    # top. A corpus stamped with a different embedder is served against this
+    # model's query vectors with no warning at all — the classic
+    # silently-wrong-results shape. It is silent precisely because it looks
+    # fine: score is (1 + cos) / 2, so a mismatched vector space still returns
+    # a FULL ranked list, clustered near the 0.5 neutral midpoint rather than
+    # empty.
+    if corpus_info.embedder_version != EMBEDDER_VERSION:
+        logger.warning(
+            "%s: corpus EMBEDDER MISMATCH — marker=%s loaded=%s. Retrieval "
+            "will return a full ranked list built from an INCOMPATIBLE vector "
+            "space; scores cluster near the 0.5 neutral midpoint rather than "
+            "failing, so this does not look broken. Re-embed the corpus "
+            "(`make re-embed-all`) or serve it with the embedder it was built "
+            "with. /readyz will report degraded(reason="
+            "embedder_version_mismatch).",
+            caller,
+            corpus_info.embedder_version,
+            EMBEDDER_VERSION,
+        )
+        degraded = _escalate(
+            degraded,
+            DegradedState(
+                reason="embedder_version_mismatch",
+                fallback_version=corpus_info.version,
+                original_version=corpus_info.version,
+            ),
+        )
+
+    # --- Row count. O(1) fragment metadata.
+    try:
+        chunk_count = chunks_table.count_rows()
+    except Exception as exc:  # noqa: BLE001 — non-fatal observability
+        logger.warning(
+            "%s: count_rows() failed (%s); skipping chunk_count "
+            "reconciliation. Retrieval is unaffected.",
+            caller,
+            exc,
+        )
+        chunk_count = -1
+
+    # --- FM-7: the count checks are the EXPENSIVE ones, so an already-active
+    # more-severe degrade skips them outright rather than computing a number
+    # that cannot change the verdict.
+    corruption_active = degraded is not None and _DEGRADED_SEVERITY.get(
+        degraded.reason, 0
+    ) >= _DEGRADED_SEVERITY["corpus_corruption"]
+    if corruption_active:
+        logger.info(
+            "%s: skipping chunk_count reconciliation (and paper_count with "
+            "it) — degraded=%s already active, more severe.",
+            caller,
+            degraded.reason if degraded else "?",
+        )
+        return MarkerReconciliation(
+            degraded=degraded, chunk_count=chunk_count, paper_count=-1
+        )
+
+    direction = compute_chunk_count_divergence(
+        marker_count=corpus_info.chunk_count,
+        actual_count=chunk_count,
+        tolerance=tolerance,
+    )
+    if direction is not None:
+        # issue #429: the remedy used to read "Re-run ingest to reconcile the
+        # marker" — hours of work for a counter fix, when `make reconcile`
+        # recounts from the committed table in seconds. Advice that expensive
+        # is advice an operator learns to ignore, and an ignored degrade signal
+        # cannot report a REAL divergence.
+        logger.warning(
+            "%s: corpus chunk_count DIVERGED — marker=%d actual=%d "
+            "direction=%s tolerance=%.3f. Serving anyway (retrieval "
+            "unaffected); /readyz will report "
+            "degraded(reason=chunk_count_diverged). "
+            # Kept on one source line: an operator greps the tree for the
+            # remedy, and a phrase split across adjacent string literals is
+            # not findable that way.
+            "Heal it with `make reconcile NOTEBOOK=<slug>`, "
+            "or for a corpus at a non-default index path (lancedb-staging, "
+            "lancedb-mathag): "
+            "`uv run python -m tools.notebook_reconcile_marker "
+            "--lancedb-path <dir>`. "
+            "A full re-ingest is NOT required to fix a marker.",
+            caller,
+            corpus_info.chunk_count,
+            chunk_count,
+            direction,
+            tolerance,
+        )
+        # D2: fallback_version / original_version carry corpus_corruption
+        # semantics and are N/A for a count divergence; use the pinned version
+        # for both (no actual version fallback occurred).
+        degraded = _escalate(
+            degraded,
+            DegradedState(
+                reason="chunk_count_diverged",
+                fallback_version=corpus_info.version,
+                original_version=corpus_info.version,
+            ),
+        )
+
+    # --- paper_count, the symmetric check chunk_count always had.
+    paper_count = -1
+    if chunk_count == -1:
+        pass
+    elif chunk_count > _PAPER_COUNT_SCAN_LIMIT:
+        logger.info(
+            "%s: skipping paper_count reconciliation (%d rows > %d scan "
+            "limit); run `make reconcile` to check it.",
+            caller,
+            chunk_count,
+            _PAPER_COUNT_SCAN_LIMIT,
+        )
+    else:
+        try:
+            values = project_column(
+                chunks_table, "paper_id", expected_rows=chunk_count
+            )
+        except Exception:  # noqa: BLE001 — never fatal; see FM-2 above
+            logger.warning(
+                "%s: paper_count scan failed; skipping the reconciliation.",
+                caller,
+                exc_info=True,
+            )
+            values = None
+        if values is None:
+            # A short read, not an error: reporting a divergence off a partial
+            # scan would flip /readyz to degraded on a healthy corpus.
+            logger.info(
+                "%s: paper_count projection came back short; skipping the "
+                "reconciliation rather than reporting a divergence.",
+                caller,
+            )
+        else:
+            paper_count = len(set(values))
+
+    if paper_count >= 0 and paper_count != corpus_info.paper_count:
+        logger.warning(
+            "%s: corpus paper_count DIVERGED — marker=%d actual=%d. Served "
+            "verbatim into the corpus-manifest resource, so an agent reading "
+            "it is told the wrong corpus size. "
+            "Heal it with `make reconcile` "
+            "(see the chunk_count note above for the non-default-index-path "
+            "form).",
+            caller,
+            corpus_info.paper_count,
+            paper_count,
+        )
+        degraded = _escalate(
+            degraded,
+            DegradedState(
+                reason="paper_count_diverged",
+                fallback_version=corpus_info.version,
+                original_version=corpus_info.version,
+            ),
+        )
+
+    return MarkerReconciliation(
+        degraded=degraded, chunk_count=chunk_count, paper_count=paper_count
+    )
 
 
 @dataclass
@@ -588,165 +846,23 @@ class Resources:
                 corpus_info.version,
             )
 
-        # 2b. Corpus-count reconciliation invariant
-        # (corpus-integrity-observability-m2). Compute count_rows() ONCE
-        # (O(1) Lance fragment metadata) and cache it on the instance so
-        # the /metrics gauges read a startup snapshot, never a per-scrape
-        # scan. Reconcile against the marker's chunk_count: a divergence
-        # beyond the configured tolerance (with a 1-row absolute floor) is
-        # a WARN-and-serve signal — retrieval is unaffected — that flips
-        # /readyz to degraded so an operator notices the silent drift the
-        # m1 bug class produced.
-        #
-        # FM-2: count_rows() failure is NON-FATAL — sentinel -1, skip the
-        #   check, gauges report -1.0 so operators see the count-miss.
-        # FM-7: if the LanceDB N-1 fallback already set ``degraded``
-        #   (corpus_corruption — strictly more severe), do NOT clobber it;
-        #   skip reconciliation. The cached count is still set either way.
-        try:
-            startup_chunk_count = await loop.run_in_executor(
-                None, chunks_table.count_rows
-            )
-        except Exception as exc:  # noqa: BLE001 — non-fatal observability
-            logger.warning(
-                "Resources.startup: count_rows() failed (%s); skipping "
-                "chunk_count reconciliation. Retrieval is unaffected.",
-                exc,
-            )
-            startup_chunk_count = -1
-
-        if degraded is not None:
-            logger.info(
-                "Resources.startup: skipping chunk_count reconciliation "
-                "(degraded=%s already active — more severe).",
-                degraded.reason,
-            )
-        else:
-            direction = compute_chunk_count_divergence(
-                marker_count=corpus_info.chunk_count,
-                actual_count=startup_chunk_count,
+        # 2b. Marker reconciliation — the SHARED validator (issue #448).
+        # Startup, late_bind and refresh_corpus_if_stale must reach identical
+        # verdicts about the same corpus; before #448 each carried its own
+        # copy and only this one checked the embedder pin.
+        reconciliation = await loop.run_in_executor(
+            None,
+            lambda: reconcile_corpus_marker(
+                chunks_table,
+                corpus_info=corpus_info,
                 tolerance=config.corpus_chunk_count_tolerance,
-            )
-            if direction is not None:
-                # issue #429: the remedy used to read "Re-run ingest to
-                # reconcile the marker" — hours of work for a counter fix, when
-                # `make reconcile` recounts from the committed table in
-                # seconds and has existed since onboarding-uplift-m3. Advice
-                # that expensive is advice an operator learns to ignore, and an
-                # ignored degrade signal cannot report a REAL divergence. Name
-                # the cheap remedy instead.
-                logger.warning(
-                    "Resources.startup: corpus chunk_count DIVERGED — "
-                    "marker=%d actual=%d direction=%s tolerance=%.3f. "
-                    "Serving anyway (retrieval unaffected); /readyz will "
-                    "report degraded(reason=chunk_count_diverged). Heal it "
-                    "with `make reconcile NOTEBOOK=<slug>`, or for a corpus "
-                    "at a non-default index path (lancedb-staging, "
-                    "lancedb-mathag): `uv run python -m "
-                    "tools.notebook_reconcile_marker --lancedb-path <dir>`. "
-                    "A full re-ingest is NOT required to fix a marker.",
-                    corpus_info.chunk_count,
-                    startup_chunk_count,
-                    direction,
-                    config.corpus_chunk_count_tolerance,
-                )
-                # D2: fallback_version / original_version carry
-                # corpus_corruption semantics and are N/A for a count
-                # divergence; use the pinned version for both (no actual
-                # version fallback occurred).
-                degraded = DegradedState(
-                    reason="chunk_count_diverged",
-                    fallback_version=corpus_info.version,
-                    original_version=corpus_info.version,
-                )
+                degraded=degraded,
+                caller="Resources.startup",
+            ),
+        )
+        degraded = reconciliation.degraded
+        startup_chunk_count = reconciliation.chunk_count
 
-        # 2b-ii. Marker fields the chunk_count check never looked at
-        # (issues #447, #448). Ordered by severity, and only the FIRST match
-        # sets `degraded` — a single DegradedState can carry one reason, so the
-        # one that changes ANSWERS must win over the one that changes a number.
-
-        # #448: the embedder pin. A corpus stamped with a different embedder is
-        # served against this model's query vectors with no warning at all —
-        # the classic silently-wrong-results shape. It is silent precisely
-        # because it looks fine: score is (1 + cos) / 2, so a mismatched vector
-        # space still returns a FULL ranked list, clustered around the 0.5
-        # neutral midpoint rather than empty. Config already carries this
-        # discipline for the RERANKER (`rerank_model_sha`, "the startup drift
-        # check + the audit trail"); the embedder simply never got it.
-        from ingest.embedder import EMBEDDER_VERSION  # noqa: PLC0415
-
-        if corpus_info.embedder_version != EMBEDDER_VERSION:
-            logger.warning(
-                "Resources.startup: corpus EMBEDDER MISMATCH — marker=%s "
-                "loaded=%s. Retrieval will return a full ranked list built "
-                "from an INCOMPATIBLE vector space; scores cluster near the "
-                "0.5 neutral midpoint rather than failing, so this does not "
-                "look broken. Re-embed the corpus (`make re-embed-all`) or "
-                "serve it with the embedder it was built with. /readyz will "
-                "report degraded(reason=embedder_version_mismatch).",
-                corpus_info.embedder_version,
-                EMBEDDER_VERSION,
-            )
-            degraded = DegradedState(
-                reason="embedder_version_mismatch",
-                fallback_version=corpus_info.version,
-                original_version=corpus_info.version,
-            )
-
-        # #447: paper_count, the symmetric check chunk_count always had.
-        # Non-fatal and best-effort for the same reason count_rows() is
-        # (FM-2): a marker cross-check must never be the thing that stops a
-        # server from serving. Unlike count_rows this is an O(N) scan of ONE
-        # column, so it is skipped when the table is large enough for that to
-        # matter at boot — an unchecked count is better than a slow start, and
-        # `make reconcile` computes the same number on demand.
-        _PAPER_COUNT_SCAN_LIMIT = 250_000
-        if startup_chunk_count == -1:
-            startup_paper_count = -1
-        elif startup_chunk_count > _PAPER_COUNT_SCAN_LIMIT:
-            startup_paper_count = -1
-            logger.info(
-                "Resources.startup: skipping paper_count reconciliation "
-                "(%d rows > %d scan limit); run `make reconcile` to check it.",
-                startup_chunk_count,
-                _PAPER_COUNT_SCAN_LIMIT,
-            )
-        else:
-            try:
-                startup_paper_count = await loop.run_in_executor(
-                    None,
-                    lambda: len(
-                        set(
-                            chunks_table.to_arrow()
-                            .select(["paper_id"])["paper_id"]
-                            .to_pylist()
-                        )
-                    ),
-                )
-            except Exception:  # noqa: BLE001 — never fatal; see FM-2 above
-                logger.warning(
-                    "Resources.startup: paper_count scan failed; skipping "
-                    "the reconciliation.",
-                    exc_info=True,
-                )
-                startup_paper_count = -1
-
-        if startup_paper_count >= 0 and startup_paper_count != corpus_info.paper_count:
-            logger.warning(
-                "Resources.startup: corpus paper_count DIVERGED — marker=%d "
-                "actual=%d. Served verbatim into the corpus-manifest resource, "
-                "so an agent reading it is told the wrong corpus size. Heal it "
-                "with `make reconcile` (see the chunk_count note above for the "
-                "non-default-index-path form).",
-                corpus_info.paper_count,
-                startup_paper_count,
-            )
-            if degraded is None:
-                degraded = DegradedState(
-                    reason="paper_count_diverged",
-                    fallback_version=corpus_info.version,
-                    original_version=corpus_info.version,
-                )
 
         # 2c. HNSW unindexed-rows tripwire (corpus-integrity-observability-m3 /
         # scout CAND-10). _create_indices (ingest/store.py) runs SYNCHRONOUSLY
@@ -839,11 +955,20 @@ class Resources:
         # handler — server refuses to open ``/readyz``.
         from server.retrieval import BM25Phase
 
-        # Materialize the live chunk_id set from the table we just
-        # opened in step 2. The full scan is bounded by corpus size
-        # and is the same I/O pattern build_bm25_index uses.
-        live_chunk_ids = set(
-            chunks_table.to_arrow().column("chunk_id").to_pylist()
+        # The live chunk_id set from the table opened in step 2, projected
+        # at the scanner. `to_arrow()` here read all fourteen columns —
+        # including both 1024-float vector columns — to keep one string
+        # column; see `project_column` for the measurement. `None` (a short
+        # read) falls back to the old shape rather than silently building a
+        # PARTIAL id set, which BM25Phase would read as "these chunks were
+        # deleted".
+        _projected_ids = project_column(
+            chunks_table, "chunk_id", expected_rows=startup_chunk_count
+        )
+        live_chunk_ids = (
+            set(_projected_ids)
+            if _projected_ids is not None
+            else set(chunks_table.to_arrow().column("chunk_id").to_pylist())
         )
         bm25_phase = await BM25Phase.startup(
             lancedb_path=config.lancedb_path,
@@ -1159,80 +1284,55 @@ class Resources:
                     degraded.fallback_version,
                 )
 
-            # 2. Count reconciliation + HNSW coverage against the NEW
-            #    marker. Without this a rebind would leave
-            #    ``/metrics`` and ``/readyz`` reporting the PREVIOUS
-            #    corpus's numbers next to the new corpus_version — the
-            #    same species of silent lie #207 is about. Both are
-            #    non-fatal observability (FM-2: -1 sentinel on failure)
-            #    and both are skipped when the more-severe
-            #    ``corpus_corruption`` degrade is already set (FM-7).
-            try:
-                startup_chunk_count = await loop.run_in_executor(
-                    None, chunks_table.count_rows
-                )
-            except Exception as exc:  # noqa: BLE001 — non-fatal
-                logger.warning(
-                    "%s: count_rows() failed (%s); skipping chunk_count "
-                    "reconciliation. Retrieval is unaffected.",
-                    caller,
-                    exc,
-                )
-                startup_chunk_count = -1
+            # 2. Marker reconciliation against the NEW marker, through the
+            #    SAME validator startup uses (issue #448). Without this a
+            #    rebind would leave ``/metrics`` and ``/readyz`` reporting the
+            #    PREVIOUS corpus's numbers next to the new corpus_version —
+            #    the same species of silent lie #207 is about — and, before
+            #    #448, would publish with no embedder verdict at all.
+            reconciliation = await loop.run_in_executor(
+                None,
+                lambda: reconcile_corpus_marker(
+                    chunks_table,
+                    corpus_info=corpus_info,
+                    tolerance=config.corpus_chunk_count_tolerance,
+                    degraded=degraded,
+                    caller=caller,
+                ),
+            )
+            degraded = reconciliation.degraded
+            startup_chunk_count = reconciliation.chunk_count
 
+            # HNSW coverage. Kept at the call sites rather than folded into the
+            # validator: it is a perf tripwire, never a /readyz degrade, so it
+            # does not participate in the severity ordering.
             startup_unindexed_rows = -1
             if degraded is None:
-                direction = compute_chunk_count_divergence(
-                    marker_count=corpus_info.chunk_count,
-                    actual_count=startup_chunk_count,
-                    tolerance=config.corpus_chunk_count_tolerance,
-                )
-                if direction is not None:
-                    # issue #429: same remedy as the startup site above.
-                    logger.warning(
-                        "%s: corpus chunk_count DIVERGED — marker=%d "
-                        "actual=%d direction=%s tolerance=%.3f. Serving "
-                        "anyway (retrieval unaffected); /readyz will report "
-                        "degraded(reason=chunk_count_diverged). Heal it with "
-                        "`make reconcile NOTEBOOK=<slug>`, or "
-                        "`tools.notebook_reconcile_marker --lancedb-path "
-                        "<dir>` for a non-default index path.",
-                        caller,
-                        corpus_info.chunk_count,
-                        startup_chunk_count,
-                        direction,
-                        config.corpus_chunk_count_tolerance,
+                try:
+                    startup_unindexed_rows, _breakdown = (
+                        await loop.run_in_executor(
+                            None, compute_unindexed_rows, chunks_table
+                        )
                     )
-                    degraded = DegradedState(
-                        reason="chunk_count_diverged",
-                        fallback_version=corpus_info.version,
-                        original_version=corpus_info.version,
+                except Exception as exc:  # noqa: BLE001 — non-fatal
+                    startup_unindexed_rows = -1
+                    logger.warning(
+                        "%s: index_stats()/list_indices() unavailable "
+                        "(%s); unindexed-rows coverage UNKNOWN.",
+                        caller,
+                        exc,
                     )
                 else:
-                    try:
-                        startup_unindexed_rows, _breakdown = (
-                            await loop.run_in_executor(
-                                None, compute_unindexed_rows, chunks_table
-                            )
-                        )
-                    except Exception as exc:  # noqa: BLE001 — non-fatal
-                        startup_unindexed_rows = -1
+                    if startup_unindexed_rows > 0:
                         logger.warning(
-                            "%s: index_stats()/list_indices() unavailable "
-                            "(%s); unindexed-rows coverage UNKNOWN.",
+                            "%s: %d unindexed HNSW rows detected (%s) — "
+                            "ANN queries brute-force over these rows. "
+                            "Re-run ingest to rebuild the index.",
                             caller,
-                            exc,
+                            startup_unindexed_rows,
+                            ", ".join(_breakdown),
                         )
-                    else:
-                        if startup_unindexed_rows > 0:
-                            logger.warning(
-                                "%s: %d unindexed HNSW rows detected (%s) — "
-                                "ANN queries brute-force over these rows. "
-                                "Re-run ingest to rebuild the index.",
-                                caller,
-                                startup_unindexed_rows,
-                                ", ".join(_breakdown),
-                            )
+
 
             # 3. BM25 phase. The chunk_id scan is a full column
             #    materialization — off-loop (it was on the event loop in
@@ -1240,12 +1340,18 @@ class Resources:
             #    and is not fine on a live rebind).
             from server.retrieval import ANNPhase, BM25Phase  # noqa: PLC0415
 
-            live_chunk_ids = await loop.run_in_executor(
-                None,
-                lambda: set(
-                    chunks_table.to_arrow().column("chunk_id").to_pylist()
-                ),
-            )
+            # Same projection as the startup site. This one had no scan
+            # limit of any kind, so on a large corpus the rebind allocated the
+            # whole table — on a LIVE server, mid-request.
+            def _live_chunk_ids() -> set[str]:
+                projected = project_column(
+                    chunks_table, "chunk_id", expected_rows=startup_chunk_count
+                )
+                if projected is not None:
+                    return set(projected)
+                return set(chunks_table.to_arrow().column("chunk_id").to_pylist())
+
+            live_chunk_ids = await loop.run_in_executor(None, _live_chunk_ids)
             bm25_phase = await BM25Phase.startup(
                 lancedb_path=config.lancedb_path,
                 corpus_version=corpus_info.version,

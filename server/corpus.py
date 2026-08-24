@@ -202,6 +202,15 @@ def _dataset_tip_version(lancedb_path: str | Path | None) -> int | None:
     """
     try:
         table = open_chunks_table(lancedb_path, version=None)
+        # The tip must be READ, not merely opened, before its version number
+        # is allowed to exonerate the data. Opening succeeds on a dataset
+        # whose every fragment is zeroed -- that is the whole finding of
+        # issue #428, and `_smoke_read` immediately below says so. The first
+        # cut of #449 called `open_chunks_table` alone here, so a corpus that
+        # was BOTH corrupt and marker-ahead resolved a tip, compared
+        # `version > tip`, and told the operator "The data is NOT corrupt"
+        # on the authority of a check that cannot see corruption.
+        _smoke_read(table)
         return int(table.version)
     except Exception:  # noqa: BLE001 — diagnosis only; never raise from here
         return None
@@ -230,6 +239,42 @@ def _smoke_read(tbl: lancedb.table.Table) -> None:
     exception means the data cannot be reached.
     """
     tbl.search().select(["chunk_id"]).limit(1).to_arrow()
+
+
+def project_column(
+    tbl: lancedb.table.Table, column: str, *, expected_rows: int
+) -> list | None:
+    """One column of the whole table, projected at the SCANNER.
+
+    ``LanceTable.to_arrow()`` accepts no arguments in lancedb 0.30.x, so
+    ``tbl.to_arrow().select([col])`` -- the shape that had spread through this
+    codebase -- materializes EVERY column first and projects the copy. The
+    chunks schema carries two 1024-float vector columns, so that is not a
+    micro-optimization:
+
+        measured, 4,279-row staging table
+        tbl.to_arrow()                        14 cols   59,957,064 bytes
+        tbl.search().select(["paper_id"])      1 col        59,375 bytes
+
+    ~14 KB/row against ~14 B/row, a factor of 1009. At the 250,000-row
+    reconciliation limit that is ~3.5 GB of peak allocation at boot.
+
+    ``expected_rows`` is REQUIRED and checked, because the query builder needs
+    an explicit ``limit`` and a wrong one fails silently in the worst
+    direction: a short read looks like a real row-count divergence and would
+    flip ``/readyz`` to degraded on a healthy corpus. Callers already hold a
+    ``count_rows()``; pass it. Returns ``None`` -- "could not project" -- when
+    the read comes back short, so a caller can skip its check rather than
+    report a divergence it cannot stand behind.
+    """
+    if expected_rows < 0:
+        return None
+    if expected_rows == 0:
+        return []
+    arrow = tbl.search().select([column]).limit(expected_rows).to_arrow()
+    if arrow.num_rows != expected_rows:
+        return None
+    return arrow.column(column).to_pylist()
 
 
 def open_chunks_table_with_fallback(

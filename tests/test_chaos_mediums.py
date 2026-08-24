@@ -24,83 +24,39 @@ CHILD_PY: str = (REPO_ROOT / "server" / "desktop_child.py").read_text(encoding="
 
 
 # --------------------------------------------------------------------------
-# #448 — the embedder pin
+# #447 / #448 / #449 — MOVED to tests/test_marker_reconciliation.py
 # --------------------------------------------------------------------------
-def test_the_embedder_pin_is_checked_against_the_marker() -> None:
-    """The silently-wrong-results shape.
-
-    Score is (1 + cos) / 2, so a mismatched vector space returns a FULL
-    ranked list clustered near the 0.5 neutral midpoint rather than failing.
-    Nothing looks broken. Config already carried this discipline for the
-    reranker; the embedder never got it.
-    """
-    assert "from ingest.embedder import EMBEDDER_VERSION" in RESOURCES_PY
-    assert "embedder_version != EMBEDDER_VERSION" in RESOURCES_PY
-    assert "embedder_version_mismatch" in RESOURCES_PY
-
-
-def test_the_embedder_mismatch_outranks_a_wrong_counter() -> None:
-    """A DegradedState carries ONE reason, so the ordering is a real choice:
-    the condition that changes ANSWERS must win over the one that changes a
-    number."""
-    embedder = RESOURCES_PY.index("embedder_version_mismatch")
-    paper = RESOURCES_PY.index("paper_count_diverged")
-    assert embedder < paper, (
-        "the embedder check must run first, or a paper_count divergence can "
-        "occupy the single degrade slot and hide it (#448)"
-    )
-    assert "if degraded is None:" in RESOURCES_PY, (
-        "the lower-severity check must not overwrite an existing reason"
-    )
-
-
-# --------------------------------------------------------------------------
-# #447 — paper_count, the symmetric check
-# --------------------------------------------------------------------------
-def test_paper_count_is_reconciled() -> None:
-    assert "paper_count DIVERGED" in RESOURCES_PY
-    assert "_PAPER_COUNT_SCAN_LIMIT" in RESOURCES_PY, (
-        "an O(N) column scan at boot needs a size guard; an unchecked count "
-        "beats a slow start, and `make reconcile` computes it on demand"
-    )
-
-
-def test_the_paper_count_scan_is_never_fatal() -> None:
-    """Same FM-2 discipline count_rows() already has: a marker cross-check
-    must never be the thing that stops a server from serving."""
-    block = RESOURCES_PY[RESOURCES_PY.index("_PAPER_COUNT_SCAN_LIMIT") :][:2000]
-    assert "except Exception" in block
-    assert "startup_paper_count = -1" in block
-
-
-# --------------------------------------------------------------------------
-# #449 — a marker version the dataset never had
-# --------------------------------------------------------------------------
-def test_an_absent_marker_version_is_diagnosed_not_blamed_on_corruption() -> None:
-    """The operator was being sent to restore from backup for a JSON typo."""
-    assert "corpus_marker_version_absent" in CORPUS_PY
-    assert "def _dataset_tip_version(" in CORPUS_PY
-    block = CORPUS_PY[CORPUS_PY.index("corpus_marker_version_absent") :][:700]
-    assert "NOT corrupt" in block, "say plainly that the data is fine"
-    assert "make reconcile" in block
-
-
-def test_the_tip_lookup_is_failure_path_only() -> None:
-    """Its cost must never land on a healthy boot, and an unreadable dataset
-    is a corruption question — guessing there would swap one wrong diagnosis
-    for another."""
-    fn = CORPUS_PY[CORPUS_PY.index("def _dataset_tip_version(") :][:900]
-    assert "return None" in fn
-    body = CORPUS_PY[CORPUS_PY.index("except corrupt_exc as primary_exc:") :][:900]
-    assert "_dataset_tip_version(" in body, (
-        "the lookup belongs on the failure path, not before the first open"
-    )
-
-
-def test_new_degrade_reasons_are_in_the_gauge_label_space() -> None:
-    """A reason missing here never resets its gauge to 0 after it clears."""
-    for reason in ("embedder_version_mismatch", "paper_count_diverged"):
-        assert reason in HEALTH_PY, f"{reason} must be in the reset enum"
+#
+# Eight source-scanning tests lived here and were deleted rather than
+# repaired, because every one of them passed against code an external review
+# then showed to be wrong at runtime (#495). Recording what they asserted, so
+# the failure mode is not re-derived from scratch later:
+#
+#   * "the embedder pin is checked" asserted that
+#     `embedder_version != EMBEDDER_VERSION` appeared ANYWHERE in
+#     resources.py. It did — inside `startup` only. `_bind_corpus`, which
+#     `late_bind` and `refresh_corpus_if_stale` share, had no check at all,
+#     so bootstrap promotion published a clean verdict for a corpus built by
+#     a different embedder. A substring cannot distinguish one call site from
+#     three.
+#
+#   * "the embedder mismatch outranks a wrong counter" compared the two
+#     reasons' STRING OFFSETS in the file and asserted `"if degraded is
+#     None:" in RESOURCES_PY`. Both held while the embedder branch assigned
+#     unconditionally and silently overwrote `corpus_corruption` — a more
+#     severe reason that appears EARLIER in the file, which the offset
+#     comparison was structurally unable to see.
+#
+#   * "the tip lookup is failure-path only" asserted `return None` appeared
+#     in `_dataset_tip_version`. It did. The function still opened the table
+#     without reading a row, so a corpus that was BOTH corrupt and
+#     marker-ahead was told "The data is NOT corrupt".
+#
+# The replacements build a real LanceDB table, run the code, and read the
+# verdict — and each is mutation-checked against the specific defect it
+# exists to catch. Structural assertions are kept only where the property
+# genuinely IS structural (a constant's value, a call site's placement inside
+# a `try`, a ban on a construct).
 
 
 # --------------------------------------------------------------------------
