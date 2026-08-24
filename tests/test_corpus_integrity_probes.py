@@ -292,3 +292,117 @@ def test_the_cache_contract_is_still_documented_where_it_is_implemented() -> Non
         "the contract #430 restores must stay stated next to the code that "
         "implements it"
     )
+
+
+# ---------------------------------------------------------------------------
+# #430 round 2 — the log must not contradict the fallback
+# ---------------------------------------------------------------------------
+def test_a_cacheless_boot_says_cacheless_and_not_warm(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The behaviour half of #430, which the structural tests above miss.
+
+    The fallback itself was correct: a corrupt or unopenable cache file no
+    longer stops the boot. What shipped with it was an unconditional
+    ``RetrievalCache warm`` log seven lines below the ``cache unavailable``
+    warning, naming the sqlite path it had just failed to open. A log that
+    answers "is this server running with a cache?" both ways is not a
+    diagnostic.
+
+    Everything expensive is stubbed EXCEPT ``RetrievalCache.open``, which is
+    the thing under test — stubbing it is what let this ship.
+    """
+    import asyncio
+    import json
+    from unittest.mock import MagicMock
+
+    import lancedb
+    import pyarrow as pa
+
+    import server.cache as cache_mod
+    import server.resources as res_mod
+    from ingest.embedder import EMBEDDER_VERSION
+    from ingest.schema import CHUNKS_SCHEMA_V1
+    from server.config import Config
+    from server.resources import Resources
+    from server.retrieval import BM25Phase
+
+    rows = [
+        {
+            "chunk_id": f"c{i}",
+            "paper_id": f"p{i}",
+            "kind": "section",
+            "section_path": ["1"],
+            "theorem_name": None,
+            "theorem_label": None,
+            "body_text": "body",
+            "body_tokens": "body",
+            "embedding_stmt": [0.1] * 1024,
+            "embedding_proof": None,
+            "embedding_eq": None,
+            "chunker_version": "test",
+            "embedder_version": "test",
+            "preamble_ref": None,
+        }
+        for i in range(3)
+    ]
+    lance = tmp_path / "lancedb"
+    table = lancedb.connect(str(lance)).create_table(
+        "chunks", data=pa.Table.from_pylist(rows, schema=CHUNKS_SCHEMA_V1)
+    )
+    (lance / "corpus-version.json").write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "chunker_version": "test",
+                "embedder_version": EMBEDDER_VERSION,
+                "created_at": "2026-08-23T00:00:00Z",
+                "paper_count": 3,
+                "chunk_count": 3,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    # A cache path that cannot be opened as a file, so the REAL
+    # RetrievalCache.open raises and the fallback runs for real.
+    bad_cache = tmp_path / "cache.db"
+    bad_cache.mkdir()
+
+    monkey = pytest.MonkeyPatch()
+    try:
+        monkey.setattr(
+            res_mod, "open_chunks_table_with_fallback", lambda **_kw: (table, None)
+        )
+        fake_bm25 = MagicMock(spec=BM25Phase)
+        fake_bm25.corpus_size = 3
+
+        async def _bm25(**_kw: object) -> object:
+            return fake_bm25
+
+        monkey.setattr(BM25Phase, "startup", staticmethod(_bm25))
+        monkey.setattr(cache_mod, "set_cache", lambda _c: None)
+
+        cfg = Config(
+            lancedb_path=lance,
+            notebooks_db_path=tmp_path / "nb.db",
+            cache_db_path=bad_cache,
+            enable_rerank=False,
+        )
+        with caplog.at_level("INFO"):
+            resources = asyncio.run(Resources.startup(cfg))
+    finally:
+        monkey.undo()
+
+    assert resources.cache is None, "the fixture must actually produce a cacheless boot"
+    messages = [record.getMessage() for record in caplog.records]
+    assert any("retrieval cache unavailable" in m for m in messages), (
+        "the failure must still be reported"
+    )
+    assert not any("RetrievalCache warm" in m for m in messages), (
+        "a cacheless boot must not claim the cache is warm — that line ran "
+        "unconditionally, seven lines below the failure it contradicts (#430)"
+    )
+    assert any("running CACHELESS" in m for m in messages), (
+        "cacheless is a supported state; it has to be a legible one"
+    )

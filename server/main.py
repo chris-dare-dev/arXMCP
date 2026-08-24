@@ -73,7 +73,6 @@ import difflib
 import json
 import logging
 import os
-import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -1007,11 +1006,13 @@ def _build_module_app() -> FastAPI:
         # the config dict into stderr — and it fires on the uvicorn-CLI path,
         # which is the one an operator reaches when the CLI's own guard has
         # already been bypassed. Two entry points must fail identically.
-        from server.cli import _format_config_error  # noqa: PLC0415
+        # #475 round 2: report through the shared once-per-process emitter.
+        # On the console-script path this handler and `cli.main`'s both fire —
+        # importing this module runs `create_app()` at module scope — and the
+        # operator was shown the same message four times.
+        from server.cli import emit_config_error  # noqa: PLC0415
 
-        message = _format_config_error(exc)
-        logger.error("FATAL during app construction: %s", message)
-        sys.stderr.write(f"FATAL: {message}\n")
+        emit_config_error(exc, context="app construction")
         raise
 
 

@@ -235,9 +235,55 @@ def test_parameterised_tokens_carry_an_argument() -> None:
 
 
 def test_success_actions_only_run_on_success() -> None:
-    """The old attributes all guarded on ``event.detail.successful``."""
-    assert "if (!evt.detail.successful)" in UI_JS, (
-        "runSuccessTokens must not fire on a failed request"
+    """#494. The gate must fail CLOSED on a missing verdict.
+
+    **The previous version of this test proved nothing.** It asserted that
+    ``if (!evt.detail.successful)`` appeared somewhere in ui.js — and it does,
+    in the OFFLINE-BANNER listener, a different handler entirely. The success
+    gate it was meant to cover read ``evt.detail.successful === false``, so an
+    ``undefined`` verdict ran the tokens, which include ``remove:``,
+    ``remove-closest:`` and ``navigate:``. A substring search cannot tell one
+    listener from another; that is how this passed for both.
+
+    Verified in a real browser after the fix (four synthetic arms plus a live
+    409 through htmx): no verdict -> tokens do not run; explicit failure ->
+    do not run; success -> run; a second settle -> does not replay.
+    """
+    # UI_JS_CODE, not UI_JS: the comment above the fix QUOTES the old gate to
+    # explain why it was wrong, and a raw scan reads the explanation as the
+    # offence. That trap has now been sprung six times in this batch of work
+    # — ui.js, lifecycle.rs, corpus.py, middleware.py and twice here.
+    assert "successful === false" not in UI_JS_CODE, (
+        "an === false gate fails OPEN: a missing verdict runs destructive "
+        "tokens (#494)"
+    )
+    assert "successful === true" in UI_JS_CODE, (
+        "the verdict must be an explicit success, read on afterRequest where "
+        "htmx documents it"
+    )
+    assert "succeeded.has(elt)" in UI_JS_CODE, (
+        "afterSettle must act only on a request it saw succeed, rather than "
+        "re-reading a field htmx documents for afterRequest"
+    )
+    assert "succeeded.delete(elt)" in UI_JS_CODE, (
+        "the verdict must be consumed, or a later swap on the same element "
+        "replays a stale success"
+    )
+
+
+def test_the_verdict_is_recorded_before_it_is_consumed() -> None:
+    """Ordering, which the substrings above cannot establish on their own."""
+    weakset_at = UI_JS_CODE.index("var succeeded = new WeakSet()")
+    # ui.js has TWO afterRequest listeners — the offline banner's comes first
+    # and is unrelated. Anchoring on the first would compare the wrong one,
+    # which is how the assertion this replaces got its answer.
+    request_at = UI_JS_CODE.index(
+        'addEventListener("htmx:afterRequest"', weakset_at
+    )
+    settle_at = UI_JS_CODE.index('addEventListener("htmx:afterSettle"')
+    assert weakset_at < request_at < settle_at, (
+        "the WeakSet must be declared before both listeners, and the verdict "
+        "recorded on afterRequest before afterSettle consumes it"
     )
 
 

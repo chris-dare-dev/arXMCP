@@ -1115,12 +1115,25 @@ class Resources:
             retrieval_cache = None
         if retrieval_cache is not None:
             set_cache(retrieval_cache)
-        logger.info(
-            "Resources.startup: RetrievalCache warm "
-            "(corpus_version=%d, sqlite=%s)",
-            corpus_info.version,
-            config.cache_db_path,
-        )
+            logger.info(
+                "Resources.startup: RetrievalCache warm "
+                "(corpus_version=%d, sqlite=%s)",
+                corpus_info.version,
+                config.cache_db_path,
+            )
+        else:
+            # #430 round 2: this line used to run unconditionally, so a
+            # cacheless boot logged "cache unavailable ... continuing WITHOUT
+            # a cache" and "RetrievalCache warm" back to back, naming the
+            # sqlite path it had just failed to open. Anyone reading the log
+            # to answer "is this server running with a cache?" got both
+            # answers. Cacheless is a supported state; it has to be a
+            # legible one.
+            logger.info(
+                "Resources.startup: running CACHELESS "
+                "(corpus_version=%d); retrieval is correct but uncached.",
+                corpus_info.version,
+            )
 
         # 6b. Definitions table (E10_S01). Optional handle: the table
         # is created lazily by the indexer (`ingest.index_definitions`)

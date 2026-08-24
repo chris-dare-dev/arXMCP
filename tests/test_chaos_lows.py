@@ -134,10 +134,33 @@ def test_config_errors_do_not_echo_the_input() -> None:
     printed every path the server knows about."""
     assert "def _format_config_error(" in CLI_PY
     assert "_format_config_error(exc)" in CLI_PY
-    assert "_format_config_error" in MAIN_PY, (
+    assert "emit_config_error" in MAIN_PY, (
         "both entry points must fail identically — the uvicorn-CLI path has "
-        "its own handler"
+        "its own handler, and it reports through the SHARED emitter"
     )
+
+
+def test_a_config_failure_is_reported_exactly_once() -> None:
+    """#475 round 2. The root-cause fix was right; the output was not.
+
+    Both handlers are legitimately outermost on their own path, and on the
+    console script BOTH run — importing `server.main` executes `create_app()`
+    at module scope, which is exactly what the root-cause fix moved inside
+    the try. Each emitted twice (a logger record and a bare stderr write), so
+    an operator saw the same message four times.
+
+    Measured with `ARXMCP_BIND_HOST=0.0.0.0` on `arxmcp-server`: four
+    identical lines before, one after, exit 1 unchanged.
+    """
+    assert "_CONFIG_ERROR_EMITTED" in CLI_PY, (
+        "a once-per-process latch is what lets either entry point be "
+        "outermost without either having to know"
+    )
+    assert "sys.stderr.write(f\"FATAL:" not in CLI_PY, (
+        "the bare stderr write duplicated the logger record AND bypassed the "
+        "RedactionFilter that E13_S08 installs on the root logger"
+    )
+    assert "sys.stderr.write(f\"FATAL:" not in MAIN_PY
 
 
 def test_the_config_guard_actually_covers_the_import() -> None:

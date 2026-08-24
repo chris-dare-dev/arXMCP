@@ -226,17 +226,45 @@
    * heading stayed at 0 while the row was visibly there.
    *
    * afterSettle fires after the swap AND the settle delay, so the DOM the
-   * tokens act on is the DOM the user is looking at. It also only fires when a
-   * swap actually happened, which for htmx means a non-error response — so
-   * reaching this handler is itself the success condition. The xhr status is
-   * still checked, because `hx-swap-error` or a future config could swap on a
-   * 4xx and these tokens must never run on a failure.
+   * tokens act on is the DOM the user is looking at.
+   *
+   * #494: but the SUCCESS decision is made on afterRequest, and carried here.
+   *
+   * This gate previously read `evt.detail.successful === false` on afterSettle
+   * itself, which fails OPEN: a missing or undefined `successful` ran the
+   * tokens — and the tokens include `remove:`, `remove-closest:` and
+   * `navigate:`. htmx's published event reference documents `successful` for
+   * `htmx:afterRequest`; that it also rides on afterSettle is behaviour of the
+   * vendored build, pinned by nothing. A vendor bump that stopped propagating
+   * it would have turned a 4xx into a row removal, silently.
+   *
+   * So the verdict is recorded where it is documented, and afterSettle only
+   * acts on a request it has actually seen succeed. Absence of a verdict is
+   * now "do nothing" instead of "assume success".
    */
-  document.body.addEventListener("htmx:afterSettle", function (evt) {
-    if (evt.detail && evt.detail.successful === false) {
+  var succeeded = new WeakSet();
+
+  document.body.addEventListener("htmx:afterRequest", function (evt) {
+    var elt = requestingElement(evt.detail);
+    if (!elt) {
       return;
     }
-    runSuccessTokens(requestingElement(evt.detail));
+    if (evt.detail && evt.detail.successful === true) {
+      succeeded.add(elt);
+    } else {
+      succeeded.delete(elt);
+    }
+  });
+
+  document.body.addEventListener("htmx:afterSettle", function (evt) {
+    var elt = requestingElement(evt.detail);
+    if (!elt || !succeeded.has(elt)) {
+      return;
+    }
+    /* One settle per verdict: clear it so a later swap on the same element —
+     * a polled fragment, say — cannot replay a stale success. */
+    succeeded.delete(elt);
+    runSuccessTokens(elt);
   });
 
   /* ------------------------------------------------ view-transition toggle */

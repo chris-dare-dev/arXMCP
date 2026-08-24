@@ -38,7 +38,6 @@ from __future__ import annotations
 import argparse
 import logging
 import os
-import sys
 
 logger = logging.getLogger(__name__)
 
@@ -107,6 +106,42 @@ def _build_parser() -> argparse.ArgumentParser:
         version=f"arxmcp-server {_version()}",
     )
     return parser
+
+
+#: Set once a config failure has been reported to the operator (#475).
+#:
+#: A config failure is fatal, so "once per process" is the whole lifetime.
+_CONFIG_ERROR_EMITTED = False
+
+
+def emit_config_error(exc: Exception, *, context: str) -> str:
+    """Report a startup config failure to the operator EXACTLY once.
+
+    #475 round 2. The root-cause fix — moving `from server.main import ...`
+    inside the try, so a bad `ARXMCP_BIND_HOST` is caught rather than raising
+    during the import — was correct and stands. What was not checked is what
+    an operator actually sees, which is what the ticket asked for. Measured
+    on `arxmcp-server` with `ARXMCP_BIND_HOST=0.0.0.0`: an unrelated INFO
+    line, then the SAME message four times.
+
+    Two entry points both catch it, because both are legitimately outermost
+    on their own path: `server.main._build_module_app` for `uvicorn
+    server.main:app`, and `cli.main` for the console script. On the console
+    script BOTH run, since importing `server.main` executes `create_app()` at
+    module scope — that import is exactly what the root-cause fix moved
+    inside the try. Rather than have either guess whether it is outermost,
+    the first one to report wins and the rest are silent.
+
+    One line, through `logging`: a bare `sys.stderr.write` bypasses the
+    `RedactionFilter` that E13_S08 installs on the root logger, and this
+    message is built from config values.
+    """
+    global _CONFIG_ERROR_EMITTED  # noqa: PLW0603 — process-lifetime latch
+    message = _format_config_error(exc)
+    if not _CONFIG_ERROR_EMITTED:
+        _CONFIG_ERROR_EMITTED = True
+        logger.error("FATAL during %s: %s", context, message)
+    return message
 
 
 def _format_config_error(exc: BaseException) -> str:
@@ -181,9 +216,7 @@ def main(argv: list[str] | None = None) -> int:
         # and every other path included — to stderr. The field errors are the
         # actionable part; the input echo is noise that buries them and puts
         # the operator's filesystem layout in any pasted error report.
-        message = _format_config_error(exc)
-        logger.error("FATAL during config load: %s", message)
-        sys.stderr.write(f"FATAL: {message}\n")
+        emit_config_error(exc, context="config load")
         return 1
 
     # E13_S08 Threat 8 — install the RedactionFilter on the root logger AND
