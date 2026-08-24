@@ -975,3 +975,175 @@ class TestGateWiring:
     )
     def test_the_gate_env_var_is_set_when_the_gate_runs(self):
         assert os.environ[GATE_ENV] == "1"
+
+
+def _event_names(path: Path) -> list[str]:
+    """Event names from a supervisor NDJSON log, or [] when it does not exist."""
+    if not path.is_file():
+        return []
+    return [
+        json.loads(line)["event"]
+        for line in path.read_text(encoding="utf-8").splitlines()
+        if line
+    ]
+
+
+class TestPayloadIntegrityAtLaunch:
+    """Issues #436 / #484 round 2 — does the SUPERVISOR consult the seal?
+
+    `TestOuterSeal` already establishes that the outer seal COVERS the payload
+    bytes. That was never the gap. The gap, found by an external review of the
+    first round, is that the supervisor never asked it:
+
+    * `verify_signature` validated `child_argv[0]` — one Mach-O. The child is
+      a PyInstaller **onedir**, so that file is a launcher and the runtime it
+      loads (`_internal/libpython3.12.dylib`, every extension module) is not
+      covered by its signature at all.
+    * `check_payload_completeness` checked that the probe existed. #484's own
+      title names two more cases it never looked at.
+
+    The review deleted `_internal/libpython3.12.dylib` from a copy of the
+    assembled bundle: both checks passed, `child_status=0`, while the bundle's
+    own seal reported the tamper. These tests drive the REAL supervisor out of
+    the REAL bundle against a mutated copy and require a refusal — the only
+    form of evidence that distinguishes "the seal can detect this" from "we
+    look at the seal before we exec".
+
+    Three mutation shapes, because they fail differently: DELETE is what the
+    review measured, MODIFY is what a byte-flip attacker does, and ADD is the
+    one no manifest of expected filenames can ever catch.
+    """
+
+    @staticmethod
+    def _clone(app: Path, dest: Path) -> Path:
+        """APFS clone, not a byte copy: 804 MB, ~0 s and ~0 additional disk.
+
+        `shutil.copytree` here would cost ~800 MB per mutation arm.
+        """
+        clone = dest / app.name
+        subprocess.run(  # noqa: S603,S607 - our own artifact, fixed argv
+            ["/bin/cp", "-Rc", str(app), str(clone)],
+            check=True,
+            capture_output=True,
+            timeout=600,
+        )
+        return clone
+
+    @staticmethod
+    def _launch(clone: Path, home: Path, *, want: str, timeout: float = 90.0) -> dict:
+        """Run the cloned supervisor until `want` appears in its event log.
+
+        Popen rather than `run`: on the SUCCESS arm the supervisor goes on to
+        boot a real server and never exits on its own, so the test waits for
+        the event it needs and then stops the process. `$HOME` is redirected
+        so the data root — and therefore the event log — lands in the
+        test's own tree and never touches the operator's.
+        """
+        home.mkdir(parents=True, exist_ok=True)
+        env = {k: v for k, v in os.environ.items() if not k.startswith("ARXMCP_")}
+        env["HOME"] = str(home)
+        events = (
+            home / "Library" / "Application Support" / "arXMCP"
+            / "logs" / "supervisor-events.ndjson"
+        )
+        with (
+            (home / "sup-out.log").open("wb") as out,
+            (home / "sup-err.log").open("wb") as err,
+        ):
+            proc = subprocess.Popen(  # noqa: S603
+                [str(dp.bundle_executable(clone))],
+                stdin=subprocess.DEVNULL,
+                stdout=out,
+                stderr=err,
+                env=env,
+            )
+        try:
+            deadline = time.monotonic() + timeout
+            while time.monotonic() < deadline:
+                if events.is_file():
+                    for line in events.read_text(encoding="utf-8").splitlines():
+                        if not line:
+                            continue
+                        record = json.loads(line)
+                        if record["event"] == want:
+                            return record
+                if proc.poll() is not None and events.is_file():
+                    break
+                time.sleep(0.25)
+            seen = _event_names(events)
+            tail = (home / "sup-err.log").read_text(errors="replace")[-800:]
+            raise AssertionError(
+                f"{want!r} never appeared within {timeout}s. "
+                f"Events seen: {seen}. stderr: {tail}"
+            )
+        finally:
+            if proc.poll() is None:
+                proc.terminate()
+                try:
+                    proc.wait(timeout=20)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                    proc.wait(timeout=10)
+
+    @pytest.mark.requires_desktop_bundle
+    @pytest.mark.parametrize(
+        ("shape", "relative"),
+        [
+            ("delete", "_internal/libpython3.12.dylib"),
+            ("modify", None),
+            ("add", "_internal/evil-planted.dylib"),
+        ],
+    )
+    def test_a_tampered_payload_refuses_to_launch(
+        self, tmp_path: Path, shape: str, relative: str | None
+    ):
+        app = _app()
+        clone = self._clone(app, tmp_path)
+        payload = clone / "Contents" / "Resources" / dp.BUNDLE_NAME
+
+        if shape == "delete":
+            target = payload / relative
+            assert target.is_file(), f"nothing at {target} to delete"
+            target.unlink()
+        elif shape == "modify":
+            # Any sealed payload Mach-O; flipping a byte in the MIDDLE avoids
+            # the header, so the file stays a plausible Mach-O and only the
+            # seal's hash can tell.
+            candidates = sorted((payload / "_internal").glob("*.so"))
+            assert candidates, "no payload extension module to modify"
+            target = candidates[0]
+            blob = bytearray(target.read_bytes())
+            blob[len(blob) // 2] ^= 0xFF
+            target.write_bytes(bytes(blob))
+        else:
+            (payload / relative).write_bytes(b"planted\n")
+
+        record = self._launch(clone, tmp_path / "home", want="payload-seal-invalid")
+        assert "detail" in record["fields"], record
+        # codesign's own words, not a generic string: an operator needs to
+        # know WHICH kind of tamper this was.
+        assert "seal" in record["fields"]["detail"] or "resource" in record["fields"]["detail"], (
+            f"the refusal must carry codesign's reason: {record['fields']}"
+        )
+
+        events = _event_names(
+            tmp_path / "home" / "Library" / "Application Support" / "arXMCP"
+            / "logs" / "supervisor-events.ndjson"
+        )
+        assert "child-spawn" not in events, (
+            f"the child was spawned DESPITE a tampered payload — this is "
+            f"#436/#484 regressed. Events: {events}"
+        )
+
+    @pytest.mark.requires_desktop_bundle
+    def test_an_intact_payload_still_launches(self, tmp_path: Path):
+        """The negative control, and the one that matters most.
+
+        A seal check that refuses everything would pass every arm above while
+        making the product unusable. This proves the intact artifact still
+        reaches `child-spawn` — i.e. that ~0.3 s of `codesign --verify` on the
+        launch path costs a delay and not a working application.
+        """
+        clone = self._clone(_app(), tmp_path)
+        record = self._launch(clone, tmp_path / "home", want="child-spawn")
+        assert record["fields"].get("child_pid"), record

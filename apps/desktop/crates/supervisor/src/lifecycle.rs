@@ -276,9 +276,35 @@ fn cycle(
     // verifies, and the harness keeps working. `verify_signature` itself is
     // compiled in both profiles and unit-tested directly.
     #[cfg(not(debug_assertions))]
-    if let Err(detail) = verify_signature(std::path::Path::new(&plan.child_argv[0])) {
-        let _ = recorder.record("child-signature-invalid", json!({"detail": detail}));
-        return Err("child code signature invalid");
+    {
+        let child_path = std::path::Path::new(&plan.child_argv[0]);
+        if let Err(detail) = verify_signature(child_path) {
+            let _ = recorder.record("child-signature-invalid", json!({"detail": detail}));
+            return Err("child code signature invalid");
+        }
+        // #436/#484: the executable is a PyInstaller LAUNCHER. Consult the
+        // outer seal too, which covers the `_internal/` runtime it will load
+        // — the part that check verifies nothing about.
+        match enclosing_app_bundle(child_path) {
+            Some(app) => {
+                if let Err(detail) = verify_bundle_seal(&app) {
+                    let _ = recorder.record(
+                        "payload-seal-invalid",
+                        json!({"detail": detail, "bundle": app.to_string_lossy()}),
+                    );
+                    return Err("child payload seal invalid");
+                }
+            }
+            None => {
+                // The onedir layout: no bundle, so no seal to consult. Record
+                // it rather than passing silently — "not checked" and
+                // "checked and clean" must not read alike in the event log.
+                let _ = recorder.record(
+                    "payload-seal-unavailable",
+                    json!({"reason": "child is not inside an .app bundle"}),
+                );
+            }
+        }
     }
 
     let mut command = Command::new(&plan.child_argv[0]);
@@ -719,6 +745,91 @@ pub fn verify_signature(_path: &std::path::Path) -> Result<(), String> {
     Ok(())
 }
 
+/// The `.app` that encloses this child executable, when there is one.
+///
+/// The bundled payload sits at
+/// `<name>.app/Contents/Resources/arxmcp-desktop-child/arxmcp-desktop-child`
+/// (m15 ADR Decision 2a), so the bundle root is four levels up — but only
+/// when the intervening components are exactly `Resources` and `Contents` and
+/// the root ends in `.app`. Anything else is the m7 onedir layout, which has
+/// no bundle and therefore no seal to consult.
+///
+/// Derived from the child path rather than threaded through the launch plan
+/// on purpose: the plan is a WIRE CONTRACT with a fixed schema, its own
+/// probe output and a fault matrix built around it. A new field there is a
+/// far larger change than reading four path components here, and the two
+/// would have to agree anyway.
+/// `#[allow(dead_code)]` for the same reason as [`verify_signature`]: the
+/// only call site is release-gated, so a debug build sees no caller.
+#[allow(dead_code)]
+fn enclosing_app_bundle(child_exe: &std::path::Path) -> Option<std::path::PathBuf> {
+    let payload_dir = child_exe.parent()?;
+    let resources = payload_dir.parent()?;
+    if resources.file_name()? != "Resources" {
+        return None;
+    }
+    let contents = resources.parent()?;
+    if contents.file_name()? != "Contents" {
+        return None;
+    }
+    let app = contents.parent()?;
+    if app.extension()? != "app" {
+        return None;
+    }
+    Some(app.to_path_buf())
+}
+
+/// Ask the OUTER bundle's seal about the whole payload (issues #436, #484).
+///
+/// [`verify_signature`] validates one Mach-O: the executable about to be
+/// exec'd. That is not the payload. The child is a PyInstaller **onedir**, so
+/// the executable is a launcher and the actual runtime — `libpython3.12.dylib`,
+/// every extension module, every data file — lives beside it in `_internal/`.
+/// An external review deleted `_internal/libpython3.12.dylib` from a copy of
+/// the assembled bundle and both of this crate's checks passed, while the
+/// bundle's own seal reported the tamper.
+///
+/// The payload is sealed as RESOURCES of the outer bundle
+/// (`Contents/_CodeSignature/CodeResources`), which is why one check covers
+/// files this crate never enumerates — including files an attacker ADDS,
+/// which no manifest of expected names can catch. Measured on the assembled
+/// artifact, three mutations against a clone:
+///
+/// | mutation | `verify` child exe | `verify` bundle |
+/// |---|---|---|
+/// | delete `_internal/libpython3.12.dylib` | **passes** | fails |
+/// | flip one byte in a payload `.so` | **passes** | fails |
+/// | add `_internal/evil.dylib` | **passes** | fails |
+///
+/// Plain `--verify`, deliberately: `--strict` and `--deep` were measured at
+/// ~0.6 s against ~0.3 s and detected nothing further HERE, because sealed
+/// resources are covered by hash either way and `--deep` recurses into nested
+/// CODE this layout does not have. (The ADR's ban on `--deep` is about
+/// SIGNING; verification is a different operation. It is simply not needed.)
+///
+/// ~0.3 s on the launch path is the cost. That buys the difference between
+/// "the file we exec is intact" and "the payload it will load is intact".
+///
+/// **Bound honestly:** this consults an AD-HOC seal, which anyone can
+/// re-create over modified bytes. It detects tampering, not a determined
+/// attacker, and says nothing about Apple's notary — ADR Decision 3, still
+/// open. It is also unavailable in the onedir layout, which has no bundle;
+/// there the caller falls back to the executable check alone.
+#[allow(dead_code)]
+pub fn verify_bundle_seal(app: &std::path::Path) -> Result<(), String> {
+    let output = Command::new(CODESIGN)
+        .arg("--verify")
+        .arg(app)
+        .output()
+        .map_err(|err| format!("codesign could not be run: {err}"))?;
+    if output.status.success() {
+        return Ok(());
+    }
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let reason = stderr.lines().next().unwrap_or("unspecified").trim();
+    Err(reason.to_owned())
+}
+
 /// Percent-encode for a `data:` URL body. Conservative on purpose: everything
 /// outside the unreserved set is escaped, so no operator-controlled byte in a
 /// filesystem path can terminate the URL or introduce a new attribute.
@@ -1044,6 +1155,61 @@ fn file_sha256(path: &str) -> Result<String, &'static str> {
 
 #[cfg(test)]
 mod tests {
+    // ---- issues #436 / #484: the payload, not just the executable --------
+
+    #[test]
+    fn a_bundled_child_resolves_its_enclosing_app() {
+        let child = std::path::Path::new(
+            "/Applications/arXMCP.app/Contents/Resources/arxmcp-desktop-child/arxmcp-desktop-child",
+        );
+        assert_eq!(
+            super::enclosing_app_bundle(child),
+            Some(std::path::PathBuf::from("/Applications/arXMCP.app")),
+        );
+    }
+
+    #[test]
+    fn the_onedir_layout_has_no_enclosing_app() {
+        // m7's shape: payload is a sibling of the supervisor, no bundle.
+        // Returning a spurious path here would make the seal check refuse
+        // every developer run.
+        let child = std::path::Path::new("/build/dist/arxmcp-desktop-child/arxmcp-desktop-child");
+        assert_eq!(super::enclosing_app_bundle(child), None);
+    }
+
+    #[test]
+    fn a_near_miss_layout_is_not_treated_as_a_bundle() {
+        // Each component is checked, so a path that merely LOOKS bundle-ish
+        // cannot borrow a seal from somewhere else. The failure direction
+        // matters: a false Some() points `codesign --verify` at an unrelated
+        // directory, and whatever it answers is about the wrong thing.
+        for path in [
+            "/x/arXMCP.app/Contents/Frameworks/arxmcp-desktop-child/arxmcp-desktop-child",
+            "/x/arXMCP.app/Wrapper/Resources/arxmcp-desktop-child/arxmcp-desktop-child",
+            "/x/arXMCP.bundle/Contents/Resources/arxmcp-desktop-child/arxmcp-desktop-child",
+            "/x/Contents/Resources/arxmcp-desktop-child/arxmcp-desktop-child",
+        ] {
+            assert_eq!(
+                super::enclosing_app_bundle(std::path::Path::new(path)),
+                None,
+                "{path} must not resolve to a bundle",
+            );
+        }
+    }
+
+    #[test]
+    fn an_unsealed_directory_fails_the_seal_check() {
+        // The refusal must carry codesign's own first line, not a generic
+        // string: "code object is not signed at all" and "a sealed resource
+        // is missing or invalid" are different operator problems.
+        let dir = std::env::temp_dir().join(format!("arxmcp-seal-test-{}.app", std::process::id()));
+        let _ = std::fs::create_dir_all(dir.join("Contents").join("MacOS"));
+        let result = super::verify_bundle_seal(&dir);
+        let _ = std::fs::remove_dir_all(&dir);
+        let detail = result.expect_err("an unsigned directory must not verify");
+        assert!(!detail.is_empty(), "the refusal must name a reason");
+    }
+
     use super::*;
 
     // ---- issue #444: the child's own error reaches the operator ----------

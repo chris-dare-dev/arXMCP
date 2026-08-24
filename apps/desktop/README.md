@@ -57,16 +57,45 @@ trusted, and the difference between them matters (issues #435 / #436):
    that the process which answered the handshake is the file the supervisor
    launched, and that it agrees about its own component and version. Nothing
    more. An earlier version of this section implied otherwise.
-2. **The code signature is the integrity check** (`lifecycle::verify_signature`,
-   release builds only, macOS). Its reference lives in the signature blob
-   rather than in the bytes under test, so it catches what the digest cannot:
-   a flipped byte in the signed child now refuses to launch instead of
-   executing normally. **Measured limit:** the payload is ad-hoc signed, so
-   `codesign --force --sign -` re-signs a tampered or swapped binary and
-   verification passes again. Anyone who can write to the payload can defeat
-   it — which is the same residual risk the next paragraph already states,
-   and what e4's release signing closes by giving the check an identity to
-   pin. Scope today: corruption, failed updates, and casual tampering.
+2. **The code signatures are the integrity check — BOTH of them**
+   (release builds only, macOS). Their reference lives in a signature blob
+   rather than in the bytes under test, so they catch what the digest cannot.
+
+   - `lifecycle::verify_signature` validates the Mach-O about to be exec'd:
+     a flipped byte in the signed child refuses to launch instead of
+     executing normally.
+   - `lifecycle::verify_bundle_seal` validates the OUTER bundle, which is
+     what covers the payload.
+
+   **The second one exists because the first was described as sufficient and
+   was not.** An earlier version of this section called the executable check
+   "the integrity check" full stop. The child is a PyInstaller **onedir**, so
+   that executable is a launcher and the runtime it loads —
+   `_internal/libpython3.12.dylib`, every extension module — carries no part
+   of its signature. An external review deleted that dylib from a copy of the
+   assembled bundle: the executable check passed, `check_payload_completeness`
+   passed, the supervisor reached `child-spawn`, and only the bundle's own
+   seal reported the tamper (issues #436, #484).
+
+   The payload is sealed as RESOURCES of the outer bundle, so one
+   `codesign --verify` over the `.app` covers ~5,300 files this crate never
+   enumerates — including files an attacker ADDS, which no manifest of
+   expected names can catch. Measured on the assembled artifact: delete,
+   modify and add are each detected, at ~0.19 s on the launch path.
+   `--strict` and `--deep` were measured at ~0.6 s and detected nothing
+   further here.
+
+   **Measured limit, unchanged and now the only one:** the payload is ad-hoc
+   signed, so `codesign --force --sign -` re-signs tampered bytes and both
+   checks pass again. Anyone who can write to the payload can defeat this —
+   the same residual risk the next paragraph states, and what e4's release
+   signing closes by giving the checks an identity to pin. Scope today:
+   corruption, failed updates, and casual tampering.
+
+   **Where it does not apply:** the onedir layout has no bundle and therefore
+   no seal. The supervisor records `payload-seal-unavailable` there rather
+   than passing silently, so "not checked" and "checked and clean" do not
+   read alike in the event log.
 
 **The assumption an operator needs to know:** write access to the payload
 directory — whichever layout is in force — is equivalent to arbitrary code

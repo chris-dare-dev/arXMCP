@@ -212,11 +212,45 @@ def test_the_event_prefix_is_charset_restricted() -> None:
 
 def test_payload_completeness_is_checked_at_plan_time() -> None:
     """#484. The v1 frame declares fixed probe paths, so the probe is a
-    dependency of the plan — but deleting it changed nothing at plan time."""
+    dependency of the plan — but deleting it changed nothing at plan time.
+
+    **This test passed against a fix that covered a third of the issue**, and
+    is kept only for what it genuinely proves: that the plan path calls the
+    check at all. #484's title names three deletions — the probe, an
+    `_internal` Mach-O, and `_CodeSignature` — and a name check can never
+    cover the last two, nor a MODIFIED or ADDED file.
+
+    The behavioral coverage is
+    `tests/test_desktop_bundle.py::TestPayloadIntegrityAtLaunch`, which
+    mutates a clone of the real assembled bundle three ways and requires the
+    real supervisor to refuse before `child-spawn`. Verified to fail without
+    the fix: the pre-fix binary reached `child-spawn` with
+    `_internal/libpython3.12.dylib` deleted.
+    """
     assert "fn check_payload_completeness(" in MAIN_RS
     assert "PROBE_EXECUTABLE_NAME" in MAIN_RS
+    assert "PAYLOAD_RUNTIME_DIR" in MAIN_RS, (
+        "the PyInstaller runtime directory is part of a complete payload too "
+        "(#484 round 2)"
+    )
     plan = MAIN_RS[MAIN_RS.index("fn self_authored_plan(") :][:1600]
     assert "check_payload_completeness(" in plan
+
+
+def test_the_launch_path_consults_the_outer_seal() -> None:
+    """#436 round 2 — the executable check is not the payload check.
+
+    Structural on purpose and narrow on purpose: this asserts only that the
+    call SITE exists next to the executable check, which is a placement
+    property. Whether it detects anything is settled by
+    `TestPayloadIntegrityAtLaunch` against the real artifact.
+    """
+    assert "fn verify_bundle_seal(" in LIFECYCLE_RS
+    assert "payload-seal-invalid" in LIFECYCLE_RS
+    assert "payload-seal-unavailable" in LIFECYCLE_RS, (
+        "the onedir layout has no seal; 'not checked' must not read like "
+        "'checked and clean' in the event log"
+    )
 
 
 def test_the_data_root_probe_refuses_an_unusable_derivation() -> None:

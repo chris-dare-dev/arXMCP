@@ -429,10 +429,29 @@ fn check_data_root_shape(root: &Path, home: &Path) -> Result<(), &'static str> {
     Ok(())
 }
 
+/// Plan-time shape check for the payload (issue #484).
+///
+/// **Scope, stated because the first cut of this overclaimed it.** #484 named
+/// three deletions — the probe, an `_internal` Mach-O, and `_CodeSignature` —
+/// and this function checked only the first, then the issue was closed. It is
+/// a cheap NAME check that produces a precise message before anything is
+/// spawned; it is not, and cannot be, the integrity check. No manifest of
+/// expected names detects a MODIFIED file or an ADDED one.
+///
+/// The integrity check is [`lifecycle::verify_bundle_seal`], which consults
+/// the outer bundle's sealed-resource manifest and therefore covers files
+/// this function never enumerates. The two are ordered deliberately: name
+/// checks first (fast, specific errors), seal second (~0.3 s, total).
 fn check_payload_completeness(root: &Path) -> Result<(), &'static str> {
     let probe = root.join(PROBE_EXECUTABLE_NAME);
     if !probe.is_file() {
         return Err("self-authored plan: payload is incomplete (probe missing)");
+    }
+    // The PyInstaller onedir runtime. The executable beside it is a launcher
+    // and cannot start without this directory, so its absence is a payload
+    // problem worth naming rather than a Python-level crash to decode later.
+    if !root.join(PAYLOAD_RUNTIME_DIR).is_dir() {
+        return Err("self-authored plan: payload is incomplete (_internal missing)");
     }
     Ok(())
 }
@@ -605,6 +624,13 @@ fn child_payload_root(supervisor_exe: &Path) -> Result<PathBuf, &'static str> {
 /// Sibling of [`child_executable_name`]; declared by the v1 launch frame's
 /// fixed probe paths and therefore part of a complete payload (#484).
 const PROBE_EXECUTABLE_NAME: &str = "arxmcp-desktop-probe";
+
+/// PyInstaller's onedir runtime directory, beside the child executable.
+///
+/// Named here because the executable is a LAUNCHER: `libpython3.12.dylib` and
+/// every extension module live in this directory, which is the part #436's
+/// executable-only signature check verifies nothing about.
+const PAYLOAD_RUNTIME_DIR: &str = "_internal";
 
 /// the caller re-deriving it from the path.
 fn child_payload_layout(supervisor_exe: &Path) -> Result<(&'static str, PathBuf), &'static str> {
@@ -1316,7 +1342,32 @@ mod tests {
         // declares. The fixture staged only the child, i.e. modelled a
         // payload the completeness check correctly refuses.
         stage_child_executable(&payload.join(PROBE_EXECUTABLE_NAME));
+        // #484 round 2: and the PyInstaller runtime directory. Same lesson a
+        // third time — the fixture modelled a payload the completeness check
+        // should refuse, so extending the check broke the fixture rather than
+        // the code. A fixture that predates a check is always a candidate
+        // false-green.
+        fs::create_dir_all(payload.join(PAYLOAD_RUNTIME_DIR)).expect("stage payload runtime dir");
         (base.join("supervisor"), base)
+    }
+
+    /// #484: a payload missing the PyInstaller runtime is refused by NAME,
+    /// before anything is spawned.
+    ///
+    /// This is the cheap, specific half. It does not detect a modified or an
+    /// added file — `verify_bundle_seal` is what covers those — and the two
+    /// must not be confused for one another.
+    #[test]
+    fn a_payload_without_its_runtime_directory_is_refused() {
+        let (supervisor, base) = stage_payload("no-runtime");
+        let payload = base.join(CHILD_PAYLOAD_DIR);
+        assert!(check_payload_completeness(&payload).is_ok());
+        fs::remove_dir_all(payload.join(PAYLOAD_RUNTIME_DIR)).expect("remove the runtime dir");
+        let err =
+            check_payload_completeness(&payload).expect_err("an absent _internal must be refused");
+        assert!(err.contains("_internal"), "{err}");
+        let _ = supervisor;
+        let _ = fs::remove_dir_all(&base);
     }
 
     /// The composed production plan passes the SAME validator an external
