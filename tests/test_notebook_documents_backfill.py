@@ -15,8 +15,11 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import os
+import sqlite3
 import textwrap
 import urllib.parse
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -345,6 +348,253 @@ class TestIdempotency:
         assert "registered=0" in tokens
         assert "skipped=2" in tokens
         assert "missing=0" in tokens
+
+
+    def test_a_rerun_after_the_version_backfill_is_still_a_noop(
+        self, tmp_path, monkeypatch, capsys,
+    ):
+        """derived-alg-geo-lean #1086. The gate keyed on
+        ``(work_id, arxiv_version)``, and ``arxiv_version`` is exactly the
+        field ``notebook_arxiv_version_backfill`` fills in.
+
+        So once a version landed, ``papers.txt``'s ``('0708.2247', '')`` no
+        longer matched the registry's ``('0708.2247', 'v2')``, the gate said
+        "not registered", and a re-run added a SECOND row for the same work at
+        the empty version — plus an OAI-PMH request to do it. Measured on the
+        two live notebooks the day #171's backfill first ran: 68 of 68 would
+        have been re-registered.
+        """
+        base = _make_notebook(tmp_path, "0708.2247\nmath/0212237\n")
+        raw_root, parsed_root = _make_corpus(
+            tmp_path, new_ids=["0708.2247"], old_ids=["math/0212237"],
+        )
+        fetch = _fetch_for({
+            "0708.2247": ("license", NONEXCLUSIVE),
+            "math/0212237": ("nolicense",),
+        })
+        _patch_email(monkeypatch)
+        assert notebook_documents_backfill.run(
+            SLUG, base=base, corpus_raw_dir=raw_root,
+            corpus_parsed_dir=parsed_root, sleep=lambda _s: None, fetch=fetch,
+        ) == 0
+        capsys.readouterr()
+
+        # What #171's backfill does: re-key each row to a concrete version.
+        db_path = base / SLUG / DOCUMENTS_DB_FILENAME
+        conn = sqlite3.connect(db_path)
+        try:
+            conn.execute(
+                "UPDATE documents SET arxiv_version = 'v2' "
+                "WHERE work_id = '0708.2247'"
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        assert notebook_documents_backfill.run(
+            SLUG, base=base, corpus_raw_dir=raw_root,
+            corpus_parsed_dir=parsed_root, sleep=lambda _s: None, fetch=fetch,
+        ) == 0
+        tokens = capsys.readouterr().out.split()
+        assert "registered=0" in tokens, "a versioned row must still count as registered"
+        assert "skipped=2" in tokens
+        assert len(fetch.calls) == 2, "a re-run must make no new request"
+
+        conn = sqlite3.connect(db_path)
+        try:
+            rows = conn.execute(
+                "SELECT work_id, arxiv_version FROM documents ORDER BY work_id"
+            ).fetchall()
+        finally:
+            conn.close()
+        assert rows == [("0708.2247", "v2"), ("math/0212237", "")], (
+            "the filled version must survive; no unversioned twin beside it"
+        )
+
+    def test_an_explicit_seed_version_still_keys_on_the_pair(
+        self, tmp_path, monkeypatch, capsys,
+    ):
+        """A seed line naming ``0708.2247v2`` asks for that revision.
+
+        (The seed syntax is arXiv's own versioned id, ``<id>vN``. The ``@vN``
+        spelling in this driver's own docstrings is a DISPLAY label -- 
+        ``is_valid_arxiv_paper_id`` rejects it as malformed.)
+
+        Registering ``v2`` beside an existing ``v1`` is the point of a
+        per-revision registry, so the work-level gate must NOT swallow it —
+        otherwise #1086's fix would trade one silent behaviour for another.
+        """
+        base = _make_notebook(tmp_path, "0708.2247v2\n")
+        raw_root, parsed_root = _make_corpus(tmp_path, new_ids=["0708.2247"])
+        fetch = _fetch_for({"0708.2247": ("license", NONEXCLUSIVE)})
+        _patch_email(monkeypatch)
+
+        db_path = base / SLUG / DOCUMENTS_DB_FILENAME
+        db_path.parent.mkdir(parents=True, exist_ok=True)
+        notebook_documents_backfill.run(
+            SLUG, base=base, corpus_raw_dir=raw_root,
+            corpus_parsed_dir=parsed_root, sleep=lambda _s: None, fetch=fetch,
+        )
+        capsys.readouterr()
+
+        conn = sqlite3.connect(db_path)
+        try:
+            conn.execute(
+                "INSERT OR REPLACE INTO documents "
+                "(work_id, arxiv_version, raw_source_status, chunker_version, "
+                " fetched_at, license_status, status) "
+                "VALUES ('0708.2247', 'v1', 'present', 'v1', "
+                " '2026-01-01T00:00:00+00:00', 'unknown', 'active')"
+            )
+            conn.commit()
+            before = conn.execute("SELECT COUNT(*) FROM documents").fetchone()[0]
+        finally:
+            conn.close()
+        assert before == 2
+
+        notebook_documents_backfill.run(
+            SLUG, base=base, corpus_raw_dir=raw_root,
+            corpus_parsed_dir=parsed_root, sleep=lambda _s: None, fetch=fetch,
+        )
+        assert "skipped=1" in capsys.readouterr().out.split()
+
+
+# ---------------------------------------------------------------------------
+# fetched_at is evidence, not a clock reading (#1086)
+# ---------------------------------------------------------------------------
+
+
+class TestFetchedAt:
+    def test_fetched_at_is_the_parse_artifacts_mtime_not_now(
+        self, tmp_path, monkeypatch,
+    ):
+        """It is read as *when this notebook fetched this work*.
+
+        ``tools/notebook_arxiv_version_backfill.py`` windows arXiv's revision
+        history by this field. Stamped with ``now()``, that question silently
+        becomes "which revision is arXiv serving today", and writing today's
+        latest onto bytes fetched months ago is the fabrication that tool
+        exists to prevent. Observed on 2026-09-04: every row read 2026-09-04
+        while the artifacts it described were written 2026-05-21.
+        """
+        base = _make_notebook(tmp_path, "0708.2247\n")
+        raw_root, parsed_root = _make_corpus(tmp_path, new_ids=["0708.2247"])
+        index = parsed_root / "0708.2247" / "index.html"
+        parsed_when = datetime(2026, 5, 21, 15, 45, tzinfo=UTC)
+        os.utime(index, (parsed_when.timestamp(), parsed_when.timestamp()))
+
+        _patch_email(monkeypatch)
+        notebook_documents_backfill.run(
+            SLUG, base=base, corpus_raw_dir=raw_root,
+            corpus_parsed_dir=parsed_root, sleep=lambda _s: None,
+            fetch=_fetch_for({"0708.2247": ("license", NONEXCLUSIVE)}),
+        )
+
+        record = _store_get(base, "0708.2247")
+        assert datetime.fromisoformat(record.fetched_at) == parsed_when
+
+    def test_the_version_backfill_windows_on_it_and_gets_the_old_answer(
+        self, tmp_path, monkeypatch,
+    ):
+        """The end-to-end point of #1086, on the two tools together.
+
+        A paper parsed in May and revised in July: the version this corpus
+        holds is the May one. With `now()` in `fetched_at` the window lands
+        after the revision and records the July one — a version pin confirmed
+        by bytes of a different revision, which is precisely #171's failure
+        one layer down.
+        """
+        from tools.notebook_arxiv_version_backfill import Revision, parse_fetched_at, version_at
+
+        base = _make_notebook(tmp_path, "0708.2247\n")
+        raw_root, parsed_root = _make_corpus(tmp_path, new_ids=["0708.2247"])
+        index = parsed_root / "0708.2247" / "index.html"
+        parsed_when = datetime(2026, 5, 21, 15, 45, tzinfo=UTC)
+        os.utime(index, (parsed_when.timestamp(), parsed_when.timestamp()))
+
+        _patch_email(monkeypatch)
+        notebook_documents_backfill.run(
+            SLUG, base=base, corpus_raw_dir=raw_root,
+            corpus_parsed_dir=parsed_root, sleep=lambda _s: None,
+            fetch=_fetch_for({"0708.2247": ("license", NONEXCLUSIVE)}),
+        )
+
+        history = [
+            Revision("v1", datetime(2020, 1, 1, tzinfo=UTC)),
+            Revision("v2", datetime(2026, 7, 1, tzinfo=UTC)),   # after the parse
+        ]
+        record = _store_get(base, "0708.2247")
+        assert version_at(history, parse_fetched_at(record.fetched_at)).version == "v1"
+        #: And what the old behaviour would have produced, for contrast.
+        assert version_at(history, datetime.now(UTC)).version == "v2"
+
+
+    def test_repair_rewrites_only_fetched_at_and_needs_no_network(
+        self, tmp_path, monkeypatch, capsys,
+    ):
+        """The other half of #1086: reaching rows already written.
+
+        The fix corrects what a FUTURE registration records and touches none
+        of the existing rows -- it cannot, because they are correctly skipped
+        as registered. So a repair path exists, and it moves exactly one
+        column: a repair that re-derived checksums could quietly ADOPT a
+        corpus that changed underneath it, which is a different operation
+        wearing this one's name.
+        """
+        base = _make_notebook(tmp_path, "0708.2247\n")
+        raw_root, parsed_root = _make_corpus(tmp_path, new_ids=["0708.2247"])
+        _patch_email(monkeypatch)
+        fetch = _fetch_for({"0708.2247": ("license", NONEXCLUSIVE)})
+        notebook_documents_backfill.run(
+            SLUG, base=base, corpus_raw_dir=raw_root,
+            corpus_parsed_dir=parsed_root, sleep=lambda _s: None, fetch=fetch,
+        )
+        before = _store_get(base, "0708.2247")
+
+        # Move the artifact back in time, as a May ingest registered in
+        # September looks.
+        index = parsed_root / "0708.2247" / "index.html"
+        when = datetime(2026, 5, 21, 15, 45, tzinfo=UTC)
+        os.utime(index, (when.timestamp(), when.timestamp()))
+        capsys.readouterr()
+
+        # A dry run reports and writes nothing.
+        notebook_documents_backfill.run(
+            SLUG, base=base, corpus_parsed_dir=parsed_root,
+            repair_fetched_at=True, dry_run=True,
+        )
+        assert "repaired=1" in capsys.readouterr().out
+        assert _store_get(base, "0708.2247").fetched_at == before.fetched_at
+
+        notebook_documents_backfill.run(
+            SLUG, base=base, corpus_parsed_dir=parsed_root,
+            repair_fetched_at=True,
+        )
+        after = _store_get(base, "0708.2247")
+        assert datetime.fromisoformat(after.fetched_at) == when
+        #: Every other column round-trips untouched.
+        for f in ("work_id", "arxiv_version", "raw_source_sha256",
+                  "raw_source_status", "parse_artifact_sha256",
+                  "chunker_version", "license_uri", "license_status", "status"):
+            assert getattr(after, f) == getattr(before, f), f
+        #: And no request was made -- the artifact's mtime is the whole input.
+        assert len(fetch.calls) == 1
+
+    def test_repair_is_idempotent(self, tmp_path, monkeypatch, capsys):
+        base = _make_notebook(tmp_path, "0708.2247\n")
+        raw_root, parsed_root = _make_corpus(tmp_path, new_ids=["0708.2247"])
+        _patch_email(monkeypatch)
+        notebook_documents_backfill.run(
+            SLUG, base=base, corpus_raw_dir=raw_root,
+            corpus_parsed_dir=parsed_root, sleep=lambda _s: None,
+            fetch=_fetch_for({"0708.2247": ("license", NONEXCLUSIVE)}),
+        )
+        notebook_documents_backfill.run(
+            SLUG, base=base, corpus_parsed_dir=parsed_root, repair_fetched_at=True)
+        capsys.readouterr()
+        notebook_documents_backfill.run(
+            SLUG, base=base, corpus_parsed_dir=parsed_root, repair_fetched_at=True)
+        assert "repaired=0" in capsys.readouterr().out
 
 
 # ---------------------------------------------------------------------------

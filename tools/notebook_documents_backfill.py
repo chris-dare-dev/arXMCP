@@ -56,6 +56,18 @@ work, so it lives in ``tools/notebook_arxiv_version_backfill.py``
 (derived-alg-geo-lean #171) rather than doubling this run's politeness budget.
 The summary points at it whenever this run registers an unversioned row.
 
+Two things that driver made load-bearing here, both fixed under #1086 and
+both silent before it:
+
+* ``fetched_at`` is the parse artifact's mtime, NOT ``datetime.now()``. It is
+  read as *when this notebook fetched this work*, and the version backfill
+  windows arXiv's revision history by it. A registration stamp makes that
+  question mean "what is latest today" instead.
+* the idempotency gate keys on the WORK when the seed line names no revision.
+  ``arxiv_version`` is half the primary key and something else writes it, so
+  exact-pair matching declared every already-registered work unregistered as
+  soon as its version was filled.
+
 Usage:
 
     uv run python tools/notebook_documents_backfill.py <slug>
@@ -75,7 +87,7 @@ import logging
 import sys
 import time
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -167,6 +179,44 @@ def _raw_source_provenance(
     if sha is None:
         return None, RAW_SOURCE_STATUS_UNAVAILABLE
     return sha, RAW_SOURCE_STATUS_PRESENT
+
+
+def _parse_artifact_fetched_at(work_id: str, parsed_root: Path) -> str | None:
+    """When ``parsed/<work_id>/index.html`` was written, ISO-8601 UTC.
+
+    This is ``documents.fetched_at``, and it used to be
+    ``datetime.now(UTC)`` — the moment the REGISTRY ROW was written, which
+    for a corpus ingested months earlier is not a fact about the paper at
+    all. derived-alg-geo-lean #1086.
+
+    It matters because something reads it.
+    ``tools/notebook_arxiv_version_backfill.py`` windows arXiv's version
+    history by this field to answer *which revision was arXiv serving when
+    this notebook fetched this work*. Windowed against `now()`, that
+    question silently becomes *which revision is arXiv serving today* — and
+    writing today's latest onto bytes fetched in May is exactly the
+    fabrication that tool exists to prevent. Measured on 2026-09-04: every
+    row said 2026-09-04 while the artifacts it described were written
+    2026-05-21.
+
+    The parse artifact is the right evidence because it is the file whose
+    bytes became the chunks. It is also always present for a REGISTERED
+    row: a missing one routes the paper to a per-id miss before this is
+    reached, so the caller never has to invent a timestamp.
+
+    **What this still cannot survive**, stated rather than papered over: an
+    mtime is filesystem metadata, so a restore-from-backup or a `cp -r`
+    that does not preserve times resets it to the copy date and this reads
+    late again. That is a weaker claim than a recorded fetch time would be,
+    and the honest fix is for the fetcher to record one. Until it does,
+    this is the best evidence on disk, and the version backfill writes the
+    full history it selected from into its own report so the inference
+    stays auditable.
+    """
+    index = parsed_root / work_id / "index.html"
+    if not index.is_file():
+        return None
+    return datetime.fromtimestamp(index.stat().st_mtime, UTC).isoformat()
 
 
 def _parse_artifact_sha256(work_id: str, parsed_root: Path) -> str | None:
@@ -281,14 +331,8 @@ async def _register(
     store = await DocumentsStore.open(db_path)
     try:
         already = await store.registered_keys()
-        skipped = [
-            m for m in memberships
-            if (m.work_id, m.arxiv_version) in already
-        ]
-        pending = [
-            m for m in memberships
-            if (m.work_id, m.arxiv_version) not in already
-        ]
+        skipped = [m for m in memberships if _is_registered(m, already)]
+        pending = [m for m in memberships if not _is_registered(m, already)]
 
         registered: list[DocumentRecord] = []
         missing: list[tuple[str, str]] = []
@@ -310,16 +354,96 @@ async def _register(
                 # parse checksum (adversary M1).
                 missing.append((_label(membership), "parse_artifact_absent"))
                 continue
+            fetched_at = _parse_artifact_fetched_at(
+                membership.work_id, parsed_root
+            )
+            if fetched_at is None:  # pragma: no cover - parse_sha guards it
+                missing.append((_label(membership), "parse_artifact_absent"))
+                continue
             record = _build_record(
                 membership,
                 oai_record,
                 raw_root=raw_root,
                 parse_artifact_sha256=parse_sha,
-                fetched_at=datetime.now(UTC).isoformat(),
+                fetched_at=fetched_at,
             )
             await store.upsert_records([record])
             registered.append(record)
         return registered, skipped, missing
+    finally:
+        await store.close()
+
+
+def _is_registered(
+    membership: _Membership, already: set[tuple[str, str]]
+) -> bool:
+    """Is this membership already in the registry? The idempotency gate.
+
+    It used to be exact-pair membership of ``(work_id, arxiv_version)``,
+    and that quietly stopped working the moment anything filled
+    ``arxiv_version`` in. derived-alg-geo-lean #1086.
+
+    The field is the second half of the PRIMARY KEY *and* the thing
+    ``tools/notebook_arxiv_version_backfill.py`` writes. So after a version
+    backfill the registry holds ``('0705.3794', 'v1')`` while ``papers.txt``
+    still yields ``('0705.3794', '')`` — the pair does not match, the gate
+    says "not registered", and a re-run registers a SECOND row for the same
+    work at the empty version. Measured on 2026-09-04, immediately after
+    #171's backfill ran: 68 of 68 memberships across both live notebooks
+    would have been re-registered, each one an extra OAI-PMH request and a
+    duplicate row.
+
+    The gate has to ask the question the driver actually cares about,
+    which is *is this work registered*, and only the seed line can say
+    whether a specific revision was meant:
+
+    * ``<id>@vN`` in ``papers.txt`` — the operator named a revision, so the
+      pair is the key. Registering ``v2`` alongside an existing ``v1`` is
+      the point of the per-revision registry.
+    * ``<id>`` alone — no revision was asked for, so ANY registered
+      revision of that work satisfies it. Whatever filled the version in
+      knew more than the seed line did, and re-running must not undo that
+      by adding an unversioned twin beside it.
+    """
+    if membership.arxiv_version:
+        return (membership.work_id, membership.arxiv_version) in already
+    return any(work_id == membership.work_id for work_id, _ in already)
+
+
+async def _repair_fetched_at(
+    db_path: Path, *, parsed_root: Path, dry_run: bool
+) -> list[tuple[str, str, str]]:
+    """Rewrite ``fetched_at`` on ALREADY-REGISTERED rows from the artifact.
+
+    The #1086 fix corrects what a FUTURE registration records, and reaches
+    none of the rows already written -- which it cannot, because those rows
+    are (correctly) skipped as registered. A fix that provably cannot touch
+    the data it is about is half a fix, so this is the other half.
+
+    No network: the parse artifact is on disk and its mtime is the whole
+    input. Returns ``(work_id@version, before, after)`` for every row that
+    moved, so the operator sees what changed rather than a count.
+
+    Only ``fetched_at`` moves. The row is read from the store and written
+    back through ``upsert_records``, so every other column round-trips
+    byte-for-byte rather than being reconstructed from the corpus a second
+    time -- a repair that re-derived checksums could quietly ADOPT a corpus
+    that changed under it, which is a different operation wearing this
+    one's name.
+    """
+    store = await DocumentsStore.open(db_path)
+    try:
+        changed: list[tuple[str, str, str]] = []
+        for record in await store.all_records():
+            actual = _parse_artifact_fetched_at(record.work_id, parsed_root)
+            if actual is None or actual == record.fetched_at:
+                continue
+            label = (f"{record.work_id}@{record.arxiv_version}"
+                     if record.arxiv_version else record.work_id)
+            changed.append((label, record.fetched_at, actual))
+            if not dry_run:
+                await store.upsert_records([replace(record, fetched_at=actual)])
+        return changed
     finally:
         await store.close()
 
@@ -344,6 +468,8 @@ def run(
     corpus_parsed_dir: Path | None = None,
     sleep: Callable[[float], None] = time.sleep,
     fetch=None,
+    repair_fetched_at: bool = False,
+    dry_run: bool = False,
 ) -> int:
     """Backfill the documents registry for every arXiv id in papers.txt.
 
@@ -351,6 +477,10 @@ def run(
     ``fetch`` are test seams (mirror the ``notebook_metadata_backfill.run``
     convention); production callers pass only ``slug``. Returns the
     process exit code.
+
+    ``repair_fetched_at`` runs the #1086 repair over already-registered
+    rows INSTEAD of registering anything: no papers.txt walk, no OAI-PMH,
+    no writes beyond that one column.
     """
     # Slug validation FIRST (per _notebook_common convention), then
     # run-entry politeness enforcement: resolve the arXiv polite-pool
@@ -362,6 +492,21 @@ def run(
     nb_dir = notebook_dir(slug, base=base)
     raw_root = corpus_raw_dir or CORPUS_RAW_DIR
     parsed_root = corpus_parsed_dir or CORPUS_PARSED_DIR
+
+    if repair_fetched_at:
+        changed = asyncio.run(_repair_fetched_at(
+            nb_dir / DOCUMENTS_DB_FILENAME,
+            parsed_root=parsed_root, dry_run=dry_run,
+        ))
+        for label, before, after in changed:
+            print(f"  {label}: {before} -> {after}", file=sys.stderr)
+        print(f"repaired={len(changed)}" + (" (dry run; nothing written)"
+                                            if dry_run else ""))
+        if not changed:
+            print("  every fetched_at already matches its parse artifact.",
+                  file=sys.stderr)
+        return 0
+
     raw_lines = read_paper_ids_from_papers_txt(nb_dir / "papers.txt")
 
     # Pre-validate every line; split the explicit version off the work id
@@ -489,6 +634,20 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
+        "--repair-fetched-at", action="store_true",
+        help=(
+            "rewrite fetched_at on already-registered rows from the parse "
+            "artifact's mtime and do nothing else (derived-alg-geo-lean "
+            "#1086). Rows written before that fix carry a REGISTRATION "
+            "stamp, and the version backfill reads this field as a fetch "
+            "time. No network."
+        ),
+    )
+    parser.add_argument(
+        "--dry-run", action="store_true",
+        help="with --repair-fetched-at: report what would change, write nothing.",
+    )
+    parser.add_argument(
         "slug",
         help="Notebook slug (must match ^[a-z][a-z0-9-]{2,30}$).",
     )
@@ -502,7 +661,11 @@ def main(argv: list[str] | None = None) -> int:
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
     try:
-        return run(args.slug)
+        return run(
+            args.slug,
+            repair_fetched_at=args.repair_fetched_at,
+            dry_run=args.dry_run,
+        )
     except NotebookError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
