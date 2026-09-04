@@ -30,6 +30,8 @@ import pytest
 
 from server.config import Config
 from server.handlers.lean_verify import (
+    _DECL_KEYWORDS,
+    _DECL_MODIFIERS,
     AXIOM_ALLOWLIST,
     MAX_IMPORT_LINE_LEN,
     _audit_from_messages,
@@ -3093,6 +3095,214 @@ class TestAxiomHygieneOnTheWire:
         reason = result["axiom_audit"]["reason"]
         assert "same-line prefix" in reason
         assert "set_option" in reason
+
+
+class TestAdversarialDeclarationShapes:
+    """derived-alg-geo-lean #731 — the rows the planned suite left uncovered.
+
+    The fail-open is closed (#184, arXMCP ``99c856b``) and
+    ``_DECL_KEYWORD_SCAN_RE`` is fail-safe by construction: an unnameable site
+    is counted with no extractable name, so over-counting can only move
+    ``complete`` True -> False. That bounds the damage from a shape the parser
+    MISSES.
+
+    It says nothing about a shape that is named and extracted **wrongly** —
+    the name comes out, ``#print axioms`` runs on it, and the reply binds to a
+    declaration other than the one the reader thinks they audited. Target
+    replacement, kind change and shadowing are exactly that failure, and they
+    had zero occurrences in this file; ``native_decide`` and ``unsafe`` were
+    each named once, at the axiom-scoring level, never from a snippet.
+
+    The structural caveat from #184 is unchanged and out of scope here: a
+    regex over Lean source is a race against Lean's grammar, and the grammar
+    wins. These pin known-good bindings so a future edit to the regexes cannot
+    move them silently; they do not make the approach sound. The contract's
+    own evidence comes from ``Environment.constants`` instead (ADR-0003).
+    """
+
+    # --- target replacement -------------------------------------------------
+
+    def test_target_replacement_binds_the_name_lean_registers(self):
+        """A snippet redeclaring an EXISTING global must be audited under that
+        global's name, both spellings.
+
+        This is the shape where a mis-binding is invisible: `#print axioms`
+        answers happily, and the answer describes whichever declaration the
+        derived name actually resolves to. If the extractor dropped the
+        namespace here, the audit would report on `add_comm` — a different
+        constant — while the reader believes `Nat.add_comm` was audited.
+        """
+        dotted = "theorem Nat.add_comm (n m : Nat) : n + m = m + n := by sorry"
+        via_ns = (
+            "namespace Nat\n"
+            "theorem add_comm (n m : Nat) : n + m = m + n := by sorry\n"
+            "end Nat"
+        )
+        assert _declaration_names(dotted) == (["Nat.add_comm"], True)
+        assert _declaration_names(via_ns) == (["Nat.add_comm"], True)
+
+    def test_a_derived_name_lean_does_not_answer_for_is_unknown(self):
+        """The fail-safe that makes a mis-binding survivable at all.
+
+        The audit cannot detect that a correctly-named declaration REPLACED an
+        existing one — nothing in a `#print axioms` reply says so. What it can
+        detect is a name Lean never answered for, which is what a WRONG
+        qualification produces ("unknown identifier"). That must score
+        `unknown`, never `clean`.
+        """
+        rec = _audit_from_messages(
+            [{"text": "'add_comm' does not depend on any axioms"}],
+            ["Nat.add_comm"],
+            True,
+        )
+        assert rec["outcome"] == "unknown"
+        assert rec["declarations"][0]["verdict"] == "unknown"
+
+    # --- kind change --------------------------------------------------------
+
+    #: One minimal nameable form per declaration keyword. Keyed by keyword so
+    #: the test below can assert the mapping is EXHAUSTIVE against
+    #: ``_DECL_KEYWORDS`` rather than sampling it.
+    _ONE_FORM_PER_KEYWORD = {
+        "theorem": "theorem t : True := trivial",
+        "lemma": "lemma t : True := trivial",
+        "def": "def t : Nat := 0",
+        "abbrev": "abbrev t : Type := Nat",
+        "axiom": "axiom t : False",
+        "opaque": "opaque t : Nat",
+        "instance": "instance t : Inhabited Nat := \u27e80\u27e9",
+        "structure": "structure t where x : Nat",
+        "inductive": "inductive t | a",
+        "class": "class t (a : Type) where f : a",
+        "alias": "alias t := bar",
+    }
+
+    def test_every_declaration_keyword_is_both_counted_and_nameable(self):
+        """Kind change: swapping the keyword must not change what is audited.
+
+        The danger is asymmetry between the two regexes. They share
+        ``_KEYWORD_ALT`` today, so a keyword added to ``_DECL_KEYWORDS``
+        reaches both — but ``_DECL_MODIFIERS`` is a separate list, and a
+        keyword introduced as a modifier by mistake would be scanned as a site
+        and never nameable, turning every snippet using it into `unknown`. Or
+        worse, the reverse.
+
+        Asserted against the tuple rather than a copy of it, so a new keyword
+        with no form here fails LOUDLY instead of going unexercised.
+        """
+        assert set(self._ONE_FORM_PER_KEYWORD) == set(_DECL_KEYWORDS), (
+            "a declaration keyword has no adversarial form in this test"
+        )
+        for keyword, snippet in sorted(self._ONE_FORM_PER_KEYWORD.items()):
+            assert _declaration_names(snippet) == (["t"], True), keyword
+
+    def test_a_def_standing_where_a_theorem_is_expected_is_still_audited(self):
+        """`def` proves nothing, and a reader skimming for `theorem` may not
+        notice. It is a real declaration with a real axiom closure, so it must
+        be named and audited exactly as a theorem would be."""
+        assert _declaration_names("def t : True := trivial") == (["t"], True)
+
+    # --- shadowing ----------------------------------------------------------
+
+    def test_shadowing_via_a_reopened_namespace_is_qualified(self):
+        """Re-opening an existing namespace is how a snippet shadows a library
+        name without ever writing the dotted form."""
+        assert _declaration_names(
+            "namespace List\ntheorem length_nil : True := trivial\nend List"
+        ) == (["List.length_nil"], True)
+
+    def test_nested_namespaces_compose_in_order(self):
+        assert _declaration_names(
+            "namespace A\nnamespace B\ntheorem t : True := trivial\nend B\nend A"
+        ) == (["A.B.t"], True)
+        #: A dotted declaration INSIDE a namespace composes the same way.
+        assert _declaration_names(
+            "namespace A\ntheorem B.t : True := trivial\nend A"
+        ) == (["A.B.t"], True)
+
+    def test_open_in_on_its_own_line_names_the_top_level_declaration(self):
+        """`open Classical in` scopes the NEXT command; it does not qualify it.
+
+        So the registered name is the bare one, and that is what must be
+        audited. Naming it `Classical.t` would ask Lean about a constant that
+        does not exist — `unknown` where a clean answer was available.
+        """
+        assert _declaration_names(
+            "open Classical in\ntheorem t : True := trivial"
+        ) == (["t"], True)
+        #: And inside a namespace the namespace still applies.
+        assert _declaration_names(
+            "namespace N\nopen Classical in\ntheorem t : True := trivial\nend N"
+        ) == (["N.t"], True)
+
+    def test_the_same_line_open_in_form_fails_safe(self):
+        """`open Nat in theorem t …` on ONE line is the unrecognised-prefix
+        shape: the site is counted, no name is extractable, and the audit
+        degrades to `unknown`. Pinned here because it is the boundary between
+        the two `open` spellings above and below it."""
+        assert _declaration_names(
+            "open Nat in theorem t : True := trivial"
+        ) == ([], False)
+
+    # --- native_decide ------------------------------------------------------
+
+    def test_native_decide_snippet_reaches_flagged_end_to_end(self):
+        """Already covered at the SCORING level
+        (`test_native_decide_trust_reduction_is_flagged`); never from a
+        snippet. The two halves have to meet: the theorem is named, and the
+        `Lean.ofReduceBool` its kernel reduction injects is outside the
+        allowlist."""
+        names, complete = _declaration_names(
+            "theorem t : (2:Nat) = 2 := by native_decide"
+        )
+        assert (names, complete) == (["t"], True)
+        rec = _audit_from_messages(
+            [{"text": "'t' depends on axioms: [propext, Lean.ofReduceBool]"}],
+            names,
+            complete,
+        )
+        assert rec["outcome"] == "flagged"
+        assert "Lean.ofReduceBool" not in AXIOM_ALLOWLIST
+        assert rec["disallowed_axioms"] == ["Lean.ofReduceBool"]
+
+    # --- unsafe -------------------------------------------------------------
+
+    def test_unsafe_is_a_modifier_not_a_keyword_and_the_name_survives(self):
+        """`unsafe def f` is a NAMED site: `unsafe` is a modifier, `def` the
+        keyword. Were `unsafe` mistaken for a keyword the line would count two
+        sites against one name and degrade to `unknown` — safe, but it would
+        make every `unsafe` snippet unauditable rather than audited."""
+        assert _declaration_names("unsafe def f : Nat := 0") == (["f"], True)
+        assert _declaration_names("unsafe partial def f : Nat := f") == (
+            ["f"], True,
+        )
+        assert "unsafe" in _DECL_MODIFIERS
+        assert "unsafe" not in _DECL_KEYWORDS
+
+    def test_the_compiler_trust_axiom_is_flagged(self):
+        """What an `unsafe` declaration costs, if it reaches the closure at
+        all: `Lean.trustCompiler` is outside the allowlist for the same reason
+        `Lean.ofReduceBool` is."""
+        rec = _audit_from_messages(
+            [{"text": "'f' depends on axioms: [Lean.trustCompiler]"}], ["f"], True
+        )
+        assert rec["outcome"] == "flagged"
+        assert rec["disallowed_axioms"] == ["Lean.trustCompiler"]
+
+    # --- the boundary these five sit on ------------------------------------
+
+    def test_a_keyword_inside_an_attribute_bracket_costs_completeness(self):
+        """Found while writing the rows above, and it is the fail-safe working.
+
+        `@[to_additive existing def] theorem t …` carries the word `def`
+        inside the attribute bracket. The scan counts it — attributes are not
+        parsed — so the line reports two sites against one name and the audit
+        degrades to `unknown`. Over-counting can only ever cost completeness,
+        which is the direction the design chose on purpose.
+        """
+        assert _declaration_names(
+            "@[to_additive existing def] theorem t : True := trivial"
+        ) == (["t"], False)
 
 
 class TestAxiomAuditAbstentionPaths:
