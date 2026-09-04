@@ -49,6 +49,13 @@ zero-row run LOUD):
 
     registered=N skipped=M missing=K malformed=J unique=U total=T
 
+``arxiv_version`` is whatever the ``papers.txt`` line said, which is ``''``
+for every seed line in both live notebooks. Filling it needs arXiv's version
+history windowed by ``fetched_at`` and therefore a second OAI-PMH request per
+work, so it lives in ``tools/notebook_arxiv_version_backfill.py``
+(derived-alg-geo-lean #171) rather than doubling this run's politeness budget.
+The summary points at it whenever this run registers an unversioned row.
+
 Usage:
 
     uv run python tools/notebook_documents_backfill.py <slug>
@@ -412,6 +419,24 @@ def _print_summary(
         f"unique={unique} "
         f"total={total}"
     )
+    # derived-alg-geo-lean #171. Every row this driver writes carries
+    # `arxiv_version=''` unless the papers.txt line said `<id>@vN`, and no
+    # seed line in either live notebook does. Nothing was wrong with that
+    # until something started reading the column: `statement_resolve.py`
+    # withholds `current` from a versioned registry entry while the corpus
+    # cannot say which revision it holds. The version is recoverable -- the
+    # OAI-PMH arXivRaw history windowed by `fetched_at` -- but only by a
+    # SECOND request per work, which is why it is a separate CLI rather than
+    # a step here doubling this run's politeness budget. Printed because the
+    # gap was previously discoverable only by reading the column.
+    unversioned = sum(1 for r in registered if not r.arxiv_version)
+    if unversioned:
+        print(
+            f"  {unversioned} of {len(registered)} registered row(s) carry no "
+            f"arxiv_version. Run "
+            f"`tools/notebook_arxiv_version_backfill.py <slug>` to fill the "
+            f"ones that can be established from arXiv's version history."
+        )
     # m1-specific breakdowns over what was NEWLY registered this run
     # (the coverage report reads the WHOLE registry across both
     # notebooks; this is just what this run wrote).
