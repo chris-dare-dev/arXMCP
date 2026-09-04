@@ -164,7 +164,15 @@ Files with `phase: complete` are shipped. The authoritative roadmap index is
 - **All work lands on `main` directly.** No feature branches, no pull
   requests, no code review handoff. Commit + push.
 - **No CI / GitHub Actions blocking merges.** The local test suite is the
-  authority — `make test` must be green before pushing.
+  authority — `make test` must be green before pushing. There IS one workflow
+  now (`.github/workflows/contract.yml`, derived-alg-geo-lean #170) and it
+  changes nothing about that rule: it blocks no merge, gates no branch, and
+  covers only the statement CLIs on the ingest plane. It exists because those
+  two files are the half of a cross-repo contract that a sibling repo depends
+  on, and "green on Chris's Mac" is not evidence a sibling can use. It is
+  path-filtered to that surface and installs three packages, not the corpus
+  stack — see the header comment for why it deliberately does not run
+  `make test`.
 - **Worktrees are fine** (e.g. for parallel milestone-pipeline researchers)
   but the final commits land on `main`.
 
@@ -686,11 +694,22 @@ census rather than implied by the presence of records. A topic repo that mints
 ten entries against a 15,000-chunk notebook has covered ~0.07% of it, and the
 served surface must say so.
 
-**Do not describe this contract in the present tense.** As of 2026-08-03
-nothing here reads a `formalization.yaml` (`find -iname "*formaliz*"` → zero
-files), no `formal_releases` table exists, no `arxmcp://formal/*` resource is
-registered, and `enable_lean` is `False` by default (`server/config.py:208`).
-R5 is a brief with no `plans/` track. What exists is a design and a backlog.
+**Do not describe this contract in the present tense.** Most of it is still a
+design and a backlog, and the parts that are not are narrow. As of 2026-09-03:
+
+| claim | state |
+|---|---|
+| an offline resolver answers "does this quote still appear, and where" | **LANDED** — `tools/statement_resolve.py`, derived-alg-geo-lean #170 |
+| a minting prefill exists | pending, #169 |
+| the corpus can say which arXiv version it holds | **NO** — `documents.arxiv_version` is `''` for every row in both live notebooks; #171. The resolver's version guard exists BECAUSE of this and reports `not_applicable` rather than `current` |
+| a `formal_releases` table exists | **NO** — `SCHEMA_VERSION: int = 5` (`server/notebooks_store.py:83`); #174 |
+| an `arxmcp://formal/*` resource is registered | **NO** — #175 |
+| anything here reads a `formalization.yaml` | **NO** — `find -iname "*formaliz*"` still returns zero files |
+| `enable_lean` | still `False` by default (`server/config.py:208`) |
+
+The resolver crossing off its row does not promote the others. It answers one
+question and writes one file; it produces no trust verdict, reads no release,
+and serves nothing.
 
 ---
 
@@ -753,6 +772,12 @@ arXMCP/
 ├── shim/
 │   └── arxmcp_shim.py       stdio↔HTTP bridge for Claude Code; loopback-only egress
 ├── tools/                   dev utilities
+│   ├── _statement_common.py read-only corpus/registry plumbing shared by the two
+│   │                        statement CLIs; imports mfc's normalization rather
+│   │                        than copying it (derived-alg-geo-lean #169/#170)
+│   ├── statement_resolve.py the resolution ladder -> resolution/1.0, committed
+│   │                        into the TOPIC repo by a human (ADR-0001: the seam
+│   │                        is cold). Offline, read-only, never at request time
 │   ├── arxiv_fetch.py       politeness contract: User-Agent, 503 backoff, 3s sleep
 │   ├── fetch_one_paper.py   single-paper smoke test of arXiv /e-print/ + LaTeXML
 │   ├── fetch_seed.py        50-paper seed fetch (idempotent; ≥45/50 to pass)

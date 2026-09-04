@@ -322,6 +322,29 @@ dev = [
     "ruff>=0.5",
     "pytest>=8.0",
 ]
+# contract — the statement CLIs on the ingest plane
+# (``tools/statement_resolve.py``, ``tools/statement_mint.py``; derived-alg-geo-lean
+# #169/#170). NOT a runtime dependency and deliberately not one: nothing under
+# ``server/`` imports it, so the served process, the wheel and the data-plane
+# boundary are all untouched.
+#
+# It is an EXTRA rather than a vendored copy because the one thing these CLIs
+# must not do is answer "is this the same statement" differently from the repo
+# that minted the digest. ``mfc.digest.norm_text`` (NFC, then whitespace-run
+# collapse, in that order) is that answer; a second implementation here would
+# drift on the first Unicode subtlety anybody hits, and the symptom of the
+# drift is a citation silently re-pointed at a different theorem. ADR-0009
+# makes ``mfc`` a shared tool for exactly this reason -- the consuming repo
+# installs it rather than vendoring schema copies with a checksum-drift test.
+#
+# Pinned to a commit, never a branch, matching the rule the Lean pins follow.
+# The same rev ``derived-alg-geo-lean/lakefile.toml`` pins, so the schemas this
+# side validates against are the schemas that side emits. Bump both together
+# or not at all.
+contract = [
+    "mfc @ git+https://github.com/chris-dare-dev/math-formal-contract-lean@b5a63cbab0cc2625cdfeacadfa9cb4b64a419598#subdirectory=contract",
+    "jsonschema>=4.18",
+]
 # textbook-ingest e2 — PDF parsing via MinerU 3.x is INTENTIONALLY NOT
 # in a project extra. MinerU's dep tree caps transformers at v4, which
 # would silently downgrade the BGE-M3 / BGE-reranker stack the project

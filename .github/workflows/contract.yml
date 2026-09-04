@@ -1,0 +1,134 @@
+name: contract
+
+# This repository's first CI, and it is deliberately narrow.
+#
+# `CLAUDE.md` §4.1 is unchanged by it: the local `make test` is still the
+# authority, nothing here blocks a merge, and there are no feature branches for
+# it to gate. What this job adds is the one thing a local suite cannot give the
+# repo on the other side of the seam — evidence that the statement CLIs behave
+# the same on a machine that is not this workstation, with nothing installed
+# but the three packages they actually need.
+#
+# So it does NOT run `make test`. That would pull torch (~1.5 GB of wheels),
+# LanceDB, transformers and a BGE-M3 download to exercise four dicts, and a job
+# that expensive gets disabled the first week it is slow. The whole point of
+# `tools/statement_resolve.py`'s pure core is that the ladder is testable with
+# no LanceDB, no Lean, no models and no network, and this job is what collects
+# on that.
+#
+# Path-filtered on purpose. This box lands many commits a day on desktop,
+# server and ingest work that cannot affect the contract surface, and a job
+# that runs on all of them teaches everyone to ignore the check. Nothing here
+# is a required status check, so the usual "filtered job never reports, PR
+# blocks forever" trap does not apply.
+
+on:
+  push:
+    branches: [main]
+    paths: &contract_paths
+      - "tools/statement_resolve.py"
+      - "tools/statement_mint.py"
+      - "tools/_statement_common.py"
+      - "tests/test_statement_resolve.py"
+      - "tests/test_statement_mint.py"
+      - "pyproject.toml"
+      - ".github/workflows/contract.yml"
+  pull_request:
+    paths: *contract_paths
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  statement-cli:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # Three packages, named individually rather than through
+      # `pip install '.[contract]'`. The extra is the right declaration for an
+      # operator — it pulls arXMCP and therefore torch — and the wrong one for
+      # a job whose entire claim is that this code needs none of that. If a
+      # future edit makes the resolver import `server.*` at module scope, this
+      # step fails, which is the correct outcome and would be invisible under
+      # the extra.
+      #
+      # The rev is read out of pyproject.toml rather than repeated here, so
+      # there is one pin and it cannot go stale in a second place.
+      - name: install the contract package at the pinned rev
+        run: |
+          set -euo pipefail
+          REV=$(python - <<'PY'
+          import re, pathlib
+          text = pathlib.Path("pyproject.toml").read_text(encoding="utf-8")
+          m = re.search(
+              r'"mfc @ git\+https://github\.com/chris-dare-dev/'
+              r'math-formal-contract-lean@([0-9a-f]{40})#subdirectory=contract"',
+              text,
+          )
+          if not m:
+              raise SystemExit(
+                  "pyproject.toml carries no 40-hex mfc pin in the `contract` "
+                  "extra; a branch or tag there would make this job's result "
+                  "depend on when it ran"
+              )
+          print(m.group(1))
+          PY
+          )
+          echo "pinned mfc rev: $REV"
+          python -m pip install --quiet pytest jsonschema \
+            "mfc @ git+https://github.com/chris-dare-dev/math-formal-contract-lean@${REV}#subdirectory=contract"
+
+      # An `importorskip` that silently skips reads exactly like a pass in a
+      # green run, and `tests/test_statement_resolve.py` opens with one. Assert
+      # the import works before pytest gets the chance to be lenient about it.
+      - name: the contract package is importable, so nothing skips
+        run: |
+          python - <<'PY'
+          import pathlib
+
+          import mfc.digest
+
+          schema = pathlib.Path(mfc.__file__).parent / "schema" / "resolution-1.0.schema.json"
+          assert schema.is_file(), f"mfc shipped no {schema.name}"
+          # The version guard's verdict has to be representable, or every
+          # assertion about it passes vacuously against an older pin.
+          text = schema.read_text(encoding="utf-8")
+          assert '"not_applicable"' in text, (
+              "the pinned mfc predates `not_applicable` in resolution/1.0; "
+              "the version-guard tests would validate nothing"
+          )
+          print(f"ok: mfc.digest at {mfc.__file__}")
+          PY
+
+      - name: pytest — the statement CLIs
+        run: python -m pytest tests/test_statement_resolve.py -q
+
+      # Collect-only over the whole suite would need every runtime dep. This
+      # asserts the narrower thing the job actually cares about: the modules
+      # under test import with nothing but the three packages above, so the
+      # "no LanceDB, no models" claim is measured rather than asserted.
+      - name: the tools import without the corpus stack
+        run: |
+          python - <<'PY'
+          import sys
+
+          import tools.statement_resolve  # noqa: F401
+
+          heavy = sorted(
+              m for m in ("torch", "lancedb", "transformers", "faiss", "fastapi")
+              if m in sys.modules
+          )
+          if heavy:
+              raise SystemExit(
+                  f"importing tools.statement_resolve pulled in {heavy}; the "
+                  f"corpus stack must stay behind a function-level import or "
+                  f"this job stops being cheap and starts being a lie"
+              )
+          print("ok: no corpus stack at import time")
+          PY
