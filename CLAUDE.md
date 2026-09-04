@@ -702,14 +702,28 @@ design and a backlog, and the parts that are not are narrow. As of 2026-09-03:
 | an offline resolver answers "does this quote still appear, and where" | **LANDED** — `tools/statement_resolve.py`, derived-alg-geo-lean #170 |
 | a minting prefill exists | **LANDED** — `tools/statement_mint.py`, #169. It prefills; it mints no identity and writes nothing to the topic repo, and its output is deliberately invalid until a human fills in the four fields that are theirs |
 | the corpus can say which arXiv version it holds | **RECOVERABLE, not yet recovered.** Every row still reads `''`; `tools/notebook_arxiv_version_backfill.py` (#171) can fill the ones arXiv's version history establishes, and has not been run against the live notebooks. The resolver's version guard reports `not_applicable` rather than `current` and stays correct afterwards — a row still reading `''` post-backfill is a row whose version could not be established |
-| a `formal_releases` table exists | **NO** — `SCHEMA_VERSION: int = 5` (`server/notebooks_store.py:83`); #174 |
-| an `arxmcp://formal/*` resource is registered | **NO** — #175 |
+| a `formal_releases` table exists | **LANDED** — `notebooks.db` v6, written by `tools/formal_release_pin.py` (#174). Nothing is pinned on this box yet |
+| an `arxmcp://formal/*` resource is registered | **LANDED** — `arxmcp://formal/{notebook}` and `/{key}`, RESOURCES not tools, so `EXPECTED_TOOL_SCHEMA_SHA256` and the BP1 prefix are untouched and `tests/test_formal_resource.py` asserts it (#175). The coverage census carries a null `corpus_chunks` denominator, which #179 owns |
 | anything here reads a `formalization.yaml` | **NO** — `find -iname "*formaliz*"` still returns zero files |
 | `enable_lean` | still `False` by default (`server/config.py:208`) |
 
-The resolver crossing off its row does not promote the others. It answers one
-question and writes one file; it produces no trust verdict, reads no release,
-and serves nothing.
+A row crossing off does not promote the others, and two of these carry a
+caveat that matters more than the row does:
+
+* **The pinner's `digest_provenance` reads `self_attested_only` against
+  v0.1.0, and that is not a pass.** The topic repo gitignores `attest/*`
+  deliberately (CI regenerates them; a committed copy would be a stale trust
+  record), so the only digests covering those files live inside the file set —
+  and a coordinated edit satisfies all of them. The tag message asserts "the
+  tag object … is the root of trust" in prose and carries no digests for
+  anything to be rooted in. `tools/formal_release_pin.py` parses a
+  `-----BEGIN MFC DIGESTS-----` block already; a tag that carries one reads
+  `git_rooted` and refuses the tamper. Until then the pin says which of the
+  two it is, on every served record.
+* **Serving a record is not verifying one.** The resources re-serve the
+  producer's entry verbatim and attach generated caveats. arXMCP may DOWNGRADE
+  an axis from its own fresher information and has no code path that raises
+  one (ADR-0004).
 
 ---
 
@@ -785,6 +799,10 @@ arXMCP/
 │   ├── statement_mint.py    prefills a candidate registry entry from a chunk,
 │   │                        including the printed_number -> chunk lookup that
 │   │                        existed nowhere. Mints no identity (ADR-0002)
+│   ├── formal_release_pin.py
+│   │                        pins a topic repo's released formalization into
+│   │                        notebooks.db v6, re-deriving what git can root and
+│   │                        recording digest_provenance for what it cannot
 │   ├── arxiv_fetch.py       politeness contract: User-Agent, 503 backoff, 3s sleep
 │   ├── fetch_one_paper.py   single-paper smoke test of arXiv /e-print/ + LaTeXML
 │   ├── fetch_seed.py        50-paper seed fetch (idempotent; ≥45/50 to pass)

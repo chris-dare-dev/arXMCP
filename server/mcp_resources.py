@@ -39,6 +39,7 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -60,6 +61,18 @@ NOTEBOOK_TEMPLATE_URI = "arxmcp://notebooks/{slug}"
 #: source-truth-m3: a THIRD concrete resource (not a template) — the
 #: content-addressed corpus provenance manifest, generated on-read.
 CORPUS_MANIFEST_URI = "arxmcp://corpus-manifest"
+#: contract-v1 (derived-alg-geo-lean #175): the pinned formalization a notebook
+#: serves, and one record out of it. TEMPLATES on ``{notebook}``, which is what
+#: makes a SECOND topic repo cost zero arXMCP code.
+#:
+#: RESOURCES, never tools. That is the whole reason this ships without a
+#: schema-version bump or a prompt-cache invalidation: ``resources/read`` is a
+#: different JSON-RPC method from ``tools/call``, so ``tools/list`` bytes --
+#: and therefore ``EXPECTED_TOOL_SCHEMA_SHA256`` and the BP1 prefix -- are
+#: untouched. ``tests/test_formal_resource.py`` asserts that mechanically
+#: rather than the PR description asserting it in prose.
+FORMAL_INDEX_TEMPLATE_URI = "arxmcp://formal/{notebook}"
+FORMAL_RECORD_TEMPLATE_URI = "arxmcp://formal/{notebook}/{key}"
 
 #: Module-level live store (set by the lifespan via :func:`set_notebooks_store`,
 #: mirroring ``server.tools.set_resources``). ``None`` until startup wires it.
@@ -171,6 +184,175 @@ async def _notebook_metadata(slug: str) -> dict[str, Any]:
     }
 
 
+def _utc_iso() -> str:
+    """The repo's timestamp convention, second-resolution, `Z`-suffixed.
+
+    Local rather than imported from ``corpus_manifest``: that one is private
+    to its module and reaching through it would make an unrelated refactor
+    there break this census stamp.
+    """
+    return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+#: Caveats are GENERATED, never authored: each is a mechanical consequence of a
+#: field in the pin, so a record cannot be served with a caveat somebody forgot
+#: to write. Ordered by severity, and ``withdrawn`` is always first when it
+#: applies -- a reader who stops after one line must read that one.
+def _caveats(pin: dict[str, Any], key: str, withdrawn: dict[str, Any] | None) -> list[str]:
+    caveats: list[str] = []
+    if withdrawn is not None:
+        caveats.append(
+            f"WITHDRAWN. The producer retracted this record at "
+            f"{withdrawn.get('withdrawn_at', 'an unrecorded date')}"
+            + (f": {withdrawn['reason']}" if withdrawn.get("reason") else "")
+            + f". The withdrawal was read from tag "
+            f"{pin.get('withdrawals_tag') or 'unknown'}, which may be NEWER "
+            f"than the pinned {pin.get('tag')} -- withdrawals are the one "
+            f"channel allowed to travel forward in time, because they can "
+            f"only remove trust."
+        )
+    if pin.get("digest_provenance") != "git_rooted":
+        caveats.append(
+            "digest_provenance is self_attested_only: the artifact set agrees "
+            "with itself and nothing outside it was consulted for the attest "
+            "digests. That is a state a file copy also reaches. It is neither "
+            "a pass nor a fail."
+        )
+    if not pin.get("resolution_json"):
+        caveats.append(
+            "No corpus resolution accompanies this pin, so nothing here says "
+            "whether the quoted statements still appear in any corpus. Absent, "
+            "not passing."
+        )
+    if not pin.get("review_json"):
+        caveats.append(
+            "No human faithfulness review accompanies this pin. Nobody has "
+            "read this mathematics against its source."
+        )
+    if not key:
+        caveats.append(
+            "Coverage is a dated census, not a property of this response: a "
+            "registry of N entries against a notebook of many thousands of "
+            "chunks has covered a fraction of it, and `census` says which."
+        )
+    return caveats
+
+
+def _withdrawn_keys(pin: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    raw = pin.get("withdrawals_json")
+    if not raw:
+        return {}
+    try:
+        document = json.loads(raw)
+    except (TypeError, ValueError):
+        logger.warning("formal resource: withdrawals_json is not JSON; ignoring")
+        return {}
+    return {
+        item["key"]: item
+        for item in (document.get("withdrawals") or [])
+        if isinstance(item, dict) and item.get("key")
+    }
+
+
+def _pin_header(pin: dict[str, Any]) -> dict[str, Any]:
+    """What was pinned. Never a verdict about it."""
+    return {
+        "repo": pin.get("repo"),
+        "tag": pin.get("tag"),
+        "tag_object_sha": pin.get("tag_object_sha"),
+        "commit_sha": pin.get("commit_sha"),
+        "registry_id": pin.get("registry_id"),
+        "registry_sha256": pin.get("registry_sha256"),
+        "env_digest": pin.get("env_digest"),
+        "digest_provenance": pin.get("digest_provenance"),
+        "withdrawals_tag": pin.get("withdrawals_tag"),
+        "pinned_at": pin.get("pinned_at"),
+    }
+
+
+async def _formal_index(notebook: str) -> dict[str, Any]:
+    """``arxmcp://formal/{notebook}`` — what this notebook pins, and how little.
+
+    A notebook that pins nothing gets ``pinned: false`` rather than an error:
+    "this corpus has no formalization" is an answer, and the overwhelming
+    majority of notebooks are in that state.
+    """
+    validate_slug(notebook)          # FIRST, before any store or FS access
+    pin = await _require_store().get_formal_release(notebook)
+    if pin is None:
+        return {
+            "notebook": notebook,
+            "pinned": False,
+            "reason": (
+                "no formal release is pinned for this notebook. arXMCP hosts "
+                "no formalization of its own; a record appears here only once "
+                "an operator pins a topic repo's release."
+            ),
+        }
+    registry = json.loads(pin["registry_json"])
+    entries = registry.get("entries") or {}
+    withdrawn = _withdrawn_keys(pin)
+    papers = sorted({
+        f"{(e.get('source') or {}).get('scheme')}:"
+        f"{(e.get('source') or {}).get('id')}"
+        f"{(e.get('source') or {}).get('version') or ''}"
+        for e in entries.values()
+    })
+    return {
+        "notebook": notebook,
+        "pinned": True,
+        "pin": _pin_header(pin),
+        "census": {
+            "entries": len(entries),
+            "withdrawn": len(set(entries) & set(withdrawn)),
+            "papers_covered": len(papers),
+            "papers": papers,
+            # The denominator this census needs to MEAN anything, and it is
+            # not computed here: it costs a LanceDB read on every
+            # resources/read, and derived-alg-geo-lean #179 owns the census.
+            # Null rather than absent, so the field a reader looks for is
+            # present and visibly unanswered instead of quietly missing.
+            "corpus_chunks": None,
+            "corpus_chunks_note": (
+                "not measured on this response; without it `entries` is a "
+                "count and not a coverage fraction (#179)"
+            ),
+            "generated_at": _utc_iso(),
+        },
+        "keys": sorted(entries),
+        "caveats": _caveats(pin, "", None),
+    }
+
+
+async def _formal_record(notebook: str, key: str) -> dict[str, Any]:
+    """``arxmcp://formal/{notebook}/{key}`` — one record, re-served verbatim.
+
+    ADR-0004's asymmetry is the whole permission model: arXMCP MAY downgrade an
+    axis from its own fresher resolution, and has NO code path that raises one.
+    So the entry is passed through exactly as the producer published it and
+    every judgement this server adds arrives as a generated ``caveats[]`` entry
+    beside it, never as an edit to the record.
+    """
+    validate_slug(notebook)
+    pin = await _require_store().get_formal_release(notebook)
+    if pin is None:
+        raise ValueError(f"notebook {notebook!r} pins no formal release")
+    registry = json.loads(pin["registry_json"])
+    entry = (registry.get("entries") or {}).get(key)
+    if entry is None:
+        raise ValueError(f"no entry {key!r} in the release pinned for {notebook!r}")
+    withdrawn = _withdrawn_keys(pin).get(key)
+    return {
+        "notebook": notebook,
+        "key": key,
+        "pin": _pin_header(pin),
+        # Verbatim. Not reshaped, not summarized, not annotated in place.
+        "entry": entry,
+        "withdrawn": withdrawn is not None,
+        "caveats": _caveats(pin, key, withdrawn),
+    }
+
+
 def register_resources(mcp_server: FastMCP) -> None:
     """Register the notebook MCP resources on ``mcp_server``.
 
@@ -252,9 +434,45 @@ def register_resources(mcp_server: FastMCP) -> None:
         )
         return _wrap_json(payload, kind="manifest")
 
+    @mcp_server.resource(
+        FORMAL_INDEX_TEMPLATE_URI,
+        name="formal",
+        description=(
+            "The formalization release pinned for one notebook: the topic "
+            "repo, tag, tag-object and commit shas, registry digest, "
+            "digest_provenance, the citation keys it carries, and a DATED "
+            "COVERAGE CENSUS. resources/read returns {notebook, pinned, pin, "
+            "census, keys, caveats}. A notebook that pins nothing returns "
+            "pinned:false, which is an answer and not an error. Read "
+            "arxmcp://formal/<notebook>/<key> for one record."
+        ),
+        mime_type="text/plain",
+    )
+    async def _formal_index_resource(notebook: str) -> str:
+        return _wrap_json(await _formal_index(notebook), kind="formal")
+
+    @mcp_server.resource(
+        FORMAL_RECORD_TEMPLATE_URI,
+        name="formal-record",
+        description=(
+            "One statement record out of the release pinned for a notebook, "
+            "re-served VERBATIM as the producer published it. resources/read "
+            "returns {notebook, key, pin, entry, withdrawn, caveats}. Every "
+            "judgement this server adds is a generated caveat beside the "
+            "record, never an edit to it: arXMCP may DOWNGRADE a trust axis "
+            "from its own fresher information and has no path that raises one. "
+            "A withdrawn record is served with `withdrawn` first in caveats[]."
+        ),
+        mime_type="text/plain",
+    )
+    async def _formal_record_resource(notebook: str, key: str) -> str:
+        return _wrap_json(await _formal_record(notebook, key), kind="formal")
+
 
 __all__ = [
     "CORPUS_MANIFEST_URI",
+    "FORMAL_INDEX_TEMPLATE_URI",
+    "FORMAL_RECORD_TEMPLATE_URI",
     "NOTEBOOKS_INDEX_URI",
     "NOTEBOOK_TEMPLATE_URI",
     "register_resources",

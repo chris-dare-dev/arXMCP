@@ -626,6 +626,13 @@ _WRAP_TAG_NOTEBOOK = "retrieved_notebook"
 #: manifest differently from paper-body content. Like the notebook tag it is
 #: NOT a tool / not in ALL_TOOLS, so the ``tools/list`` hash is untouched.
 _WRAP_TAG_MANIFEST = "retrieved_manifest"
+#: contract-v1 (derived-alg-geo-lean #175): the two ``arxmcp://formal/*``
+#: resources. Its own tag rather than reusing ``retrieved_notebook`` because
+#: the content has a different provenance and a different trust story: it is a
+#: SIBLING REPO's published record, re-served verbatim, and the reader is meant
+#: to treat "arXMCP said it" and "the topic repo published it" as different
+#: claims. A shared delimiter would make them one.
+_WRAP_TAG_FORMAL = "retrieved_formal"
 
 
 def wrap_retrieved_text(
@@ -664,7 +671,9 @@ def wrap_retrieved_text(
             ``"equation"`` → ``<retrieved_equation>...``; ``"notebook"``
             → ``<retrieved_notebook>...`` (MCP resource metadata);
             ``"manifest"`` → ``<retrieved_manifest>...`` (the
-            ``arxmcp://corpus-manifest`` resource, source-truth-m3). An
+            ``arxmcp://corpus-manifest`` resource, source-truth-m3);
+            ``"formal"`` → ``<retrieved_formal>...`` (the two
+            ``arxmcp://formal/*`` resources, contract-v1). An
             unknown ``kind`` falls back to ``<retrieved_chunk>``. Equation
             wrapping is reserved for ``find_equation`` when E10_S03
             wires equation atom body text into the response.
@@ -682,6 +691,7 @@ def wrap_retrieved_text(
         "equation": _WRAP_TAG_EQUATION,
         "notebook": _WRAP_TAG_NOTEBOOK,
         "manifest": _WRAP_TAG_MANIFEST,
+        "formal": _WRAP_TAG_FORMAL,
     }.get(kind, _WRAP_TAG_CHUNK)
     open_tag = f"<{tag}>"
     close_tag = f"</{tag}>"
