@@ -55,6 +55,7 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Final
 
+from server.notebooks_store import open_sync
 from tools._notebook_common import (
     NOTEBOOKS_BASE,
     NotebookError,
@@ -222,26 +223,40 @@ def _validate_manifest(manifest: dict) -> tuple[str, dict, list[dict]]:
 
 
 # ---------------------------------------------------------------------------
-# DB layer — direct sqlite3 (the CLI is sync; NotebooksStore is async-only).
+# DB layer — sync, through the store's own migration ladder.
+#
+# `NotebooksStore` is async-only, which is why this CLI reached for raw
+# sqlite3 in the first place. `open_sync` is that ladder at module scope, so
+# "the CLI is sync" stops meaning "the CLI skips migrations".
 # ---------------------------------------------------------------------------
 
 
 def _open_db_with_retry(db_path: Path) -> sqlite3.Connection:
-    """Open the target ``notebooks.db`` with the same PRAGMAs as the runtime
-    server, retrying on ``"database is locked"`` (the WAL BUSY case if the
-    server is mid-write)."""
+    """Open + MIGRATE the target ``notebooks.db``, retrying on a WAL BUSY.
+
+    Goes through :func:`server.notebooks_store.open_sync` rather than opening
+    a raw connection and setting three PRAGMAs by hand.
+
+    The hand-rolled version was a live data-loss hazard, not a style problem.
+    It set no ``user_version``, so a restore into a file this CLI itself
+    created left the schema at 0 with real notebook rows in it -- and the
+    server's v0->v1 block is guarded by ``current_version < 1`` and opens with
+    an unconditional ``DROP TABLE IF EXISTS notebooks``. The next daemon start
+    would have dropped exactly the rows the restore just wrote, silently and
+    with no error anywhere. ``tools/notebook_list_offline.py`` learned the
+    read-side half of this at its m2 critique F2 (a `list` command that
+    migrated the operator's only copy); this is the write-side half.
+
+    Contract-v1's ``formal_releases`` migration is what made it urgent: a
+    second sync writer would have doubled the exposure.
+
+    The retry loop stays here because it is this CLI's concern -- the server
+    opens once at startup and has nothing to race.
+    """
     last_err: sqlite3.OperationalError | None = None
     for attempt in range(_DB_BUSY_RETRIES):
         try:
-            conn = sqlite3.connect(
-                str(db_path),
-                isolation_level=None,  # manage BEGIN/COMMIT ourselves
-                check_same_thread=False,
-            )
-            conn.execute("PRAGMA foreign_keys = ON")
-            conn.execute("PRAGMA journal_mode = WAL")
-            conn.execute("PRAGMA synchronous = FULL")
-            return conn
+            return open_sync(db_path)
         except sqlite3.OperationalError as exc:
             last_err = exc
             if "locked" in str(exc).lower() and attempt < _DB_BUSY_RETRIES - 1:

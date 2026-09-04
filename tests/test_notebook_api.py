@@ -27,7 +27,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from server.notebooks_store import NotebooksStore
+from server.notebooks_store import SCHEMA_VERSION, NotebooksStore
 from server.routes import notebooks as notebooks_module
 from server.routes.notebooks import (
     _arxiv_url_to_paper_id,
@@ -1121,7 +1121,14 @@ class TestNotebookKindMigration:
         self, tmp_path: Path,
     ) -> None:
         """After NotebooksStore.open on a fresh DB, PRAGMA user_version
-        is the CURRENT SCHEMA_VERSION (5 after notebook-paper-discovery-m1)."""
+        is the CURRENT SCHEMA_VERSION.
+
+        Compared against the constant rather than a literal. The literal was
+        written five times across this file and every schema bump had to find
+        all five -- contract-v1's v5->v6 found them by breaking them. What
+        this test is about is that `open` LEAVES the file at the version the
+        code declares, and that is exactly what the constant says.
+        """
         import asyncio
         import sqlite3
 
@@ -1140,7 +1147,7 @@ class TestNotebookKindMigration:
                 await store.close()
 
         version = asyncio.run(_open_close())
-        assert version == 5
+        assert version == SCHEMA_VERSION
 
     def test_v1_to_v3_migration_runs_both_blocks(
         self, tmp_path: Path,
@@ -1233,7 +1240,7 @@ class TestNotebookKindMigration:
             }
 
         result = asyncio.run(_run())
-        assert result["version"] == 5
+        assert result["version"] == SCHEMA_VERSION
         assert result["ingest_runs_present"] is True
         assert "notebook_kind" in result["cols"]
         # textbook-ingest-m6 columns also present after v3→v4.
@@ -1322,7 +1329,7 @@ class TestNotebookKindMigration:
             return v_first, cols_first, v_second, cols_second
 
         v1, c1, v2, c2 = asyncio.run(_open_close_open())
-        assert v1 == 5 and v2 == 5
+        assert v1 == v2 == SCHEMA_VERSION
         # Schema byte-stable across re-opens.
         assert c1 == c2, (
             f"notebooks columns drifted across re-open: "
@@ -1409,7 +1416,7 @@ class TestV4ToV5Migration:
             return row, version
 
         row, version = asyncio.run(_seed_v4_and_query_v5())
-        assert version == 5
+        assert version == SCHEMA_VERSION
         assert row["slug"] == "legacy-v4"
         assert row["discovery_category"] == "", (
             "legacy rows must backfill discovery_category='' via the "
@@ -1455,10 +1462,97 @@ class TestV4ToV5Migration:
             return v1, c1, v2, c2
 
         v1, c1, v2, c2 = asyncio.run(_open_twice())
-        assert v1 == 5 and v2 == 5
+        assert v1 == v2 == SCHEMA_VERSION
         assert c1 == c2
         assert "discovery_category" in c2
         assert "description" in c2
+
+
+class TestV5ToV6Migration:
+    """contract-v1 (derived-alg-geo-lean #174) — ``formal_releases``.
+
+    ADDITIVE, like every block since v1->v2: a schema bump on notebook
+    METADATA must never lose a row. The v0->v1 block is the only destructive
+    one and it is guarded by ``current_version < 1``, which is precisely why a
+    writer that leaves ``user_version`` at 0 is a data-loss hazard rather than
+    an untidiness.
+    """
+
+    def test_v5_to_v6_adds_the_table_without_touching_existing_rows(
+        self, tmp_path: Path,
+    ) -> None:
+        import asyncio
+        import sqlite3
+
+        db_path = tmp_path / "notebooks.db"
+
+        async def _seed_v5_then_open() -> tuple[int, list[str], list[str]]:
+            # A real v5 file, built by the store itself rather than by a
+            # hand-written CREATE that could drift from it.
+            store = await NotebooksStore.open(db_path)
+            try:
+                await store.create_notebook(
+                    slug="legacy-v5", display_name="Legacy v5",
+                    lancedb_path="/tmp/legacy/lancedb",
+                    created_at="2026-01-01T00:00:00+00:00",
+                )
+            finally:
+                await store.close()
+            conn = sqlite3.connect(str(db_path))
+            try:
+                conn.execute("PRAGMA user_version = 5")
+                conn.execute("DROP TABLE IF EXISTS formal_releases")
+                conn.commit()
+            finally:
+                conn.close()
+
+            store = await NotebooksStore.open(db_path)
+            try:
+                slugs = [r["slug"] for r in await store.list_notebooks()]
+            finally:
+                await store.close()
+
+            conn = sqlite3.connect(str(db_path))
+            try:
+                version = int(conn.execute("PRAGMA user_version").fetchone()[0])
+                cols = [r[1] for r in conn.execute(
+                    "PRAGMA table_info(formal_releases)").fetchall()]
+            finally:
+                conn.close()
+            return version, cols, slugs
+
+        version, cols, slugs = asyncio.run(_seed_v5_then_open())
+        assert version == SCHEMA_VERSION
+        assert slugs == ["legacy-v5"], "the v5 row must survive the bump"
+        assert "digest_provenance" in cols
+        assert "tag_object_sha" in cols
+
+    def test_a_pin_requires_the_notebook_it_is_served_under(
+        self, tmp_path: Path,
+    ) -> None:
+        """The FK is load-bearing: a pin for a notebook that does not exist is
+        a record nothing can serve, and the resources reach it by slug."""
+        import asyncio
+        import sqlite3
+
+        async def _run() -> None:
+            store = await NotebooksStore.open(tmp_path / "notebooks.db")
+            try:
+                with pytest.raises(sqlite3.IntegrityError):
+                    await store.upsert_formal_release({
+                        "slug": "no-such-notebook", "repo": "r", "tag": "v1",
+                        "tag_object_sha": "a", "commit_sha": "b",
+                        "registry_id": "c", "registry_sha256": "d",
+                        "env_digest": "e", "digest_provenance": "git_rooted",
+                        "asset_dir": "", "bundle_json": "{}",
+                        "registry_json": "{}", "resolution_json": None,
+                        "review_json": None, "withdrawals_json": None,
+                        "withdrawals_tag": None, "pinned_at": "2026-09-03",
+                    })
+            finally:
+                await store.close()
+
+        asyncio.run(_run())
 
 
 class TestNotebookTopicMetadata:
