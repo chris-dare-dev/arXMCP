@@ -139,6 +139,17 @@ Returns `status` (`elaborated_no_errors` / `error` / `sorry` / `incomplete` /
 `lean_status='disabled'` instead of a 5xx. A 30 s elaboration timeout kills
 and respawns the REPL before the next call.
 
+That shape is also advertised as the tool's `outputSchema` in `tools/list`, so
+a client does not have to read this table to know it — it is
+`server/schemas/lean_verify_result.json` shipped verbatim, 13 required fields
+and `additionalProperties: false`. It is the only tool that advertises one.
+
+`lean_verify` is **not** gated on corpus state. It talks to a Lean kernel and
+reads no chunk, notebook or index, so it answers normally in bootstrap mode
+(no notebook ingested) while the seven corpus-reading tools return the
+`no_notebook_selected` stub. Its `corpus_version` is `-1` there — the
+bootstrap sentinel, not a real corpus version.
+
 `status` reports elaboration **and** proof closure only — never axiom soundness.
 `elaborated_no_errors` (renamed from `ok` at `verification-contract-m1`) means Lean
 raised no error-severity diagnostic and no `sorry` remains; a snippet declaring its

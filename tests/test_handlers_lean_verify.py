@@ -230,7 +230,14 @@ class TestToolRegistration:
         # continuation_status keep their existing semantics. The
         # LEAN_VERIFY description's two "ok" mentions are edited in
         # lockstep, which is what makes this window BP1-affecting.
-        assert TOOL_SCHEMA_VERSION == 23
+        # 23->24 (derived-alg-geo-lean #185): lean_verify's advertised
+        # outputSchema becomes THIS file instead of FastMCP's auto-derived
+        # permissive object. The result SHAPE is unchanged -- this schema has
+        # been the contract the handler was tested against since m3; what
+        # changes is that a client can read it. tools/list carries
+        # outputSchema, so the hash moves; no tool description is edited, so
+        # BP1 does not.
+        assert TOOL_SCHEMA_VERSION == 24
 
         schema_path = (
             Path(__file__).parent.parent

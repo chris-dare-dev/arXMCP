@@ -46,7 +46,12 @@ import json
 import logging
 import time
 from dataclasses import dataclass
+from functools import lru_cache
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
+
+import jsonschema
+from pydantic import RootModel, model_validator
 
 if TYPE_CHECKING:
     from mcp.types import CallToolResult
@@ -234,7 +239,25 @@ logger = logging.getLogger(__name__)
 #: ``pytest --update-tool-schema-hash`` and EXPECTED_BP1_SHA256 re-pins BY
 #: HAND. lean_verify_result.json and search_papers_result.json both bump
 #: 22 -> 23 in lockstep.
-TOOL_SCHEMA_VERSION: int = 23
+#:
+#: 23 -> 24 (derived-alg-geo-lean #185): lean_verify's advertised
+#: ``outputSchema`` becomes the frozen ``server/schemas/lean_verify_result.json``
+#: instead of FastMCP's auto-derived ``{"type":"object",
+#: "additionalProperties":true}``. The RESULT SHAPE does not change -- the
+#: frozen file has been the contract the handler was tested against all
+#: along; what changes is that clients can now read it. ``tools/list`` carries
+#: ``outputSchema``, so the bytes move and EXPECTED_TOOL_SCHEMA_SHA256 re-pins
+#: via ``pytest --update-tool-schema-hash --allow-version-bump``.
+#:
+#: BP1 is NOT affected. The prompt-cache prefix is the ``[{name, description},
+#: ...]`` projection (``tests/test_prompts.py::_live_tools_payload``), and no
+#: tool description is edited in this window -- so EXPECTED_BP1_SHA256 does not
+#: move and no agent's cached prefix is invalidated. #138 planned this as one
+#: of three batched fixes precisely to spend one BP1 invalidation; the other
+#: two shipped separately (#184, #186) and this one turns out not to need one.
+#: lean_verify_result.json and search_papers_result.json bump 23 -> 24 in
+#: lockstep, as they always have.
+TOOL_SCHEMA_VERSION: int = 24
 
 #: URI scheme for chunk resource_links per the design note. Used by
 #: handlers that switch to resource_link mode when payloads exceed
@@ -600,7 +623,21 @@ def envelope(
     if override_corpus_version is not None:
         version = override_corpus_version
     else:
-        version = get_resources().corpus_info.version
+        # ``corpus_info`` is None in bootstrap mode. Every corpus-READING
+        # tool is short-circuited before dispatch and never arrives here, so
+        # this branch belongs to the corpus-INDEPENDENT ones
+        # (``_CORPUS_INDEPENDENT_TOOLS``) that are deliberately not gated:
+        # lean_verify computes against a Lean kernel and has nothing to say
+        # about a corpus either way. Crashing on ``None.version`` was the
+        # only reason it had to be gated at all (#185).
+        #
+        # The sentinel, not 0: a version of 0 is a real corpus version, and a
+        # caller comparing it would conclude the corpus is merely empty.
+        info = getattr(get_resources(), "corpus_info", None)
+        version = (
+            info.version if info is not None
+            else BOOTSTRAP_CORPUS_VERSION_SENTINEL
+        )
     payload = {**payload, "corpus_version": version}
     return _sort_dict(payload)
 
@@ -1021,7 +1058,11 @@ def _wrap_with_observability(tool_name: str, handler: Any) -> Any:
                     _r = get_resources()
                 except ResourcesNotReadyError:
                     _r = None
-                if _r is not None and getattr(_r, "bootstrap_mode_active", False):
+                if (
+                    _r is not None
+                    and getattr(_r, "bootstrap_mode_active", False)
+                    and tool_name not in _CORPUS_INDEPENDENT_TOOLS
+                ):
                     # onboarding-uplift-m4 F8: thread configured bind address
                     # into hint text so operator doesn't get a wrong URL.
                     try:
@@ -1161,7 +1202,105 @@ def register_all(mcp_server: FastMCP) -> None:
             meta=meta,
             annotations=_annotations_for(tm.name),
         )
+    _attach_output_schema(mcp_server)
     logger.info("registered %d MCP tools (schema_version=%d)", len(ALL_TOOLS), TOOL_SCHEMA_VERSION)
+
+
+#: Tools that compute rather than read the corpus, and so must NOT be gated on
+#: corpus-ingest state. derived-alg-geo-lean #185.
+#:
+#: ``lean_verify`` talks to a Lean kernel. It reads no chunk, no notebook and no
+#: index -- ``handle_lean_verify`` touches ``resources.lean_repl`` and
+#: ``resources.config`` and nothing else -- so "no notebook has been ingested"
+#: is not a fact about whether it can answer. It was gated anyway, and the
+#: reason was incidental: ``envelope()`` reached ``corpus_info.version`` and
+#: crashed when ``corpus_info`` is None. That is now handled at the source, so
+#: the gate can go.
+#:
+#: Removing it also removes a contract violation. The bootstrap envelope is a
+#: ``{corpus_version, error_code, tool}`` payload, which against the frozen
+#: ``lean_verify_result.json`` satisfies ONE of thirteen required fields and
+#: adds two the schema forbids -- and once that schema is the advertised
+#: ``outputSchema`` (below), the SDK validates every ``CallToolResult`` against
+#: it, so the payload would not merely be wrong, it would raise.
+_CORPUS_INDEPENDENT_TOOLS: frozenset[str] = frozenset({"lean_verify"})
+
+#: The frozen wire contract for ``lean_verify``'s structured result, shipped
+#: VERBATIM as the advertised ``outputSchema``. derived-alg-geo-lean #185.
+#:
+#: It existed as a file and was test-only: ``TestLeanVerifyResultSchema``
+#: validated the handler's envelopes against it, while the wire advertised
+#: FastMCP's auto-derived ``{"type": "object", "additionalProperties": true,
+#: "title": "handle_lean_verifyDictOutput"}``. So clients got no machine-
+#: readable output contract for the one tool whose output is most consequential
+#: to misread -- and the file that WAS the contract was invisible to them.
+#:
+#: Shipped verbatim rather than re-derived from a Pydantic mirror: a mirror
+#: would drift from the file the tests validate against, and then there would
+#: be two contracts. That is also why ``version`` (not a JSON Schema keyword)
+#: stays in -- it names which ``TOOL_SCHEMA_VERSION`` this shape belongs to,
+#: on the wire, where a client can read it.
+_LEAN_VERIFY_RESULT_SCHEMA_PATH = (
+    Path(__file__).resolve().parent / "schemas" / "lean_verify_result.json"
+)
+
+
+@lru_cache(maxsize=1)
+def lean_verify_result_schema() -> dict[str, Any]:
+    """The frozen ``lean_verify`` result schema, read once."""
+    return json.loads(
+        _LEAN_VERIFY_RESULT_SCHEMA_PATH.read_text(encoding="utf-8")
+    )
+
+
+class _LeanVerifyResult(RootModel[dict[str, Any]]):
+    """Validates a ``lean_verify`` payload against the frozen schema.
+
+    FastMCP requires an ``output_model`` wherever an ``output_schema`` is set
+    (``FuncMetadata.convert_result`` asserts it), and uses it to validate the
+    ``structuredContent`` of every ``CallToolResult`` the tool returns. The
+    auto-derived model accepts any dict, so leaving it would advertise a strict
+    contract while enforcing nothing -- a promise to clients the server does
+    not keep.
+
+    Draft-07 because that is what the file declares, and the same dialect
+    ``TestLeanVerifyResultSchema`` has always validated the handler against.
+    Validating against the FILE rather than a transcription is what keeps the
+    advertised schema, the enforced schema and the tested schema one thing.
+    """
+
+    @model_validator(mode="after")
+    def _conforms_to_the_frozen_schema(self) -> _LeanVerifyResult:
+        jsonschema.Draft7Validator(lean_verify_result_schema()).validate(
+            self.root
+        )
+        return self
+
+
+def _attach_output_schema(mcp_server: FastMCP) -> None:
+    """Advertise the frozen schema as ``lean_verify``'s ``outputSchema``.
+
+    ``FastMCP.add_tool`` takes no ``output_schema`` argument -- it derives one
+    from the return annotation, which for a ``dict`` handler is the permissive
+    shape above. The only seam is the registered tool's ``fn_metadata``, which
+    ``FastMCP.list_tools`` reads through ``Tool.output_schema``.
+
+    That is private API, so ``tests/test_lean_verify_output_schema.py`` asserts
+    the wire result rather than the assignment: if a future SDK moves the
+    attribute, the guard fails on the advertised schema being wrong, which is
+    the fact that matters. ``Tool.output_schema`` is a ``cached_property``, so
+    the cache is dropped in case anything has already read it.
+    """
+    tool = mcp_server._tool_manager.get_tool(LEAN_VERIFY.name)  # noqa: SLF001
+    if tool is None:  # pragma: no cover - registration precedes this call
+        raise RuntimeError(
+            f"{LEAN_VERIFY.name} is not registered; cannot advertise its "
+            f"output schema"
+        )
+    tool.fn_metadata.output_schema = lean_verify_result_schema()
+    tool.fn_metadata.output_model = _LeanVerifyResult
+    tool.fn_metadata.wrap_output = False
+    tool.__dict__.pop("output_schema", None)
 
 
 #: agent-platform-t-tool-annotations (#86): the 7 retrieval tools are
