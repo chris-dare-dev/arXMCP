@@ -700,8 +700,8 @@ design and a backlog, and the parts that are not are narrow. As of 2026-09-03:
 | claim | state |
 |---|---|
 | an offline resolver answers "does this quote still appear, and where" | **LANDED** — `tools/statement_resolve.py`, derived-alg-geo-lean #170 |
-| a minting prefill exists | pending, #169 |
-| the corpus can say which arXiv version it holds | **NO** — `documents.arxiv_version` is `''` for every row in both live notebooks; #171. The resolver's version guard exists BECAUSE of this and reports `not_applicable` rather than `current` |
+| a minting prefill exists | **LANDED** — `tools/statement_mint.py`, #169. It prefills; it mints no identity and writes nothing to the topic repo, and its output is deliberately invalid until a human fills in the four fields that are theirs |
+| the corpus can say which arXiv version it holds | **RECOVERABLE, not yet recovered.** Every row still reads `''`; `tools/notebook_arxiv_version_backfill.py` (#171) can fill the ones arXiv's version history establishes, and has not been run against the live notebooks. The resolver's version guard reports `not_applicable` rather than `current` and stays correct afterwards — a row still reading `''` post-backfill is a row whose version could not be established |
 | a `formal_releases` table exists | **NO** — `SCHEMA_VERSION: int = 5` (`server/notebooks_store.py:83`); #174 |
 | an `arxmcp://formal/*` resource is registered | **NO** — #175 |
 | anything here reads a `formalization.yaml` | **NO** — `find -iname "*formaliz*"` still returns zero files |
@@ -772,12 +772,19 @@ arXMCP/
 ├── shim/
 │   └── arxmcp_shim.py       stdio↔HTTP bridge for Claude Code; loopback-only egress
 ├── tools/                   dev utilities
+│   ├── notebook_arxiv_version_backfill.py
+│   │                        fills documents.arxiv_version from the OAI-PMH
+│   │                        arXivRaw version history, windowed by fetched_at;
+│   │                        abstains rather than guessing (#171)
 │   ├── _statement_common.py read-only corpus/registry plumbing shared by the two
 │   │                        statement CLIs; imports mfc's normalization rather
 │   │                        than copying it (derived-alg-geo-lean #169/#170)
 │   ├── statement_resolve.py the resolution ladder -> resolution/1.0, committed
 │   │                        into the TOPIC repo by a human (ADR-0001: the seam
 │   │                        is cold). Offline, read-only, never at request time
+│   ├── statement_mint.py    prefills a candidate registry entry from a chunk,
+│   │                        including the printed_number -> chunk lookup that
+│   │                        existed nowhere. Mints no identity (ADR-0002)
 │   ├── arxiv_fetch.py       politeness contract: User-Agent, 503 backoff, 3s sleep
 │   ├── fetch_one_paper.py   single-paper smoke test of arXiv /e-print/ + LaTeXML
 │   ├── fetch_seed.py        50-paper seed fetch (idempotent; ≥45/50 to pass)
