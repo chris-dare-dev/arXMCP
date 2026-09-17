@@ -6,12 +6,16 @@ surface — at ZERO BP1 cost, because resources are a SEPARATE JSON-RPC method f
 ``tools/list`` and never enter the frozen tool-schema / BP1 prompt-cache prefix
 (proven byte-identical by ``notebook-surface-expansion-spike-1``).
 
-Two resources are registered (see :func:`register_resources`):
+Five resources are registered (see :func:`register_resources`):
 
 - ``arxmcp://notebooks`` — a **concrete** index resource; ``resources/read``
   returns ``{count, notebooks: [{slug, display_name, uri}, …]}`` (enumeration).
 - ``arxmcp://notebooks/{slug}`` — a **template**; ``resources/read`` returns ONE
   notebook's METADATA (NO chunk content, NO LanceDB query).
+- ``arxmcp://corpus-manifest`` — a **concrete** resource, generated on-read
+  (source-truth-m3); the content-addressed corpus provenance manifest.
+- ``arxmcp://formal/{notebook}`` and ``arxmcp://formal/{notebook}/{key}`` —
+  **templates** over the pinned formalization a notebook serves (contract-v1).
 
 This surface is **read-only** — notebook mutation stays on the ``/ui/api`` REST
 surface (the MCP notebook-mutation-tools path is on the project's Won't list).
@@ -44,8 +48,14 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from server import corpus_manifest
+from server.corpus import read_corpus_version
 from server.tools import ResourcesNotReadyError, get_resources, wrap_retrieved_text
-from tools._notebook_common import NotebookError, notebook_dir, validate_slug
+from tools._notebook_common import (
+    NotebookError,
+    notebook_dir,
+    notebook_lancedb_path,
+    validate_slug,
+)
 
 if TYPE_CHECKING:
     from mcp.server.fastmcp import FastMCP
@@ -194,11 +204,132 @@ def _utc_iso() -> str:
     return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+#: Why a census has no denominator, and the two are NOT the same fact
+#: (CLAUDE.md 4.9 rule 2 -- an epistemic absence never wears an operational
+#: token). ``no-corpus-marker`` is an ANSWER: nothing has stamped a size for
+#: this notebook, so there is no measured corpus for the registry to have
+#: covered. ``unavailable`` is a FAULT: a size was stamped and this server
+#: could not read it.
+#:
+#: The epistemic token names what was OBSERVED (no marker) rather than what it
+#: usually implies (no ingest has run) -- 4.9 rule 1, no axis inferred from
+#: another. It is deliberately NOT the word ``is_ingested`` uses on
+#: ``arxmcp://notebooks/{slug}``, which answers a different question (does the
+#: lancedb dir exist) and can legitimately disagree with this one: a crashed
+#: ingest leaves the dir without the marker.
+CENSUS_UNMEASURED_NO_CORPUS_MARKER = "no-corpus-marker"
+CENSUS_UNMEASURED_UNAVAILABLE = "unavailable"
+
+#: Where the denominator was read from, as a token rather than only as prose in
+#: ``corpus_chunks_note``: an agent branches on this, and a later surface that
+#: counts live must ship a DIFFERENT token rather than quietly changing what
+#: this one means.
+CENSUS_SOURCE_CORPUS_VERSION_MARKER = "corpus-version-marker"
+
+#: The census is measured from the ingest-time ``corpus-version.json`` marker,
+#: NOT from a live ``chunks_table.count_rows()``. Three reasons, in order:
+#:
+#: 1. ``resources/read`` is an unauthenticated JSON-RPC method. Putting a
+#:    LanceDB open + scan behind it hands an anonymous caller a dataset read
+#:    per request, which is the cost #175 declined to pay when it shipped this
+#:    field as ``None``.
+#: 2. The marker is DATED. A live count answers "how many now" and can say
+#:    nothing about when; the issue asks for a *dated* census, and a number
+#:    whose measurement time is unknown is the thing being fixed here.
+#: 3. It is the number the ops surface already calls the denominator --
+#:    ``arxmcp_corpus_chunk_count_marker`` (``server/health.py``), against
+#:    which ``..._actual`` is compared under ``corpus_chunk_count_tolerance``.
+#:    A second, differently-sourced chunk count on a second surface would be a
+#:    new way for two arXMCP answers to disagree.
+#:
+#: What it costs is liveness: an ingest since the marker was stamped is not
+#: reflected, which is exactly why ``corpus_measured_at`` ships beside it
+#: rather than the reader assuming "now".
+CENSUS_SOURCE_NOTE = (
+    "corpus_chunks/corpus_papers are read from the notebook's ingest-time "
+    "corpus-version.json marker (stamped at corpus_measured_at, epoch "
+    "corpus_version), not counted live on this read -- a denominator with a "
+    "date, not a denominator as of an unknown moment. No coverage ratio is "
+    "computed for you: entries are statements and corpus_chunks are text "
+    "chunks, so entries/corpus_chunks mixes units, and papers_covered counts "
+    "papers the REGISTRY cites, which need not all be papers this notebook "
+    "holds."
+)
+
+
+def _corpus_denominator(notebook: str) -> dict[str, Any]:
+    """Measure the notebook a formal census is stated against. Never raises.
+
+    derived-alg-geo-lean **#179**. #175 shipped ``corpus_chunks: None`` with a
+    note naming this issue as its owner; this is that owner. The numerator
+    (``entries``, ``papers_covered``) was always in the response -- what was
+    missing is the thing that makes it mean anything, because ten records
+    against a 15,280-chunk notebook and ten records against a ten-chunk
+    notebook are the same numerator and opposite facts.
+
+    Degrades to a null denominator with a REASON rather than failing the read:
+    a census is a report about the corpus, and an unreadable corpus marker must
+    not take down the pin record beside it. The reason distinguishes "no corpus
+    to have covered" from "could not measure the corpus" per 4.9 rule 2.
+    """
+    paths = _configured_application_paths()
+    base = paths.notebooks if paths is not None else None
+    unmeasured: dict[str, Any] = {
+        "corpus_chunks": None,
+        "corpus_papers": None,
+        "corpus_version": None,
+        "corpus_measured_at": None,
+        # Named even when it yielded nothing: "we looked HERE and found no
+        # answer" is a different report from "we did not look".
+        "corpus_source": CENSUS_SOURCE_CORPUS_VERSION_MARKER,
+    }
+    try:
+        info = read_corpus_version(notebook_lancedb_path(notebook, base=base))
+    except NotebookError:
+        # Containment / symlink rejection at var/arxmcp/notebooks/<slug> --
+        # the same out-of-band tamper signal _notebook_metadata logs. Operator
+        # -visible server-side; the agent gets "unavailable", not the path.
+        logger.warning(
+            "formal census: notebook %r lancedb-path containment check "
+            "rejected (possible symlink tamper); denominator unmeasured",
+            notebook,
+        )
+        return {**unmeasured, "corpus_unmeasured_reason": CENSUS_UNMEASURED_UNAVAILABLE}
+    except (ValueError, OSError) as exc:
+        # Present-but-corrupt marker, or an OS error reading it. A corpus
+        # exists; its size could not be established. That is a fault, and it
+        # must not read as "this notebook has nothing in it".
+        logger.warning(
+            "formal census: notebook %r corpus-version read failed (%s); "
+            "denominator unmeasured",
+            notebook,
+            type(exc).__name__,
+        )
+        return {**unmeasured, "corpus_unmeasured_reason": CENSUS_UNMEASURED_UNAVAILABLE}
+    if info is None:
+        # No marker: no ingest has run. An answer, not a fault.
+        return {**unmeasured, "corpus_unmeasured_reason": CENSUS_UNMEASURED_NO_CORPUS_MARKER}
+    return {
+        "corpus_chunks": info.chunk_count,
+        "corpus_papers": info.paper_count,
+        "corpus_version": info.version,
+        "corpus_measured_at": info.created_at,
+        "corpus_source": CENSUS_SOURCE_CORPUS_VERSION_MARKER,
+        "corpus_unmeasured_reason": None,
+    }
+
+
 #: Caveats are GENERATED, never authored: each is a mechanical consequence of a
 #: field in the pin, so a record cannot be served with a caveat somebody forgot
 #: to write. Ordered by severity, and ``withdrawn`` is always first when it
 #: applies -- a reader who stops after one line must read that one.
-def _caveats(pin: dict[str, Any], key: str, withdrawn: dict[str, Any] | None) -> list[str]:
+def _caveats(
+    pin: dict[str, Any],
+    key: str,
+    withdrawn: dict[str, Any] | None,
+    *,
+    census: dict[str, Any] | None = None,
+) -> list[str]:
     caveats: list[str] = []
     if withdrawn is not None:
         caveats.append(
@@ -230,12 +361,71 @@ def _caveats(pin: dict[str, Any], key: str, withdrawn: dict[str, Any] | None) ->
             "read this mathematics against its source."
         )
     if not key:
-        caveats.append(
-            "Coverage is a dated census, not a property of this response: a "
-            "registry of N entries against a notebook of many thousands of "
-            "chunks has covered a fraction of it, and `census` says which."
-        )
+        caveats.append(_coverage_caveat(census or {}))
     return caveats
+
+
+def _coverage_caveat(census: dict[str, Any]) -> str:
+    """The coverage line, stated from the census rather than in the abstract.
+
+    #175 could only say "coverage is a fraction and `census` says which",
+    because `census` did not yet say. It does now, so this caveat quotes the
+    two numbers instead of pointing at them -- a reader who stops after the
+    caveats has still seen the denominator.
+
+    The arithmetic is deliberately left undone (see :data:`CENSUS_SOURCE_NOTE`):
+    stating "N entries against M chunks" is a fact, and dividing them would
+    manufacture a percentage out of two different units.
+    """
+    if "corpus_source" not in census:
+        # No census was handed in at all (not a state _formal_index can reach;
+        # a future caller could). Say the abstract thing rather than render a
+        # concrete-looking line out of missing values -- "measured at None
+        # chunks" would read as a measurement.
+        return (
+            "Coverage is a dated census, not a property of this response, and "
+            "no census accompanied this one. Read the `census` block on "
+            "arxmcp://formal/<notebook> for the numbers."
+        )
+    reason = census.get("corpus_unmeasured_reason")
+    if reason == CENSUS_UNMEASURED_NO_CORPUS_MARKER:
+        return (
+            "Coverage is a dated census, and this one has no denominator: no "
+            "corpus-version marker stamps a size for this notebook, so the "
+            f"{_count(census.get('entries', 0), 'entry', 'entries')} here "
+            "are stated against "
+            "nothing measured. Not a fault -- usually it means no ingest has "
+            "run yet, and a notebook can be registered and pinned before it "
+            "is. Do NOT read it as an empty corpus."
+        )
+    if reason == CENSUS_UNMEASURED_UNAVAILABLE:
+        return (
+            "Coverage is a dated census, and this server could not measure the "
+            "denominator on this read (the corpus-version marker is present "
+            "but unreadable). `corpus_chunks` is null for an OPERATIONAL "
+            "reason, not because the corpus is empty -- do not read this as a "
+            "small notebook."
+        )
+    return (
+        f"Coverage is a dated census, not a property of this response: "
+        f"{_count(census.get('entries', 0), 'entry', 'entries')} covering "
+        f"{_count(census.get('papers_covered', 0), 'cited paper')}, against a "
+        f"notebook measured at {_count(census.get('corpus_chunks'), 'chunk')} "
+        f"across {_count(census.get('corpus_papers'), 'paper')} as of "
+        f"{census.get('corpus_measured_at')} (corpus epoch "
+        f"{census.get('corpus_version')}). The ratio is left to you on "
+        "purpose; see corpus_chunks_note."
+    )
+
+
+def _count(n: Any, singular: str, plural: str | None = None) -> str:
+    """``"1 entry"`` / ``"2 entries"``. Agent-facing prose, so it agrees.
+
+    A caveat that reads "1 cited papers" invites the reader to skim it, and
+    these lines are the half of the response that a reader who skims the JSON
+    still sees.
+    """
+    return f"{n} {singular if n == 1 else (plural or singular + 's')}"
 
 
 def _withdrawn_keys(pin: dict[str, Any]) -> dict[str, dict[str, Any]]:
@@ -298,29 +488,26 @@ async def _formal_index(notebook: str) -> dict[str, Any]:
         f"{(e.get('source') or {}).get('version') or ''}"
         for e in entries.values()
     })
+    # The denominator this census needs to MEAN anything (#179). Measured
+    # before the payload is built so the caveats can quote it rather than
+    # gesture at it -- and it is a null-with-a-reason, never an exception, so
+    # an unreadable corpus marker cannot take the pin record down with it.
+    census = {
+        "entries": len(entries),
+        "withdrawn": len(set(entries) & set(withdrawn)),
+        "papers_covered": len(papers),
+        "papers": papers,
+        **_corpus_denominator(notebook),
+        "corpus_chunks_note": CENSUS_SOURCE_NOTE,
+        "generated_at": _utc_iso(),
+    }
     return {
         "notebook": notebook,
         "pinned": True,
         "pin": _pin_header(pin),
-        "census": {
-            "entries": len(entries),
-            "withdrawn": len(set(entries) & set(withdrawn)),
-            "papers_covered": len(papers),
-            "papers": papers,
-            # The denominator this census needs to MEAN anything, and it is
-            # not computed here: it costs a LanceDB read on every
-            # resources/read, and derived-alg-geo-lean #179 owns the census.
-            # Null rather than absent, so the field a reader looks for is
-            # present and visibly unanswered instead of quietly missing.
-            "corpus_chunks": None,
-            "corpus_chunks_note": (
-                "not measured on this response; without it `entries` is a "
-                "count and not a coverage fraction (#179)"
-            ),
-            "generated_at": _utc_iso(),
-        },
+        "census": census,
         "keys": sorted(entries),
-        "caveats": _caveats(pin, "", None),
+        "caveats": _caveats(pin, "", None, census=census),
     }
 
 
@@ -442,7 +629,15 @@ def register_resources(mcp_server: FastMCP) -> None:
             "repo, tag, tag-object and commit shas, registry digest, "
             "digest_provenance, the citation keys it carries, and a DATED "
             "COVERAGE CENSUS. resources/read returns {notebook, pinned, pin, "
-            "census, keys, caveats}. A notebook that pins nothing returns "
+            "census, keys, caveats}; census carries the numerator (entries, "
+            "withdrawn, papers_covered) AND the denominator it is stated "
+            "against (corpus_chunks, corpus_papers, corpus_version, "
+            "corpus_measured_at, corpus_source), so N records never read as a covered "
+            "corpus. A null corpus_chunks names its reason in "
+            "corpus_unmeasured_reason: `no-corpus-marker` (nothing stamped a "
+            "size) is an answer, `unavailable` (a size was stamped and could "
+            "not be read) is a fault, and neither is 0. A notebook that pins "
+            "nothing returns "
             "pinned:false, which is an answer and not an error. Read "
             "arxmcp://formal/<notebook>/<key> for one record."
         ),
