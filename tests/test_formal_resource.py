@@ -29,7 +29,11 @@ from pathlib import Path
 import pytest
 from mcp.server.fastmcp import FastMCP
 
+from server.corpus import CORPUS_VERSION_MARKER_NAME
 from server.mcp_resources import (
+    CENSUS_SOURCE_CORPUS_VERSION_MARKER,
+    CENSUS_UNMEASURED_NO_CORPUS_MARKER,
+    CENSUS_UNMEASURED_UNAVAILABLE,
     FORMAL_INDEX_TEMPLATE_URI,
     FORMAL_RECORD_TEMPLATE_URI,
     register_resources,
@@ -141,6 +145,33 @@ def _pin(loop, store: NotebooksStore, **overrides) -> None:
     loop.run_until_complete(store.upsert_formal_release(_pin_row(**overrides)))
 
 
+def _ingest_marker(tmp_path: Path, text: str | None = None, **overrides) -> Path:
+    """Stamp a `corpus-version.json` under the notebook, as an ingest would.
+
+    The census denominator is read from this file rather than counted live in
+    LanceDB (#179), so "ingested" in these tests means exactly "this marker
+    exists and parses" — no dataset, no embedder, no LanceDB. `text` writes
+    raw bytes instead, for the corrupt-marker path.
+    """
+    lancedb = tmp_path / "notebooks" / SLUG / "lancedb"
+    lancedb.mkdir(parents=True, exist_ok=True)
+    marker = lancedb / CORPUS_VERSION_MARKER_NAME
+    if text is not None:
+        marker.write_text(text, encoding="utf-8")
+        return marker
+    payload = {
+        "version": 7,
+        "chunker_version": "chunker/2",
+        "embedder_version": "bge-m3/1",
+        "created_at": "2026-08-30T04:12:00Z",
+        "paper_count": 146,
+        "chunk_count": 15280,
+    }
+    payload.update(overrides)
+    marker.write_text(json.dumps(payload), encoding="utf-8")
+    return marker
+
+
 # --- the zero-cost claim, asserted rather than described ------------------------
 
 class TestByteStability:
@@ -212,22 +243,150 @@ def test_the_index_reports_what_was_pinned_and_how_it_was_verified(env) -> None:
     assert sorted(payload["keys"]) == sorted([KEY, OTHER_KEY])
 
 
-def test_coverage_is_a_dated_census_and_names_its_missing_denominator(env) -> None:
-    """§4.9 rule 3. Ten records against a 15,280-chunk notebook have covered
-    ~0.07% of it, and a bare `entries: 10` reads as a covered corpus.
+class TestDatedCensus:
+    """#179. §4.9 rule 3: coverage is a dated, scoped census.
 
-    `corpus_chunks` is null rather than absent, and says so in a sibling field:
-    the number a reader looks for is present and visibly unanswered instead of
-    quietly missing. #179 owns measuring it.
+    #175 shipped the numerator and a null `corpus_chunks` naming this issue as
+    the denominator's owner. These tests are that owner: the denominator ships,
+    it is dated, and when it cannot be measured the null says WHICH KIND of
+    null it is — because "this notebook has no corpus" and "I could not read
+    how big the corpus is" are opposite facts that a bare `null` conflates
+    (§4.9 rule 2).
     """
-    loop, store = env
-    _pin(loop, store)
-    census = _read(loop, _mcp(), f"arxmcp://formal/{SLUG}")["census"]
-    assert census["entries"] == 2
-    assert census["papers_covered"] == 1
-    assert census["corpus_chunks"] is None
-    assert "coverage fraction" in census["corpus_chunks_note"]
-    assert census["generated_at"].endswith("Z")
+
+    def test_the_denominator_ships_beside_the_numerator_and_is_dated(
+        self, env, tmp_path: Path
+    ) -> None:
+        """Two records against a 15,280-chunk notebook have covered a sliver of
+        it. Both numbers are in the same response, and the denominator carries
+        the moment it was true rather than implying "now"."""
+        loop, store = env
+        _pin(loop, store)
+        _ingest_marker(tmp_path)
+        census = _read(loop, _mcp(), f"arxmcp://formal/{SLUG}")["census"]
+        assert census["entries"] == 2
+        assert census["papers_covered"] == 1
+        assert census["corpus_chunks"] == 15280
+        assert census["corpus_papers"] == 146
+        assert census["corpus_version"] == 7
+        assert census["corpus_measured_at"] == "2026-08-30T04:12:00Z"
+        assert census["corpus_source"] == CENSUS_SOURCE_CORPUS_VERSION_MARKER
+        assert census["corpus_unmeasured_reason"] is None
+        assert census["generated_at"].endswith("Z")
+
+    def test_the_denominator_is_dated_separately_from_the_response(
+        self, env, tmp_path: Path
+    ) -> None:
+        """`generated_at` stamps the READ; `corpus_measured_at` stamps the
+        MEASUREMENT. Collapsing them into one timestamp is the bug this field
+        exists to prevent — it would date a months-old count to this second."""
+        loop, store = env
+        _pin(loop, store)
+        _ingest_marker(tmp_path)
+        census = _read(loop, _mcp(), f"arxmcp://formal/{SLUG}")["census"]
+        assert census["corpus_measured_at"] != census["generated_at"]
+
+    def test_no_coverage_ratio_is_computed_for_the_reader(
+        self, env, tmp_path: Path
+    ) -> None:
+        """Entries are statements; chunks are text chunks. Dividing them would
+        manufacture a percentage out of two different units, so the census
+        states both numbers and says, in the note, why it stops there."""
+        loop, store = env
+        _pin(loop, store)
+        _ingest_marker(tmp_path)
+        census = _read(loop, _mcp(), f"arxmcp://formal/{SLUG}")["census"]
+        assert not [k for k in census if "fraction" in k or "percent" in k]
+        assert "mixes units" in census["corpus_chunks_note"]
+
+    def test_the_coverage_caveat_quotes_the_census_rather_than_pointing_at_it(
+        self, env, tmp_path: Path
+    ) -> None:
+        """A reader who stops after `caveats[]` has still seen the
+        denominator. #175's caveat could only say the fraction existed."""
+        loop, store = env
+        _pin(loop, store)
+        _ingest_marker(tmp_path)
+        caveats = " ".join(_read(loop, _mcp(), f"arxmcp://formal/{SLUG}")["caveats"])
+        assert "15280 chunks" in caveats
+        assert "146 papers" in caveats
+        assert "2026-08-30T04:12:00Z" in caveats
+        # Agent-facing prose agrees with its numbers: "1 cited paper", never
+        # "1 cited papers". These lines are what a reader who skims the JSON
+        # still reads.
+        assert "1 cited paper," in caveats
+        assert "2 entries covering" in caveats
+
+    def test_an_unstamped_notebook_is_an_answer_not_a_zero(self, env) -> None:
+        """No marker means nothing stamped a size. The denominator is `null`
+        with reason `no-corpus-marker` — NEVER `0`, which would claim the
+        notebook is empty and make any registry read as total coverage of it.
+
+        The token names the OBSERVATION, not its usual cause: `is_ingested` on
+        the notebook resource answers a different question (does the lancedb
+        dir exist) and a crashed ingest makes the two disagree honestly."""
+        loop, store = env
+        _pin(loop, store)
+        census = _read(loop, _mcp(), f"arxmcp://formal/{SLUG}")["census"]
+        assert census["corpus_chunks"] is None
+        assert census["corpus_papers"] is None
+        assert census["corpus_measured_at"] is None
+        assert census["corpus_unmeasured_reason"] == CENSUS_UNMEASURED_NO_CORPUS_MARKER
+        # "we looked here and found nothing" != "we did not look".
+        assert census["corpus_source"] == CENSUS_SOURCE_CORPUS_VERSION_MARKER
+        caveats = " ".join(_read(loop, _mcp(), f"arxmcp://formal/{SLUG}")["caveats"])
+        assert "no corpus-version marker stamps a size" in caveats
+
+    def test_an_unreadable_marker_is_a_fault_not_a_small_notebook(
+        self, env, tmp_path: Path
+    ) -> None:
+        """§4.9 rule 2, applied to the census: an operational failure must not
+        wear an epistemic token. A corrupt marker says `unavailable`, which is
+        a different word from `no-corpus-marker` on purpose."""
+        loop, store = env
+        _pin(loop, store)
+        _ingest_marker(tmp_path, text="{not json at all")
+        payload = _read(loop, _mcp(), f"arxmcp://formal/{SLUG}")
+        census = payload["census"]
+        assert census["corpus_chunks"] is None
+        assert census["corpus_unmeasured_reason"] == CENSUS_UNMEASURED_UNAVAILABLE
+        assert "OPERATIONAL" in " ".join(payload["caveats"])
+
+    def test_a_bad_denominator_never_takes_down_the_pin_record(
+        self, env, tmp_path: Path
+    ) -> None:
+        """The census is a report ABOUT the corpus. An unreadable corpus marker
+        must not cost the reader the pin, the keys, or the other caveats."""
+        loop, store = env
+        _pin(loop, store)
+        _ingest_marker(tmp_path, text="{not json at all")
+        payload = _read(loop, _mcp(), f"arxmcp://formal/{SLUG}")
+        assert payload["pinned"] is True
+        assert payload["pin"]["tag"] == "v0.1.0"
+        assert sorted(payload["keys"]) == sorted([KEY, OTHER_KEY])
+        assert "self_attested_only" in " ".join(payload["caveats"])
+
+    def test_the_census_costs_no_lancedb_read(self, env, tmp_path: Path) -> None:
+        """`resources/read` is unauthenticated. The denominator comes from the
+        ingest-time marker, so an anonymous caller cannot make this path open
+        and scan a dataset — asserted by there being no dataset at all."""
+        loop, store = env
+        _pin(loop, store)
+        _ingest_marker(tmp_path)
+        lancedb = tmp_path / "notebooks" / SLUG / "lancedb"
+        assert not (lancedb / "chunks.lance").exists()
+        census = _read(loop, _mcp(), f"arxmcp://formal/{SLUG}")["census"]
+        assert census["corpus_chunks"] == 15280
+
+    def test_a_record_read_carries_no_census(self, env, tmp_path: Path) -> None:
+        """Coverage is a property of the index, not of one record. Attaching a
+        census to a single entry would invite reading it as that entry's."""
+        loop, store = env
+        _pin(loop, store)
+        _ingest_marker(tmp_path)
+        payload = _read(loop, _mcp(), f"arxmcp://formal/{SLUG}/{KEY}")
+        assert "census" not in payload
+        assert not [c for c in payload["caveats"] if "dated census" in c]
 
 
 def test_the_index_caveats_name_every_absent_axis(env) -> None:
