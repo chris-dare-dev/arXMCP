@@ -694,6 +694,61 @@ class TestRunMineruSandboxedSurface:
             run_mineru_sandboxed(pdf, out_dir, timeout_s=60)
         proc.kill.assert_called_once_with()
 
+    def test_timeout_kills_when_the_platform_has_no_sigkill(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """#505 regression. The sibling test above removes ``os.getpgid`` only,
+        so on POSIX ``signal.SIGKILL`` still resolves and the bug is invisible
+        -- it went red on Windows and green in CI for exactly that reason.
+
+        Windows has NEITHER attribute, and the missing one that actually bit
+        was ``signal.SIGKILL``: passed as a call-site argument it raised
+        ``AttributeError`` before the helper was entered, so the MinerU
+        subprocess was never killed and the timeout surfaced as an unrelated
+        crash. Removing both reproduces that on any host.
+        """
+        pdf, out_dir = self._make_pdf_and_outputs(tmp_path)
+        monkeypatch.setenv("ARXMCP_MINERU_BIN", _create_fake_bin(tmp_path))
+        monkeypatch.delattr(os, "getpgid", raising=False)
+        monkeypatch.delattr(signal, "SIGKILL", raising=False)
+        proc = MagicMock(spec=subprocess.Popen)
+        proc.pid = 12345
+        proc.communicate.side_effect = [
+            subprocess.TimeoutExpired(cmd="mineru", timeout=1),
+            ("late stdout", "drained stderr"),
+        ]
+        with (
+            patch.object(subprocess, "Popen", return_value=proc),
+            pytest.raises(subprocess.TimeoutExpired),
+        ):
+            run_mineru_sandboxed(pdf, out_dir, timeout_s=60)
+        proc.kill.assert_called_once_with()
+
+    def test_signal_helper_never_names_sigkill_off_the_posix_branch(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """The helper's own Windows arm must not evaluate ``signal.SIGKILL``
+        either. The original defect was there TWICE -- once per call site, and
+        once in an ``elif sig == signal.SIGKILL`` inside the helper, so fixing
+        the call sites alone still left the Windows branch unreachable.
+
+        Exercised directly rather than through ``run_mineru_sandboxed`` so a
+        future refactor of the timeout path cannot quietly drop this coverage.
+        """
+        monkeypatch.delattr(os, "getpgid", raising=False)
+        monkeypatch.delattr(signal, "SIGKILL", raising=False)
+        proc = MagicMock(spec=subprocess.Popen)
+        proc.pid = 999
+
+        textbook_parser._signal_process_group(proc, force=True)
+        proc.kill.assert_called_once_with()
+        proc.terminate.assert_not_called()
+
+        proc.reset_mock()
+        textbook_parser._signal_process_group(proc, force=False)
+        proc.terminate.assert_called_once_with()
+        proc.kill.assert_not_called()
+
     def test_invalid_pdf_path_raises(self, tmp_path: Path) -> None:
         with pytest.raises(RuntimeError, match="pdf_path is not a file"):
             run_mineru_sandboxed(
