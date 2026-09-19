@@ -394,20 +394,37 @@ _LIVE_LOCK = threading.Lock()
 _LIVE_MINERU: set[subprocess.Popen] = set()
 
 
-def _signal_process_group(proc: subprocess.Popen, sig: int) -> None:
-    """Signal ``proc``'s whole process group, falling back to the process.
+def _signal_process_group(proc: subprocess.Popen, *, force: bool) -> None:
+    """Stop ``proc``'s whole process group, falling back to the process.
+
+    Takes an INTENT (``force``), never a signal number. That is the whole
+    point of the signature: ``signal.SIGKILL`` does not exist on Windows, and
+    a caller passing it as an argument raises ``AttributeError`` at the CALL
+    SITE, before this function is entered and before any platform check here
+    can help. Naming the constant only inside the POSIX branch is what makes
+    the Windows path reachable at all.
 
     ``os.killpg``/``getpgid`` are POSIX-only and ``start_new_session`` is a
     no-op on Windows; ``AttributeError`` there is NOT an ``OSError``, so the
-    platform is checked explicitly rather than suppressed. On Windows this
-    reaches only the direct child -- MinerU's grandchild FastAPI service may
-    survive, an accepted gap (security-pdf-sandbox.md §"explicitly does NOT
-    do"; CLAUDE.md gotcha #10).
+    platform is checked explicitly rather than suppressed.
+
+    On Windows ``force`` does not change what happens: ``Popen.terminate`` and
+    ``Popen.kill`` are both ``TerminateProcess`` there, so the graceful phase
+    of a SIGTERM-then-SIGKILL escalation is not graceful. Stated rather than
+    hidden -- a caller that needs a real grace period on Windows does not get
+    one from this helper.
+
+    Also on Windows this reaches only the direct child -- MinerU's grandchild
+    FastAPI service may survive, an accepted gap (security-pdf-sandbox.md
+    §"explicitly does NOT do"; CLAUDE.md gotcha #10).
     """
     with contextlib.suppress(ProcessLookupError, OSError):
         if hasattr(os, "getpgid"):
-            os.killpg(os.getpgid(proc.pid), sig)
-        elif sig == signal.SIGKILL:
+            # POSIX only. `signal.SIGKILL` is resolved INSIDE this branch on
+            # purpose; hoisting it to a default argument or a module constant
+            # puts it back on the Windows path.
+            os.killpg(os.getpgid(proc.pid), signal.SIGKILL if force else signal.SIGTERM)
+        elif force:
             proc.kill()
         else:
             proc.terminate()
@@ -432,7 +449,7 @@ def terminate_live_mineru(*, grace_s: float = 2.0) -> int:
     if not procs:
         return 0
     for proc in procs:
-        _signal_process_group(proc, signal.SIGTERM)
+        _signal_process_group(proc, force=False)
     deadline = time.monotonic() + grace_s
     while time.monotonic() < deadline:
         if all(proc.poll() is not None for proc in procs):
@@ -440,7 +457,7 @@ def terminate_live_mineru(*, grace_s: float = 2.0) -> int:
         time.sleep(0.05)
     survivors = [proc for proc in procs if proc.poll() is None]
     for proc in survivors:
-        _signal_process_group(proc, signal.SIGKILL)
+        _signal_process_group(proc, force=True)
     logger.warning(
         "textbook_parser: shutdown terminated %d live mineru process(es); "
         "%d needed SIGKILL",
@@ -548,7 +565,7 @@ def run_mineru_sandboxed(
         # (timeout-path observability gap).
         # #500: one implementation of "signal the group", shared with the
         # shutdown path so the two cannot drift.
-        _signal_process_group(proc, signal.SIGKILL)
+        _signal_process_group(proc, force=True)
         drained_stderr: str = ""
         with contextlib.suppress(subprocess.TimeoutExpired):
             drained = proc.communicate(timeout=_DRAIN_TIMEOUT_S)
