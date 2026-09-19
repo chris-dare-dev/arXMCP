@@ -1,0 +1,1772 @@
+{
+  "components": {
+    "schemas": {
+      "Body_upload_paper_v1_api_v1_notebooks__slug__papers_upload_post": {
+        "properties": {
+          "file": {
+            "contentMediaType": "application/octet-stream",
+            "title": "File",
+            "type": "string"
+          },
+          "paper_id": {
+            "title": "Paper Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "paper_id",
+          "file"
+        ],
+        "title": "Body_upload_paper_v1_api_v1_notebooks__slug__papers_upload_post",
+        "type": "object"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "NotebookCreate": {
+        "description": "Body for ``POST /ui/api/notebooks``.\n\nOnly ``slug`` is required; ``display_name`` defaults to ``\"\"`` and\n``notebook_kind`` defaults to ``\"arxiv\"``. ``lancedb_path`` is\nAUTO-DERIVED from ``NOTEBOOKS_BASE / slug / \"lancedb\"`` (the caller\nMUST NOT supply a custom path \u2014 that would let a buggy or\nmalicious client steer a notebook at any on-disk location\nbypassing the per-notebook directory contract from m6).\n\ntextbook-ingest-m3: ``notebook_kind`` ``str`` with Pydantic\npattern ``^(arxiv|textbook)$``. Operator opt-in for the textbook-\ncorpus path (parser e2 + chunker e3 ship later); arXiv remains the\ndefault. The pattern validation rejects ``\"freeform-garbage\"`` at\nthe route layer before it reaches the SQLite writer.",
+        "properties": {
+          "chunker": {
+            "default": "html",
+            "pattern": "^(html|markdown)$",
+            "title": "Chunker",
+            "type": "string"
+          },
+          "description": {
+            "default": "",
+            "maxLength": 512,
+            "title": "Description",
+            "type": "string"
+          },
+          "discovery_category": {
+            "default": "",
+            "maxLength": 32,
+            "title": "Discovery Category",
+            "type": "string"
+          },
+          "display_name": {
+            "default": "",
+            "maxLength": 256,
+            "title": "Display Name",
+            "type": "string"
+          },
+          "notebook_kind": {
+            "default": "arxiv",
+            "pattern": "^(arxiv|textbook)$",
+            "title": "Notebook Kind",
+            "type": "string"
+          },
+          "slug": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Slug",
+            "type": "string"
+          }
+        },
+        "required": [
+          "slug"
+        ],
+        "title": "NotebookCreate",
+        "type": "object"
+      },
+      "NotebookRename": {
+        "description": "Body for ``PATCH /ui/api/notebooks/{slug}`` (notebook-surface-expansion-m2).\n\nCarries ONLY ``display_name`` \u2014 slug / notebook_kind / parse_status are\nNOT acceptable PATCH fields (mass-assignment defense; the store method\ntakes only ``(slug, display_name)``). Same ``max_length=256`` bound as\n``NotebookCreate`` \u2192 FastAPI returns 422 on an over-long name before the\nhandler body runs. NO ``min_length``: an empty string is a valid value\n(clears the display name; renders as ``\u2014``).",
+        "properties": {
+          "display_name": {
+            "maxLength": 256,
+            "title": "Display Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "display_name"
+        ],
+        "title": "NotebookRename",
+        "type": "object"
+      },
+      "NotebookTopicUpdate": {
+        "description": "Body for ``PATCH /ui/api/notebooks/{slug}/topic`` (notebook-paper-discovery-m1).\n\nCarries ONLY the two topic-metadata fields \u2014 ``slug`` /\n``display_name`` / ``notebook_kind`` / ``parse_status`` are NOT\nacceptable here (mass-assignment defense; the dedicated ``/topic``\nsub-route keeps the rename endpoint's contract untouched). Both\nfields accept an empty string (clears the topic). ``discovery_category``\nis enum-validated in the handler via ``_validate_discovery_category``;\nthe ``max_length`` bounds here are only defense-in-depth.",
+        "properties": {
+          "description": {
+            "default": "",
+            "maxLength": 512,
+            "title": "Description",
+            "type": "string"
+          },
+          "discovery_category": {
+            "default": "",
+            "maxLength": 32,
+            "title": "Discovery Category",
+            "type": "string"
+          }
+        },
+        "title": "NotebookTopicUpdate",
+        "type": "object"
+      },
+      "PaperAdd": {
+        "description": "Body for ``POST /ui/api/notebooks/{slug}/papers``.",
+        "properties": {
+          "arxiv_url": {
+            "maxLength": 512,
+            "minLength": 1,
+            "title": "Arxiv Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "arxiv_url"
+        ],
+        "title": "PaperAdd",
+        "type": "object"
+      },
+      "ProfileUpsert": {
+        "additionalProperties": false,
+        "description": "PUT body for one profile. ``extra=\"forbid\"`` is the AC-A.10\ntripwire: a raw ``token`` member is an unknown field \u2192 422.",
+        "properties": {
+          "caps": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "integer"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Per-tool per-session caps (tool -> max calls), superseding the built-in 3-search/4-chunk constants.",
+            "title": "Caps"
+          },
+          "enabled": {
+            "default": true,
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "notebooks": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Notebook-slug allowlist; null = unscoped.",
+            "title": "Notebooks"
+          },
+          "token_sha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "SHA-256 hex digest of the bearer token. NEVER the token value. Omit for the token-less default profile.",
+            "title": "Token Sha256"
+          },
+          "tools": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Tool allowlist; null = all tools.",
+            "title": "Tools"
+          }
+        },
+        "title": "ProfileUpsert",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "description": "JSON-only operator surface of the arXMCP server: /api/v1 notebook management aliases, health/readiness/status probes, and the /bridge/contracts handshake. Generated OFFLINE by tools/dump_openapi.py (IF-1); the runtime openapi_url is disabled by design (Threat 4).",
+    "title": "arXMCP operator API",
+    "version": "1.0.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/api/v1/admin/repair-registry": {
+      "post": {
+        "description": "Registry repair \u2014 direct delegate (already JSON) + stamp.",
+        "operationId": "repair_registry_v1_api_v1_admin_repair_registry_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Repair Registry V1 Api V1 Admin Repair Registry Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Repair Registry V1",
+        "tags": [
+          "api-v1"
+        ]
+      }
+    },
+    "/api/v1/capabilities/profiles": {
+      "get": {
+        "description": "List effective profiles (the synthesized ``default`` included\nwhen the operator has not overridden it).",
+        "operationId": "list_profiles_api_v1_capabilities_profiles_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response List Profiles Api V1 Capabilities Profiles Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Profiles",
+        "tags": [
+          "capabilities"
+        ]
+      }
+    },
+    "/api/v1/capabilities/profiles/{name}": {
+      "delete": {
+        "description": "Remove one profile. Deleting an operator-defined ``default``\nrestores the synthesized permissive default. 404 when absent.",
+        "operationId": "delete_profile_api_v1_capabilities_profiles__name__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Profile",
+        "tags": [
+          "capabilities"
+        ]
+      },
+      "put": {
+        "description": "Create or replace one profile; effective immediately (cache\ninvalidated inline).",
+        "operationId": "upsert_profile_api_v1_capabilities_profiles__name__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProfileUpsert"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Upsert Profile Api V1 Capabilities Profiles  Name  Put",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Upsert Profile",
+        "tags": [
+          "capabilities"
+        ]
+      }
+    },
+    "/api/v1/events/stream": {
+      "get": {
+        "description": "The single multiplexed live stream (gap R8; AC-A.14; IF-2).\n\n``topics`` is a comma-separated subset of\n``logs,requests,sessions,ingest``; unknown names are a 422 (a\ntypo'd topic silently delivering nothing would be a debugging\ntrap). Per-client queue cap + drop-oldest are enforced in\n:class:`server.observability.events.EventBus` \u2014 a stalled\nconsumer's server-side footprint is bounded by the queue cap.\n\nThe response is exempt from ``BodySizeCapMiddleware`` (the stream\nis unbounded by design \u2014 see the segment-exact carve-out in\n``server/main.py::_is_exempt_path``; flagged for the issue-#9\nscope amendment).",
+        "operationId": "events_stream_api_v1_events_stream_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "topics",
+            "required": false,
+            "schema": {
+              "default": "logs,requests,sessions,ingest",
+              "title": "Topics",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Events Stream",
+        "tags": [
+          "observability"
+        ]
+      }
+    },
+    "/api/v1/ingest-events": {
+      "get": {
+        "description": "Additive ingest/parse stage events (gap R4; AC-A.15). The\nlegacy tri-state poll surfaces are untouched \u2014 this ring is a new,\nparallel read model.",
+        "operationId": "list_ingest_events_api_v1_ingest_events_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "since_seq",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Since Seq"
+            }
+          },
+          {
+            "in": "query",
+            "name": "slug",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Slug"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response List Ingest Events Api V1 Ingest Events Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Ingest Events",
+        "tags": [
+          "observability"
+        ]
+      }
+    },
+    "/api/v1/logs/tail": {
+      "get": {
+        "description": "Snapshot of the in-process log ring (gap R2; AC-A.12).\n\nEvery record here passed ``RedactionFilter`` BEFORE entering the\nring (handler-level filter \u2014 the ordering contract in\n``logging_setup``). ``level`` filters case-insensitively on the\nrecord's level name (a facet, not a query language).",
+        "operationId": "logs_tail_api_v1_logs_tail_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "since_seq",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Since Seq"
+            }
+          },
+          {
+            "in": "query",
+            "name": "level",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Level"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Logs Tail Api V1 Logs Tail Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Logs Tail",
+        "tags": [
+          "observability"
+        ]
+      }
+    },
+    "/api/v1/notebooks": {
+      "get": {
+        "description": "List notebooks, paginated, ordered ``created_at DESC, slug ASC``\n(the store's stable ordering).",
+        "operationId": "list_notebooks_v1_api_v1_notebooks_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response List Notebooks V1 Api V1 Notebooks Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Notebooks V1",
+        "tags": [
+          "api-v1"
+        ]
+      },
+      "post": {
+        "description": "Create a notebook. Delegates to the shared handler's JSON branch\n(409 on duplicate slug; 422 on bad slug/category).",
+        "operationId": "create_notebook_v1_api_v1_notebooks_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NotebookCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Create Notebook V1 Api V1 Notebooks Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Notebook V1",
+        "tags": [
+          "api-v1"
+        ]
+      }
+    },
+    "/api/v1/notebooks/{slug}": {
+      "delete": {
+        "description": "Metadata-only delete (404 if absent). Always 204 \u2014 the legacy\nhandler's HX-Request 200-empty-body branch is unreachable here.",
+        "operationId": "delete_notebook_v1_api_v1_notebooks__slug__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "title": "Slug",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Notebook V1",
+        "tags": [
+          "api-v1"
+        ]
+      },
+      "patch": {
+        "description": "Rename a notebook's ``display_name`` \u2014 JSON alias of the legacy\nfragment-only PATCH. Same validation order and store call; returns\nthe stored (control-char-stripped) value instead of an HTML swap.",
+        "operationId": "rename_notebook_v1_api_v1_notebooks__slug__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "title": "Slug",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NotebookRename"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Rename Notebook V1 Api V1 Notebooks  Slug  Patch",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Rename Notebook V1",
+        "tags": [
+          "api-v1"
+        ]
+      }
+    },
+    "/api/v1/notebooks/{slug}/discover": {
+      "post": {
+        "description": "Run topic discovery \u2014 JSON alias of the legacy fragment-only\nPOST. Same driver, dedup, and error translation (422 unconfigured;\n502 arXiv failure); returns the candidate list as JSON. The\ncandidate QUEUE remains EPHEMERAL (propose-only; no junction rows\nare written); real paper metadata is populated separately by the\nper-notebook arXiv-Atom backfill (``tools/notebook_metadata_backfill.py``\n\u2192 ``server.paper_metadata_store``).",
+        "operationId": "discover_papers_v1_api_v1_notebooks__slug__discover_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "title": "Slug",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Discover Papers V1 Api V1 Notebooks  Slug  Discover Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Discover Papers V1",
+        "tags": [
+          "api-v1"
+        ]
+      }
+    },
+    "/api/v1/notebooks/{slug}/export": {
+      "get": {
+        "description": "Deterministic notebook tar \u2014 direct delegate. Binary response;\nthe format version rides in ``X-Arxmcp-Format-Version`` (the tar's\ninternal ``manifest.json`` carries the bundle's own\n``format_version`` independently).",
+        "operationId": "export_notebook_v1_api_v1_notebooks__slug__export_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "title": "Slug",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              },
+              "application/x-tar": {}
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "notebook not found"
+          },
+          "422": {
+            "description": "malformed slug"
+          }
+        },
+        "summary": "Export Notebook V1",
+        "tags": [
+          "api-v1"
+        ]
+      }
+    },
+    "/api/v1/notebooks/{slug}/graph/neighbors": {
+      "get": {
+        "description": "Citation-graph neighbors of ``paper_id`` \u2014 the REST read twin of\nthe MCP ``cite_neighbors`` tool (AC-A.20).\n\nMirrors the MCP handler's envelope vocabulary and degradation\nsemantics exactly (``server/handlers/citations.py``,\nverification-feedback-m1):\n\n- ``graph_status: \"absent\"`` \u2014 the K\u00f9zu DB path does not exist\n  (graph not ingested). Empty ``neighbors``, HTTP 200.\n- ``graph_status: \"unavailable\"`` \u2014 the path exists but is not a\n  queryable K\u00f9zu graph (stray dir / corrupt / half-ingested DB;\n  K\u00f9zu raises RuntimeError). Empty ``neighbors``, HTTP 200,\n  logged at WARNING so the operator failure is observable.\n- ``graph_status: \"present\"`` \u2014 queried successfully; ``neighbors``\n  rows carry the same ``CitationNeighbor`` field vocabulary as the\n  MCP tool (``paper_id``/``chunk_id``/``edge_kind``/\n  ``hop_distance``/``source``/``confidence``, ordered\n  ``(hop_distance ASC, paper_id ASC)``).\n\nDifferences owned by this surface (documented, deliberate): the\nquery key is ``paper_id`` (junction rows, not chunk ids \u2014 the MCP\ntool's chunk_id parse happens before the shared library entry\nanyway) and the version stamp is ``format_version`` (the\n``/api/v1`` envelope) rather than the MCP ``corpus_version`` echo,\nwhich requires warm retrieval Resources this read-only surface\nmust not depend on (the graph is queryable in bootstrap mode).\n\nF2 path-validation contract: the K\u00f9zu/LanceDB paths come from\n``app.state.config`` \u2014 NEVER from request input. The client\ncontrols only ``paper_id`` (regex-validated), ``direction``/\n``depth``/``limit`` (enum/bounds-validated).",
+        "operationId": "graph_neighbors_v1_api_v1_notebooks__slug__graph_neighbors_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "title": "Slug",
+              "type": "string"
+            }
+          },
+          {
+            "description": "arXiv paper id",
+            "in": "query",
+            "name": "paper_id",
+            "required": true,
+            "schema": {
+              "description": "arXiv paper id",
+              "minLength": 1,
+              "title": "Paper Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Graph traversal direction",
+            "in": "query",
+            "name": "direction",
+            "required": false,
+            "schema": {
+              "default": "cites",
+              "description": "Graph traversal direction",
+              "pattern": "^(cites|cited_by|depends_on)$",
+              "title": "Direction",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Hop count",
+            "in": "query",
+            "name": "depth",
+            "required": false,
+            "schema": {
+              "default": 2,
+              "description": "Hop count",
+              "maximum": 2,
+              "minimum": 1,
+              "title": "Depth",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Max neighbors returned",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 30,
+              "description": "Max neighbors returned",
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Graph Neighbors V1 Api V1 Notebooks  Slug  Graph Neighbors Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Graph Neighbors V1",
+        "tags": [
+          "api-v1"
+        ]
+      }
+    },
+    "/api/v1/notebooks/{slug}/health": {
+      "get": {
+        "description": "Per-notebook drift report \u2014 direct delegate (already JSON) + stamp.",
+        "operationId": "notebook_health_v1_api_v1_notebooks__slug__health_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "title": "Slug",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Notebook Health V1 Api V1 Notebooks  Slug  Health Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Notebook Health V1",
+        "tags": [
+          "api-v1"
+        ]
+      }
+    },
+    "/api/v1/notebooks/{slug}/ingest": {
+      "post": {
+        "description": "Spawn a background ingest \u2014 JSON alias of the legacy\nfragment-returning trigger. Same sequencing (validate \u2192 409-check \u2192\nINSERT row \u2192 spawn task) and the same two-layer collision check;\nreturns the run row reference instead of an htmx fragment.\n\nstage2/arx-a45 (AC-A.18): kind-aware dispatch via the SAME\n``_ingest_dispatch_kwargs`` helper as the legacy trigger \u2014 a\ntextbook notebook spawns ``tools.notebook_textbook_ingest`` with\nits stored ``textbook_chunker``; arxiv-kind keeps the papers.txt\nbulk ingest. One helper, two surfaces, zero drift.",
+        "operationId": "trigger_ingest_v1_api_v1_notebooks__slug__ingest_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "title": "Slug",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Trigger Ingest V1 Api V1 Notebooks  Slug  Ingest Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Trigger Ingest V1",
+        "tags": [
+          "api-v1"
+        ]
+      }
+    },
+    "/api/v1/notebooks/{slug}/ingest/latest": {
+      "get": {
+        "description": "Latest ingest-run state as JSON. Plain 200 always (no HTTP 286 \u2014\nthat status is an htmx polling-transport artifact of the legacy\nsurface); ``terminal`` tells a JSON poller when to stop.\n\n``status: \"none\"`` when the notebook has no runs yet.",
+        "operationId": "latest_ingest_v1_api_v1_notebooks__slug__ingest_latest_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "title": "Slug",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Latest Ingest V1 Api V1 Notebooks  Slug  Ingest Latest Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Latest Ingest V1",
+        "tags": [
+          "api-v1"
+        ]
+      }
+    },
+    "/api/v1/notebooks/{slug}/papers": {
+      "get": {
+        "description": "List a notebook's paper junction rows, paginated, ordered\n``added_at DESC, paper_id ASC`` (the store's stable ordering).",
+        "operationId": "list_papers_v1_api_v1_notebooks__slug__papers_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "title": "Slug",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response List Papers V1 Api V1 Notebooks  Slug  Papers Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Papers V1",
+        "tags": [
+          "api-v1"
+        ]
+      },
+      "post": {
+        "description": "Add a paper by arXiv URL. Delegates to the shared handler's JSON\nbranch (422 bad URL; 404 no notebook; 409 duplicate).",
+        "operationId": "add_paper_v1_api_v1_notebooks__slug__papers_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "title": "Slug",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PaperAdd"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Add Paper V1 Api V1 Notebooks  Slug  Papers Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Add Paper V1",
+        "tags": [
+          "api-v1"
+        ]
+      }
+    },
+    "/api/v1/notebooks/{slug}/papers/upload": {
+      "post": {
+        "description": "Upload an ar5iv HTML (arxiv-kind) or PDF (textbook-kind) file.\n\nDelegates the ENTIRE validated pipeline (per-kind caps, magic-byte\nsniff, 5-vector PDF preflight, atomic write, junction insert, parse\nscheduling) to the shared handler, then translates its\nfragment-response status into a JSON body:\n\n- 201 \u2192 ``result: \"created\"`` (new junction row + file written)\n- 200 \u2192 ``result: \"updated_existing\"`` (row existed; file\n  atomically overwritten \u2014 the legacy handler's idempotent-upload\n  contract)",
+        "operationId": "upload_paper_v1_api_v1_notebooks__slug__papers_upload_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "title": "Slug",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_upload_paper_v1_api_v1_notebooks__slug__papers_upload_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Upload Paper V1",
+        "tags": [
+          "api-v1"
+        ]
+      }
+    },
+    "/api/v1/notebooks/{slug}/papers/{paper_id}": {
+      "delete": {
+        "description": "Remove a paper junction row \u2014 direct delegate (already JSON/204).",
+        "operationId": "remove_paper_v1_api_v1_notebooks__slug__papers__paper_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "title": "Slug",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "paper_id",
+            "required": true,
+            "schema": {
+              "title": "Paper Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Remove Paper V1",
+        "tags": [
+          "api-v1"
+        ]
+      }
+    },
+    "/api/v1/notebooks/{slug}/parse-status": {
+      "get": {
+        "description": "Textbook-parse status \u2014 direct delegate (already JSON) + stamp.",
+        "operationId": "parse_status_v1_api_v1_notebooks__slug__parse_status_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "title": "Slug",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Parse Status V1 Api V1 Notebooks  Slug  Parse Status Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Parse Status V1",
+        "tags": [
+          "api-v1"
+        ]
+      }
+    },
+    "/api/v1/notebooks/{slug}/reconcile-marker": {
+      "post": {
+        "description": "Marker reconcile \u2014 direct delegate (already JSON) + stamp.",
+        "operationId": "reconcile_marker_v1_api_v1_notebooks__slug__reconcile_marker_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "title": "Slug",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Reconcile Marker V1 Api V1 Notebooks  Slug  Reconcile Marker Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Reconcile Marker V1",
+        "tags": [
+          "api-v1"
+        ]
+      }
+    },
+    "/api/v1/notebooks/{slug}/topic": {
+      "patch": {
+        "description": "Update topic metadata \u2014 JSON alias of the legacy fragment-only\nPATCH. Same category enum gate + control-char stripping.",
+        "operationId": "update_topic_v1_api_v1_notebooks__slug__topic_patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "title": "Slug",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NotebookTopicUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Update Topic V1 Api V1 Notebooks  Slug  Topic Patch",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Topic V1",
+        "tags": [
+          "api-v1"
+        ]
+      }
+    },
+    "/api/v1/requests": {
+      "get": {
+        "description": "Last-N request events, newest first (gap R1; AC-A.11).\n\n``since_seq`` returns only events strictly newer than the cursor \u2014\nthe polling degraded mode's gap-free catch-up (within ring\ncapacity; a seq jump larger than the ring means events aged out).",
+        "operationId": "list_request_events_api_v1_requests_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "since_seq",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Since Seq"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response List Request Events Api V1 Requests Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Request Events",
+        "tags": [
+          "observability"
+        ]
+      }
+    },
+    "/api/v1/sessions": {
+      "get": {
+        "description": "Read-only projection of the MCP session registry with per-cap\nremaining counts (gaps R3/R7; AC-A.13). The registry itself stays\nmodule-private in :mod:`server.session` \u2014 this endpoint serializes\na point-in-time copy and never mutates state.",
+        "operationId": "list_sessions_api_v1_sessions_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response List Sessions Api V1 Sessions Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Sessions",
+        "tags": [
+          "observability"
+        ]
+      }
+    },
+    "/api/v1/tool-calls": {
+      "get": {
+        "description": "Newest-first page over the append-only ``tool_calls`` audit\nstore (AC-A.9's read side). 503 while the store is not yet bound\n(startup) \u2014 a probe-friendly signal, not an error state.",
+        "operationId": "list_tool_calls_api_v1_tool_calls_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response List Tool Calls Api V1 Tool Calls Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Tool Calls",
+        "tags": [
+          "observability"
+        ]
+      }
+    },
+    "/bridge/contracts": {
+      "get": {
+        "description": "The contract-registry handshake (finding 06 \u00a72.5.2 item 4).\n\nResponse shape (all fields always present)::\n\n    {\n      \"format_version\": 1,\n      \"registry_status\": \"absent\" | \"registry\" | \"scan\"\n                         | \"malformed_registry\",\n      \"envelope\": {\"version\": <str|null>,\n                    \"schema\": <filename|null>,\n                    \"schema_sha256\": <hex|null>} | null,\n      \"artifact_types\": {\n        \"<type-id>\": {\"version\": <str|null>,\n                       \"schema\": <filename|null>,\n                       \"schema_sha256\": <hex|null>},\n        ...\n      },\n      \"count\": <int>\n    }\n\n``registry_status: \"absent\"`` with an empty map is the\nempty-registry envelope served until WS-C publishes ``contracts/``.\n\n``envelope`` (stage3/cross-r1) is the top-level substrate-wrapper\nentry from ``registry.json`` (``null`` when there is no registry /\nno envelope block). It is served alongside the artifact types so the\nconsumer's preflight can verify the six-field substrate block \u2014 the\nanti-spike-1/2/3 core \u2014 whose bytes never move in any artifact-type\nschema (they reference the envelope by opaque URN ``$ref``).\n``format_version`` stays 1: the field is purely additive and\nolder consumers ignore it.",
+        "operationId": "bridge_contracts_bridge_contracts_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Bridge Contracts Bridge Contracts Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Bridge Contracts",
+        "tags": [
+          "bridge"
+        ]
+      }
+    },
+    "/healthz": {
+      "get": {
+        "description": "Liveness probe.\n\nAlways 200 if the process can respond at all. Does NOT inspect\nresource warm state \u2014 a process loading the BGE-M3 model still\nreturns 200 here (and 503 from ``/readyz``). The brief AC:\n*\"returns 200 before readiness.\"*",
+        "operationId": "healthz_healthz_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Healthz Healthz Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Healthz",
+        "tags": [
+          "health"
+        ]
+      }
+    },
+    "/readyz": {
+      "get": {
+        "description": "Readiness probe.\n\nReturns 200 only after :meth:`server.resources.Resources.startup`\nhas completed and ``Resources.warm`` is True. Returns 503 with a\nJSON body naming the un-warm resources during the window between\nprocess start and readiness.\n\nThe body shape is documented for ops dashboards:\n\n    {\"status\": \"ready\" | \"not_ready\",\n     \"warm\": {\"embedder\": bool, \"lancedb\": bool, \"reranker\": bool}}",
+        "operationId": "readyz_readyz_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Readyz",
+        "tags": [
+          "health"
+        ]
+      }
+    },
+    "/status": {
+      "get": {
+        "description": "Operability snapshot as IETF ``application/health+json``\n(notebook-ops-hardening-m4).\n\nA SUPERSET of ``/readyz``: ``status: pass|warn|fail`` + per-component\n``checks`` (embedder, lancedb, corpus:version, notebooks:count,\ndisk:utilization, backup:time, process:uptime). HTTP 200 for ``pass`` and\n``warn`` (serving, possibly degraded), 503 for ``fail`` (not warm). Unlike\n``/readyz`` (which 503s on the degraded case), ``/status`` reports the\ndegraded state as ``warn`` with a 200 so an operator/badge sees\n\"serving-but-degraded\" distinctly from \"down\". ``/readyz`` is unchanged.\n\nNOT an MCP tool \u2014 no tool-schema / BP1 impact. Consumed by ``make status``\n+ the ``/ui/status-badge`` poll.",
+        "operationId": "status_endpoint_status_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Status Endpoint",
+        "tags": [
+          "health"
+        ]
+      }
+    }
+  },
+  "servers": [
+    {
+      "url": "http://127.0.0.1:7733"
+    }
+  ]
+}

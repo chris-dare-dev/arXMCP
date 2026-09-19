@@ -176,7 +176,7 @@ def populated_db(db_path: Path) -> Path:
                 {"id": arxiv_id, "title": f"openalex-{arxiv_id}"},
             )
     finally:
-        del db
+        kuzudb_schema.close_kuzu(db, conn)
     return db_path
 
 
@@ -195,7 +195,7 @@ class TestSchemaV2:
             conn = kuzu.Connection(db)
             cols = kuzudb_schema._introspect_columns(conn, "papers")
         finally:
-            del db
+            kuzudb_schema.close_kuzu(db, conn)
         assert "doi" in cols
         assert "journal_ref" in cols
         assert "inspire_id" in cols
@@ -216,7 +216,7 @@ class TestSchemaV2:
             conn = kuzu.Connection(db)
             cols = kuzudb_schema._introspect_columns(conn, "papers")
         finally:
-            del db
+            kuzudb_schema.close_kuzu(db, conn)
         assert {"doi", "journal_ref", "inspire_id"}.issubset(cols)
 
     def test_simulated_v1_db_migrates_to_v2(self, tmp_path: Path):
@@ -237,7 +237,7 @@ class TestSchemaV2:
                 {"k": "version"},
             )
         finally:
-            del db
+            kuzudb_schema.close_kuzu(db, conn)
         # Sanity: v1 papers does not have v2 columns yet.
         db = kuzu.Database(str(db_path))
         try:
@@ -245,7 +245,7 @@ class TestSchemaV2:
             cols_before = kuzudb_schema._introspect_columns(conn, "papers")
             assert "doi" not in cols_before
         finally:
-            del db
+            kuzudb_schema.close_kuzu(db, conn)
         # Apply v2 migration.
         kuzudb_schema.apply_schema(db_path)
         # Verify v2 state.
@@ -255,7 +255,7 @@ class TestSchemaV2:
             conn = kuzu.Connection(db)
             cols_after = kuzudb_schema._introspect_columns(conn, "papers")
         finally:
-            del db
+            kuzudb_schema.close_kuzu(db, conn)
         assert {"doi", "journal_ref", "inspire_id"}.issubset(cols_after)
 
 
@@ -402,7 +402,7 @@ class TestEnrichHappyPath:
             while r.has_next():
                 rows.append(tuple(r.get_next()))
         finally:
-            del db
+            kuzudb_schema.close_kuzu(db, conn)
         by_id = {row[0]: row for row in rows}
 
         # hep-th paper enriched.
@@ -449,7 +449,7 @@ class TestEnrichHappyPath:
             while r.has_next():
                 edges.append(tuple(r.get_next()))
         finally:
-            del db
+            kuzudb_schema.close_kuzu(db, conn)
         # Expected:
         #   P_HEP_TH -> P_MATH_PH (in-corpus reference)
         #   P_HEP_TH_2 -> P_HEP_TH (the other ref, EXTERNAL_REF, is not in
@@ -496,7 +496,7 @@ class TestF4SplitWriter:
                 row = r.get_next()
                 titles[row[0]] = row[1]
         finally:
-            del db
+            kuzudb_schema.close_kuzu(db, conn)
         # Every paper's title is still the OpenAlex-stub value the
         # populated_db fixture wrote.
         for arxiv_id in CORPUS_IDS:
@@ -549,7 +549,7 @@ class TestF4SplitWriter:
             )
             row = r.get_next()
         finally:
-            del db
+            kuzudb_schema.close_kuzu(db, conn)
         assert row[0] == "10.1234/hep.001", (
             "OpenAlex re-MERGE clobbered INSPIRE doi — F4 regression"
         )
@@ -584,7 +584,7 @@ class TestCrossSourceEdges:
                 confidence=1.0,
             )
         finally:
-            del db
+            kuzudb_schema.close_kuzu(db, conn)
 
         # Now run the INSPIRE enrichment; INSPIRE will also emit an edge
         # P_HEP_TH -> P_MATH_PH with source="inspire".
@@ -608,7 +608,7 @@ class TestCrossSourceEdges:
             while r.has_next():
                 sources.append(r.get_next()[0])
         finally:
-            del db
+            kuzudb_schema.close_kuzu(db, conn)
         # Both edges co-exist; AC#3 is satisfied.
         assert sources == ["inspire", "openAlex"]
 
@@ -646,7 +646,7 @@ class TestE09S02RectificationGuards:
             conn = kuzu.Connection(db)
             inspire_ingest._merge_paper_inspire(conn, P_HEP_TH, first)
         finally:
-            del db
+            kuzudb_schema.close_kuzu(db, conn)
 
         # Now re-MERGE with NULL values — simulates a transient API
         # regression returning an incomplete record.
@@ -668,7 +668,7 @@ class TestE09S02RectificationGuards:
             )
             row = r.get_next()
         finally:
-            del db
+            kuzudb_schema.close_kuzu(db, conn)
         assert row[0] == "10.1234/CANONICAL", (
             "F1 regression: doi clobbered to NULL by a re-MERGE"
         )
@@ -709,7 +709,7 @@ class TestE09S02RectificationGuards:
             )
             row = r.get_next()
         finally:
-            del db
+            kuzudb_schema.close_kuzu(db, conn)
         assert row[0] == "10.1234/UPDATED"
         assert row[1] == "JHEP (2024)"
 
@@ -733,7 +733,7 @@ class TestE09S02RectificationGuards:
                 {"id": old_style_id},
             )
         finally:
-            del db
+            kuzudb_schema.close_kuzu(db, conn)
 
         def _stub(arxiv_id: str, contact_email: str) -> dict[str, Any] | None:
             return _record(
@@ -763,7 +763,7 @@ class TestE09S02RectificationGuards:
             )
             row = r.get_next()
         finally:
-            del db
+            kuzudb_schema.close_kuzu(db, conn)
         assert row[0] == "99999"
 
     def test_f2_validator_rejects_truly_invalid_ids(self):
@@ -827,7 +827,7 @@ class TestE09S02RectificationGuards:
                 "F4 regression: edge to a Pass-1-created node was dropped"
             )
         finally:
-            del db
+            kuzudb_schema.close_kuzu(db, conn)
 
     def test_f5_fetch_inspire_record_validates_paper_id(self):
         """F5: ``_fetch_inspire_record`` validates ``arxiv_id`` before
@@ -866,7 +866,7 @@ class TestE09S02RectificationGuards:
                     "MERGE (p:papers {paper_id: $id})", {"id": i}
                 )
         finally:
-            del db
+            kuzudb_schema.close_kuzu(db, conn)
 
         inspire_ingest.enrich(
             paper_ids=ids,
@@ -913,7 +913,7 @@ class TestE09S02RectificationGuards:
                 {"id": ag_id},
             )
         finally:
-            del db
+            kuzudb_schema.close_kuzu(db, conn)
 
         def _stub(arxiv_id: str, contact_email: str) -> dict[str, Any] | None:
             corpus = {
@@ -956,7 +956,7 @@ class TestE09S02RectificationGuards:
             )
             assert r.get_next()[0] is None
         finally:
-            del db
+            kuzudb_schema.close_kuzu(db, conn)
 
 
 class TestFFindingInheritance:
@@ -1152,7 +1152,7 @@ class TestResume:
                 "MATCH ()-[r:cites {source: 'inspire'}]->() RETURN COUNT(*)"
             ).get_next()[0]
         finally:
-            del db
+            kuzudb_schema.close_kuzu(db, conn)
         assert edges == 2
 
     def test_checkpoint_atomic_write_no_tmp_left_behind(

@@ -118,6 +118,22 @@ _BYTE_CAP_EXEMPT_PREFIXES = (
     # notebook list + paper table HTML); if they ever approach
     # 256 KB the right fix is per-page pagination, not exemption.
     "/ui/static",
+    # stage2/arx-b2 (fix pass): the SPA's hashed Vite assets at
+    # /app/assets/. The brief-mandated self-hosted STIX Two Math
+    # fonts (403,344 / 418,048 B) exceed the cap; without the
+    # exemption the middleware aborts mid-stream AFTER the start
+    # event was flushed (an ASGI protocol violation — uvicorn kills
+    # the connection, the browser logs ERR_CONTENT_LENGTH_MISMATCH
+    # on every math-bearing surface, and AC-B.24's zero-console-
+    # errors gate fails on the real server). The KaTeX chunk sits
+    # 2 KiB under the cap — one patch release would kill the whole
+    # math track. Same narrowing discipline as /ui/static: ONLY the
+    # static-asset subtree is exempt (path-traversal-protected
+    # StaticFiles, no state-changing handlers — server/spa.py); the
+    # /app/ HTML shell and history-API fallback stay under the cap,
+    # as does every JSON surface. Regression-pinned in
+    # tests/test_app_mount.py::TestAppAssetsByteCapExemption.
+    "/app/assets",
 )
 
 
@@ -139,6 +155,56 @@ def _is_exempt_path(path: str) -> bool:
         parts = path.split("/")
         # ["", "ui", "api", "notebooks", "<slug>", "export"] — exactly 6 parts.
         if len(parts) == 6 and parts[5] == "export":
+            return True
+    # stage2/arx-a1: the /api/v1 export alias streams the same
+    # deterministic tar (routinely > 256 KB). Same segment-exact
+    # discipline as the /ui/api form above — ONLY
+    # ``/api/v1/notebooks/<slug>/export`` (exactly 6 parts) matches; a
+    # future multi-segment sub-route does NOT inherit the exemption.
+    if path.startswith("/api/v1/notebooks/") and path.endswith("/export"):
+        parts = path.split("/")
+        # ["", "api", "v1", "notebooks", "<slug>", "export"] — exactly 6 parts.
+        if len(parts) == 6 and parts[5] == "export":
+            return True
+    # stage2/arx-a23 (WS-A A3): the multiplexed SSE stream is unbounded
+    # by design — buffering it against the 256 KB cap would kill every
+    # live view after ~256 KB of frames. Segment-exact: ONLY this one
+    # path; the JSON snapshot endpoints beside it stay capped
+    # (defense-in-depth — an over-cap snapshot is a bug, not a stream).
+    # Same posture as the /mcp SSE exemption above; flagged for the
+    # issue-#9 scope amendment.
+    if path == "/api/v1/events/stream":
+        return True
+    # stage3/cross-r1: the stored-document preview route
+    # ``GET /ui/notebooks/<slug>/papers/<paper_id>/preview`` (server/routes/ui.py)
+    # serves verbatim ar5iv/LaTeXML HTML — the entry point of the D7
+    # stored-document MathML track that the math-fixture page tells the
+    # operator to use. Essentially every real ar5iv paper exceeds 256 KiB
+    # (the mandated E2E's own 1.78 MB paper reproduces the 413), so the
+    # math track dead-ended on a raw JSON payload_too_large for real
+    # content. The response is a single read-only static-ish HTML body
+    # served under an aggressively-restrictive per-response CSP
+    # (script-src 'none'; MathML renders natively) — no state-changing
+    # handler underneath — so exempting it from the cap has the same
+    # safety posture as the /app/assets font exemption and commit
+    # 81b37f1's segment-aware pattern. Structure-exact to avoid
+    # over-exemption: ["", "ui", "notebooks", <slug>, "papers",
+    # <paper_id...>, "preview"] with the paper_id occupying one segment
+    # (new-style ``0705.3794``) or two (old-style ``math/0211159`` —
+    # the route's ``paper_id:path`` converter). A sibling route ending
+    # in anything but ``preview`` (e.g. a future ``/export``) does NOT
+    # inherit the exemption. Regression-pinned in
+    # tests/test_preview_route.py::TestPreviewByteCapExemption through
+    # the real create_app() stack.
+    if path.startswith("/ui/notebooks/") and path.endswith("/preview"):
+        parts = path.split("/")
+        # ["", "ui", "notebooks", <slug>, "papers", <>=1 pid segs>, "preview"]
+        if (
+            len(parts) >= 7
+            and parts[4] == "papers"
+            and parts[3]  # non-empty slug
+            and parts[-2]  # at least one non-empty paper_id segment
+        ):
             return True
     return any(path == p or path.startswith(p + "/") for p in _BYTE_CAP_EXEMPT_PREFIXES)
 
@@ -482,6 +548,46 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         app.state.notebooks_store = await NotebooksStore.open(
             config.notebooks_db_path
         )
+        # stage2/arx-a23 (WS-A A2/A3): capability + event-tier wiring.
+        # All four binds are additive module singletons in the
+        # set_resources idiom; each is unbound in the finally below.
+        from server.audit import (  # noqa: PLC0415
+            ToolCallAuditStore,
+            set_audit_store,
+        )
+        from server.capabilities import (  # noqa: PLC0415
+            set_capability_settings_store,
+        )
+        from server.observability.events import (  # noqa: PLC0415
+            bind_event_loop,
+            configure_event_tier,
+        )
+        from server.observability.logging_setup import (  # noqa: PLC0415
+            install_ring_buffer_handler,
+        )
+        from server.operator_settings import OperatorSettingsStore  # noqa: PLC0415
+
+        app.state.operator_settings_store = await OperatorSettingsStore.open(
+            config.notebooks_db_path
+        )
+        set_capability_settings_store(
+            app.state.operator_settings_store,
+            cache_ttl_s=config.capability_cache_ttl_s,
+        )
+        app.state.audit_store = await ToolCallAuditStore.open(
+            config.audit_db_path, max_rows=config.audit_max_rows
+        )
+        set_audit_store(app.state.audit_store)
+        configure_event_tier(
+            request_ring_size=config.request_event_ring_size,
+            log_ring_size=config.log_ring_size,
+            sse_queue_cap=config.sse_queue_cap,
+        )
+        bind_event_loop(asyncio.get_running_loop())
+        # Gap R2: the log ring handler self-attaches a RedactionFilter
+        # at install time (the configure() ordering contract), so
+        # every record entering the ring is already redacted at INFO+.
+        install_ring_buffer_handler()
         # notebook-surface-expansion-m4: wire the live store for the MCP
         # resource callbacks (they have no FastAPI request/DI), mirroring
         # set_resources above. Same event loop as FastMCP → store awaits safe.
@@ -568,6 +674,32 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         parse_tracker = getattr(app.state, "parse_tracker", None)
         if parse_tracker is not None:
             await parse_tracker.shutdown()
+        # stage2/arx-a23: unwind the capability + event-tier binds
+        # BEFORE the stores close (late publishes become no-ops the
+        # moment the loop unbinds; the ring handler detaches so a
+        # post-shutdown log line cannot touch a dead ring).
+        try:
+            from server.audit import set_audit_store  # noqa: PLC0415
+            from server.capabilities import (  # noqa: PLC0415
+                set_capability_settings_store,
+            )
+            from server.observability.events import bind_event_loop  # noqa: PLC0415
+            from server.observability.logging_setup import (  # noqa: PLC0415
+                remove_ring_buffer_handler,
+            )
+
+            remove_ring_buffer_handler()
+            bind_event_loop(None)
+            set_audit_store(None)
+            set_capability_settings_store(None)
+            audit_store = getattr(app.state, "audit_store", None)
+            if audit_store is not None:
+                await audit_store.close()
+            settings_store = getattr(app.state, "operator_settings_store", None)
+            if settings_store is not None:
+                await settings_store.close()
+        except Exception:  # noqa: BLE001
+            logger.exception("capability/event-tier shutdown unwind failed")
         # m7: close the NotebooksStore connection BEFORE Resources
         # shutdown so its async lock can drain cleanly. The store is
         # cheap to close (just a sqlite3.Connection.close); failures
@@ -646,6 +778,7 @@ def create_app(config: Config | None = None) -> FastAPI:
     # OriginValidation is BEFORE the request-body limit so an
     # evil-origin POST is rejected without buffering its body.
     from server.middleware import (
+        CapabilityMiddleware,
         HostValidationMiddleware,
         OriginValidationMiddleware,
         RequestBodySizeLimitMiddleware,
@@ -672,6 +805,14 @@ def create_app(config: Config | None = None) -> FastAPI:
     # dispatches. A request that fails the cap is short-circuited
     # before any handler runs.
     app.add_middleware(SessionCapMiddleware)
+    # stage2/arx-a23 (WS-A A2): capability-profile enforcement.
+    # Mounted OUTSIDE SessionCapMiddleware (added after it — LIFO) so
+    # the request flows Capability → SessionCap: the resolved
+    # profile's per-tool cap overrides ride the scope into the cap
+    # check (AC-A.7), and a capability denial short-circuits before
+    # any cap budget is spent. Pure-ASGI; tools/list is NEVER
+    # filtered (adjudication D5 — call-time gating only).
+    app.add_middleware(CapabilityMiddleware)
     # 1 MB default cap on incoming request bodies (E06_S05). m8:
     # /ui/api/notebooks/*/papers/upload accepts ar5iv HTML files
     # which routinely exceed 1 MB (~100KB-5MB observed); the
@@ -708,6 +849,10 @@ def create_app(config: Config | None = None) -> FastAPI:
         RequestBodySizeLimitMiddleware,
         prefix_caps={
             "/ui/api/notebooks": 200 * 1024 * 1024,  # 200 MB envelope; per-kind enforced in handler
+            # stage2/arx-a1: the /api/v1 alias surface shares the upload
+            # pipeline (textbook PDFs up to 200 MB); same envelope, same
+            # per-kind 10 MB arxiv enforcement in the shared handler.
+            "/api/v1/notebooks": 200 * 1024 * 1024,
         },
     )
     # Host header validation: Threat 5 / DNS rebinding defense
@@ -737,7 +882,48 @@ def create_app(config: Config | None = None) -> FastAPI:
     # DNS-rebinding defense on `/mcp` (still 403s same-origin) while
     # letting the in-page UI talk to the daemon. OriginValidation +
     # HostValidation still fire on `/ui/*` (Option A from synthesis).
-    app.add_middleware(SecFetchSiteMiddleware, exempt_prefixes=("/ui",))
+    # stage2/arx-a1: "/api/v1" joins the exemption — it is the operator
+    # plane's JSON surface (the same browser-origin consumers as /ui/*;
+    # WS-B's /app SPA fetches it same-origin, which sets
+    # ``Sec-Fetch-Site: same-origin``). OriginValidation +
+    # HostValidation still fire on /api/v1 (identical posture to the m7
+    # /ui carve-out). /mcp and /bridge keep the strict check —
+    # their consumers are CLI/shim processes that never send the
+    # header. Flagged for the issue-#9 scope amendment (WS-0).
+    #
+    # stage2/arx-b2: "/app" joins the exemption. A top-level
+    # navigation to /app/ carries ``Sec-Fetch-Site: none`` (passes),
+    # but every subresource the SPA shell then loads — the module
+    # script and stylesheet in index.html, lazy route chunks, the
+    # self-hosted woff2 fonts — is a same-origin browser fetch
+    # carrying ``Sec-Fetch-Site: same-origin``, which the strict
+    # check 403s: the HTML renders and the app is dead. (arx-a1
+    # anticipated the SPA's /api/v1 calls but not its own asset
+    # loads; invisible until now because the b1 Playwright harness
+    # mounts only SecurityHeadersMiddleware.) Same relaxation shape
+    # as /ui: {none, same-origin} — cross-site/same-site from other
+    # localhost apps are still rejected, and the assets are public
+    # static files with no state-changing handlers underneath.
+    # Regression-pinned in tests/security/test_sec_fetch_site_carveout.py.
+    #
+    # stage3/cross-r1: "/status" joins the exemption. The /app SPA
+    # fetches bare GET /status (server/health.py) for the Connections
+    # C1 trust header and the graph NO-18 corpus-version caption
+    # (frontend-app/src/api/obs.ts). Being outside /ui, /api/v1, and
+    # /app, that same-origin browser fetch was 403'd on every real
+    # browser session: the trust header read "server state unknown"
+    # on a healthy server, the 3-D/Tier-0 caption read "corpus version
+    # unknown", and the 5s poll flooded the console + server log with
+    # one WARNING each. /status is a read-only health probe with no
+    # state-changing handler — same {none, same-origin} relaxation
+    # shape and safety posture as /app/assets. (It is already exempt
+    # from the byte cap in _BYTE_CAP_EXEMPT_PREFIXES for probe parity.)
+    # cross-site/same-site/garbage from other localhost apps are still
+    # rejected. Regression-pinned in the same test module below.
+    app.add_middleware(
+        SecFetchSiteMiddleware,
+        exempt_prefixes=("/ui", "/api/v1", "/app", "/status"),
+    )
     # X-Content-Type-Options + X-Frame-Options on every response.
     app.add_middleware(SecurityHeadersMiddleware)
 
@@ -761,6 +947,41 @@ def create_app(config: Config | None = None) -> FastAPI:
 
     app.include_router(notebooks_router, prefix="/ui/api")
 
+    # stage2/arx-a1 (WS-A A1): the JSON-only operator API. Aliases the
+    # 17 /ui/api notebook routes with no HX-Request unions, pagination
+    # on list endpoints, and an explicit response format_version. The
+    # legacy /ui/api surface above remains until the Jinja console
+    # retires (strangler pattern; target-architecture.md §8.2). The
+    # OpenAPI document is dumped OFFLINE via ``python -m
+    # tools.dump_openapi`` (IF-1); runtime openapi_url stays None
+    # (Threat 4 — see the FastAPI(...) constructor above).
+    from server.routes.api_v1 import router as api_v1_router
+
+    app.include_router(api_v1_router, prefix="/api/v1")
+
+    # stage2/arx-a23 (WS-A A3): observability read-APIs — request-event
+    # ring, log tail, session snapshot, ingest stage events, audit
+    # reader, and the ONE multiplexed SSE stream (IF-2). All read-only;
+    # all flagged for the issue-#9 scope amendment.
+    from server.routes.observability import router as observability_router
+
+    app.include_router(observability_router, prefix="/api/v1")
+
+    # stage2/arx-a23 (WS-A A2): capability-profile CRUD over
+    # operator_settings. Writes invalidate the in-process profile
+    # cache inline (AC-A.7 runtime mutability).
+    from server.routes.capabilities import router as capabilities_router
+
+    app.include_router(capabilities_router, prefix="/api/v1")
+
+    # stage2/arx-a1: bridge-contract handshake (finding 06 §2.5.2
+    # item 4). Read-only; serves the producer-owned contracts/ registry
+    # (WS-C authors content; an absent directory serves the
+    # empty-registry envelope).
+    from server.routes.bridge import router as bridge_router
+
+    app.include_router(bridge_router, prefix="/bridge")
+
     # proof-verify-handler-wiring-m8: HTML page routes for the htmx
     # UI shell. Templates live at frontend/templates/; static assets
     # (vendored htmx + CSS) at frontend/static/ mounted below.
@@ -781,6 +1002,15 @@ def create_app(config: Config | None = None) -> FastAPI:
         StaticFiles(directory=str(_FRONTEND_STATIC)),
         name="ui-static",
     )
+
+    # stage2/arx-b1 (WS-B M0): the Vite-built SPA at /app. Static
+    # files only — no Node at runtime (D1 ADR). Gets the STRICTER
+    # CONTENT_SECURITY_POLICY_APP from SecurityHeadersMiddleware
+    # (script-src 'self', no unsafe-inline). A missing dist/ logs a
+    # warning and skips the mount; /ui/ stays the zero-JS fallback.
+    from server.spa import mount_frontend_app
+
+    mount_frontend_app(app)
 
     # Metrics ASGI sub-app. We wrap with a tiny middleware that
     # refreshes the gauges from the resources state at scrape time.

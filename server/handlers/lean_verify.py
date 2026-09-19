@@ -54,6 +54,16 @@ from server.lean_repl import (
     LeanReplTimeoutError,
     LeanUnavailableError,
 )
+from server.lean_soundness import (
+    SnippetScan,
+    closure_ok,
+    extract_decl_names,
+    parse_check_type_output,
+    parse_print_axioms_output,
+    read_repl_provenance,
+    scan_snippet,
+    transcript_sha256,
+)
 from server.tools import cap_result_list, envelope, get_resources
 
 #: Severity values the schema enum accepts. An upstream REPL that ever
@@ -360,6 +370,180 @@ def _timeout_envelope(mode: str, timeout_s: float) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
+# D-2 soundness hardening (stage2/arx-d2; finding 05 §3-R2; RISKS MA-2)
+# ---------------------------------------------------------------------------
+
+
+def _soundness_block(
+    scan: SnippetScan,
+    *,
+    audit_status: str,
+    audit_detail: str | None = None,
+    audited_decls: list[str] | None = None,
+    axioms_by_decl: dict[str, list[str]] | None = None,
+    guard: str = "passed",
+) -> dict[str, Any]:
+    """Build the ``soundness`` sub-envelope carried by every result.
+
+    ``axiom_closure_ok`` semantics are fail-closed: ``True`` only when
+    the audit ran to completion AND the closure is within the standard
+    trust base; ``False`` when the audit failed or the snippet was
+    rejected; ``None`` when the audit was legitimately not applicable
+    (syntax_only, non-ok status, REPL disabled/timeout).
+    """
+    if axioms_by_decl is not None:
+        closure: list[str] | None = sorted(
+            {a for axs in axioms_by_decl.values() for a in axs}
+        )
+    else:
+        closure = None
+    if audit_status == "ok" and closure is not None:
+        ok: bool | None = closure_ok(closure)
+    elif audit_status in ("failed", "rejected"):
+        ok = False
+    else:
+        ok = None
+    return {
+        "guard": guard,
+        "rejected_keywords": list(scan.rejected_keywords),
+        "flags": list(scan.flags),
+        "audit_status": audit_status,
+        "audit_detail": audit_detail,
+        "audited_decls": list(audited_decls or []),
+        "axioms_by_decl": axioms_by_decl,
+        "axiom_closure": closure,
+        "axiom_closure_ok": ok,
+    }
+
+
+async def _kill_and_respawn(resources: Any, lean_repl: Any) -> None:
+    """Close a wedged REPL and respawn from config (FM-2 / m3 F3).
+
+    Shared by the main-query timeout path and the axiom-audit timeout
+    path — a timed-out audit query wedges the REPL stdout exactly like
+    a timed-out verification query does.
+    """
+    # m3 critique F4 — narrow the bare-except. The teardown is
+    # best-effort (close on an already-wedged process can legitimately
+    # raise OSError / LeanReplError); CancelledError MUST propagate.
+    try:
+        await lean_repl.close()
+    except (OSError, LeanReplError):
+        logger.exception("lean_verify: REPL close after timeout failed")
+    try:
+        resources.lean_repl = await LeanRepl.spawn_from_config(
+            resources.config
+        )
+    except (LeanUnavailableError, OSError):
+        logger.exception(
+            "lean_verify: respawn after timeout failed; "
+            "subsequent calls degrade to 'unavailable'"
+        )
+        resources.lean_repl = None
+
+
+async def _audit_axioms(
+    lean_repl: Any,
+    env_id: Any,
+    decl_names: list[str],
+) -> tuple[str, str | None, dict[str, list[str]] | None]:
+    """Run ``#print axioms <decl>`` for every audited declaration.
+
+    Executes in the environment produced by the verification command
+    (``env_id``), so the audited declarations are exactly the ones the
+    kernel just accepted. Returns ``(audit_status, detail,
+    axioms_by_decl)``; any unparseable or errored response fails the
+    whole audit (fail closed — an award must never rest on a partial
+    audit). ``LeanReplError`` / ``LeanReplTimeoutError`` propagate to
+    the caller, which owns the respawn discipline.
+    """
+    if not isinstance(env_id, int):
+        return (
+            "failed",
+            "verification response carried no env id to audit against",
+            None,
+        )
+    axioms_by_decl: dict[str, list[str]] = {}
+    for name in decl_names:
+        resp = await lean_repl.query(
+            {"cmd": f"#print axioms {name}", "env": env_id}
+        )
+        msgs = [m for m in (resp.get("messages") or []) if isinstance(m, dict)]
+        err = next(
+            (m for m in msgs if m.get("severity") == "error"), None
+        )
+        if err is not None:
+            return (
+                "failed",
+                f"#print axioms {name} errored: "
+                f"{str(err.get('data', ''))[:200]}",
+                None,
+            )
+        parsed: list[str] | None = None
+        for m in msgs:
+            parsed = parse_print_axioms_output(str(m.get("data", "")))
+            if parsed is not None:
+                break
+        if parsed is None:
+            return (
+                "failed",
+                f"#print axioms {name} returned no parseable axiom list",
+                None,
+            )
+        axioms_by_decl[name] = parsed
+    return "ok", None, axioms_by_decl
+
+
+async def _audit_statements(
+    lean_repl: Any,
+    env_id: Any,
+    decl_names: list[str],
+) -> dict[str, str]:
+    """Run ``#check @<decl>`` for every audited declaration and parse the
+    fully-elaborated KERNEL type (durable P1 soundness fix — the proved
+    proposition comes from the kernel, never from re-parsing author
+    source).
+
+    Executes in the environment produced by the verification command
+    (``env_id``), so the reported types are exactly what the kernel
+    accepted — a phantom declaration hidden in a comment or a string
+    literal is invisible to the kernel and ``#check @<that name>`` errors,
+    so it never enters the map (spike p1-step-1). Returns ``{name:
+    kernel_type_str}`` for the names that parsed; fail-closed — a name
+    whose ``#check`` errors or whose output does not parse is simply
+    OMITTED (a linkage that cannot find its declaration's kernel type
+    fails closed downstream). NEVER raises for a per-name miss; only a
+    hard ``LeanReplError`` / ``LeanReplTimeoutError`` (process wedged)
+    propagates to the caller, which owns the respawn discipline —
+    identical to :func:`_audit_axioms`.
+
+    Independent of the axiom audit's pass/fail: the statement map is
+    additive evidence for the verdict-linkage choke-point and does not
+    gate the ``proven-formal`` axiom-closure award.
+    """
+    if not isinstance(env_id, int):
+        return {}
+    statements: dict[str, str] = {}
+    for name in decl_names:
+        resp = await lean_repl.query({"cmd": f"#check @{name}", "env": env_id})
+        msgs = [m for m in (resp.get("messages") or []) if isinstance(m, dict)]
+        # An error-severity message (e.g. "Unknown identifier") means the
+        # kernel does not know this name in this env — omit it (fail-
+        # closed). This is the load-bearing property: comment/string-
+        # literal phantoms and anonymous examples produce no entry.
+        if any(m.get("severity") == "error" for m in msgs):
+            continue
+        parsed: str | None = None
+        for m in msgs:
+            parsed = parse_check_type_output(str(m.get("data", "")), name)
+            if parsed is not None:
+                break
+        if parsed is not None:
+            statements[name] = parsed
+    return statements
+
+
+# ---------------------------------------------------------------------------
 # Command construction
 # ---------------------------------------------------------------------------
 
@@ -472,10 +656,112 @@ async def handle_lean_verify(
     resources = get_resources()
     lean_repl = resources.lean_repl
 
+    # D-2 soundness instrumentation (stage2/arx-d2). The scan and the
+    # provenance pins are computed up front so EVERY exit path —
+    # rejected, disabled, timeout, error, success — carries the same
+    # soundness + provenance blocks (the result schema requires them).
+    scan = scan_snippet(snippet)
+    lean_toolchain, mathlib_rev = read_repl_provenance(
+        resources.config.lean_repl_dir
+    )
+
+    def _finish(
+        payload: dict[str, Any],
+        soundness: dict[str, Any],
+        kernel_statements: dict[str, str] | None = None,
+    ) -> dict[str, Any]:
+        """Attach soundness + provenance + kernel_statements, hash the
+        transcript, envelope.
+
+        ``kernel_statements`` (durable P1 soundness fix) maps each audited
+        declaration name to its fully-elaborated KERNEL type; present on
+        EVERY exit path (defaults to ``{}`` for rejected/disabled/timeout/
+        error/syntax-only/non-ok results — the schema requires the field).
+        It is the authoritative source the verdict-linkage choke-point
+        consumes for statement linkage, replacing the retired
+        author-source text scan.
+        """
+        payload = {**payload, "soundness": soundness}
+        payload["kernel_statements"] = dict(kernel_statements or {})
+        payload["provenance"] = {
+            "lean_toolchain": lean_toolchain,
+            "mathlib_rev": mathlib_rev,
+            # Hashed BEFORE the byte-cap trim below: the hash covers the
+            # full transcript, and both runs of an identical snippet trim
+            # identically, so replay comparisons stay stable (AC-D.3).
+            "transcript_sha256": transcript_sha256(
+                snippet=snippet,
+                imports=imports_list,
+                mode=mode,
+                lean_toolchain=lean_toolchain,
+                mathlib_rev=mathlib_rev,
+                payload=payload,
+            ),
+        }
+        capped, _blocks = cap_result_list(
+            envelope(payload), list_key="messages"
+        )
+        return capped
+
+    # Snippet guard — reject snippet-declared axiom/opaque BEFORE any
+    # REPL round-trip (finding 05 §3-R2a; AC-D.1). Deterministic and
+    # REPL-independent, so it also fires when the REPL is disabled.
+    if scan.rejected:
+        kw = ", ".join(scan.rejected_keywords)
+        logger.warning(
+            "lean_verify: soundness guard rejected snippet "
+            "(declares: %s)",
+            kw,
+        )
+        rejected_payload = {
+            "status": "error",
+            "lean_status": "disabled" if lean_repl is None else "available",
+            "mode": mode,
+            "messages": [
+                {
+                    "severity": "error",
+                    "position": {"line": 0, "column": 0},
+                    "text": (
+                        f"soundness guard: snippet contains '{kw}' — "
+                        "rejected before elaboration. A snippet-declared "
+                        "axiom/opaque lets a proof manufacture its own "
+                        "trust base (WS-D D-2 hardening; RISKS MA-2); a "
+                        "meta-programming entry point (#eval/run_cmd/elab/"
+                        "macro/initialize/...) or a kernel-check-disabling "
+                        "set_option (debug.skip*) lets it subvert the kernel "
+                        "outright — e.g. add a declaration via "
+                        "Environment.addDeclCore (doCheck := false) so a "
+                        "provably-false theorem passes with a clean "
+                        "#print axioms closure (finding R2-AC-1)."
+                    ),
+                }
+            ],
+            "sorry_goals": [],
+            "goals_remaining": [],
+            "proof_state": None,
+            "compilation_success": False,
+        }
+        return _finish(
+            rejected_payload,
+            _soundness_block(
+                scan,
+                guard="rejected",
+                audit_status="rejected",
+                audit_detail=f"snippet declares: {kw}",
+            ),
+        )
+
     # FM-7 (graceful unavailable) — ARXMCP_ENABLE_LEAN=false leaves the
     # tool registered (BP1 stability) but Resources.lean_repl is None.
     if lean_repl is None:
-        return envelope(_disabled_envelope(mode))
+        return _finish(
+            _disabled_envelope(mode),
+            _soundness_block(
+                scan,
+                audit_status="skipped",
+                audit_detail="lean REPL disabled (ARXMCP_ENABLE_LEAN=false)",
+            ),
+        )
 
     cmd = _build_command(snippet, imports_list, mode)
 
@@ -507,35 +793,24 @@ async def handle_lean_verify(
         # doesn't read this call's stale stdout. The lean-sandbox-design
         # contract. Distinct exception class so the discriminator is the
         # type, not a substring match on the message.
-        from server.lean_repl import DEFAULT_QUERY_TIMEOUT_S
-
         logger.warning(
             "lean_verify: REPL timed out — closing and respawning (%s)", exc
         )
-        # m3 critique F4 — narrow the bare-except. The teardown is
-        # best-effort (close on an already-wedged process can legitimately
-        # raise OSError / LeanReplError); CancelledError MUST propagate.
-        try:
-            await lean_repl.close()
-        except (OSError, LeanReplError):
-            logger.exception("lean_verify: REPL close after timeout failed")
-        try:
-            resources.lean_repl = await LeanRepl.spawn_from_config(
-                resources.config
-            )
-        except (LeanUnavailableError, OSError):
-            logger.exception(
-                "lean_verify: respawn after timeout failed; "
-                "subsequent calls degrade to 'unavailable'"
-            )
-            resources.lean_repl = None
-        return envelope(_timeout_envelope(mode, DEFAULT_QUERY_TIMEOUT_S))
+        await _kill_and_respawn(resources, lean_repl)
+        return _finish(
+            _timeout_envelope(mode, DEFAULT_QUERY_TIMEOUT_S),
+            _soundness_block(
+                scan,
+                audit_status="skipped",
+                audit_detail="verification query timed out",
+            ),
+        )
     except LeanReplError as exc:
         # Any other LeanReplError (process exited, non-JSON response,
         # etc.) — surface as an error envelope, do NOT raise (the agent
         # gets a usable response with the error message).
         logger.warning("lean_verify: REPL error: %s", exc)
-        return envelope(
+        return _finish(
             {
                 "status": "error",
                 "lean_status": "available",
@@ -551,12 +826,89 @@ async def handle_lean_verify(
                 "goals_remaining": [],
                 "proof_state": None,
                 "compilation_success": False,
-            }
+            },
+            _soundness_block(
+                scan,
+                audit_status="skipped",
+                audit_detail="REPL error during verification",
+            ),
         )
 
     payload = _normalize_response(resp, mode)
+
+    # D-2 post-verification axiom-closure audit (finding 05 §3-R2a;
+    # AC-D.1/AC-D.2). Runs ONLY on a kernel-accepted full-mode result —
+    # anything else has no award to protect. Fail-closed throughout:
+    # a failed/partial audit yields axiom_closure_ok=False and the
+    # award predicate (server.lean_soundness.formal_award_ok) denies.
+    audit_status = "skipped"
+    audit_detail: str | None = None
+    audited: list[str] = []
+    axioms_by_decl: dict[str, list[str]] | None = None
+    # Durable P1 soundness fix — the KERNEL-reported proved statement per
+    # audited declaration (name -> fully-elaborated type). Populated on the
+    # same kernel-accepted full-mode-with-decls path as the axiom audit,
+    # but INDEPENDENT of the axiom-audit verdict (it is additive linkage
+    # evidence, not part of the axiom-closure award). Empty on every other
+    # path (fail-closed).
+    kernel_statements: dict[str, str] = {}
+    if mode != "full":
+        audit_detail = "syntax_only mode ran no kernel verification"
+    elif payload["status"] != "ok":
+        audit_detail = f"verification status is {payload['status']!r}"
+    else:
+        decls = extract_decl_names(snippet)
+        if not decls:
+            audit_detail = (
+                "no auditable theorem/lemma declarations found in snippet"
+            )
+        else:
+            try:
+                audit_status, audit_detail, axioms_by_decl = (
+                    await _audit_axioms(lean_repl, resp.get("env"), decls)
+                )
+                if audit_status == "ok":
+                    audited = decls
+                # KERNEL-type query per declaration — the authoritative
+                # proved-statement source for verdict linkage (replaces the
+                # retired author-source text scan). Runs regardless of the
+                # axiom-audit outcome above; a per-name miss (comment/string
+                # phantom, unqueryable name) is simply omitted (fail-closed).
+                kernel_statements = await _audit_statements(
+                    lean_repl, resp.get("env"), decls
+                )
+            except LeanReplTimeoutError as exc:
+                logger.warning(
+                    "lean_verify: axiom/statement audit timed out — closing "
+                    "and respawning (%s)",
+                    exc,
+                )
+                await _kill_and_respawn(resources, lean_repl)
+                audit_status = "failed"
+                audit_detail = "axiom audit query timed out; REPL respawned"
+                # A wedged REPL invalidates any partial statement map — the
+                # respawn cleared the env, so fail closed on linkage too.
+                kernel_statements = {}
+            except LeanReplError as exc:
+                logger.warning(
+                    "lean_verify: axiom/statement audit REPL error: %s", exc
+                )
+                audit_status = "failed"
+                audit_detail = f"axiom audit REPL error: {exc}"
+                kernel_statements = {}
+
     # Multi-result cap surface — long elaborations can emit hundreds of
-    # diagnostic rows; cap_result_list trims the trailing entries from
-    # the messages array if the envelope exceeds Config.result_byte_cap.
-    capped, _blocks = cap_result_list(envelope(payload), list_key="messages")
-    return capped
+    # diagnostic rows; cap_result_list (inside _finish) trims the
+    # trailing entries from the messages array if the envelope exceeds
+    # Config.result_byte_cap.
+    return _finish(
+        payload,
+        _soundness_block(
+            scan,
+            audit_status=audit_status,
+            audit_detail=audit_detail,
+            audited_decls=audited,
+            axioms_by_decl=axioms_by_decl,
+        ),
+        kernel_statements=kernel_statements,
+    )

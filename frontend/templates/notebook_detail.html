@@ -298,9 +298,20 @@
 </section>
 
 <section class="card">
-  <h2>Papers in this notebook ({{ papers|length }})</h2>
-  {% if not papers %}
+  {# The heading shows the TOTAL paper count (pagination.total_papers),
+     not papers|length — the table below renders only the current page
+     (server-side pagination; finding
+     legacy-ui-detail-page-blocks-event-loop-then-413s). #}
+  <h2>Papers in this notebook ({{ pagination.total_papers }})</h2>
+  {% if pagination.total_papers == 0 %}
     <p class="empty">No papers yet. Add one above.</p>
+  {% elif not papers %}
+    {# A page past the last page (e.g. hand-typed ?page=99): the notebook
+       has papers, this page just has none. Offer a way back. #}
+    <p class="empty">
+      No papers on page {{ pagination.page }}.
+      <a href="/ui/notebooks/{{ notebook.slug }}?page={{ pagination.total_pages }}">Jump to the last page</a>.
+    </p>
   {% endif %}
   {# ui-attractive-polish-m2 (UPL-19 v0): wrap the table in .table-wrap
      (overflow-x:auto) so mobile viewports scroll inside the card rather
@@ -358,5 +369,30 @@
     </tbody>
   </table>
   </div>{# /.table-wrap (UPL-19 v0) #}
+  {# Pagination nav (finding legacy-ui-detail-page-blocks-event-loop-then-413s):
+     server-side paging keeps the rendered table bounded (<< the 256 KiB
+     response cap) and the event loop unblocked no matter how large the
+     notebook grows. Only shown once there is more than one page. Prev/Next
+     are plain links (no htmx) — a full navigation, same as the "open" link
+     from the landing page. #}
+  {% if pagination.total_pages > 1 %}
+  <nav class="pagination" aria-label="Papers pages">
+    {% if pagination.has_prev %}
+      <a rel="prev" href="/ui/notebooks/{{ notebook.slug }}?page={{ pagination.prev_page }}">&larr; Prev</a>
+    {% else %}
+      <span class="disabled" aria-disabled="true">&larr; Prev</span>
+    {% endif %}
+    <span class="page-indicator">
+      {{ pagination.first_index }}&ndash;{{ pagination.last_index }}
+      of {{ pagination.total_papers }}
+      (page {{ pagination.page }} of {{ pagination.total_pages }})
+    </span>
+    {% if pagination.has_next %}
+      <a rel="next" href="/ui/notebooks/{{ notebook.slug }}?page={{ pagination.next_page }}">Next &rarr;</a>
+    {% else %}
+      <span class="disabled" aria-disabled="true">Next &rarr;</span>
+    {% endif %}
+  </nav>
+  {% endif %}
 </section>
 {% endblock %}

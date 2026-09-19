@@ -227,7 +227,9 @@ class TestFilenameSanitization:
         assert not Path("/etc/passwd-fake-test-marker").exists()
         # Nor anywhere outside the notebook ar5iv/ dir.
         all_files = [
-            str(p) for p in notebooks_base.rglob("*") if p.is_file()
+            # as_posix(): OS-native str() uses "\\" on Windows and
+            # would never contain the "demo-nb/ar5iv" needle.
+            p.as_posix() for p in notebooks_base.rglob("*") if p.is_file()
         ]
         for f in all_files:
             assert "demo-nb/ar5iv" in f, (

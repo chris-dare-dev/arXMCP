@@ -436,6 +436,11 @@ class TestNotebookHealth:
         assert body["status"] == "no_marker"
         assert body["marker_chunk_count"] is None
         assert body["detail"] and "make ingest" in body["detail"]
+        # stage2/arx-b2: provenance fields degrade to None when the
+        # marker is absent.
+        assert body["marker_created_at"] is None
+        assert body["chunker_version"] is None
+        assert body["embedder_version"] is None
 
     def test_status_malformed_marker(self, client, notebooks_base):
         client.post(
@@ -469,6 +474,12 @@ class TestNotebookHealth:
         assert body["drift"] == 0
         assert body["detail"] is None
         assert body["corpus_version"] == 7
+        # stage2/arx-b2 additive marker-provenance fields (WS-B
+        # notebook detail renders the full corpus-version.json stat
+        # block — finding 211 rec 4).
+        assert body["marker_created_at"] == "2026-05-31T00:00:00Z"
+        assert body["chunker_version"] == "v1.1"
+        assert body["embedder_version"] == "bge-m3@5617a9f6"
 
     def test_status_drift_when_marker_disagrees(
         self, client, notebooks_base, stub_recount

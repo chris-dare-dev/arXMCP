@@ -1,0 +1,58 @@
+{
+  "registry_format": 1,
+  "description": "Producer-owned bridge contract registry (D2). Single source of truth for artifact-type versions. The WS-A `GET /bridge/contracts` handshake serves this map plus the SHA-256 of each schema file, computed from disk at serve time. Consumers (downstream pipelines) vendor pinned copies under .claude/references/bridge/<major>/ with checksum drift tests.",
+  "envelope": {
+    "version": "1.0",
+    "schema": "envelope.v1.schema.json"
+  },
+  "artifact_types": {
+    "arxmcp.bridge/notebook-ref": {
+      "version": "1.0",
+      "status": "stable",
+      "schema": "notebook-ref.v1.schema.json"
+    },
+    "arxmcp.bridge/retrieval-evidence": {
+      "version": "1.0",
+      "status": "stable",
+      "schema": "retrieval-evidence.v1.schema.json"
+    },
+    "arxmcp.bridge/verdict-record": {
+      "version": "1.0",
+      "status": "stable",
+      "schema": "verdict-record.v1.schema.json"
+    },
+    "arxmcp.bridge/ingest-receipt": {
+      "version": "1.0",
+      "status": "stable",
+      "schema": "ingest-receipt.v1.schema.json"
+    },
+    "arxmcp.bridge/corpus-snapshot": {
+      "version": "1.0",
+      "status": "stable",
+      "schema": "corpus-snapshot.v1.schema.json"
+    },
+    "arxmcp.bridge/run-ledger-entry": {
+      "version": "1.0",
+      "status": "stable",
+      "schema": "run-ledger-entry.v1.schema.json"
+    },
+    "arxmcp.bridge/proof-task": {
+      "version": "0.3",
+      "status": "draft",
+      "content_owner": "WS-D",
+      "schema": "proof-task.v0.schema.json"
+    },
+    "arxmcp.bridge/evidence-bundle": {
+      "version": "0.2",
+      "status": "draft",
+      "content_owner": "WS-D",
+      "schema": "evidence-bundle.v0.schema.json"
+    },
+    "arxmcp.bridge/proposed-notebook-manifest": {
+      "version": "0.2",
+      "status": "stub",
+      "content_owner": "WS-E",
+      "schema": "proposed-notebook-manifest.v0.schema.json"
+    }
+  }
+}

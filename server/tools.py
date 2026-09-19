@@ -59,6 +59,9 @@ from server.observability.metrics import (
 )
 from server.observability.tracing import (
     CORPUS_VERSION_RESOURCES_NOT_READY,
+    current_cache_layer,
+    current_phase_timings,
+    resolve_request_identity,
     span_tool_call,
 )
 
@@ -155,7 +158,50 @@ logger = logging.getLogger(__name__)
 #: inputSchema are UNCHANGED, so EXPECTED_TOOL_SCHEMA_SHA256 re-pins (via
 #: the ``_meta.tool_schema_version`` echo) but EXPECTED_BP1_SHA256 does
 #: NOT (same as the m11 prediction; BP1 hashes {name, description} only).
-TOOL_SCHEMA_VERSION: int = 16
+#: v17: ONE versioned event covering both stage2 response-shape
+#: changes, landed together at integration (stage2/arx-a1 and
+#: stage2/arx-d2 each minted v17 independently on disjoint branches;
+#: their tools/list byte movement is identical — the
+#: ``_meta.tool_schema_version`` 16 -> 17 echo — so the re-pinned
+#: hash is the same and the two changes batch into a single v17
+#: event, per the RISKS standing rule 3 discipline):
+#:
+#: - (arx-a1) search_papers RESPONSE envelope grows the
+#:   always-present ``filter_echo`` field ({"notebook": <slug|null>}),
+#:   the affirmative notebook-routing echo the Stage-1 bridge
+#:   contract requires (finding 06 §3 item 2; spike-5 observed the
+#:   server never affirming the notebook filter on any of 38 scoped
+#:   queries). The v9 ``filters_applied`` sibling-field precedent.
+#: - (arx-d2, WS-D D-2 soundness hardening) lean_verify's RESPONSE
+#:   envelope grows the ``soundness`` block (snippet guard for
+#:   snippet-declared axiom/opaque; native_decide/unsafe/partial
+#:   flags; post-verification axiom-closure audit against {propext,
+#:   Classical.choice, Quot.sound} via ``#print axioms`` in the
+#:   verification env) and the ``provenance`` block (lean-toolchain,
+#:   pinned mathlib rev, replayable transcript SHA-256). Closes RISKS
+#:   MA-2 (axiom smuggling) at the oracle envelope; the award rule
+#:   lives in server/lean_soundness.py.
+#:
+#: Both are response-shape changes only — the SEARCH_PAPERS and
+#: LEAN_VERIFY ToolMeta descriptions and inputSchemas are UNCHANGED,
+#: so EXPECTED_TOOL_SCHEMA_SHA256 re-pins (via the
+#: ``_meta.tool_schema_version`` echo) but EXPECTED_BP1_SHA256 does
+#: NOT (BP1 hashes {name, description} only, verified green without
+#: re-pin on both branches and on the integration branch).
+#: v18 (stage3/proving-p1 — durable P1 soundness fix): lean_verify's
+#: RESPONSE envelope grows the ``kernel_statements`` field (name ->
+#: fully-elaborated KERNEL type per audited theorem/lemma, via
+#: ``#check @<name>`` in the verification env). This is the
+#: authoritative proved-proposition source the verdict-linkage
+#: choke-point now consumes for statement linkage, replacing the
+#: retired author-source text scan (server.lean_soundness.
+#: extract_proved_statement). Response-shape change only — the
+#: LEAN_VERIFY ToolMeta description + inputSchema are UNCHANGED, so
+#: EXPECTED_TOOL_SCHEMA_SHA256 re-pins (via the
+#: ``_meta.tool_schema_version`` 17 -> 18 echo) but EXPECTED_BP1_SHA256
+#: does NOT (BP1 hashes {name, description} only — the v16/v17
+#: precedent).
+TOOL_SCHEMA_VERSION: int = 18
 
 #: URI scheme for chunk resource_links per the design note. Used by
 #: handlers that switch to resource_link mode when payloads exceed
@@ -809,6 +855,11 @@ def _wrap_with_observability(tool_name: str, handler: Any) -> Any:
                     CORPUS_VERSION_RESOURCES_NOT_READY,
                 )
 
+        # stage2/arx-a23 (gap R5): fresh phase-timing dict per call —
+        # the child-span helpers (embed/ann/bm25/rerank) accumulate
+        # wall-clock seconds into it regardless of OTel exporter state.
+        phase_token = current_phase_timings.set({})
+
         with span_tool_call(
             tool_name,
             corpus_version=corpus_version_attr,
@@ -817,6 +868,7 @@ def _wrap_with_observability(tool_name: str, handler: Any) -> Any:
             REQUEST_INFLIGHT.labels(tool=tool_name).inc()
             t0 = time.perf_counter()
             status = "error"
+            error_code: str | None = None
             result: Any = None
             try:
                 # onboarding-uplift-m4: orchestrator-level bootstrap stub-check.
@@ -846,11 +898,35 @@ def _wrap_with_observability(tool_name: str, handler: Any) -> Any:
                 result = await handler(*args, **kwargs)
                 status = "ok"
                 return result
+            except BaseException as exc:
+                # Observed for the audit/event error_code only, then
+                # re-raised untouched — the metrics/status flow below
+                # is unchanged from E14_S01.
+                error_code = type(exc).__name__
+                raise
             finally:
                 latency = time.perf_counter() - t0
                 REQUEST_INFLIGHT.labels(tool=tool_name).dec()
                 REQUEST_COUNTER.labels(tool=tool_name, status=status).inc()
                 REQUEST_LATENCY.labels(tool=tool_name).observe(latency)
+                # stage2/arx-a23 (WS-A A2/A3): one request event into
+                # the observability ring (gap R1) + one append-only
+                # audit row (AC-A.9), fed from the same ContextVars the
+                # parent span reads. Best-effort by construction — both
+                # emitters swallow their own failures.
+                phases = current_phase_timings.get() or {}
+                current_phase_timings.reset(phase_token)
+                await _emit_request_record(
+                    tool_name=tool_name,
+                    status=status,
+                    error_code=error_code,
+                    latency_s=latency,
+                    result=result,
+                    k=k_attr,
+                    corpus_version=corpus_version_attr,
+                    phases=phases,
+                    kwargs=kwargs,
+                )
                 if status == "ok" and result is not None:
                     try:
                         payload = getattr(result, "structuredContent", None)
@@ -884,6 +960,127 @@ def _wrap_with_observability(tool_name: str, handler: Any) -> Any:
                         )
 
     return _instrumented
+
+
+async def _emit_request_record(
+    *,
+    tool_name: str,
+    status: str,
+    error_code: str | None,
+    latency_s: float,
+    result: Any,
+    k: int | None,
+    corpus_version: int | str | None,
+    phases: dict[str, float],
+    kwargs: dict[str, Any],
+) -> None:
+    """stage2/arx-a23: emit the per-call request event (gap R1) + the
+    append-only ``tool_calls`` audit row (AC-A.9) + a ``sessions``
+    topic delta, all from the same ContextVars the parent span reads.
+
+    Best-effort end to end: any failure logs at DEBUG and the tool
+    call is unaffected (observability must never break requests —
+    the module's standing E14 discipline).
+    """
+    try:
+        from server.audit import ToolCallRecord, append_tool_call  # noqa: PLC0415
+        from server.capabilities import (  # noqa: PLC0415
+            current_notebook,
+            current_profile_name,
+        )
+        from server.observability.events import (  # noqa: PLC0415
+            publish_request_event,
+            publish_session_event,
+        )
+
+        # stage3/cross-r1: resolve session_id + role from the MCP
+        # per-request context (the true per-``tools/call`` HTTP headers),
+        # NOT from the per-HTTP-request ContextVars. The Streamable-HTTP
+        # session manager runs the handler on a long-lived session task
+        # whose context was captured at ``initialize`` — so the
+        # ContextVars carry session_id=None and the initialize-time role,
+        # making every request-ring event's SESSION column empty and its
+        # role frozen (the roster read headers directly, so the two
+        # surfaces disagreed on the same call). ``resolve_request_identity``
+        # reads the correct per-call values and falls back to the
+        # ContextVars for direct (non-MCP) handler calls.
+        session_id, role = resolve_request_identity()
+        cache_layer = current_cache_layer.get()
+        profile = current_profile_name.get() or "default"
+        notebook = current_notebook.get()
+
+        result_bytes: int | None = None
+        payload = getattr(result, "structuredContent", None)
+        if payload is None and isinstance(result, dict):
+            payload = result
+        if payload is not None:
+            try:
+                result_bytes = len(
+                    json.dumps(payload, ensure_ascii=False).encode("utf-8")
+                )
+            except (TypeError, ValueError):
+                result_bytes = None
+        # Business-logic error envelopes (CallToolResult.isError=True,
+        # e.g. the bootstrap stub) surface their error_code even though
+        # the metrics status is "ok" (the server behaved correctly).
+        if (
+            error_code is None
+            and isinstance(payload, dict)
+            and getattr(result, "isError", False)
+        ):
+            ec = payload.get("error_code") or payload.get("code")
+            if isinstance(ec, str):
+                error_code = ec
+
+        query = kwargs.get("query")
+        args_summary = query if isinstance(query, str) else None
+
+        latency_ms = round(latency_s * 1000.0, 3)
+        session_prefix = session_id[:16] if session_id else None
+        event: dict[str, Any] = {
+            "tool": tool_name,
+            "status": status,
+            "error_code": error_code,
+            "session_id": session_prefix,
+            "role": role,
+            "profile": profile,
+            "notebook": notebook,
+            "latency_ms": latency_ms,
+            "cache_layer": cache_layer,
+            "result_bytes": result_bytes,
+            "k": k,
+            "corpus_version": corpus_version,
+        }
+        if phases:
+            event["phases_ms"] = {
+                p: round(s * 1000.0, 3) for p, s in phases.items()
+            }
+        publish_request_event(event)
+        if session_prefix is not None:
+            # Light change-notification; the authoritative snapshot is
+            # GET /api/v1/sessions (gap R3). Consumers re-poll on this.
+            publish_session_event(
+                {"session_id_prefix": session_prefix, "tool": tool_name}
+            )
+        await append_tool_call(
+            ToolCallRecord(
+                tool=tool_name,
+                outcome=status,
+                profile=profile,
+                session_id=session_id,
+                role=role,
+                notebook=notebook,
+                latency_ms=latency_ms,
+                cache_tier=cache_layer,
+                result_bytes=result_bytes,
+                error_code=error_code,
+                args_summary=args_summary,
+            )
+        )
+    except Exception:  # noqa: BLE001 — never break the request path
+        logger.debug(
+            "request record emission failed for %s", tool_name, exc_info=True
+        )
 
 
 # Backwards-compat alias — tests/test_server_metrics.py from E14_S01

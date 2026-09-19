@@ -32,6 +32,7 @@ from ingest.textbook_renderer import (
     _flat_paper_id,
     render_mineru_to_html,
 )
+from tests._platform_helpers import requires_symlinks
 
 # ---------------------------------------------------------------------------
 # Tier 1 — pure-Python unit tests
@@ -555,6 +556,7 @@ class TestRenderMineruToHtmlSurface:
         # Two ltx_ERROR tokens (multi-class span + single-quoted math).
         assert result.latex_error_annotations == 2
 
+    @requires_symlinks
     def test_symlink_in_images_not_dereferenced(
         self, tmp_path: Path,
     ) -> None:

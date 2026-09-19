@@ -1,0 +1,97 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "urn:arxmcp:bridge:ingest-receipt:v1",
+  "title": "arxmcp.bridge/ingest-receipt v1",
+  "description": "Receipt for one ingest run into a notebook: before/after corpus_version, paper/chunk deltas, and parse failures. Producer: arXMCP ingest. Consumer: operator + agents (and the notebook-health surface, which turns the papers.txt-vs-marker drift class into a visible signal).",
+  "x-bridge": {
+    "artifact": "arxmcp.bridge/ingest-receipt",
+    "version": "1.0",
+    "status": "stable"
+  },
+  "allOf": [
+    { "$ref": "urn:arxmcp:bridge:envelope:v1" },
+    {
+      "properties": {
+        "bridge": {
+          "properties": {
+            "artifact": { "const": "arxmcp.bridge/ingest-receipt" },
+            "substrate": {
+              "properties": {
+                "notebook": { "type": "object" },
+                "corpus_version": {
+                  "description": "For an ingest-receipt the substrate pin is the AFTER corpus_version (the state the artifact leaves the substrate in).",
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        },
+        "payload": {
+          "type": "object",
+          "required": [
+            "slug",
+            "corpus_version_before",
+            "corpus_version_after",
+            "paper_delta",
+            "chunk_delta",
+            "parse_failures"
+          ],
+          "properties": {
+            "slug": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9._-]*$"
+            },
+            "corpus_version_before": {
+              "description": "Null only for the first ingest into a notebook with no corpus-version marker yet.",
+              "type": ["integer", "null"],
+              "minimum": 0
+            },
+            "corpus_version_after": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "paper_delta": {
+              "description": "Signed paper-count change (negative on removals).",
+              "type": "integer"
+            },
+            "chunk_delta": {
+              "type": "integer"
+            },
+            "parse_failures": {
+              "description": "One entry per source that failed to parse; empty array when the run was clean.",
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["source"],
+                "properties": {
+                  "source": {
+                    "description": "The failed input: arXiv id, URL, or uploaded filename.",
+                    "type": "string"
+                  },
+                  "stage": {
+                    "description": "Pipeline stage that failed (e.g. fetch, preflight, mineru, latexml, chunk, embed, index).",
+                    "type": "string"
+                  },
+                  "detail": {
+                    "description": "Redacted error summary (redaction-at-source discipline; never raw stderr).",
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            "papers_after": { "type": "integer", "minimum": 0 },
+            "chunks_after": { "type": "integer", "minimum": 0 },
+            "started_at": {
+              "type": "string",
+              "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?(Z|[+-][0-9]{2}:[0-9]{2})$"
+            },
+            "finished_at": {
+              "type": "string",
+              "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?(Z|[+-][0-9]{2}:[0-9]{2})$"
+            }
+          }
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,74 @@
+{
+  "bridge": {
+    "artifact": "arxmcp.bridge/proof-task",
+    "version": "0.3",
+    "producer": "proving-orchestrator-v0",
+    "produced_at": "2026-07-04T00:00:00Z",
+    "substrate": {
+      "server": "arxmcp",
+      "corpus_version": 1690,
+      "notebook": {
+        "slug": "bridgeland-stability",
+        "uri": "arxmcp://notebooks/bridgeland-stability"
+      },
+      "filter_echo": null,
+      "retrieval_mode": "dense_only",
+      "tool_schema_sha256": "8665de4d1d52c053dbb1dbdd30e2a8a219c0b1e39ff9083124b5a0fa76ca304d"
+    }
+  },
+  "payload": {
+    "task_id": "kat-fm-02-bridgeland-stability",
+    "statement_latex": "\\forall n \\in \\mathbb{N}: n^2 + n + 41 \\in \\mathbb{P}",
+    "statement_nl": "n² + n + 41 is prime for every natural number n.",
+    "field_lane": "math.NT",
+    "claim_type": "theorem-statement",
+    "notebook": "bridgeland-stability",
+    "budget": {
+      "wall_clock_s": 600,
+      "lean_queries": 20,
+      "cas_runs": 4,
+      "prover_cycles": 3
+    },
+    "target_verdict_floor": "refuted",
+    "known_truth": false,
+    "kat_id": "kat-fm-02",
+    "skeptic_checks": {
+      "lean": [
+        {
+          "name": "n2n41-witness-40",
+          "kind": "witness",
+          "snippet": "example : ¬ Nat.Prime (40 ^ 2 + 40 + 41) := by norm_num",
+          "imports": ["Mathlib.Tactic"],
+          "description": "Kernel-checked witness: 40² + 40 + 41 = 1681 = 41².",
+          "discharges": {
+            "proposition": "¬ Nat.Prime (40 ^ 2 + 40 + 41)",
+            "refutes_claim": true,
+            "justification": "n = 40 makes 40²+40+41 = 1681 = 41² composite, a direct counterexample to the universal 'n²+n+41 is prime'."
+          }
+        },
+        {
+          "name": "n2n41-plausible-search",
+          "kind": "search",
+          "snippet": "example : ∀ n : Nat, Nat.Prime (n ^ 2 + n + 41) := by plausible",
+          "imports": ["Mathlib.Tactic"],
+          "description": "Random falsification search over the original claim (plausible; slim_check on older mathlib)."
+        }
+      ],
+      "cas": [
+        {
+          "name": "n2n41-sympy-scan",
+          "engine": "sympy",
+          "code": "def find_counterexample(start, stop):\n    import sympy\n    for n in range(start, stop):\n        if not sympy.isprime(n * n + n + 41):\n            return {\"n\": n, \"value\": n * n + n + 41}\n    return None\n",
+          "params": { "start": 0, "stop": 200 },
+          "timeout_s": 10,
+          "description": "SymPy primality scan over n in [0, 200).",
+          "discharges": {
+            "proposition": "∃ n, ¬ Nat.Prime (n ^ 2 + n + 41)",
+            "refutes_claim": true,
+            "justification": "A single composite value in the scanned range is an existential counterexample to the universal claim."
+          }
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,136 @@
+/*
+ * tokens.css — Technical Editorial token sheet (WS-B, Direction C).
+ *
+ * Canonical, register-based token names (design-system-brief.md §3):
+ * the names encode THIS product's logic — math (editorial) vs machine
+ * (telemetry) vs chrome — never a third-party design-system API.
+ * A mechanical shadcn-name alias layer lives in shadcn-aliases.css for
+ * borrowed components only; this sheet is the source of truth.
+ *
+ * Rules encoded here (review blockers):
+ *  - CO-1: no hue in the 250-290 band anywhere (checked by
+ *    tests/test_design_gates.py against the COMPILED css).
+ *  - CO-2: light is first-class; dark comes only from
+ *    prefers-color-scheme. color-scheme is NOT pinned dark.
+ *  - CO-3: every text pair below is AA-verified in both modes by
+ *    tests/test_design_gates.py::TestContrastAA (computed, not asserted
+ *    by comment alone; ratios in comments are from that computation).
+ *  - LA-2: --radius is 2px and is the ONLY radius the app may use.
+ *  - DE-1: two density tiers — --space-dense-* inside data groups,
+ *    --space-air-* between sections. Never one padding everywhere.
+ */
+
+:root {
+  /* Both palettes exist; the OS decides (CO-2 / gate C4). */
+  color-scheme: light dark;
+
+  /* ------------------------------------------------------------------
+   * Type registers (TY-1: register assignment is content-provenance-
+   * based — editorial = came from mathematics, telemetry = came from
+   * the machine, chrome = the UI's own quiet voice).
+   * Faces are self-hosted WOFF2 under font-src 'self' (src/fonts.ts).
+   * ------------------------------------------------------------------ */
+  --font-editorial: "STIX Two Text", "Times New Roman", serif;
+  --font-math: "STIX Two Math", "STIX Two Text", serif;
+  --font-telemetry: "JetBrains Mono", Consolas, monospace;
+  --font-chrome: system-ui, "Segoe UI", sans-serif;
+
+  /* Type scale (TY-2 / gate T3: >=3 sizes, adjacent ratio >= 1.2).
+   * --text-micro is the single tracked-caps micro-label size (TY-4/T4)
+   * and sits outside the scale. Telemetry body = scale-1 (12.5-13px
+   * band per brief §2); editorial body = scale-2. */
+  --scale-1: 13px;
+  --scale-2: 16.5px;
+  --scale-3: 21px;
+  --scale-4: 26.5px;
+  --text-micro: 11px;
+
+  --leading-editorial: 1.45;
+  --leading-telemetry: 1.35;
+  --measure-editorial: 72ch;
+
+  /* ------------------------------------------------------------------
+   * Density tiers (DE-1). Dense inside data groups; air between
+   * sections. The tier CONTRAST is the visual rhythm.
+   * ------------------------------------------------------------------ */
+  --space-dense-1: 2px;
+  --space-dense-2: 4px;
+  --space-dense-3: 8px;
+  --space-air-1: 12px;
+  --space-air-2: 20px;
+  --space-air-3: 32px;
+  --space-air-4: 52px;
+
+  /* Rules, not cards (LA-2). Radius policy 0-2px. */
+  --radius: 2px;
+  --rule-hairline: 1px;
+  --rule-heavy: 2px;
+
+  /* ------------------------------------------------------------------
+   * Ink-on-paper light palette — owned values, no third-party palette
+   * (CO-7). Accent evolved from the shipped console's #1e5b8a.
+   * Contrast vs --paper (computed): ink 16.4:1, ink-muted 6.8:1,
+   * accent 6.8:1, danger 7.0:1, ok 6.2:1, warn 6.1:1, ops 7.1:1,
+   * down 7.9:1.
+   * ------------------------------------------------------------------ */
+  --paper: #faf9f6;
+  --paper-inset: #f1eee8; /* wells: stderr tails, code, log panes */
+  --ink: #1c1b18;
+  --ink-muted: #5c574c;
+  /* Dimmer than --ink-muted for "de-emphasized but still legible" text
+   * (e.g. the ghost-lane teaching state). Dim via COLOR at full opacity,
+   * never container opacity — an ancestor opacity composites descendant
+   * text below the AA floor (5.4:1 here vs 2.5:1 for ink-muted@0.55). */
+  --ink-faint: #6b665a;
+  --accent: #1e5b8a;
+  --danger: #a3271a;
+
+  --status-ok: #2c6a38;
+  --status-warn: #7a5a10;
+  --status-ops: #85431c;
+  --status-down: #96221b;
+
+  --rule-color: #d9d4c9; /* hairline separators (decorative) */
+  --rule-color-strong: #8f897c;
+
+  --focus-ring: var(--accent);
+  --focus-ring-danger: var(--danger);
+
+  /* ------------------------------------------------------------------
+   * Motion tokens — normative values from design-system-brief.md §5.1.
+   * dur-4 is 3D-camera-only, NEVER DOM (NO-17 / M2 exemption).
+   * No bounce/elastic easings exist in this sheet (gate M2).
+   * ------------------------------------------------------------------ */
+  --motion-dur-1: 100ms; /* hover, focus, press, tooltip */
+  --motion-dur-2: 200ms; /* swaps, crossfades, row enter/exit */
+  --motion-dur-3: 400ms; /* panel/drawer entry, refresh flash */
+  --motion-dur-4: 800ms; /* 3D camera tweens ONLY — never DOM */
+  --motion-ease-standard: cubic-bezier(0.2, 0, 0, 1); /* decelerate; entrances */
+  --motion-ease-exit: cubic-bezier(0.4, 0, 1, 1); /* accelerate; exits */
+  --motion-ease-linear: linear; /* spinners/progress ONLY */
+}
+
+/* Owned warm dark — explicitly NOT blue-black, NOT Primer #0d1117
+ * (gate C7 greps for the Primer hexes). Follows the OS only (CO-2).
+ * Contrast vs dark --paper (computed): ink 14.2:1, ink-muted 6.9:1,
+ * accent 7.1:1, danger 6.5:1, ok 7.6:1, warn 7.8:1, ops 6.9:1,
+ * down 6.4:1. */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: #191512;
+    --paper-inset: #211c17;
+    --ink: #e9e3d8;
+    --ink-muted: #a89f90;
+    --ink-faint: #948b7b; /* de-emphasized text, 5.4:1 — see light note */
+    --accent: #6ea9cf;
+    --danger: #dd8272;
+
+    --status-ok: #7cb489;
+    --status-warn: #c9a648;
+    --status-ops: #cd9366;
+    --status-down: #dd8172;
+
+    --rule-color: #3a332c;
+    --rule-color-strong: #6b6357;
+  }
+}

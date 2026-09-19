@@ -1,0 +1,539 @@
+/*
+ * observability.css — logs / requests / connections surfaces (arx-b3).
+ * Densest telemetry tier (brief §7.4): 13px mono, minimal padding,
+ * rules-not-cards. No gradients, no glow, radius ≤ var(--radius),
+ * every transition ≤ 400ms (gate M2), uppercase only via .microlabel.
+ * NO per-log-line animation exists in this file (NO-12).
+ */
+
+.obs-page {
+  max-width: 1200px;
+}
+
+/* Facet rail beside the tail on wide viewports; stacks on narrow. */
+.obs-split {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-air-2);
+}
+
+@media (min-width: 900px) {
+  .obs-split {
+    grid-template-columns: 15rem minmax(0, 1fr);
+  }
+}
+
+.facet-rail {
+  border-right: var(--rule-hairline) solid var(--rule-color);
+  padding-right: var(--space-air-1);
+}
+
+.facet-group {
+  margin-bottom: var(--space-air-1);
+}
+
+.facet-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-dense-2);
+  margin-top: var(--space-dense-2);
+}
+
+.facet-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-air-2);
+  margin: var(--space-air-1) 0;
+}
+
+/* Queryless facet chip: a toggle button in chip clothing. Zero-count
+ * chips are disabled (dim via the button's own disabled opacity) but
+ * never removed. Active chips flip to heavy ink outline. */
+.chip-toggle {
+  font-family: var(--font-telemetry);
+  font-size: var(--text-micro);
+  color: var(--ink-muted);
+  background: var(--paper);
+  border: var(--rule-hairline) solid var(--rule-color);
+  border-radius: var(--radius);
+  padding: 0 var(--space-dense-2);
+  cursor: pointer;
+}
+
+.chip-toggle[aria-pressed="true"] {
+  color: var(--ink);
+  border-color: var(--rule-color-strong);
+  font-weight: 700;
+}
+
+.chip-toggle:disabled {
+  cursor: default;
+}
+
+.chip-count {
+  color: var(--ink-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- Logs tail (L1) --- */
+.tail-controls {
+  display: flex;
+  gap: var(--space-dense-3);
+  margin-bottom: var(--space-dense-3);
+}
+
+.tail-wrap {
+  position: relative;
+}
+
+.log-viewport {
+  height: 26rem;
+  overflow-y: auto;
+  border-top: var(--rule-heavy) solid var(--rule-color-strong);
+  border-bottom: var(--rule-hairline) solid var(--rule-color);
+  background: var(--paper-inset);
+  padding: var(--space-dense-2);
+}
+
+/* A log line is a full-width button (keyboard-honest inspector
+ * trigger) with NO transitions — appends must not animate (NO-12). */
+.log-row {
+  display: flex;
+  gap: var(--space-dense-3);
+  align-items: baseline;
+  width: 100%;
+  text-align: left;
+  font-family: var(--font-telemetry);
+  font-size: var(--scale-1);
+  line-height: var(--leading-telemetry);
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  padding: var(--space-dense-1) var(--space-dense-2);
+  cursor: pointer;
+}
+
+.log-row:hover {
+  background: var(--paper);
+}
+
+.log-ts {
+  color: var(--ink-muted);
+  flex: 0 0 auto;
+}
+
+.log-level {
+  flex: 0 0 5.5em;
+  font-weight: 700;
+}
+
+/* Level colors are status-bearing (CO-4-compliant). */
+.log-level-down .log-level {
+  color: var(--status-down);
+}
+
+.log-level-warn .log-level {
+  color: var(--status-warn);
+}
+
+.log-level-muted .log-level,
+.log-level-muted .log-msg {
+  color: var(--ink-muted);
+}
+
+.log-logger {
+  flex: 0 0 auto;
+  color: var(--ink-muted);
+}
+
+.log-msg {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.log-collapse {
+  flex: 0 0 auto;
+  border: var(--rule-hairline) solid var(--rule-color-strong);
+  border-radius: var(--radius);
+  padding: 0 var(--space-dense-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.log-gap {
+  font-family: var(--font-telemetry);
+  font-size: var(--text-micro);
+  color: var(--status-warn);
+  border-top: var(--rule-hairline) dashed var(--rule-color-strong);
+  border-bottom: var(--rule-hairline) dashed var(--rule-color-strong);
+  padding: var(--space-dense-1) 0;
+  margin: var(--space-dense-2) 0;
+}
+
+/* "N new lines ↓" pill: the WCAG 2.2.2 resume affordance. The 150ms
+ * opacity fade is the ONLY animated thing on the logs surface and is
+ * clamped under reduced motion by the base.css backstop. */
+.new-lines-pill {
+  position: absolute;
+  bottom: var(--space-air-1);
+  right: var(--space-air-2);
+  font-family: var(--font-telemetry);
+  font-size: var(--scale-1);
+  color: var(--paper);
+  background: var(--ink);
+  border: var(--rule-hairline) solid var(--ink);
+  border-radius: var(--radius);
+  padding: var(--space-dense-2) var(--space-air-1);
+  cursor: pointer;
+  animation: pill-in 150ms var(--motion-ease-standard);
+}
+
+@keyframes pill-in {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+.obs-banner {
+  color: var(--status-warn);
+  border-top: var(--rule-hairline) solid var(--rule-color);
+  border-bottom: var(--rule-hairline) solid var(--rule-color);
+  padding: var(--space-dense-2) 0;
+}
+
+.obs-retention {
+  margin-top: var(--space-dense-2);
+}
+
+/* --- Line inspector (L4) / request drawer (R3): 400ms entry, standard
+ * ease, elevation by layering + rules, never shadow (TX-1). --- */
+.line-inspector,
+.obs-drawer {
+  border-top: var(--rule-heavy) solid var(--rule-color-strong);
+  background: var(--paper);
+  padding: var(--space-air-1) 0;
+  margin-top: var(--space-air-1);
+  animation: drawer-in var(--motion-dur-3) var(--motion-ease-standard);
+}
+
+@keyframes drawer-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.inspector-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--space-air-1);
+  margin-bottom: var(--space-dense-3);
+}
+
+.inspector-chips {
+  display: flex;
+  gap: var(--space-dense-3);
+  margin-bottom: var(--space-dense-3);
+}
+
+.inspector-json {
+  max-height: 18rem;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* --- Session-lane canvas (R1, the hero) --- */
+.lane-canvas {
+  margin: var(--space-air-2) 0;
+}
+
+.lane-axis {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--space-air-1);
+  color: var(--ink-muted);
+  border-bottom: var(--rule-hairline) solid var(--rule-color);
+  padding-bottom: var(--space-dense-1);
+}
+
+.lane {
+  border-bottom: var(--rule-hairline) solid var(--rule-color);
+  padding: var(--space-dense-2) 0;
+}
+
+.lane-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-air-1);
+  flex-wrap: wrap;
+}
+
+.lane-caps {
+  display: flex;
+  gap: var(--space-air-1);
+  flex-wrap: wrap;
+}
+
+.lane-strip {
+  display: block;
+  width: 100%;
+  height: 28px;
+}
+
+.lane-baseline {
+  stroke: var(--rule-color);
+  stroke-width: 1;
+}
+
+.pulse {
+  stroke: var(--rule-color-strong);
+  stroke-width: 1;
+}
+
+.pulse-error {
+  stroke: var(--danger);
+  stroke-width: 2.5;
+}
+
+/* Teaching ghost lanes: dim is a signal, not motion. The SVG strip
+ * carries no text, so opacity is fine there. The lane head DOES carry
+ * text (role chip + cap-meter labels); dimming it with container
+ * opacity composites that text to ~2.5:1 (an AA color-contrast failure
+ * on a designed state — see tokens.css --ink-faint). So the head is
+ * de-emphasized via a full-opacity faint token that stays >= 4.5:1. */
+.lane-canvas-ghost .lane-strip {
+  opacity: 0.55;
+}
+
+.lane-canvas-ghost .lane-head .chip,
+.lane-canvas-ghost .lane-head .cap-meter-label,
+.lane-canvas-ghost .lane-head .cap-meter-count {
+  color: var(--ink-faint);
+}
+
+.lane-legend {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-air-1);
+  flex-wrap: wrap;
+  margin-top: var(--space-dense-2);
+}
+
+.legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-dense-2);
+  font-size: var(--text-micro);
+}
+
+.legend-swatch {
+  display: inline-block;
+  width: 0.75em;
+  height: 0.75em;
+  border: var(--rule-hairline) solid var(--rule-color-strong);
+  border-radius: var(--radius);
+}
+
+.legend-swatch-error {
+  border: 2px solid var(--danger);
+  background: transparent;
+}
+
+/* --- Request table (R2) --- */
+.row-detail-btn {
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font-family: var(--font-telemetry);
+  font-size: var(--scale-1);
+  padding: 0;
+  cursor: pointer;
+  text-align: left;
+}
+
+.row-detail-btn:hover {
+  text-decoration: underline;
+}
+
+.latency-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-dense-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.latency-bar-track {
+  display: inline-block;
+  width: 5rem;
+  height: 0.5rem;
+  border: var(--rule-hairline) solid var(--rule-color);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.latency-bar {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+}
+
+/* --- Waterfall (R3) --- */
+.waterfall-track {
+  position: relative;
+  display: flex;
+  height: 1rem;
+  max-width: 36rem;
+  border: var(--rule-hairline) solid var(--rule-color-strong);
+  border-radius: var(--radius);
+  overflow: hidden;
+  margin: var(--space-dense-3) 0;
+}
+
+.waterfall-seg {
+  display: block;
+  height: 100%;
+}
+
+.waterfall-seg + .waterfall-seg {
+  border-left: var(--rule-hairline) solid var(--paper);
+}
+
+.ruler-tick {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 0;
+  border-left: var(--rule-hairline) dashed var(--ink);
+}
+
+.ruler-tick-p95 {
+  border-left-style: solid;
+}
+
+.waterfall-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-air-1);
+}
+
+/* --- Cap meter --- */
+.cap-meter {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-dense-2);
+  font-size: var(--text-micro);
+}
+
+.cap-meter-label {
+  color: var(--ink-muted);
+}
+
+.cap-meter-track {
+  display: inline-block;
+  width: 3.5rem;
+  height: 0.5rem;
+  border: var(--rule-hairline) solid var(--rule-color-strong);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.cap-meter-fill {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transition: width var(--motion-dur-2) var(--motion-ease-standard);
+}
+
+.cap-meter-fill-exhausted {
+  background: var(--status-down); /* status-bearing: cap exhausted */
+}
+
+.cap-meter-count {
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- Connections roster (C2) --- */
+.trust-header {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-dense-3);
+  flex-wrap: wrap;
+}
+
+.session-roster {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.session-row {
+  border-top: var(--rule-hairline) solid var(--rule-color);
+  padding: var(--space-air-1) 0;
+}
+
+.session-roster > .session-row:last-child {
+  border-bottom: var(--rule-hairline) solid var(--rule-color);
+}
+
+.session-row-idle .session-head {
+  color: var(--ink-muted);
+}
+
+.session-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-dense-3);
+  flex-wrap: wrap;
+}
+
+.session-caps {
+  display: flex;
+  gap: var(--space-air-1);
+  flex-wrap: wrap;
+  margin-top: var(--space-dense-2);
+}
+
+.session-links {
+  display: inline-flex;
+  gap: var(--space-dense-3);
+}
+
+/* Activity dot: filled when active, hollow when idle — shape + the
+ * aria-label carry the signal, not color alone. */
+.activity-dot {
+  display: inline-block;
+  width: 0.55em;
+  height: 0.55em;
+  border: var(--rule-hairline) solid var(--rule-color-strong);
+  border-radius: var(--radius);
+  background: transparent;
+  align-self: center;
+}
+
+.activity-dot-active {
+  background: var(--status-ok);
+  border-color: var(--status-ok);
+}
+
+.detail-cell {
+  max-width: 22rem;
+  overflow-wrap: anywhere;
+}

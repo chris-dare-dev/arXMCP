@@ -1,0 +1,16 @@
+{
+  "name": "randomstrasse101",
+  "kind": "arxiv-list",
+  "url": "https://arxiv.org/abs/2603.29571",
+  "retrieved_at": "2026-07-01T00:00:00Z",
+  "entries": [
+    {
+      "id": "rs-2025-11",
+      "title": "Random matrix universality beyond mean-field ensembles",
+      "statement": "Establish edge universality for a family of sparse non-mean-field random matrix ensembles.",
+      "tags": ["math.PR", "math-ph"],
+      "arxiv_ids": [],
+      "url": "https://arxiv.org/abs/2603.29571"
+    }
+  ]
+}

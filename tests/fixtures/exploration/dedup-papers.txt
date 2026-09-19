@@ -1,0 +1,4 @@
+# Fixture papers.txt-style dedup list (AC-E.2). One id per line;
+# versioned ids allowed (the URL-paste route stores them versioned).
+2601.00777v2
+1301.00001

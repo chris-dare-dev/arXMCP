@@ -109,6 +109,76 @@ def prepare_stderr_tail(stderr_bytes: bytes) -> str:
     return html.escape(text)
 
 
+# ---------------------------------------------------------------------------
+# stage2/arx-a23 (WS-A A3, gap R4) — additive ingest stage events
+# ---------------------------------------------------------------------------
+
+#: Parses the terminal summary line ``tools/notebook_ingest.py`` prints
+#: on stdout (``bulk_ingest: total=N ok=N fail=N ar5iv_rate=F``). Used
+#: to derive per-stage completion events (chunk/embed) from a finished
+#: run — the subprocess is opaque mid-run (one Python process running
+#: per-paper fetch→chunk→embed loops), so run-summary derivation is
+#: the honest granularity available without instrumenting
+#: ``ingest/bulk_ingest.py`` itself (a follow-up owned by the ingest
+#: lane). The event ``detail`` marks ``derived: "run_summary"``.
+_BULK_SUMMARY_RE: re.Pattern[bytes] = re.compile(
+    rb"bulk_ingest: total=(\d+) ok=(\d+) fail=(\d+)"
+)
+
+#: Parses the ``BM25 built for corpus_version=N`` stdout line → the
+#: ``index`` stage completion event.
+_BM25_BUILT_RE: re.Pattern[bytes] = re.compile(
+    rb"BM25 built for corpus_version=(\d+)"
+)
+
+
+def _publish_stage(  # pragma: no cover — thin forwarding shim
+    slug: str, run_id: int, stage: str, phase: str,
+    detail: dict | None = None,
+) -> None:
+    """Best-effort forward to the observability event tier. Lazy
+    import + broad except: the tracker predates the event tier and
+    must keep working if it is unavailable (partial installs, tests
+    that stub modules)."""
+    try:
+        from server.observability.events import (  # noqa: PLC0415
+            publish_ingest_stage_event,
+        )
+
+        publish_ingest_stage_event(
+            kind="ingest", slug=slug, stage=stage, phase=phase,
+            run_id=run_id, detail=detail,
+        )
+    except Exception:  # noqa: BLE001
+        logger.debug("ingest stage event publish failed", exc_info=True)
+
+
+def _publish_run_summary_stages(
+    slug: str, run_id: int, stdout_bytes: bytes, exit_code: int | None
+) -> None:
+    """Derive chunk/embed/index stage completions from the finished
+    subprocess's stdout (see :data:`_BULK_SUMMARY_RE`). Additive only."""
+    summary = _BULK_SUMMARY_RE.search(stdout_bytes or b"")
+    if summary is not None:
+        detail = {
+            "papers_total": int(summary.group(1)),
+            "papers_ok": int(summary.group(2)),
+            "papers_failed": int(summary.group(3)),
+            "derived": "run_summary",
+        }
+        phase = "finished" if int(summary.group(2)) > 0 else "failed"
+        _publish_stage(slug, run_id, "chunk", phase, detail)
+        _publish_stage(slug, run_id, "embed", phase, detail)
+    bm25 = _BM25_BUILT_RE.search(stdout_bytes or b"")
+    if bm25 is not None:
+        _publish_stage(
+            slug, run_id, "index", "finished",
+            {"corpus_version": int(bm25.group(1)), "derived": "run_summary"},
+        )
+    elif exit_code is not None and exit_code != 0:
+        _publish_stage(slug, run_id, "index", "failed", {"exit_code": exit_code})
+
+
 class IngestTaskTracker:
     """Live-task registry for ingest subprocesses.
 
@@ -160,6 +230,9 @@ class IngestTaskTracker:
         run_id: int,
         store: NotebooksStore,
         now_iso_provider,
+        notebook_kind: str = "arxiv",
+        textbook_chunker: str = "html",
+        textbook_paper_ids: list[str] | None = None,
     ) -> asyncio.Task:
         """Spawn the ingest subprocess as a background task.
 
@@ -173,10 +246,30 @@ class IngestTaskTracker:
         current ISO-8601 UTC string; passing it (rather than
         calling a module-level helper) keeps the tracker
         test-friendly (deterministic timestamps).
+
+        stage2/arx-a45 (AC-A.18): ``notebook_kind`` selects the
+        subprocess. arxiv-kind (default) keeps the historical
+        ``tools.notebook_ingest <slug>`` (papers.txt bulk ingest +
+        BM25). textbook-kind dispatches
+        ``tools.notebook_textbook_ingest <slug> --paper-id ...
+        --chunker <textbook_chunker>`` — the SAME CLI an operator
+        runs by hand, so the API path and the CLI path are one
+        implementation (the AC-A.18 parity property).
+        ``textbook_paper_ids`` is the notebook's junction-row
+        paper_id list, computed by the ROUTE (async store access
+        happens there, before the 202 returns) — the tracker never
+        queries the store for it.
         """
+        # stage2/arx-a23 (gap R4): the caller has validated the slug,
+        # cleared the 409 collision checks, and inserted the run row —
+        # that IS the preflight; record it additively.
+        _publish_stage(slug, run_id, "preflight", "finished")
         task = asyncio.create_task(
             self._run_ingest_subprocess(
                 slug, run_id, store, now_iso_provider,
+                notebook_kind=notebook_kind,
+                textbook_chunker=textbook_chunker,
+                textbook_paper_ids=list(textbook_paper_ids or []),
             ),
             name=f"ingest:{slug}:{run_id}",
         )
@@ -207,12 +300,41 @@ class IngestTaskTracker:
                     "ingest task for slug=%s raised: %s", slug, exc,
                 )
 
+    def _build_subprocess_args(
+        self,
+        slug: str,
+        *,
+        notebook_kind: str,
+        textbook_chunker: str,
+        textbook_paper_ids: list[str],
+    ) -> list[str]:
+        """Return the ``python -m ...`` argv tail for the ingest kind.
+
+        stage2/arx-a45 (AC-A.18). Extracted as a method (rather than
+        inlined in ``_run_ingest_subprocess``) so tests can pin the
+        exact argv without spawning a real subprocess. The textbook
+        branch passes every junction-row paper_id — multi-segment
+        textbooks (``textbook:<slug>:partNN`` uploads) each get their
+        own ``--paper-id`` — and the notebook's stored chunker.
+        """
+        if notebook_kind == "textbook":
+            args = ["-m", "tools.notebook_textbook_ingest", slug]
+            for pid in textbook_paper_ids:
+                args += ["--paper-id", pid]
+            args += ["--chunker", textbook_chunker]
+            return args
+        return ["-m", "tools.notebook_ingest", slug]
+
     async def _run_ingest_subprocess(
         self,
         slug: str,
         run_id: int,
         store: NotebooksStore,
         now_iso_provider,
+        *,
+        notebook_kind: str = "arxiv",
+        textbook_chunker: str = "html",
+        textbook_paper_ids: list[str] | None = None,
     ) -> None:
         """Spawn the subprocess, await completion, update the DB row.
 
@@ -226,17 +348,23 @@ class IngestTaskTracker:
         that fires only if two different notebooks both pass the
         per-slug check.
         """
+        subprocess_args = self._build_subprocess_args(
+            slug,
+            notebook_kind=notebook_kind,
+            textbook_chunker=textbook_chunker,
+            textbook_paper_ids=list(textbook_paper_ids or []),
+        )
         async with self._global_cap:
             proc: asyncio.subprocess.Process | None = None
             try:
                 proc = await asyncio.create_subprocess_exec(
                     sys.executable,
-                    "-m",
-                    "tools.notebook_ingest",
-                    slug,
+                    *subprocess_args,
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
                 )
+                # stage2/arx-a23 (gap R4): the run is live.
+                _publish_stage(slug, run_id, "run", "started")
                 _stdout, stderr_bytes = await proc.communicate()
                 exit_code = proc.returncode
             except asyncio.CancelledError:
@@ -283,6 +411,10 @@ class IngestTaskTracker:
                         "orphan-recovery will pick this up on next boot",
                         slug,
                     )
+                _publish_stage(
+                    slug, run_id, "run", "failed",
+                    {"reason": "cancelled_at_shutdown"},
+                )
                 raise
             except Exception as e:  # noqa: BLE001
                 logger.exception(
@@ -298,6 +430,9 @@ class IngestTaskTracker:
                         f"subprocess could not be spawned: {e}"
                     ),
                 )
+                _publish_stage(
+                    slug, run_id, "run", "failed", {"reason": "spawn_failed"},
+                )
                 return
 
             stderr_tail = prepare_stderr_tail(stderr_bytes or b"")
@@ -312,6 +447,16 @@ class IngestTaskTracker:
                 finished_at=now_iso_provider(),
                 exit_code=exit_code,
                 stderr_tail=stderr_tail if status == store.INGEST_STATUS_FAILED else None,
+            )
+            # stage2/arx-a23 (gap R4): derive chunk/embed/index stage
+            # completions from the run's stdout summary + emit the
+            # terminal run event. Purely additive — the tri-state row
+            # above is untouched and remains the poll surface.
+            _publish_run_summary_stages(slug, run_id, _stdout or b"", exit_code)
+            _publish_stage(
+                slug, run_id, "run",
+                "finished" if exit_code == 0 else "failed",
+                {"exit_code": exit_code},
             )
             # onboarding-uplift-m4: fire on_success_callback after a
             # successful ingest so Resources.late_bind() can promote the

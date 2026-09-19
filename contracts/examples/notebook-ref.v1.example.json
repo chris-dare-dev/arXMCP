@@ -1,0 +1,24 @@
+{
+  "bridge": {
+    "artifact": "arxmcp.bridge/notebook-ref",
+    "version": "1.0",
+    "producer": "proof-verify-arxmcp-querier",
+    "produced_at": "2026-07-04T00:00:00Z",
+    "substrate": {
+      "server": "arxmcp",
+      "corpus_version": 1690,
+      "notebook": {
+        "slug": "bridgeland-stability",
+        "uri": "arxmcp://notebooks/bridgeland-stability"
+      },
+      "filter_echo": { "notebook": "bridgeland-stability" },
+      "retrieval_mode": "dense_only",
+      "tool_schema_sha256": "c7df4c5c10c86693ac8553b7d079b55fba21749881c233f0f298955379d13375"
+    }
+  },
+  "payload": {
+    "slug": "bridgeland-stability",
+    "uri": "arxmcp://notebooks/bridgeland-stability",
+    "corpus_version": 1690
+  }
+}

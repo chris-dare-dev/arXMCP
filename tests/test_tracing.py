@@ -402,6 +402,108 @@ class TestContextVarPlumbing:
         assert "mcp.session_id" not in attrs
 
 
+class TestResolveRequestIdentity:
+    """stage3/cross-r1 unit coverage for
+    :func:`server.observability.tracing.resolve_request_identity`.
+
+    The MCP Streamable-HTTP session task freezes the per-HTTP-request
+    ContextVars at ``initialize`` time (``session_id=None``, role pinned
+    to the initialize value). The resolver must prefer the true per-call
+    ``Mcp-Session-Id`` / ``Arxmcp-Agent-Role`` from the MCP request
+    context's HTTP headers, falling back to the ContextVars only when no
+    MCP request is in flight. This is the port-independent proof of the
+    fix (the live path is exercised in
+    ``tests/test_a23_live.py::TestLiveRequestEventIdentity``)."""
+
+    @pytest.fixture(autouse=True)
+    def _reset_identity_contextvars(self):
+        """Reset the tracing ContextVars around each test so a set()
+        here does not leak into
+        ``TestTracingContextMiddleware::test_middleware_sets_session_id_from_header``
+        (which asserts they default to None)."""
+        current_session_id.set(None)
+        current_agent_role.set(None)
+        yield
+        current_session_id.set(None)
+        current_agent_role.set(None)
+
+    def _install_fake_request_ctx(self, monkeypatch, headers: dict):
+        """Set mcp's ``request_ctx`` to a fake carrying ``headers`` on
+        its Starlette-like request. Returns the reset token."""
+        from mcp.server.lowlevel.server import request_ctx
+
+        class _Headers:
+            def __init__(self, h):
+                # Starlette Headers.get is case-insensitive.
+                self._h = {k.lower(): v for k, v in h.items()}
+
+            def get(self, name, default=None):
+                return self._h.get(name.lower(), default)
+
+        fake = SimpleNamespace(request=SimpleNamespace(headers=_Headers(headers)))
+        token = request_ctx.set(fake)  # type: ignore[arg-type]
+        monkeypatch.setattr(
+            "mcp.server.lowlevel.server.request_ctx", request_ctx, raising=False
+        )
+        return request_ctx, token
+
+    def test_per_call_headers_win_over_frozen_contextvars(self, monkeypatch):
+        from server.observability.tracing import resolve_request_identity
+
+        # Simulate the freeze: ContextVars carry the initialize-time
+        # state (no session id, role=tactician).
+        current_session_id.set(None)
+        current_agent_role.set("tactician")
+        # The in-flight tools/call carried the minted session id + fixer.
+        ctxvar, token = self._install_fake_request_ctx(
+            monkeypatch,
+            {"mcp-session-id": "sess-deadbeef", "arxmcp-agent-role": "fixer"},
+        )
+        try:
+            sid, role = resolve_request_identity()
+        finally:
+            ctxvar.reset(token)
+        assert sid == "sess-deadbeef", (
+            "resolver must read the per-call Mcp-Session-Id, not the "
+            "frozen ContextVar (None)"
+        )
+        assert role == "fixer", (
+            "resolver must read the per-call Arxmcp-Agent-Role, not the "
+            "initialize-time 'tactician'"
+        )
+
+    def test_falls_back_to_contextvars_without_mcp_request(self):
+        # No MCP request context in flight → the resolver returns the
+        # ContextVars (direct handler calls, non-/mcp code paths).
+        from server.observability.tracing import resolve_request_identity
+
+        current_session_id.set("cv-session")
+        current_agent_role.set("sketcher")
+        sid, role = resolve_request_identity()
+        assert sid == "cv-session"
+        assert role == "sketcher"
+
+    def test_invalid_per_call_role_falls_back_to_none(self, monkeypatch):
+        # An out-of-allow-list role on the per-call header is dropped to
+        # None (mirrors the middleware's validation) — it must NOT leak
+        # the frozen ContextVar role either, since the per-call context
+        # is authoritative for this call.
+        from server.observability.tracing import resolve_request_identity
+
+        current_session_id.set(None)
+        current_agent_role.set("tactician")
+        ctxvar, token = self._install_fake_request_ctx(
+            monkeypatch,
+            {"mcp-session-id": "sess-1", "arxmcp-agent-role": "not-a-role"},
+        )
+        try:
+            sid, role = resolve_request_identity()
+        finally:
+            ctxvar.reset(token)
+        assert sid == "sess-1"
+        assert role is None
+
+
 # ===========================================================================
 # Middleware ContextVar propagation
 # ===========================================================================

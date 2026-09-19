@@ -291,3 +291,120 @@ def _patched_cache_db_path(tmp_path, monkeypatch):
         str(tmp_path / "cache" / "retrieval.db"),
     )
     yield
+
+
+@pytest.fixture(autouse=True)
+def _reset_capability_and_event_tier():
+    """Drop the stage2/arx-a23 module singletons before+after each
+    test: capability-profile store binding + TTL cache, the audit
+    store binding, the observability event rings/bus, and any
+    installed ring-buffer log handler.
+
+    Every tool call through ``_wrap_with_observability`` now appends
+    a request event; without this fixture one test's events (or a
+    bound audit store on a tmp_path that no longer exists) would leak
+    into the next. Mirrors ``_reset_session_state_for_tests``'s
+    import-guarded discipline — the fixture must never break
+    collection.
+    """
+    def _reset() -> None:
+        try:
+            from server.capabilities import reset_capabilities_for_tests
+
+            reset_capabilities_for_tests()
+        except ImportError:
+            pass
+        try:
+            from server.audit import reset_audit_store_for_tests
+
+            reset_audit_store_for_tests()
+        except ImportError:
+            pass
+        try:
+            from server.observability.events import reset_event_tier_for_tests
+
+            reset_event_tier_for_tests()
+        except ImportError:
+            pass
+        try:
+            from server.observability.logging_setup import (
+                remove_ring_buffer_handler,
+            )
+
+            remove_ring_buffer_handler()
+        except ImportError:
+            pass
+
+    _reset()
+    yield
+    _reset()
+
+
+@pytest.fixture(autouse=True)
+def _patched_kuzu_path(tmp_path, monkeypatch):
+    """Redirect ``Config.kuzu_path`` default into ``tmp_path``.
+
+    ``Config.kuzu_path`` defaults to ``var/arxmcp/index/kuzu`` — a
+    checkout-relative path. Tests that assert citation-graph ABSENCE
+    (``test_tools_all::test_cite_neighbors_wired`` expects
+    ``graph_status == "absent"`` on a fresh corpus) were implicitly
+    depending on the developer's tree having no ingested graph; the
+    arx-a45 workstation graph run made that assumption false. Same
+    env-var seam as ``_patched_cache_db_path``; tests that WANT a
+    graph pass explicit ``Config(kuzu_path=...)`` / library args and
+    are unaffected.
+    """
+    monkeypatch.setenv(
+        "ARXMCP_KUZU_PATH",
+        str(tmp_path / "kuzu-isolated"),
+    )
+    yield
+
+
+@pytest.fixture(autouse=True)
+def _patched_notebooks_db_path(tmp_path, monkeypatch):
+    """Isolate the notebook registry SQLite file (Stage-2 integration,
+    arx-b3 report integration finding 5).
+
+    A full-suite run from a worktree CWD leaked a real ``my-notebook``
+    row into ``var/arxmcp/cache/notebooks.db``:
+    ``tests/tools/test_notebook_scripts.py::test_init_happy_path``
+    redirects ``NOTEBOOKS_BASE`` but not the registry, and
+    ``tools/notebook_init.run`` resolves
+    ``server.operator_settings.DEFAULT_DB_PATH`` (checkout-relative)
+    when no ``db_path`` is passed. Same two-seam discipline as
+    ``_patched_cache_db_path``:
+
+    1. ``ARXMCP_NOTEBOOKS_DB_PATH`` env var — any ``Config()``
+       constructed in a test resolves the registry inside
+       ``tmp_path``.
+    2. Module-attribute redirects for every call-time resolver of the
+       constant: ``server.operator_settings.DEFAULT_DB_PATH`` (the
+       lazy ``from ... import`` inside ``tools/notebook_init.run`` and
+       ``tools/notebook_repair_registry`` re-reads it per call) plus
+       the two tools modules that bind their own import-time copy.
+
+    Tests that WANT a registry pass explicit paths and are unaffected;
+    ``tests/test_operator_settings.py``'s canonical-location pin reads
+    its own import-time binding and is likewise unaffected.
+    """
+    isolated = tmp_path / "registry-isolated" / "notebooks.db"
+    monkeypatch.setenv("ARXMCP_NOTEBOOKS_DB_PATH", str(isolated))
+    try:
+        import server.operator_settings as _os_mod
+    except ImportError:
+        yield
+        return
+    monkeypatch.setattr(_os_mod, "DEFAULT_DB_PATH", isolated)
+    for _mod_name in (
+        "tools.discover_for_notebook",
+        "tools.notebook_list_offline",
+    ):
+        try:
+            import importlib  # noqa: PLC0415
+
+            _mod = importlib.import_module(_mod_name)
+        except ImportError:
+            continue
+        monkeypatch.setattr(_mod, "DEFAULT_DB_PATH", isolated, raising=False)
+    yield

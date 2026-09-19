@@ -1,0 +1,175 @@
+/* arXMCP stored-document preview — minimal LaTeXML/ar5iv baseline.
+   Project-authored, NOT vendored; no external fonts, no CDN. Ships
+   under /ui/static/preview.css (same-origin — the tight preview CSP
+   `style-src 'self'` allows it).
+
+   Why this file exists (stage3/arx-server-r2 fix): the stored ar5iv /
+   arxiv-native HTML the preview route serves references absolute
+   stylesheet paths the daemon does NOT host — ar5iv's
+   `/assets/ar5iv{,-fonts,-site}.*.css` and arxiv-native's
+   `/static/browse/*/css/*.css`. Those 404 with content-type
+   application/json, so the browser refuses each ("Refused to apply
+   style ... its MIME type application/json is not a supported
+   stylesheet MIME type") and the document renders with UA-default
+   styling plus 3 console errors per paper. `ui_paper_preview` rewrites
+   those non-hosted stylesheet <link> hrefs to point here, restoring a
+   readable ar5iv-baseline presentation with zero cross-origin fetches.
+
+   This is a legibility baseline, NOT a byte-faithful reproduction of
+   ar5iv's own typography (which is a large, versioned, web-font-bearing
+   bundle we deliberately do not vendor). The 846-node MathML still
+   renders natively via MathML Core (zero-JS); this file supplies the
+   surrounding document frame: measure, headings, theorem/proof blocks,
+   and wide-content overflow containment. */
+
+:root {
+  color-scheme: light dark;
+  --pv-fg: #1a1a1a;
+  --pv-bg: #ffffff;
+  --pv-muted: #555;
+  --pv-rule: #d8d8d8;
+  --pv-link: #1e5b8a;
+}
+
+html {
+  /* Never let a wide equation or table force the whole page to scroll
+     sideways; wide atoms get their own scroll container below. */
+  overflow-x: hidden;
+}
+
+body {
+  color: var(--pv-fg);
+  background: var(--pv-bg);
+  font-family: "Latin Modern Roman", "Computer Modern", Georgia,
+               "Times New Roman", Cambria, serif;
+  line-height: 1.6;
+  margin: 0 auto;
+  padding: 1.5rem 1.25rem 4rem;
+  max-width: 46rem;
+  font-size: 1.0625rem;
+  text-rendering: optimizeLegibility;
+  -webkit-text-size-adjust: 100%;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --pv-fg: #e6e6e6;
+    --pv-bg: #1b1b1d;
+    --pv-muted: #a5a5a5;
+    --pv-rule: #3a3a3d;
+    --pv-link: #6fb3e0;
+  }
+}
+
+/* LaTeXML document container (ar5iv + arxiv-native share the ltx_*
+   vocabulary — ingest/ar5iv_fetch.py module docstring). */
+.ltx_page_main,
+.ltx_page_content,
+article.ltx_document {
+  margin: 0 auto;
+  max-width: 100%;
+}
+
+.ltx_title_document {
+  font-size: 1.6rem;
+  line-height: 1.25;
+  font-weight: 700;
+  margin: 0 0 0.75rem;
+}
+
+.ltx_title_section {
+  font-size: 1.3rem;
+  font-weight: 700;
+  margin: 2rem 0 0.5rem;
+}
+
+.ltx_title_subsection {
+  font-size: 1.12rem;
+  font-weight: 700;
+  margin: 1.5rem 0 0.4rem;
+}
+
+.ltx_authors {
+  color: var(--pv-muted);
+  margin: 0 0 1.25rem;
+}
+
+.ltx_abstract {
+  margin: 1.25rem 0;
+  padding: 0.5rem 0 0.5rem 1rem;
+  border-left: 3px solid var(--pv-rule);
+}
+
+.ltx_abstract .ltx_title {
+  font-weight: 700;
+  font-size: 0.95rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  margin: 0 0 0.4rem;
+}
+
+.ltx_p {
+  margin: 0 0 0.85rem;
+}
+
+/* Theorem-family environments — the chunker's structural anchors. A
+   subtle rule + italic body is the conventional ar5iv presentation. */
+.ltx_theorem,
+.ltx_proof {
+  margin: 1rem 0;
+}
+
+.ltx_theorem .ltx_title,
+.ltx_proof .ltx_title {
+  font-weight: 700;
+  margin-right: 0.4em;
+}
+
+.ltx_theorem_theorem,
+.ltx_theorem_lemma,
+.ltx_theorem_proposition,
+.ltx_theorem_corollary {
+  font-style: italic;
+}
+
+.ltx_proof {
+  font-style: normal;
+}
+
+a,
+.ltx_ref {
+  color: var(--pv-link);
+}
+
+/* Wide atoms (display math, tabular, figures, verbatim listings) scroll
+   inside their own container instead of overflowing the page (parity
+   with the /app KaTeX display-math containment). */
+.ltx_equation,
+.ltx_eqn_table,
+.ltx_tabular,
+.ltx_tabular_wrap,
+.ltx_table,
+.ltx_figure,
+.ltx_listing,
+.ltx_verbatim,
+math[display="block"] {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+img,
+.ltx_graphics {
+  max-width: 100%;
+  height: auto;
+}
+
+.ltx_bibliography {
+  margin-top: 2.5rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--pv-rule);
+  font-size: 0.95rem;
+}
+
+.ltx_bibitem {
+  margin: 0 0 0.5rem;
+}

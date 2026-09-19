@@ -1,0 +1,624 @@
+{
+  "kat_version": 1,
+  "created": "2026-07-04",
+  "description": "Known-Answer Test suite v1 for the WS-D proving lane (stage2/arx-d2, D-4). Four classes per finding 05 §2.D2 / acceptance-criteria.md AC-D.7: TRUE-known-formal (completeness), TRUE-known-informal (mathlib-ceiling honesty), FALSE-must-reject (soundness — any proven-* here is a red alarm), OPEN-must-abstain (calibration). Entries with a `formal.snippet` were validated against the live mathlib REPL (leanprover/lean4:v4.30.0-rc2, mathlib 5450b53e5ddc75d46418fabb605edbf36bd0beb6) on 2026-07-04; witness snippets under `counterexample.witness_lean` likewise. `control_eligible` entries are cheap enough to embed as per-run controls (AC-D.8). Loaded and validated by server/kat.py::load_kat_fixture.",
+  "entries": [
+    {
+      "id": "kat-tf-01",
+      "class": "TRUE-known-formal",
+      "statement_nl": "The square root of 2 is irrational.",
+      "statement_latex": "\\sqrt{2} \\notin \\mathbb{Q}",
+      "known_truth": true,
+      "expected_verdicts": ["proven-formal"],
+      "provenance": "mathlib:irrational_sqrt_two",
+      "control_eligible": true,
+      "formal": {
+        "mathlib_name": "irrational_sqrt_two",
+        "imports": ["Mathlib.NumberTheory.Real.Irrational"],
+        "statement_lean": "Irrational (Real.sqrt 2)",
+        "snippet": "theorem kat_tf01 : Irrational (Real.sqrt 2) := irrational_sqrt_two"
+      }
+    },
+    {
+      "id": "kat-tf-02",
+      "class": "TRUE-known-formal",
+      "statement_nl": "There are infinitely many prime numbers.",
+      "statement_latex": "\\forall n\\,\\exists p \\ge n: p \\text{ prime}",
+      "known_truth": true,
+      "expected_verdicts": ["proven-formal"],
+      "provenance": "mathlib:Nat.exists_infinite_primes",
+      "control_eligible": true,
+      "formal": {
+        "mathlib_name": "Nat.exists_infinite_primes",
+        "imports": ["Mathlib.Data.Nat.Prime.Infinite"],
+        "statement_lean": "∀ n : ℕ, ∃ p, n ≤ p ∧ p.Prime",
+        "snippet": "theorem kat_tf02 (n : ℕ) : ∃ p, n ≤ p ∧ p.Prime := Nat.exists_infinite_primes n"
+      }
+    },
+    {
+      "id": "kat-tf-03",
+      "class": "TRUE-known-formal",
+      "statement_nl": "Every finite integral domain is a field.",
+      "known_truth": true,
+      "expected_verdicts": ["proven-formal"],
+      "provenance": "mathlib:Fintype.fieldOfDomain (Mathlib.RingTheory.IntegralDomain)",
+      "control_eligible": false,
+      "formal": {
+        "mathlib_name": "Fintype.fieldOfDomain",
+        "imports": ["Mathlib.RingTheory.IntegralDomain"],
+        "statement_lean": "def Fintype.fieldOfDomain (R) [CommRing R] [IsDomain R] [DecidableEq R] [Fintype R] : Field R"
+      },
+      "notes": "Statement-only at v1 (instance-shaped; the autoformalizer must produce its own theorem form)."
+    },
+    {
+      "id": "kat-tf-04",
+      "class": "TRUE-known-formal",
+      "statement_nl": "The sum of two even integers is even.",
+      "statement_latex": "2\\mid a \\wedge 2\\mid b \\Rightarrow 2\\mid(a+b)",
+      "known_truth": true,
+      "expected_verdicts": ["proven-formal"],
+      "provenance": "acceptance-criteria.md §WS-D seed; mathlib:Even.add",
+      "control_eligible": true,
+      "formal": {
+        "mathlib_name": "Even.add",
+        "imports": ["Mathlib.Tactic"],
+        "statement_lean": "∀ a b : ℤ, Even a → Even b → Even (a + b)",
+        "snippet": "theorem kat_tf04 (a b : ℤ) (ha : Even a) (hb : Even b) : Even (a + b) := by obtain ⟨x, hx⟩ := ha; obtain ⟨y, hy⟩ := hb; exact ⟨x + y, by omega⟩"
+      }
+    },
+    {
+      "id": "kat-tf-05",
+      "class": "TRUE-known-formal",
+      "statement_nl": "One plus one equals two.",
+      "statement_latex": "1 + 1 = 2",
+      "known_truth": true,
+      "expected_verdicts": ["proven-formal"],
+      "provenance": "kernel-only seed (runs without mathlib — base-Lean fallback case)",
+      "control_eligible": true,
+      "formal": {
+        "imports": [],
+        "statement_lean": "1 + 1 = 2",
+        "snippet": "theorem kat_tf05 : 1 + 1 = 2 := rfl"
+      }
+    },
+    {
+      "id": "kat-tf-06",
+      "class": "TRUE-known-formal",
+      "statement_nl": "There is no largest natural number.",
+      "statement_latex": "\\forall n\\,\\exists m: n < m",
+      "known_truth": true,
+      "expected_verdicts": ["proven-formal"],
+      "provenance": "kernel-only seed (runs without mathlib)",
+      "control_eligible": true,
+      "formal": {
+        "imports": [],
+        "statement_lean": "∀ n : Nat, ∃ m, n < m",
+        "snippet": "theorem kat_tf06 (n : Nat) : ∃ m, n < m := ⟨n + 1, Nat.lt_succ_self n⟩"
+      }
+    },
+    {
+      "id": "kat-tf-07",
+      "class": "TRUE-known-formal",
+      "statement_nl": "97 is a prime number.",
+      "statement_latex": "97 \\in \\mathbb{P}",
+      "known_truth": true,
+      "expected_verdicts": ["proven-formal"],
+      "provenance": "norm_num decidable seed",
+      "control_eligible": true,
+      "formal": {
+        "imports": ["Mathlib.Tactic"],
+        "statement_lean": "Nat.Prime 97",
+        "snippet": "theorem kat_tf07 : Nat.Prime 97 := by norm_num"
+      }
+    },
+    {
+      "id": "kat-tf-08",
+      "class": "TRUE-known-formal",
+      "statement_nl": "The composition of two injective functions is injective.",
+      "known_truth": true,
+      "expected_verdicts": ["proven-formal"],
+      "provenance": "mathlib:Function.Injective.comp (Mathlib.Logic.Function.Basic)",
+      "control_eligible": false,
+      "formal": {
+        "mathlib_name": "Function.Injective.comp",
+        "imports": ["Mathlib.Logic.Function.Basic"],
+        "statement_lean": "Function.Injective g → Function.Injective f → Function.Injective (g ∘ f)"
+      }
+    },
+    {
+      "id": "kat-tf-09",
+      "class": "TRUE-known-formal",
+      "statement_nl": "Every group of prime order is cyclic.",
+      "known_truth": true,
+      "expected_verdicts": ["proven-formal"],
+      "provenance": "mathlib:isCyclic_of_prime_card (Mathlib.GroupTheory.SpecificGroups.Cyclic.Basic)",
+      "control_eligible": false,
+      "formal": {
+        "mathlib_name": "isCyclic_of_prime_card",
+        "imports": ["Mathlib.GroupTheory.SpecificGroups.Cyclic.Basic"],
+        "statement_lean": "Nat.Card G = p → [Fact p.Prime] → IsCyclic G"
+      }
+    },
+    {
+      "id": "kat-tf-10",
+      "class": "TRUE-known-formal",
+      "statement_nl": "Cantor's theorem: no function from a set to its power set is surjective.",
+      "known_truth": true,
+      "expected_verdicts": ["proven-formal"],
+      "provenance": "mathlib:Function.cantor_surjective (Mathlib.Logic.Function.Basic)",
+      "control_eligible": false,
+      "formal": {
+        "mathlib_name": "Function.cantor_surjective",
+        "imports": ["Mathlib.Logic.Function.Basic"],
+        "statement_lean": "∀ f : α → Set α, ¬ Function.Surjective f"
+      }
+    },
+    {
+      "id": "kat-tf-11",
+      "class": "TRUE-known-formal",
+      "statement_nl": "2 is a prime number.",
+      "statement_latex": "2 \\in \\mathbb{P}",
+      "known_truth": true,
+      "expected_verdicts": ["proven-formal"],
+      "provenance": "mathlib:Nat.prime_two",
+      "control_eligible": true,
+      "formal": {
+        "mathlib_name": "Nat.prime_two",
+        "imports": ["Mathlib.Data.Nat.Prime.Basic"],
+        "statement_lean": "Nat.Prime 2",
+        "snippet": "theorem kat_tf11 : Nat.Prime 2 := Nat.prime_two"
+      }
+    },
+    {
+      "id": "kat-tf-12",
+      "class": "TRUE-known-formal",
+      "statement_nl": "Every natural number is either even or odd.",
+      "known_truth": true,
+      "expected_verdicts": ["proven-formal"],
+      "provenance": "mathlib:Nat.even_or_odd",
+      "control_eligible": false,
+      "formal": {
+        "mathlib_name": "Nat.even_or_odd",
+        "imports": ["Mathlib.Algebra.Group.Even"],
+        "statement_lean": "∀ n : ℕ, Even n ∨ Odd n"
+      }
+    },
+
+    {
+      "id": "kat-ti-01",
+      "class": "TRUE-known-informal",
+      "statement_nl": "Serre duality holds for coherent sheaves on a smooth projective variety over an algebraically closed field.",
+      "known_truth": true,
+      "expected_verdicts": ["proven-informal-checked", "abstained"],
+      "provenance": "Hartshorne III.7; mathlib has no sheaf-cohomology-at-scale machinery (finding 05 §2.E math.AG ceiling)",
+      "control_eligible": false,
+      "informal": {"source": "Hartshorne, Algebraic Geometry, III.7"}
+    },
+    {
+      "id": "kat-ti-02",
+      "class": "TRUE-known-informal",
+      "statement_nl": "Kodaira vanishing: for an ample line bundle L on a smooth complex projective variety X, H^i(X, K_X ⊗ L) = 0 for i > 0.",
+      "known_truth": true,
+      "expected_verdicts": ["proven-informal-checked", "abstained"],
+      "provenance": "standard cohomology-vanishing seed (acceptance-criteria.md §WS-D TRUE-known-informal row)",
+      "control_eligible": false,
+      "informal": {"source": "Kodaira 1953; Lazarsfeld, Positivity in Algebraic Geometry I, 4.2"}
+    },
+    {
+      "id": "kat-ti-03",
+      "class": "TRUE-known-informal",
+      "statement_nl": "Serre vanishing: for a coherent sheaf F on a projective scheme X with ample O(1), H^i(X, F(n)) = 0 for all i > 0 and all sufficiently large n.",
+      "known_truth": true,
+      "expected_verdicts": ["proven-informal-checked", "abstained"],
+      "provenance": "Hartshorne III.5.2; the Enriques-article vanishing workhorse (finding 03)",
+      "control_eligible": false,
+      "informal": {"source": "Hartshorne, Algebraic Geometry, III.5.2"}
+    },
+    {
+      "id": "kat-ti-04",
+      "class": "TRUE-known-informal",
+      "statement_nl": "The Riemann-Roch theorem for a smooth projective curve: χ(D) = deg D + 1 − g.",
+      "known_truth": true,
+      "expected_verdicts": ["proven-informal-checked", "abstained"],
+      "provenance": "Hartshorne IV.1.3",
+      "control_eligible": false,
+      "informal": {"source": "Hartshorne, Algebraic Geometry, IV.1.3"}
+    },
+    {
+      "id": "kat-ti-05",
+      "class": "TRUE-known-informal",
+      "statement_nl": "A smooth projective curve of genus at least 2 over ℂ has a finite automorphism group (Hurwitz: |Aut| ≤ 84(g−1)).",
+      "known_truth": true,
+      "expected_verdicts": ["proven-informal-checked", "abstained"],
+      "provenance": "Hurwitz 1893; Hartshorne IV Ex. 2.5",
+      "control_eligible": false,
+      "informal": {"source": "Hartshorne, Algebraic Geometry, IV Ex. 2.5"}
+    },
+    {
+      "id": "kat-ti-06",
+      "class": "TRUE-known-informal",
+      "statement_nl": "Hodge decomposition: for a compact Kähler manifold X, H^k(X, ℂ) decomposes as the direct sum of H^{p,q}(X) with p + q = k.",
+      "known_truth": true,
+      "expected_verdicts": ["proven-informal-checked", "abstained"],
+      "provenance": "Voisin, Hodge Theory and Complex Algebraic Geometry I, 6.1",
+      "control_eligible": false,
+      "informal": {"source": "Voisin, Hodge Theory I, Thm 6.1"}
+    },
+    {
+      "id": "kat-ti-07",
+      "class": "TRUE-known-informal",
+      "statement_nl": "The canonical bundle of a K3 surface is trivial.",
+      "known_truth": true,
+      "expected_verdicts": ["proven-informal-checked", "abstained"],
+      "provenance": "Huybrechts, Lectures on K3 Surfaces, Ch. 1 (bridgeland-stability notebook domain)",
+      "control_eligible": false,
+      "informal": {"source": "Huybrechts, Lectures on K3 Surfaces, Ch. 1"}
+    },
+    {
+      "id": "kat-ti-08",
+      "class": "TRUE-known-informal",
+      "statement_nl": "An Enriques surface has 2-torsion canonical bundle: K_X is not trivial but K_X ⊗ K_X ≅ O_X.",
+      "known_truth": true,
+      "expected_verdicts": ["proven-informal-checked", "abstained"],
+      "provenance": "Enriques/Kuznetsov article corpus (finding 03); Barth-Hulek-Peters-Van de Ven VIII",
+      "control_eligible": false,
+      "informal": {"source": "Barth-Hulek-Peters-Van de Ven, Compact Complex Surfaces, VIII"}
+    },
+    {
+      "id": "kat-ti-09",
+      "class": "TRUE-known-informal",
+      "statement_nl": "Bridgeland's deformation theorem: the space Stab(D) of stability conditions on a triangulated category D, with the natural topology, is a complex manifold and the central-charge map is a local homeomorphism.",
+      "known_truth": true,
+      "expected_verdicts": ["proven-informal-checked", "abstained"],
+      "provenance": "Bridgeland 2007 (Ann. Math. 166); textbook form in the ingested Huybrechts segments (bridgeland-stability-pdfs notebook)",
+      "control_eligible": false,
+      "informal": {"source": "Bridgeland, Stability conditions on triangulated categories, Thm 1.2; Huybrechts segments in bridgeland-stability-pdfs"}
+    },
+    {
+      "id": "kat-ti-10",
+      "class": "TRUE-known-informal",
+      "statement_nl": "Every object of the bounded derived category of coherent sheaves on P^1 is isomorphic to a finite direct sum of shifts of line bundles O(a).",
+      "known_truth": true,
+      "expected_verdicts": ["proven-informal-checked", "abstained"],
+      "provenance": "Beilinson/Grothendieck splitting; Huybrechts, Fourier-Mukai Transforms, 3.15 (fourier-duality notebook domain)",
+      "control_eligible": false,
+      "informal": {"source": "Huybrechts, Fourier-Mukai Transforms in Algebraic Geometry, Cor. 3.15"}
+    },
+
+    {
+      "id": "kat-fm-01",
+      "class": "FALSE-must-reject",
+      "statement_nl": "Every group of order 6 is abelian.",
+      "known_truth": false,
+      "expected_verdicts": ["refuted"],
+      "false_kind": "small-counterexample",
+      "provenance": "acceptance-criteria.md §WS-D seed",
+      "control_eligible": true,
+      "counterexample": {
+        "description": "S₃ (the symmetric group on 3 letters) has order 6 and is non-abelian: (0 1) and (1 2) do not commute.",
+        "witness_lean": {
+          "imports": ["Mathlib.GroupTheory.Perm.Basic", "Mathlib.Tactic"],
+          "snippet": "theorem kat_fm01_witness : ∃ a b : Equiv.Perm (Fin 3), a * b ≠ b * a := by\n  refine ⟨Equiv.swap 0 1, Equiv.swap 1 2, ?_⟩\n  decide",
+          "discharges": {
+            "proposition": "∃ a b : Equiv.Perm (Fin 3), a * b ≠ b * a",
+            "refutes_claim": true,
+            "justification": "Two non-commuting elements of S₃ (order 6) witness a non-abelian group of order 6, refuting 'every group of order 6 is abelian'. NOTE (durable P1 kernel-decides): the proposition is written in NATURAL author syntax; verdict linkage no longer string-compares — THE KERNEL checks `example : <this> := @kat_fm01_witness`, which accepts any form definitionally equal to the witness's type (live-verified this LINKS)."
+          }
+        }
+      }
+    },
+    {
+      "id": "kat-fm-02",
+      "class": "FALSE-must-reject",
+      "statement_nl": "n² + n + 41 is prime for every natural number n.",
+      "statement_latex": "\\forall n \\in \\mathbb{N}: n^2 + n + 41 \\in \\mathbb{P}",
+      "known_truth": false,
+      "expected_verdicts": ["refuted"],
+      "false_kind": "small-counterexample",
+      "provenance": "acceptance-criteria.md §WS-D seed (Euler's prime-generating polynomial)",
+      "control_eligible": true,
+      "counterexample": {
+        "description": "n = 40: 40² + 40 + 41 = 1681 = 41².",
+        "witness_lean": {
+          "imports": ["Mathlib.Tactic"],
+          "snippet": "theorem kat_fm02_witness : ¬ Nat.Prime (40 ^ 2 + 40 + 41) := by norm_num",
+          "discharges": {
+            "proposition": "¬ Nat.Prime (40 ^ 2 + 40 + 41)",
+            "refutes_claim": true,
+            "justification": "n = 40 makes 40²+40+41 = 1681 = 41² composite, a direct counterexample to the universal 'n²+n+41 is prime'. NAMED-declaration contract (durable P1): the former anonymous `example` had no kernel-queryable name, so it is now a NAMED theorem so `example : <proposition> := @kat_fm02_witness` is checkable. The proposition is written in NATURAL author syntax (kernel-decides accepts any defeq form)."
+          }
+        }
+      }
+    },
+    {
+      "id": "kat-fm-03",
+      "class": "FALSE-must-reject",
+      "statement_nl": "All Fermat numbers F_n = 2^(2^n) + 1 are prime.",
+      "statement_latex": "\\forall n: 2^{2^n} + 1 \\in \\mathbb{P}",
+      "known_truth": false,
+      "expected_verdicts": ["refuted"],
+      "false_kind": "historical",
+      "provenance": "acceptance-criteria.md §WS-D seed (Fermat's conjecture, refuted by Euler 1732)",
+      "control_eligible": true,
+      "counterexample": {
+        "description": "F₅ = 2^32 + 1 = 4294967297 = 641 × 6700417 (Euler).",
+        "witness_lean": {
+          "imports": ["Mathlib.Tactic"],
+          "snippet": "theorem kat_fm03_witness : 2 ^ 32 + 1 = 641 * 6700417 := by norm_num",
+          "discharges": {
+            "proposition": "2 ^ 32 + 1 = 641 * 6700417",
+            "refutes_claim": true,
+            "justification": "F₅ = 2^32+1 factors as 641 × 6700417 (Euler), so F₅ is composite — refuting 'all Fermat numbers are prime'. The witness proves the auxiliary factorization the kernel can check; the entailment to ¬claim is the recorded, attested obligation."
+          }
+        }
+      }
+    },
+    {
+      "id": "kat-fm-04",
+      "class": "FALSE-must-reject",
+      "statement_nl": "The sum of two irrational numbers is irrational.",
+      "known_truth": false,
+      "expected_verdicts": ["refuted"],
+      "false_kind": "small-counterexample",
+      "provenance": "acceptance-criteria.md §WS-D seed",
+      "control_eligible": true,
+      "counterexample": {
+        "description": "√2 + (−√2) = 0, which is rational; both summands are irrational.",
+        "witness_lean": {
+          "imports": ["Mathlib.NumberTheory.Real.Irrational"],
+          "snippet": "theorem kat_fm04_witness : ¬ Irrational (Real.sqrt 2 + -(Real.sqrt 2)) := by\n  rw [add_neg_cancel]\n  exact not_irrational_zero",
+          "discharges": {
+            "proposition": "¬ Irrational (Real.sqrt 2 + -(Real.sqrt 2))",
+            "refutes_claim": true,
+            "justification": "√2 and −√2 are both irrational but sum to 0 (rational), refuting 'the sum of two irrationals is irrational'. NOTE (durable P1 kernel-decides): written in NATURAL author syntax (`Real.sqrt`, space after ¬); THE KERNEL checks `example : <this> := @kat_fm04_witness` and accepts any defeq form (`Real.sqrt`↔`√` — live-verified this LINKS)."
+          }
+        }
+      }
+    },
+    {
+      "id": "kat-fm-05",
+      "class": "FALSE-must-reject",
+      "statement_nl": "Every continuous real-valued function on the open interval (0,1) attains its maximum.",
+      "known_truth": false,
+      "expected_verdicts": ["refuted"],
+      "false_kind": "mutation",
+      "provenance": "acceptance-criteria.md §WS-D seed — hypothesis-dropped mutation of the true extreme-value theorem on [0,1] (compactness removed)",
+      "control_eligible": false,
+      "counterexample": {
+        "description": "f(x) = x is continuous on (0,1) with supremum 1, attained by no point of (0,1). (Also f(x) = 1/x is continuous and unbounded.)"
+      },
+      "notes": "The L1 gate should also catch this shape when an autoformalizer silently strengthens (0,1) to [0,1] — the Erdős-misformalization taxonomy 'missing hypothesis' case."
+    },
+    {
+      "id": "kat-fm-06",
+      "class": "FALSE-must-reject",
+      "statement_nl": "Euler's sum-of-powers conjecture for k = 5: no four positive fifth powers sum to a fifth power.",
+      "statement_latex": "a^5+b^5+c^5+d^5=e^5 \\text{ has no positive solution}",
+      "known_truth": false,
+      "expected_verdicts": ["refuted"],
+      "false_kind": "historical",
+      "provenance": "acceptance-criteria.md §WS-D seed (Lander-Parkin 1966 computer search)",
+      "control_eligible": true,
+      "counterexample": {
+        "description": "27⁵ + 84⁵ + 110⁵ + 133⁵ = 144⁵ (Lander-Parkin 1966).",
+        "witness_lean": {
+          "imports": ["Mathlib.Tactic"],
+          "snippet": "theorem kat_fm06_witness : 27 ^ 5 + 84 ^ 5 + 110 ^ 5 + 133 ^ 5 = 144 ^ 5 := by norm_num",
+          "discharges": {
+            "proposition": "27 ^ 5 + 84 ^ 5 + 110 ^ 5 + 133 ^ 5 = 144 ^ 5",
+            "refutes_claim": true,
+            "justification": "Lander-Parkin (1966): four positive fifth powers summing to a fifth power, refuting Euler's k=5 sum-of-powers conjecture. The witness proves the auxiliary identity; the entailment to ¬claim is the attested obligation."
+          }
+        }
+      }
+    },
+    {
+      "id": "kat-fm-07",
+      "class": "FALSE-must-reject",
+      "statement_nl": "Pólya's conjecture: for every N > 1, at least half of the naturals up to N have an odd number of prime factors (counted with multiplicity).",
+      "known_truth": false,
+      "expected_verdicts": ["refuted", "abstained"],
+      "false_kind": "large-counterexample",
+      "provenance": "acceptance-criteria.md §WS-D seed — the large-counterexample humility case",
+      "control_eligible": true,
+      "counterexample": {
+        "description": "First counterexample N = 906,150,257 (Tanaka 1980; conjecture disproved by Haselgrove 1958). Far beyond slim_check/decide reach — the pipeline must refute via L4 literature or abstain, never 'support' it from numeric sweeps at small N."
+      }
+    },
+    {
+      "id": "kat-fm-08",
+      "class": "FALSE-must-reject",
+      "statement_nl": "Mertens conjecture: |M(n)| ≤ √n for all n > 1, where M is the Mertens function.",
+      "statement_latex": "|M(n)| \\le \\sqrt{n}",
+      "known_truth": false,
+      "expected_verdicts": ["refuted", "abstained"],
+      "false_kind": "no-explicit-counterexample",
+      "provenance": "acceptance-criteria.md §WS-D seed (Odlyzko-te Riele 1985, non-constructive disproof)",
+      "control_eligible": true,
+      "counterexample": {
+        "description": "Disproved by Odlyzko-te Riele (1985) without an explicit counterexample; the first violation is known only to lie below exp(1.59×10^40). Must resolve via L4-verified citation or abstain — never 'prove', and never 'refute' with a fabricated witness."
+      }
+    },
+    {
+      "id": "kat-fm-09",
+      "class": "FALSE-must-reject",
+      "statement_nl": "The sum of two odd integers is odd.",
+      "known_truth": false,
+      "expected_verdicts": ["refuted"],
+      "false_kind": "mutation",
+      "provenance": "parity mutation of kat-tf-04 (Erdős-misformalization taxonomy: strength/parity flip)",
+      "control_eligible": true,
+      "counterexample": {
+        "description": "1 + 1 = 2 is even.",
+        "witness_lean": {
+          "imports": ["Mathlib.Tactic"],
+          "snippet": "theorem kat_fm09_witness : ¬ Odd ((1 : ℤ) + 1) := by decide",
+          "discharges": {
+            "proposition": "¬ Odd ((1 : ℤ) + 1)",
+            "refutes_claim": true,
+            "justification": "1 and 1 are both odd but 1+1 = 2 is even, refuting 'the sum of two odd integers is odd'. NOTE (durable P1 kernel-decides): written in NATURAL author syntax with the explicit `(1 : ℤ)` ascription; THE KERNEL checks `example : <this> := @kat_fm09_witness` and accepts any defeq form (the ascription elides once elaborated — live-verified this LINKS)."
+          }
+        }
+      }
+    },
+    {
+      "id": "kat-fm-10",
+      "class": "FALSE-must-reject",
+      "statement_nl": "There is a largest prime number.",
+      "known_truth": false,
+      "expected_verdicts": ["refuted"],
+      "false_kind": "mutation",
+      "provenance": "negation mutation of kat-tf-02 (∀/∃ swap class)",
+      "control_eligible": true,
+      "counterexample": {
+        "description": "Euclid: for any prime p there is a prime above p + 1. Refutable by a direct Lean proof of the negation — the refuted lane's proof-of-negation case, not just a numeric witness.",
+        "witness_lean": {
+          "imports": ["Mathlib.Data.Nat.Prime.Infinite", "Mathlib.Tactic"],
+          "snippet": "theorem kat_fm10_witness : ¬ ∃ p : ℕ, p.Prime ∧ ∀ q : ℕ, q.Prime → q ≤ p := by\n  rintro ⟨p, hp, hmax⟩\n  obtain ⟨q, hle, hq⟩ := Nat.exists_infinite_primes (p + 1)\n  exact absurd (hmax q hq) (by omega)",
+          "discharges": {
+            "proposition": "¬ ∃ p : ℕ, p.Prime ∧ ∀ q : ℕ, q.Prime → q ≤ p",
+            "refutes_claim": true,
+            "justification": "A direct Lean proof of the negation of 'there is a largest prime' (Euclid): no prime bounds all primes. NOTE (durable P1 kernel-decides): written in NATURAL author syntax (`p.Prime`, explicit binder types, space after ¬); THE KERNEL checks `example : <this> := @kat_fm10_witness` and accepts any defeq form (`p.Prime`↔`Nat.Prime p` — live-verified this LINKS)."
+          }
+        }
+      }
+    },
+    {
+      "id": "kat-fm-11",
+      "class": "FALSE-must-reject",
+      "statement_nl": "Every prime number is odd.",
+      "known_truth": false,
+      "expected_verdicts": ["refuted"],
+      "false_kind": "mutation",
+      "provenance": "hypothesis-dropped mutation ('odd prime' → 'prime'); classic edge-case miss",
+      "control_eligible": true,
+      "counterexample": {
+        "description": "2 is prime and even.",
+        "witness_lean": {
+          "imports": ["Mathlib.Data.Nat.Prime.Basic", "Mathlib.Tactic"],
+          "snippet": "theorem kat_fm11_witness : ¬ (∀ p : ℕ, p.Prime → Odd p) := fun h =>\n  absurd (h 2 Nat.prime_two) (by decide)",
+          "discharges": {
+            "proposition": "¬ (∀ p : ℕ, p.Prime → Odd p)",
+            "refutes_claim": true,
+            "justification": "2 is prime and even, refuting 'every prime is odd' (the dropped 'odd prime' → 'prime' hypothesis). NOTE (durable P1 kernel-decides): written in NATURAL author syntax (`p.Prime`, outer parens, space after ¬); THE KERNEL checks `example : <this> := @kat_fm11_witness` and accepts any defeq form (live-verified this LINKS)."
+          }
+        }
+      }
+    },
+    {
+      "id": "kat-fm-12",
+      "class": "FALSE-must-reject",
+      "statement_nl": "For every prime p, the Mersenne number 2^p − 1 is prime.",
+      "statement_latex": "p \\in \\mathbb{P} \\Rightarrow 2^p - 1 \\in \\mathbb{P}",
+      "known_truth": false,
+      "expected_verdicts": ["refuted"],
+      "false_kind": "historical",
+      "provenance": "refuted by Hudalricus Regius 1536 (2^11 − 1 composite)",
+      "control_eligible": true,
+      "counterexample": {
+        "description": "p = 11: 2^11 − 1 = 2047 = 23 × 89.",
+        "witness_lean": {
+          "imports": ["Mathlib.Tactic"],
+          "snippet": "theorem kat_fm12_witness : 2 ^ 11 - 1 = 23 * 89 := by norm_num",
+          "discharges": {
+            "proposition": "2 ^ 11 - 1 = 23 * 89",
+            "refutes_claim": true,
+            "justification": "p = 11 (prime) gives 2^11−1 = 2047 = 23 × 89 composite, refuting 'for every prime p, 2^p−1 is prime'. The witness proves the auxiliary factorization; the entailment to ¬claim is the attested obligation."
+          }
+        }
+      }
+    },
+
+    {
+      "id": "kat-op-01",
+      "class": "OPEN-must-abstain",
+      "statement_nl": "Goldbach conjecture: every even integer greater than 2 is the sum of two primes.",
+      "known_truth": null,
+      "expected_verdicts": ["abstained", "plausible-unverified"],
+      "provenance": "acceptance-criteria.md §WS-D seed; formalized in DeepMind formal-conjectures",
+      "control_eligible": true
+    },
+    {
+      "id": "kat-op-02",
+      "class": "OPEN-must-abstain",
+      "statement_nl": "Twin prime conjecture: there are infinitely many primes p with p + 2 prime.",
+      "known_truth": null,
+      "expected_verdicts": ["abstained", "plausible-unverified"],
+      "provenance": "acceptance-criteria.md §WS-D seed; formalized in DeepMind formal-conjectures",
+      "control_eligible": true
+    },
+    {
+      "id": "kat-op-03",
+      "class": "OPEN-must-abstain",
+      "statement_nl": "The Euler-Mascheroni constant γ is irrational.",
+      "known_truth": null,
+      "expected_verdicts": ["abstained", "plausible-unverified"],
+      "provenance": "acceptance-criteria.md §WS-D seed (open; not even known transcendental)",
+      "control_eligible": true
+    },
+    {
+      "id": "kat-op-04",
+      "class": "OPEN-must-abstain",
+      "statement_nl": "Collatz conjecture: iterating n → n/2 (n even), n → 3n+1 (n odd) reaches 1 from every positive integer.",
+      "known_truth": null,
+      "expected_verdicts": ["abstained", "plausible-unverified"],
+      "provenance": "DeepMind formal-conjectures (Lean-formalized statement)",
+      "control_eligible": true
+    },
+    {
+      "id": "kat-op-05",
+      "class": "OPEN-must-abstain",
+      "statement_nl": "Riemann Hypothesis: all non-trivial zeros of ζ(s) have real part 1/2.",
+      "known_truth": null,
+      "expected_verdicts": ["abstained", "plausible-unverified"],
+      "provenance": "DeepMind formal-conjectures (Lean-formalized statement); mathlib has RiemannHypothesis as a def",
+      "control_eligible": true
+    },
+    {
+      "id": "kat-op-06",
+      "class": "OPEN-must-abstain",
+      "statement_nl": "Legendre's conjecture: there is a prime between n² and (n+1)² for every positive integer n.",
+      "known_truth": null,
+      "expected_verdicts": ["abstained", "plausible-unverified"],
+      "provenance": "DeepMind formal-conjectures (Landau problem)",
+      "control_eligible": true
+    },
+    {
+      "id": "kat-op-07",
+      "class": "OPEN-must-abstain",
+      "statement_nl": "No odd perfect number exists.",
+      "known_truth": null,
+      "expected_verdicts": ["abstained", "plausible-unverified"],
+      "provenance": "DeepMind formal-conjectures class (ancient open problem; checked beyond 10^1500)",
+      "control_eligible": true,
+      "notes": "Numeric sweeps supporting nonexistence are exactly the 'statistical evidence masquerading as proof' trap (finding 05 §2.C escape 5)."
+    },
+    {
+      "id": "kat-op-08",
+      "class": "OPEN-must-abstain",
+      "statement_nl": "Erdős-Straus conjecture: for every n ≥ 2, 4/n = 1/x + 1/y + 1/z has a solution in positive integers.",
+      "known_truth": null,
+      "expected_verdicts": ["abstained", "plausible-unverified"],
+      "provenance": "DeepMind formal-conjectures (Erdős problem set)",
+      "control_eligible": true
+    },
+    {
+      "id": "kat-op-09",
+      "class": "OPEN-must-abstain",
+      "statement_nl": "Brocard's problem: n! + 1 = m² has no solution with n > 7.",
+      "known_truth": null,
+      "expected_verdicts": ["abstained", "plausible-unverified"],
+      "provenance": "DeepMind formal-conjectures (Erdős problem set)",
+      "control_eligible": true
+    },
+    {
+      "id": "kat-op-10",
+      "class": "OPEN-must-abstain",
+      "statement_nl": "There are infinitely many Mersenne primes.",
+      "known_truth": null,
+      "expected_verdicts": ["abstained", "plausible-unverified"],
+      "provenance": "open (pairs with kat-fm-12: the FALSE 'all Mersenne numbers with prime exponent are prime' vs the OPEN infinitude)",
+      "control_eligible": true
+    }
+  ]
+}

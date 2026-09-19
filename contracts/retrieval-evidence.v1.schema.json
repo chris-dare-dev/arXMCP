@@ -1,0 +1,41 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "urn:arxmcp:bridge:retrieval-evidence:v1",
+  "title": "arxmcp.bridge/retrieval-evidence v1",
+  "description": "Wraps the proof-verify triangulation payload UNCHANGED as v1.0. The payload's own schema is owned and published by the consumer and is NOT vendored here, so this type pins the envelope and passes the interior through untouched. KNOWN EXCEPTION to the MINOR-tolerance rule: the triangulation payload sets additionalProperties:false at its top level (the consumer-proven strict contract, kept byte-for-byte so the 28 historical artifacts validate unchanged); additive payload evolution happens inside its open `result` object, and any top-level payload field addition is a MAJOR event. The envelope levels (bridge, substrate) remain tolerant like every other type. Producer: querier agents. Consumer: proof-verify / proving loop.",
+  "x-bridge": {
+    "artifact": "arxmcp.bridge/retrieval-evidence",
+    "version": "1.0",
+    "status": "stable"
+  },
+  "allOf": [
+    { "$ref": "urn:arxmcp:bridge:envelope:v1" },
+    {
+      "properties": {
+        "bridge": {
+          "properties": {
+            "artifact": { "const": "arxmcp.bridge/retrieval-evidence" },
+            "substrate": {
+              "properties": {
+                "notebook": { "type": "object" },
+                "corpus_version": { "type": "integer" },
+                "filter_echo": {
+                  "description": "Retrieval evidence MUST carry the affirmed notebook filter (the load-bearing anti-drift field; server-side fix is a WS-A P0).",
+                  "type": "object",
+                  "required": ["notebook"],
+                  "properties": {
+                    "notebook": { "type": "string" }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "payload": {
+          "type": "object",
+          "description": "The proof-verify triangulation payload, passed through unchanged. Its schema is OWNED AND PUBLISHED BY THE CONSUMER and is deliberately not vendored here, so this contract constrains the envelope it travels in and nothing about its interior. A validator that needs the payload shape must load it from the consumer; treating this open object as permission to add fields freely would be a misreading -- the consumer's own schema is strict."
+        }
+      }
+    }
+  ]
+}

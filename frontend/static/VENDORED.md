@@ -37,6 +37,21 @@ above AND the constant in the test in lockstep.
 
 Project-authored, not vendored. No hash recorded.
 
+### `preview.css`
+
+Project-authored, not vendored. No hash recorded. (Added in
+stage3/arx-server-r2 — a minimal LaTeXML/ar5iv baseline stylesheet the
+`/ui/notebooks/{slug}/papers/{id}/preview` route repoints stored ar5iv /
+arxiv-native HTML at. Those renders link absolute stylesheet paths the
+daemon does not host — ar5iv's `/assets/*.css` and arxiv-native's
+`/static/browse/*/css/*.css` — which 404 as `application/json`, so the
+browser refuses them and the document renders unstyled with 3 console
+errors per paper. Rather than vendor ar5iv's large, versioned,
+web-font-bearing bundle, `ui_paper_preview` rewrites the non-hosted
+stylesheet `<link>` hrefs to this same-origin file, which the tight
+preview CSP `style-src 'self'` permits. It is a legibility baseline, not
+a byte-faithful ar5iv reproduction.)
+
 ### `json-enc.js`
 
 Project-authored, not vendored. No hash recorded. (Added in

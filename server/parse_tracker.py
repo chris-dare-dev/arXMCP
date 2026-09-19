@@ -99,6 +99,46 @@ def _redact_path_prefix(text: str) -> str:
 _ABS_PATH_PREFIX_RE = re.compile(r"[/\\][\w /\\.\-]*?var[/\\]arxmcp[/\\]")
 
 
+def _publish_parse_stage(  # pragma: no cover — thin forwarding shim
+    slug: str, stage: str, phase: str,
+    paper_id: str | None = None, detail: dict | None = None,
+) -> None:
+    """stage2/arx-a23 (WS-A A3, gap R4): best-effort forward of one
+    textbook-parse stage event to the observability event tier. The
+    parse pipeline awaits its two heavy phases directly, so — unlike
+    the notebook-ingest subprocess — ``mineru`` and ``latexml`` stage
+    events here are LIVE, not run-summary-derived. Lazy import +
+    broad except: the tracker must keep working if the event tier is
+    unavailable."""
+    try:
+        from server.observability.events import (  # noqa: PLC0415
+            publish_ingest_stage_event,
+        )
+
+        publish_ingest_stage_event(
+            kind="parse", slug=slug, stage=stage, phase=phase,
+            paper_id=paper_id, detail=detail,
+        )
+    except Exception:  # noqa: BLE001
+        logger.debug("parse stage event publish failed", exc_info=True)
+
+
+def count_mineru_markdown(output_dir: Path) -> int:
+    """Return the number of MinerU markdown files under ``output_dir``.
+
+    stage2/arx-a45 (AC-A.18): the markdown-chunker parse path skips the
+    LaTeXML render entirely, so "parse succeeded" for it means "MinerU
+    produced markdown the markdown-native chunker can consume". The
+    glob mirrors :func:`ingest.textbook_markdown_chunker`'s discovery
+    (``**/auto/*.md`` — MinerU's ``<pdf_stem>/auto/<stem>.md`` layout)
+    so a green parse here guarantees the downstream chunker finds the
+    same files. Sync helper — call via ``asyncio.to_thread``.
+    """
+    if not output_dir.is_dir():
+        return 0
+    return sum(1 for _ in output_dir.glob("**/auto/*.md"))
+
+
 def redact_html_path(output_html_path: Path) -> str:
     """Return the ``var/arxmcp/``-relative form of a rendered html
     path for storage in ``parsed_html_path`` (m6 F1).
@@ -117,7 +157,10 @@ def redact_html_path(output_html_path: Path) -> str:
     # Fallback: regex scrub (handles odd layouts) — if nothing
     # matched, return the original string (no var/arxmcp anchor at
     # all means it's already relative or an unexpected layout).
-    return _redact_path_prefix(str(output_html_path))
+    # as_posix() so the stored value is separator-stable across
+    # platforms (the anchor branch above already emits "/"-joined
+    # parts; str() would leak "\\" separators on Windows).
+    return _redact_path_prefix(output_html_path.as_posix())
 
 
 class ParseTaskTracker:
@@ -156,6 +199,7 @@ class ParseTaskTracker:
         output_dir: Path,
         parsed_dir: Path,
         store: NotebooksStore,
+        chunker: str = "html",
     ) -> asyncio.Task:
         """Schedule a parse pipeline for ``slug``.
 
@@ -170,7 +214,18 @@ class ParseTaskTracker:
         (under the notebook's parsed root);
         ``parsed_dir`` is the per-notebook parsed root that the
         renderer writes ``<flat_paper_id>/index.html`` into.
+
+        stage2/arx-a45 (AC-A.18): ``chunker`` is the notebook's stored
+        ``textbook_chunker`` — ``"html"`` (default) runs the historical
+        MinerU → LaTeXML render; ``"markdown"`` stops after MinerU (the
+        markdown-native chunker consumes MinerU markdown directly, so a
+        LaTeXML render would be pure waste). Validated at the route
+        layer; the tracker treats any value other than ``"markdown"``
+        as ``"html"``.
         """
+        # stage2/arx-a23 (gap R4): upload validated + parse row set to
+        # ``running`` by the caller — that IS the preflight.
+        _publish_parse_stage(slug, "preflight", "finished", paper_id=paper_id)
         task = asyncio.create_task(
             self._run_parse(
                 slug=slug,
@@ -179,6 +234,7 @@ class ParseTaskTracker:
                 output_dir=output_dir,
                 parsed_dir=parsed_dir,
                 store=store,
+                chunker=chunker,
             ),
             name=f"parse:{slug}",
         )
@@ -215,6 +271,7 @@ class ParseTaskTracker:
         output_dir: Path,
         parsed_dir: Path,
         store: NotebooksStore,
+        chunker: str = "html",
     ) -> None:
         """Run MinerU → renderer → DB update.
 
@@ -223,6 +280,15 @@ class ParseTaskTracker:
         helpers (``run_mineru_sandboxed`` and ``render_mineru_to_html``)
         are sync and offloaded via :func:`asyncio.to_thread` so the
         event loop stays responsive to other requests.
+
+        stage2/arx-a45 (AC-A.18): when ``chunker == "markdown"`` the
+        LaTeXML render rung is skipped — the pipeline is MinerU →
+        markdown-presence check → DB update, and the completed row
+        carries ``parsed_html_path=''`` (there is no rendered HTML;
+        no template/route consumes the column, verified repo-wide).
+        A MinerU run that produced zero ``**/auto/*.md`` files is a
+        parse FAILURE for this mode (the markdown chunker would find
+        nothing), reported through the same ``parse_error`` surface.
         """
         # Lazy imports — avoid pulling MinerU / LaTeXML helpers into
         # the daemon's import graph until a parse actually runs.
@@ -231,17 +297,49 @@ class ParseTaskTracker:
 
         async with self._global_cap:
             try:
+                # stage2/arx-a23 (gap R4): LIVE per-stage events — the
+                # daemon awaits each phase directly.
+                _publish_parse_stage(slug, "mineru", "started", paper_id=paper_id)
                 mineru_result: MinerUResult = await asyncio.to_thread(
                     run_mineru_sandboxed,
                     pdf_path,
                     output_dir,
                 )
-                render_result = await asyncio.to_thread(
-                    render_mineru_to_html,
-                    mineru_result,
-                    parsed_dir,
-                    paper_id,
+                _publish_parse_stage(
+                    slug, "mineru", "finished", paper_id=paper_id,
+                    detail={"wall_clock_s": round(mineru_result.wall_clock_s, 2)},
                 )
+                # Integration merge (a23 x a45): the markdown-chunker
+                # path (a45, AC-A.18) skips the LaTeXML rung entirely,
+                # so no latexml stage events are emitted for it — the
+                # a23 LIVE stage events wrap only the phases that
+                # actually run.
+                if chunker == "markdown":
+                    md_count = await asyncio.to_thread(
+                        count_mineru_markdown, output_dir,
+                    )
+                    if md_count == 0:
+                        raise RuntimeError(
+                            "MinerU produced no markdown under "
+                            "**/auto/*.md — the markdown-native "
+                            "chunker has nothing to consume"
+                        )
+                    render_result = None
+                else:
+                    _publish_parse_stage(slug, "latexml", "started", paper_id=paper_id)
+                    render_result = await asyncio.to_thread(
+                        render_mineru_to_html,
+                        mineru_result,
+                        parsed_dir,
+                        paper_id,
+                    )
+                    _publish_parse_stage(
+                        slug, "latexml", "finished", paper_id=paper_id,
+                        detail={
+                            "wall_clock_s": round(render_result.wall_clock_s, 2),
+                            "latex_error_annotations": render_result.latex_error_annotations,
+                        },
+                    )
             except asyncio.CancelledError:
                 # Mark the row as failed on lifespan shutdown — same
                 # contract as IngestTaskTracker's cancel path. The
@@ -263,6 +361,10 @@ class ParseTaskTracker:
                         "orphan-recovery will pick this up on next boot",
                         slug,
                     )
+                _publish_parse_stage(
+                    slug, "run", "failed", paper_id=paper_id,
+                    detail={"reason": "cancelled_at_shutdown"},
+                )
                 raise
             except Exception as e:  # noqa: BLE001
                 logger.exception(
@@ -276,13 +378,31 @@ class ParseTaskTracker:
                             f"{type(e).__name__}: {e}"
                         ),
                     )
+                _publish_parse_stage(
+                    slug, "run", "failed", paper_id=paper_id,
+                    detail={"error": type(e).__name__},
+                )
                 return
 
             # Success: record the parsed_html_path scrubbed to its
             # ``var/arxmcp/``-relative form (m6 F1). Storing the
             # absolute path would leak the operator's home dir
             # through the /parse-status JSON — the m9 redact_paths
-            # discipline applies here too.
+            # discipline applies here too. The markdown-chunker mode
+            # has no rendered HTML: store '' (AC-A.18).
+            if render_result is None:
+                await store.update_parse_status(
+                    slug,
+                    store.PARSE_STATUS_COMPLETE,
+                    parse_error="",
+                    parsed_html_path="",
+                )
+                logger.info(
+                    "parse complete (markdown chunker; no LaTeXML "
+                    "render): slug=%s mineru_wall=%.1fs",
+                    slug, mineru_result.wall_clock_s,
+                )
+                return
             html_path_str = redact_html_path(render_result.output_html_path)
             await store.update_parse_status(
                 slug,
@@ -296,6 +416,10 @@ class ParseTaskTracker:
                 slug, html_path_str,
                 render_result.latex_error_annotations,
                 mineru_result.wall_clock_s, render_result.wall_clock_s,
+            )
+            _publish_parse_stage(
+                slug, "run", "finished", paper_id=paper_id,
+                detail={"parsed_html_path": html_path_str},
             )
 
     async def shutdown(self, *, timeout_seconds: float = 5.0) -> None:
@@ -331,5 +455,6 @@ __all__ = [
     "PARSE_ERROR_TAIL_MAX_BYTES",
     "ParseTaskTracker",
     "_format_parse_error",
+    "count_mineru_markdown",
     "redact_html_path",
 ]

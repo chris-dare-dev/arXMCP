@@ -1,9 +1,9 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "https://arxmcp/schemas/lean_verify_result/v16.json",
+  "$id": "https://arxmcp/schemas/lean_verify_result/v18.json",
   "additionalProperties": false,
-  "description": "Canonical structuredContent shape returned by the lean_verify MCP tool. Added at verification-feedback-m3. Bumped at textbook-ingest-m3 (12 -> 13) to track the global TOOL_SCHEMA_VERSION rise from the SEARCH_PAPERS description edit; the lean_verify result shape itself is unchanged. Bumped at textbook-ingest-m9 / e4 (13 -> 14) to track the global TOOL_SCHEMA_VERSION rise from the SEARCH_PAPERS source_kind filter description edit; the lean_verify result shape is again unchanged. Bumped again at textbook-ingest-m9 / e4 rectification (14 -> 15) to track the global TOOL_SCHEMA_VERSION rise from the critique-F3 ``filters`` parameter inputSchema description fix; the lean_verify result shape is once more unchanged. Bumped at textbook-ingest-m11 / e5 (15 -> 16) to track the global TOOL_SCHEMA_VERSION rise from the get_chunk ``truncated_for_license`` response flag; the lean_verify result shape is again unchanged. NO snippet field: lean_verify is a VERIFIER, not a retriever — the 150-char snippet contract (.claude/docs/snippet-contract.md) and the <retrieved_chunk> indirect-prompt-injection wrapping (E13_S02 Threat 2) apply ONLY to retrieval tools whose results are paper-derived text. The ``version`` field below MUST equal server.tools.TOOL_SCHEMA_VERSION (cross-checked by tests/test_handlers_lean_verify.py::TestToolRegistration::test_schema_version_matches_tool_schema_version) — that cross-check, plus the tests/test_handlers_lean_verify.py::TestLeanVerifyResultSchema Draft7Validator conformance suite (m3 critique F2), is the contract guard for this file; there is NO byte-hash pin on the file itself today (the E06_S06 ``EXPECTED_TOOL_SCHEMA_SHA256`` covers the canonical ``tools/list`` response JSON, not this result-row schema).",
-  "version": 16,
+  "description": "Canonical structuredContent shape returned by the lean_verify MCP tool. Added at verification-feedback-m3. Bumped at textbook-ingest-m3 (12 -> 13) to track the global TOOL_SCHEMA_VERSION rise from the SEARCH_PAPERS description edit; the lean_verify result shape itself is unchanged. Bumped at textbook-ingest-m9 / e4 (13 -> 14) to track the global TOOL_SCHEMA_VERSION rise from the SEARCH_PAPERS source_kind filter description edit; the lean_verify result shape is again unchanged. Bumped again at textbook-ingest-m9 / e4 rectification (14 -> 15) to track the global TOOL_SCHEMA_VERSION rise from the critique-F3 ``filters`` parameter inputSchema description fix; the lean_verify result shape is once more unchanged. Bumped at textbook-ingest-m11 / e5 (15 -> 16) to track the global TOOL_SCHEMA_VERSION rise from the get_chunk ``truncated_for_license`` response flag; the lean_verify result shape is again unchanged. Bumped at stage2/arx-d2 (16 -> 17): the lean_verify RESULT envelope grows the D-2 soundness-hardening blocks — ``soundness`` (snippet guard verdict, native_decide/unsafe/partial flags, post-verification axiom-closure audit against {propext, Classical.choice, Quot.sound}) and ``provenance`` (lean-toolchain string, pinned mathlib rev, replayable transcript SHA-256). Response-shape change only: the LEAN_VERIFY ToolMeta description and inputSchema are UNCHANGED, so EXPECTED_TOOL_SCHEMA_SHA256 re-pins (via the _meta.tool_schema_version echo) but EXPECTED_BP1_SHA256 does NOT (BP1 hashes {name, description} only — same discipline as the v16 precedent). The same 16 -> 17 step also carries the stage2/arx-a1 search_papers filter_echo envelope addition (one batched v17 event, landed together at stage2 integration; this lean_verify result shape is unaffected by that half). NO snippet field: lean_verify is a VERIFIER, not a retriever — the 150-char snippet contract (.claude/docs/snippet-contract.md) and the <retrieved_chunk> indirect-prompt-injection wrapping (E13_S02 Threat 2) apply ONLY to retrieval tools whose results are paper-derived text. The ``version`` field below MUST equal server.tools.TOOL_SCHEMA_VERSION (cross-checked by tests/test_handlers_lean_verify.py::TestToolRegistration::test_schema_version_matches_tool_schema_version) — that cross-check, plus the tests/test_handlers_lean_verify.py::TestLeanVerifyResultSchema Draft7Validator conformance suite (m3 critique F2), is the contract guard for this file; there is NO byte-hash pin on the file itself today (the E06_S06 ``EXPECTED_TOOL_SCHEMA_SHA256`` covers the canonical ``tools/list`` response JSON, not this result-row schema). Bumped at stage3/proving-p1 (17 -> 18): the RESULT envelope grows the ``kernel_statements`` field (durable P1 soundness fix — the KERNEL-reported fully-elaborated type per audited theorem/lemma, obtained via ``#check @<name>`` against the elaboration env, which the verdict-linkage choke-point now consumes as the AUTHORITATIVE proved-statement source in place of the retired author-source text scan). Response-shape change only: the LEAN_VERIFY ToolMeta description and inputSchema are UNCHANGED, so EXPECTED_TOOL_SCHEMA_SHA256 re-pins (via the _meta.tool_schema_version echo) but EXPECTED_BP1_SHA256 does NOT (BP1 hashes {name, description} only — same discipline as the v16/v17 precedents).",
+  "version": 18,
   "properties": {
     "compilation_success": {
       "description": "Whether the Lean kernel accepted the snippet. true iff status == 'ok' (no error-severity messages AND no unresolved sorries). false on type errors, unresolved sorries, timeouts. null when mode == 'syntax_only' AND the snippet elaborated cleanly (kernel verification was not run, so 'success' is not defined). Derived field — the leanprover-community/repl protocol does not emit it directly.",
@@ -17,6 +17,11 @@
       "description": "Goal strings (one per unresolved ``sorry``) the prover still owes. Derived from sorries[*].goal. Empty list means the snippet's proof is closed (or the snippet is a definition, not a theorem). Each string is a Lean proof state in the form 'hypotheses\\n⊢ conclusion'.",
       "items": {"type": "string"},
       "type": "array"
+    },
+    "kernel_statements": {
+      "additionalProperties": {"type": "string"},
+      "description": "Durable P1 soundness fix (stage3/proving-p1): maps each audited theorem/lemma declaration NAME to its fully-elaborated KERNEL type, obtained by running `#check @<name>` against the elaboration env (the same env the axiom audit uses). This is the AUTHORITATIVE proved-proposition source the verdict-linkage choke-point consumes for statement linkage — it comes from the kernel's elaborated type, NEVER from re-parsing author source, so comments, string literals containing `theorem`, and unqueried trailing declarations cannot fabricate a match (the class of blind spot the retired text-scanner had). Only names whose `#check @<name>` returned a parseable `<name> : <type>` appear (fail-closed: a name whose query errored, an anonymous `example` with no queryable name, or a phantom decl the kernel never elaborated is OMITTED). Empty object `{}` on every non-kernel-accepted path (syntax_only, non-ok status, rejected/disabled/timeout/error, or no auditable declarations). A linkage-bearing snippet (a winning proof attempt; an accepted refutation witness) MUST therefore use a NAMED theorem/lemma; an anonymous `example` yields no entry and linkage fails closed (proof caps to plausible-unverified; refutation caps/escalates).",
+      "type": "object"
     },
     "lean_status": {
       "description": "Reports the Lean REPL's availability. 'available' on the happy path. 'disabled' when ARXMCP_ENABLE_LEAN=false (the tool is registered for BP1 cache stability but the REPL is None — the call returns gracefully, not 5xx). 'timeout' when the snippet exceeded the 30s per-query wall-clock; the REPL is killed and respawned before the next call.",
@@ -61,6 +66,88 @@
       "description": "The first unresolved goal (sorries[0].goal) verbatim, or null when no sorries remain. Convenience accessor for the autoformalizer; the full list is in goals_remaining + sorry_goals.",
       "type": ["string", "null"]
     },
+    "provenance": {
+      "additionalProperties": false,
+      "description": "D-2 verdict-replayability record (stage2/arx-d2; finding 05 §3-R2c; RISKS MA-10). Present in EVERY result envelope, including disabled/timeout/error sentinels.",
+      "properties": {
+        "lean_toolchain": {
+          "description": "Verbatim content of the REPL project's lean-toolchain file (e.g. 'leanprover/lean4:v4.30.0-rc2'), or null when ARXMCP_LEAN_REPL_DIR is unset or the file is unreadable.",
+          "type": ["string", "null"]
+        },
+        "mathlib_rev": {
+          "description": "The mathlib git revision pinned in the REPL project's lake-manifest.json, or null when mathlib is not a dependency of the REPL project (base-kernel REPL) or the manifest is unreadable.",
+          "type": ["string", "null"]
+        },
+        "transcript_sha256": {
+          "description": "SHA-256 over the canonical transcript material (snippet, imports, mode, lean_toolchain, mathlib_rev, normalized result payload including the soundness block; the REPL's volatile env counter and corpus_version are excluded). Two runs of the same snippet on the same toolchain produce identical hashes (AC-D.3 replayability).",
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        }
+      },
+      "required": ["lean_toolchain", "mathlib_rev", "transcript_sha256"],
+      "type": "object"
+    },
+    "soundness": {
+      "additionalProperties": false,
+      "description": "D-2 soundness-hardening block (stage2/arx-d2; finding 05 §3-R2; RISKS MA-2). Present in EVERY result envelope. The proven-formal award predicate (server.lean_soundness.formal_award_ok) is a pure function over this block plus status/mode/compilation_success — fail-closed on every element.",
+      "properties": {
+        "audit_detail": {
+          "description": "Human-readable reason when the audit did not run or failed; null on a completed audit.",
+          "type": ["string", "null"]
+        },
+        "audit_status": {
+          "description": "'ok' = every audited declaration's axiom closure was retrieved via #print axioms in the verification env. 'failed' = the audit was attempted but could not complete (missing env id, REPL error/timeout, unparseable output) — treated as a denial, never as a pass. 'skipped' = not applicable (syntax_only, non-ok status, REPL disabled/timeout, or no auditable declarations). 'rejected' = the snippet guard fired; nothing was elaborated.",
+          "enum": ["ok", "failed", "skipped", "rejected"],
+          "type": "string"
+        },
+        "audited_decls": {
+          "description": "theorem/lemma names whose axiom closures were successfully audited. Empty unless audit_status == 'ok'. An empty list denies the proven-formal award (fail closed).",
+          "items": {"type": "string"},
+          "type": "array"
+        },
+        "axiom_closure": {
+          "description": "Sorted union of all audited declarations' axiom closures; null when the audit did not complete.",
+          "items": {"type": "string"},
+          "type": ["array", "null"]
+        },
+        "axiom_closure_ok": {
+          "description": "true iff the audit completed AND the closure ⊆ {propext, Classical.choice, Quot.sound}. false on a failed audit or a rejected snippet (fail closed). null when the audit was legitimately not applicable.",
+          "type": ["boolean", "null"]
+        },
+        "axioms_by_decl": {
+          "additionalProperties": {"items": {"type": "string"}, "type": "array"},
+          "description": "Per-declaration axiom closure from #print axioms, or null when the audit did not complete.",
+          "type": ["object", "null"]
+        },
+        "flags": {
+          "description": "Advisory keywords found in the snippet. They do not reject the call, but any of them denies the proven-formal award: native_decide/unsafe extend the kernel trust base; partial marks definitions with no definitional content. native_decide is ALSO caught by the closure audit (Lean.ofReduceBool / Lean.trustCompiler enter the closure), so a macro-evaded textual flag still fails the audit.",
+          "items": {"enum": ["native_decide", "unsafe", "partial"], "type": "string"},
+          "type": "array"
+        },
+        "guard": {
+          "description": "'rejected' when the snippet textually declares axiom/opaque OR contains a meta-programming / kernel-check-disabling construct the meta guard blocks (word-boundary scan over the raw snippet, comments included — deliberately fail-closed); 'passed' otherwise.",
+          "enum": ["passed", "rejected"],
+          "type": "string"
+        },
+        "rejected_keywords": {
+          "description": "Which guard keywords fired; empty when guard == 'passed'. 'axiom'/'opaque' are the declarative trust-base minters; the remainder are the procedural kernel-subverters blocked by the meta guard (finding R2-AC-1): the elaboration-time code-execution entry points (#eval, run_cmd/run_elab/run_tac, elab/elab_rules, macro/macro_rules, syntax, initialize/builtin_initialize) and the kernel-check-disabling set_option (debug.skip*), plus the defense-in-depth non-checking add primitives (addDeclCore/addDeclWithoutChecking). Any of them lets a snippet subvert the kernel — e.g. add a declaration via Environment.addDeclCore (doCheck := false) so a provably-false theorem passes with a clean #print axioms closure.",
+          "items": {"enum": ["axiom", "opaque", "#eval", "run_cmd", "run_elab", "run_tac", "elab", "elab_rules", "macro", "macro_rules", "syntax", "initialize", "builtin_initialize", "debug.skip", "addDeclCore", "addDeclWithoutChecking"], "type": "string"},
+          "type": "array"
+        }
+      },
+      "required": [
+        "audit_detail",
+        "audit_status",
+        "audited_decls",
+        "axiom_closure",
+        "axiom_closure_ok",
+        "axioms_by_decl",
+        "flags",
+        "guard",
+        "rejected_keywords"
+      ],
+      "type": "object"
+    },
     "sorry_goals": {
       "description": "Full sorry rows from the leanprover-community/repl response. Each row carries the goal string and its source position so the tactician can target a specific sorry by location. Empty list when no sorries remain.",
       "items": {
@@ -95,11 +182,14 @@
     "compilation_success",
     "corpus_version",
     "goals_remaining",
+    "kernel_statements",
     "lean_status",
     "messages",
     "mode",
     "proof_state",
+    "provenance",
     "sorry_goals",
+    "soundness",
     "status"
   ],
   "title": "lean_verify result envelope",

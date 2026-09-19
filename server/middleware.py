@@ -73,6 +73,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import tempfile
 from collections.abc import Awaitable, Callable
 from typing import Any
 from urllib.parse import urlparse
@@ -127,6 +128,19 @@ LOOPBACK_ORIGIN_SCHEMES = frozenset({"http"})
 #: are typically a few KB; 1 MB leaves headroom for unusual filters
 #: or batched calls without permitting a memory-exhaustion request.
 REQUEST_BODY_MAX_BYTES = 1 * 1024 * 1024
+
+#: arx-a45 (AC-A.17): in-memory threshold for the eager pre-read
+#: spool. Bodies at or below this size stay in RAM (matching the
+#: pre-arx-a45 footprint for every default-cap request); larger
+#: bodies — only possible on the upload prefix carve-outs — roll to
+#: a kernel-managed temp file so the 200 MB envelope never lives in
+#: process memory.
+PREREAD_SPOOL_MAX_BYTES = 1 * 1024 * 1024
+
+#: arx-a45 (AC-A.17): replay chunk size for streaming the spooled
+#: body back into the inner app. Bounds the middleware's steady-state
+#: memory during multipart parsing of large uploads.
+PREREAD_REPLAY_CHUNK_BYTES = 64 * 1024
 
 #: ``X-Content-Type-Options`` header value. Stops MIME-sniffing
 #: attacks where a browser overrides our declared Content-Type.
@@ -210,11 +224,14 @@ CONTENT_SECURITY_POLICY_UI: bytes = (
 #: ``@import`` URL form of CSS still routes through ``style-src``
 #: so external CSS is blocked by ``'self'``.
 #:
-#: Trade-off documented in the m10 research synthesis: ar5iv math
-#: rendering uses MathJax 3 which requires ``script-src 'self'
-#: 'unsafe-eval'``. With ``script-src 'none'``, math displays as
-#: raw LaTeX markup rather than typeset. Acceptable for v2 m10;
-#: server-side KaTeX pre-render is a future-enhancement candidate.
+#: Math note (m10 research synthesis, corrected 2026-07-04 per
+#: Stage-1 finding 211 R-D/E-9): stored ar5iv HTML carries full
+#: presentation MathML; MathJax 3 is only ar5iv's enhancement
+#: layer. ``script-src 'none'`` blocks MathJax, but modern
+#: browsers typeset the MathML natively via MathML Core (zero
+#: JS) — math does not fall back to raw LaTeX. Server-side
+#: KaTeX pre-render remains a future-enhancement candidate for
+#: ``$TeX$`` chunk-text surfaces only.
 CONTENT_SECURITY_POLICY_PREVIEW: bytes = (
     b"default-src 'none'; "
     b"img-src 'self' data:; "
@@ -225,10 +242,43 @@ CONTENT_SECURITY_POLICY_PREVIEW: bytes = (
     b"frame-ancestors 'none'"
 )
 
+#: CSP for the ``/app`` SPA surface (stage2/arx-b1, WS-B M0) —
+#: deliberately STRICTER than :data:`CONTENT_SECURITY_POLICY_UI`
+#: (workstreams.md §WS-B M0; AC-B.2):
+#:
+#: - ``script-src 'self'`` with **no** ``'unsafe-inline'`` — the Vite
+#:   production build emits only external module scripts (no inline
+#:   bootstrap, ``assetsInlineLimit: 0``), so nothing needs the
+#:   allowance the htmx console still carries.
+#: - ``style-src 'self' 'unsafe-inline'`` — KaTeX renders math with
+#:   inline ``style=`` attributes in generated markup; parity with
+#:   the /ui/ policy, not a widening.
+#: - ``font-src 'self'`` — self-hosted WOFF2 registers (STIX Two,
+#:   JetBrains Mono, KaTeX) from dist/assets; zero network fetches.
+#: - ``base-uri 'none'`` / ``form-action 'self'`` — the non-fetch
+#:   directives the preview CSP taught us don't inherit from
+#:   ``default-src`` (CSP3 §6.8.3).
+#: - ``connect-src 'self'`` — the SPA talks only to same-origin
+#:   ``/api/v1`` (+ SSE later).
+CONTENT_SECURITY_POLICY_APP: bytes = (
+    b"default-src 'self'; "
+    b"script-src 'self'; "
+    b"style-src 'self' 'unsafe-inline'; "
+    b"img-src 'self' data:; "
+    b"font-src 'self'; "
+    b"connect-src 'self'; "
+    b"base-uri 'none'; "
+    b"form-action 'self'; "
+    b"frame-ancestors 'none'"
+)
+
 #: Path prefixes that receive the UI CSP header. Other paths
 #: (``/mcp``, ``/metrics``, ``/healthz``) get no CSP — those are
 #: JSON / Prometheus / text-only and don't load scripts.
 _CSP_UI_PREFIXES: tuple[bytes, ...] = (b"/ui",)
+
+#: Path prefixes that receive the stricter SPA CSP header.
+_CSP_APP_PREFIXES: tuple[bytes, ...] = (b"/app",)
 
 
 # ---------------------------------------------------------------------------
@@ -767,6 +817,13 @@ class SecurityHeadersMiddleware:
             path_b == p or path_b.startswith(p + b"/")
             for p in _CSP_UI_PREFIXES
         )
+        # stage2/arx-b1: the /app SPA surface gets the STRICTER policy
+        # (script-src 'self', no unsafe-inline). Same prefix-match form,
+        # so /appOTHER gets nothing. The prefix sets are disjoint.
+        is_app_path = any(
+            path_b == p or path_b.startswith(p + b"/")
+            for p in _CSP_APP_PREFIXES
+        )
 
         async def wrapped_send(event: dict) -> None:
             if event["type"] != "http.response.start":
@@ -780,7 +837,13 @@ class SecurityHeadersMiddleware:
                 headers.append((b"x-frame-options", X_FRAME_OPTIONS))
             # m8 rect F2: CSP for UI surface only. JSON/MCP/metrics
             # paths don't load scripts and don't need a CSP.
-            if is_ui_path and b"content-security-policy" not in existing:
+            # stage2/arx-b1: /app gets its own (stricter) policy; a
+            # handler-set CSP still wins (idempotency contract above).
+            if is_app_path and b"content-security-policy" not in existing:
+                headers.append(
+                    (b"content-security-policy", CONTENT_SECURITY_POLICY_APP)
+                )
+            elif is_ui_path and b"content-security-policy" not in existing:
                 headers.append(
                     (b"content-security-policy", CONTENT_SECURITY_POLICY_UI)
                 )
@@ -822,12 +885,25 @@ class RequestBodySizeLimitMiddleware:
     body, the middleware drains ``receive`` BEFORE invoking the inner
     app, accumulating bytes into a buffer. If the running total
     exceeds ``max_bytes``, we send 413 directly and never invoke the
-    inner app. Otherwise we replay the buffered events via a
-    synthetic receive callable.
+    inner app. Otherwise we replay the buffered body via a synthetic
+    receive callable.
 
-    Cost: 1 MB of additional buffering per request — bounded by the
-    cap itself. The MCP JSON-RPC handlers parse the full body before
-    responding, so we lose no streaming the inner app actually used.
+    **Buffering is spooled, not in-RAM (stage2/arx-a45, AC-A.17).**
+    The pre-m4 implementation held the drained events in a Python
+    list — acceptable at the 1 MB default cap, but the
+    textbook-upload prefix carve-out raised the envelope to 200 MB,
+    which made the eager pre-read a 200 MB in-RAM buffer per upload.
+    The buffer is now a ``tempfile.SpooledTemporaryFile``: bodies at
+    or below :data:`PREREAD_SPOOL_MAX_BYTES` (1 MB) stay in memory
+    (identical footprint to the old list for every JSON-RPC/API
+    request), larger bodies roll transparently to a kernel-managed
+    temp file and are replayed to the inner app in
+    :data:`PREREAD_REPLAY_CHUNK_BYTES` chunks. Process RSS growth
+    for a 200 MB upload is therefore bounded by the chunk size, not
+    the body size. Replay re-chunks the body (ASGI permits any
+    chunking); a mid-body client disconnect is replayed as the
+    partial body (``more_body=True`` throughout) followed by
+    ``http.disconnect``, preserving the old event semantics.
 
     Three rejection paths:
 
@@ -964,60 +1040,100 @@ class RequestBodySizeLimitMiddleware:
 
         # F1 fix: eager pre-read. Drain ``receive`` BEFORE invoking
         # the inner app, count bytes, send 413 directly if over cap.
-        # Replay buffered events to the inner app on success.
-        buffered_events: list[dict] = []
-        body_seen = 0
-        while True:
-            event = await receive()
-            if event["type"] == "http.disconnect":
-                # Client gave up before sending the full body. Pass
-                # the disconnect through — the inner app will see it.
-                buffered_events.append(event)
-                break
-            if event["type"] != "http.request":
-                # Unknown event types pass through (defensive — the
-                # ASGI spec only defines http.request and
-                # http.disconnect on the receive side for HTTP scope).
-                buffered_events.append(event)
-                continue
-            chunk = event.get("body", b"")
-            body_seen += len(chunk)
-            if body_seen > max_bytes:
-                logger.warning(
-                    "request rejected: body bytes exceeded cap %d (saw %d+)",
-                    max_bytes, body_seen,
-                )
-                await _send_json_error(
-                    send,
-                    status=413,
-                    body={
-                        "error": "payload_too_large",
-                        "message": (
-                            f"request body exceeds the {max_bytes}-byte "
-                            f"cap; the server caps inbound bodies to defend "
-                            f"against memory-exhaustion requests"
-                        ),
-                        "max_bytes": max_bytes,
-                    },
-                )
-                return
-            buffered_events.append(event)
-            if not event.get("more_body", False):
-                # End of body — exit the drain loop.
-                break
+        # arx-a45: the drained body spools to disk past
+        # PREREAD_SPOOL_MAX_BYTES instead of accumulating in a Python
+        # list (AC-A.17 — kills the 200 MB in-RAM upload buffer).
+        # Replay streams the spool back to the inner app in bounded
+        # chunks.
+        spool = tempfile.SpooledTemporaryFile(  # noqa: SIM115 — closed in the finally below; a `with` block cannot wrap the replayed_receive closure that outlives this scope's straight-line code
+            max_size=PREREAD_SPOOL_MAX_BYTES
+        )
+        try:
+            body_seen = 0
+            disconnected = False
+            while True:
+                event = await receive()
+                if event["type"] == "http.disconnect":
+                    # Client gave up before sending the full body.
+                    # Replay the partial body, then the disconnect —
+                    # the inner app will see it.
+                    disconnected = True
+                    break
+                if event["type"] != "http.request":
+                    # Unknown event types are dropped during the drain
+                    # (defensive — the ASGI spec only defines
+                    # http.request and http.disconnect on the receive
+                    # side for HTTP scope, so nothing meaningful is
+                    # lost; the pre-arx-a45 replay forwarded them,
+                    # where Starlette ignored them anyway).
+                    continue
+                chunk = event.get("body", b"")
+                body_seen += len(chunk)
+                if body_seen > max_bytes:
+                    logger.warning(
+                        "request rejected: body bytes exceeded cap %d (saw %d+)",
+                        max_bytes, body_seen,
+                    )
+                    await _send_json_error(
+                        send,
+                        status=413,
+                        body={
+                            "error": "payload_too_large",
+                            "message": (
+                                f"request body exceeds the {max_bytes}-byte "
+                                f"cap; the server caps inbound bodies to defend "
+                                f"against memory-exhaustion requests"
+                            ),
+                            "max_bytes": max_bytes,
+                        },
+                    )
+                    return
+                if chunk:
+                    spool.write(chunk)
+                if not event.get("more_body", False):
+                    # End of body — exit the drain loop.
+                    break
 
-        # Replay buffered events through a synthetic receive. Once
-        # exhausted, return http.disconnect (the standard ASGI
-        # signal that no more body is coming).
-        replay_iter = iter(buffered_events)
+            # Replay the spooled body through a synthetic receive in
+            # bounded chunks (re-chunking is ASGI-legal). A complete
+            # body ends with a final ``more_body=False`` event (an
+            # empty body is one empty final event — same shape the
+            # wire produces); a disconnected body replays entirely as
+            # ``more_body=True`` chunks followed by
+            # ``http.disconnect``. Once exhausted, further calls
+            # return ``http.disconnect`` (the standard ASGI signal
+            # that no more body is coming).
+            spool.seek(0)
+            replay_state = {"body_done": False}
 
-        async def replayed_receive() -> dict:
-            try:
-                return next(replay_iter)
-            except StopIteration:
-                return {"type": "http.disconnect"}
+            async def replayed_receive() -> dict:
+                if replay_state["body_done"]:
+                    return {"type": "http.disconnect"}
+                chunk = spool.read(PREREAD_REPLAY_CHUNK_BYTES)
+                more = len(chunk) == PREREAD_REPLAY_CHUNK_BYTES
+                if not more:
+                    replay_state["body_done"] = True
+                    if disconnected:
+                        # Final partial chunk stays more_body=True;
+                        # the NEXT call returns the disconnect. An
+                        # empty final chunk collapses straight to the
+                        # disconnect event.
+                        if not chunk:
+                            return {"type": "http.disconnect"}
+                        return {
+                            "type": "http.request",
+                            "body": chunk,
+                            "more_body": True,
+                        }
+                return {
+                    "type": "http.request",
+                    "body": chunk,
+                    "more_body": more,
+                }
 
-        await self.app(scope, replayed_receive, send)
+            await self.app(scope, replayed_receive, send)
+        finally:
+            spool.close()
 
 
 # ---------------------------------------------------------------------------
@@ -1193,6 +1309,22 @@ class SessionCapMiddleware:
             await self._replay_to_app(scope, send, buffered_events)
             return
 
+        # stage2/arx-a23 (WS-A A2): capability-profile per-tool cap
+        # overrides ride the scope from CapabilityMiddleware (mounted
+        # one layer out). None = legacy constants, byte-for-byte
+        # (AC-A.5); a profile cap of e.g. search_papers=5 supersedes
+        # the hardcoded 3 (AC-A.7).
+        cap_info = scope.get(CAPABILITY_SCOPE_KEY)
+        per_tool_limits: dict[str, int] | None = None
+        profile_name = "default"
+        if isinstance(cap_info, dict):
+            raw_caps = cap_info.get("tool_caps")
+            if isinstance(raw_caps, dict):
+                per_tool_limits = raw_caps
+            raw_profile = cap_info.get("profile")
+            if isinstance(raw_profile, str):
+                profile_name = raw_profile
+
         # Look up / create the session and atomically check BOTH caps
         # (per-tool retrieval + hourly rate-limit) under one lock
         # acquisition. F1 rectification (E13_S04 adversary critique):
@@ -1203,7 +1335,22 @@ class SessionCapMiddleware:
         # unless both pass — atomic two-cap commit.
         try:
             state = await get_or_create_session(session_id)
-            verdict, count, limit = await check_both_caps(state, tool_name)
+            verdict, count, limit = await check_both_caps(
+                state, tool_name, per_tool_limits=per_tool_limits
+            )
+            # stage2/arx-a23 (gap R3): record the validated agent role
+            # on the session for the read-only registry snapshot.
+            role_raw = _decode_header_strict(
+                _get_header(headers, b"arxmcp-agent-role")
+            )
+            if role_raw is not None:
+                from server.observability.tracing import (  # noqa: PLC0415
+                    VALID_AGENT_ROLES,
+                )
+                from server.session import note_session_role  # noqa: PLC0415
+
+                if role_raw in VALID_AGENT_ROLES:
+                    await note_session_role(session_id, role_raw)
         except Exception:  # noqa: BLE001
             # Failure-mode discipline: cap layer must not break the
             # request. Log + forward. If a cap is silently bypassed
@@ -1238,6 +1385,17 @@ class SessionCapMiddleware:
                 ).inc()
             except Exception:  # noqa: BLE001
                 logger.debug("metrics inc failed", exc_info=True)
+            # stage2/arx-a23: cap rejections short-circuit before the
+            # wrapped handler, so the audit row + request event are
+            # emitted here (AC-A.9 — every tool call appends one row).
+            await _audit_and_publish_short_circuit(
+                scope,
+                tool_name=tool_name,
+                outcome="cap",
+                profile=profile_name,
+                notebook=None,
+                error_code="RATE_LIMIT_EXCEEDED",
+            )
             await self._send_rate_limit_response(
                 send, request_id, tool_name, count, limit
             )
@@ -1265,6 +1423,16 @@ class SessionCapMiddleware:
             RETRIEVAL_CAP_REJECTIONS_COUNTER.labels(tool=tool_name).inc()
         except Exception:  # noqa: BLE001
             logger.debug("metrics inc failed", exc_info=True)
+        # stage2/arx-a23: audit row + request event for the per-tool
+        # cap short-circuit (see the hourly branch above).
+        await _audit_and_publish_short_circuit(
+            scope,
+            tool_name=tool_name,
+            outcome="cap",
+            profile=profile_name,
+            notebook=None,
+            error_code="RETRIEVAL_CAP_REACHED",
+        )
         cap_payload = _retrieval_cap_payload(tool_name, count, limit)
         rpc_response = {
             "jsonrpc": "2.0",
@@ -1408,6 +1576,324 @@ def _rate_limit_payload(tool_name: str, attempted: int, limit: int) -> dict[str,
 
 
 # =============================================================================
+# CapabilityMiddleware (stage2/arx-a23, WS-A A2 — call-time capability policy)
+# =============================================================================
+
+
+#: Scope key under which the resolved capability facts ride from
+#: :class:`CapabilityMiddleware` to :class:`SessionCapMiddleware`
+#: (which reads the per-tool cap overrides) within one request.
+#: A plain scope entry — both middlewares are pure-ASGI and share
+#: the same ``scope`` dict by construction.
+CAPABILITY_SCOPE_KEY = "arxmcp.capability"
+
+
+class CapabilityMiddleware:
+    """Enforce capability-profile policy on ``tools/call`` invocations.
+
+    stage2/arx-a23 (WS-A A2; target-architecture.md §6). Resolves the
+    request's ``Authorization: Bearer <token>`` header to a
+    :class:`server.capabilities.CapabilityProfile` (unauthenticated
+    loopback → the ``default`` profile, preserving current behavior
+    day-one — AC-A.5) and gates the call at CALL TIME:
+
+    - profile disabled → denied
+    - tool not in the profile's allowlist → denied (AC-A.6)
+    - notebook-routed call outside the profile's notebook scope →
+      denied (AC-A.8)
+
+    Denials are structured JSON-RPC envelopes in the established
+    ``RETRIEVAL_CAP_REACHED`` idiom (HTTP 200, ``isError: true``,
+    ``structuredContent`` carrying ``error_code=CAPABILITY_DENIED`` +
+    a ``denial_scope`` reason) — the shipped ``ARXMCP_ENABLE_LEAN``
+    "structured envelope, never a transport error" pattern. Every
+    denial appends exactly one ``tool_calls`` audit row and one
+    request event (AC-A.9's denied half).
+
+    **The inviolable constraint (adjudication D5): ``tools/list`` is
+    NEVER filtered.** This middleware inspects ONLY bodies whose
+    JSON-RPC method is ``tools/call``; ``initialize`` / ``ping`` /
+    ``tools/list`` / malformed bodies pass through untouched, so the
+    tool surface stays byte-identical for every caller (BP1).
+
+    **Where in the stack.** Mounted OUTSIDE
+    :class:`SessionCapMiddleware` (request order: Capability →
+    SessionCap) so the resolved profile's per-tool cap overrides ride
+    ``scope[CAPABILITY_SCOPE_KEY]`` into the cap check (AC-A.7).
+    Same eager body-buffer + replay shape as its neighbor; buffering
+    cost is bounded by the upstream 1 MB request-body cap.
+
+    **Failure discipline.** Internal errors during resolution fail
+    OPEN to the ``default`` profile with a WARN (the repo's
+    SessionCap precedent: the policy layer must not take the server
+    down; the worst case is day-one behavior). Presenting an UNKNOWN
+    bearer token fails CLOSED (``token_unknown`` denial) — an
+    explicit credential that matches nothing is a misconfiguration
+    the caller must see, not silently downgrade.
+
+    **AC-A.10.** The token value is read from the header, hashed for
+    comparison, and never logged, stored, or echoed. Audit rows carry
+    profile NAMES only.
+    """
+
+    def __init__(self, app: Callable[..., Awaitable[None]]) -> None:
+        self.app = app
+
+    async def __call__(self, scope: dict, receive: Callable, send: Callable) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        method = scope.get("method", "").upper()
+        path: str = scope.get("path", "")
+        if method != "POST" or not (
+            path == _MCP_PATH_PREFIX or path.startswith(_MCP_PATH_PREFIX + "/")
+        ):
+            await self.app(scope, receive, send)
+            return
+
+        # Buffer the body (same shape as SessionCapMiddleware) so the
+        # JSON-RPC method + tool name + notebook filter are inspectable,
+        # then replay on the pass-through path.
+        buffered_events: list[dict] = []
+        body_bytes = bytearray()
+        while True:
+            event = await receive()
+            if event["type"] == "http.disconnect":
+                buffered_events.append(event)
+                break
+            if event["type"] != "http.request":
+                buffered_events.append(event)
+                continue
+            body_bytes.extend(event.get("body", b""))
+            buffered_events.append(event)
+            if not event.get("more_body", False):
+                break
+
+        tool_name: str | None = None
+        request_id: Any = None
+        notebook: str | None = None
+        try:
+            parsed = json.loads(body_bytes.decode("utf-8"))
+            if isinstance(parsed, dict) and parsed.get("method") == _MCP_TOOLS_CALL_METHOD:
+                request_id = parsed.get("id")
+                params = parsed.get("params") or {}
+                if isinstance(params, dict):
+                    name_val = params.get("name")
+                    tool_name = name_val if isinstance(name_val, str) else None
+                    arguments = params.get("arguments")
+                    if isinstance(arguments, dict):
+                        filters = arguments.get("filters")
+                        if isinstance(filters, dict):
+                            nb_val = filters.get("notebook")
+                            if isinstance(nb_val, str):
+                                notebook = nb_val
+        except (ValueError, UnicodeDecodeError):
+            tool_name = None  # malformed body → forward unchanged (FastMCP errors)
+
+        if tool_name is None:
+            # Not a tools/call — the capability layer has no opinion
+            # (tools/list stays byte-identical for every caller — D5).
+            await _replay_events(self.app, scope, send, buffered_events)
+            return
+
+        from server.capabilities import (  # noqa: PLC0415 — avoid import cycle at module load
+            check_call,
+            current_notebook,
+            current_profile_name,
+            denial_payload,
+            resolve_profile,
+            synthesized_default_profile,
+        )
+
+        bearer = _extract_bearer_token(scope.get("headers", []))
+        try:
+            profile, reason = await resolve_profile(bearer)
+        except Exception:  # noqa: BLE001 — fail open to default (see class docstring)
+            logger.warning(
+                "CapabilityMiddleware: profile resolution failed; "
+                "failing open to the default profile", exc_info=True,
+            )
+            profile, reason = synthesized_default_profile(), None
+
+        if reason is None and profile is not None:
+            reason = check_call(profile, tool_name, notebook)
+
+        if reason is not None:
+            profile_name = profile.name if profile is not None else None
+            payload = denial_payload(profile_name, tool_name, reason, notebook)
+            logger.warning(
+                "CAPABILITY_DENIED: profile=%s tool=%s reason=%s notebook=%s",
+                profile_name, tool_name, reason, notebook,
+            )
+            try:
+                from server.metrics import CAPABILITY_DENIALS_COUNTER  # noqa: PLC0415
+
+                CAPABILITY_DENIALS_COUNTER.labels(reason=reason).inc()
+            except Exception:  # noqa: BLE001
+                logger.debug("metrics inc failed", exc_info=True)
+            await _audit_and_publish_short_circuit(
+                scope,
+                tool_name=tool_name,
+                outcome="denied",
+                profile=profile_name or "(unknown)",
+                notebook=notebook,
+                error_code=payload["error_code"],
+            )
+            await _send_tool_error_envelope(send, request_id, payload)
+            return
+
+        # Allowed: stash cap overrides for SessionCapMiddleware and
+        # expose profile/notebook facts to the audit/event emitters.
+        # profile is non-None here (reason would have been set otherwise).
+        scope[CAPABILITY_SCOPE_KEY] = {
+            "profile": profile.name,
+            "tool_caps": dict(profile.tool_caps) if profile.tool_caps else None,
+        }
+        profile_token = current_profile_name.set(profile.name)
+        notebook_token = current_notebook.set(notebook)
+        try:
+            await _replay_events(self.app, scope, send, buffered_events)
+        finally:
+            current_profile_name.reset(profile_token)
+            current_notebook.reset(notebook_token)
+
+
+def _extract_bearer_token(headers: list[tuple[bytes, bytes]]) -> str | None:
+    """Pull a ``Bearer`` credential from the ``Authorization`` header.
+
+    Returns None when the header is absent, undecodable, or not the
+    Bearer scheme (an unknown scheme is treated as unauthenticated —
+    loopback CLI clients send all sorts of things; only an explicit
+    Bearer value engages token matching). The value is never logged.
+    """
+    raw = _get_header(headers, b"authorization")
+    if raw is None:
+        return None
+    try:
+        text = raw.decode("ascii").strip()
+    except UnicodeDecodeError:
+        return None
+    scheme, _, credential = text.partition(" ")
+    if scheme.lower() != "bearer":
+        return None
+    credential = credential.strip()
+    return credential or None
+
+
+async def _replay_events(
+    app: Callable[..., Awaitable[None]],
+    scope: dict,
+    send: Callable[..., Awaitable[None]],
+    buffered_events: list[dict],
+) -> None:
+    """Module-level twin of ``SessionCapMiddleware._replay_to_app`` so
+    both body-peeking middlewares share one replay implementation."""
+    replay_iter = iter(buffered_events)
+
+    async def replayed_receive() -> dict:
+        try:
+            return next(replay_iter)
+        except StopIteration:
+            return {"type": "http.disconnect"}
+
+    await app(scope, replayed_receive, send)
+
+
+async def _send_tool_error_envelope(
+    send: Callable[..., Awaitable[None]],
+    request_id: Any,
+    payload: dict[str, Any],
+) -> None:
+    """Short-circuit with the structured tool-error JSON-RPC response
+    (HTTP 200, ``isError: true`` + ``structuredContent`` = payload) —
+    the exact wire shape of RETRIEVAL_CAP_REACHED / RATE_LIMIT_EXCEEDED
+    so consuming agents parse all three with one handler."""
+    rpc_response = {
+        "jsonrpc": "2.0",
+        "id": request_id,
+        "result": {
+            "content": [
+                {"type": "text", "text": json.dumps(payload, sort_keys=True)}
+            ],
+            "structuredContent": payload,
+            "isError": True,
+        },
+    }
+    body_out = json.dumps(rpc_response, sort_keys=True).encode("utf-8")
+    await send(
+        {
+            "type": "http.response.start",
+            "status": 200,
+            "headers": [
+                (b"content-type", b"application/json"),
+                (b"content-length", str(len(body_out)).encode("ascii")),
+            ],
+        }
+    )
+    await send(
+        {
+            "type": "http.response.body",
+            "body": body_out,
+            "more_body": False,
+        }
+    )
+
+
+async def _audit_and_publish_short_circuit(
+    scope: dict,
+    *,
+    tool_name: str,
+    outcome: str,
+    profile: str,
+    notebook: str | None,
+    error_code: str,
+) -> None:
+    """Append the audit row + request event for a middleware
+    short-circuit (capability denial or cap rejection). The wrapped
+    handler never runs on these paths, so the usual
+    ``_wrap_with_observability`` emitters cannot fire — without this
+    helper, AC-A.9's "every tool call appends exactly one row" would
+    hold only for calls that reach FastMCP. Best-effort: failures log
+    and are swallowed.
+    """
+    try:
+        from server.audit import ToolCallRecord, append_tool_call  # noqa: PLC0415
+        from server.observability.events import publish_request_event  # noqa: PLC0415
+
+        headers: list[tuple[bytes, bytes]] = scope.get("headers", [])
+        session_id = _decode_header_strict(_get_header(headers, b"mcp-session-id"))
+        role_raw = _decode_header_strict(_get_header(headers, b"arxmcp-agent-role"))
+        from server.observability.tracing import VALID_AGENT_ROLES  # noqa: PLC0415
+
+        role = role_raw if role_raw in VALID_AGENT_ROLES else None
+        await append_tool_call(
+            ToolCallRecord(
+                tool=tool_name,
+                outcome=outcome,
+                profile=profile,
+                session_id=session_id,
+                role=role,
+                notebook=notebook,
+                error_code=error_code,
+            )
+        )
+        publish_request_event(
+            {
+                "tool": tool_name,
+                "status": outcome,
+                "error_code": error_code,
+                "profile": profile,
+                "notebook": notebook,
+                "session_id": session_id[:16] if session_id else None,
+                "role": role,
+            }
+        )
+    except Exception:  # noqa: BLE001 — observability must never break the reject path
+        logger.debug("short-circuit audit/event emission failed", exc_info=True)
+
+
+# =============================================================================
 # TracingContextMiddleware (E14_S02 — populate per-request OTel ContextVars)
 # =============================================================================
 
@@ -1520,11 +2006,13 @@ def _decode_header_strict(value: bytes | None) -> str | None:
 
 
 __all__ = [
+    "CAPABILITY_SCOPE_KEY",
     "LOOPBACK_HOST_HEADER_HOSTS",
     "LOOPBACK_ORIGIN_HOSTS",
     "LOOPBACK_ORIGIN_SCHEMES",
     "MAX_ECHOED_ORIGIN_LEN",
     "REQUEST_BODY_MAX_BYTES",
+    "CapabilityMiddleware",
     "HostValidationMiddleware",
     "OriginValidationMiddleware",
     "RequestBodySizeLimitMiddleware",

@@ -1,0 +1,90 @@
+/*
+ * graph.css — citation-graph surface (arx-b3, WS-B over A5).
+ * Tier-0 nested list: rules + indentation, never cards (LA-2);
+ * Tier-2 canvas framed by a hairline. Gate discipline: radius via
+ * var(--radius) only, durations <= 400ms, no gradients.
+ */
+
+.graph-controls {
+  display: flex;
+  gap: var(--space-air-2);
+  align-items: flex-end;
+  flex-wrap: wrap;
+  margin: var(--space-air-1) 0;
+}
+
+.graph-control {
+  display: flex;
+  align-items: center;
+  gap: var(--space-dense-3);
+}
+
+.graph-control label {
+  font-size: var(--scale-1);
+}
+
+.graph-control select {
+  font-family: var(--font-telemetry);
+  font-size: var(--scale-1);
+  padding: var(--space-dense-2) var(--space-dense-3);
+  border: var(--rule-hairline) solid var(--rule-color-strong);
+  border-radius: var(--radius);
+  background: var(--paper);
+  color: var(--ink);
+}
+
+/* Nested neighbor tree: indentation rides a neutral hairline, so
+ * depth reads structurally (no chromatic side stripes — gate L3). */
+.graph-tree {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.graph-tree .graph-tree {
+  margin-left: var(--space-air-1);
+  padding-left: var(--space-air-1);
+  border-left: var(--rule-hairline) solid var(--rule-color);
+}
+
+.graph-node {
+  padding: var(--space-dense-2) 0;
+  border-bottom: var(--rule-hairline) solid var(--rule-color);
+}
+
+.graph-node:last-child {
+  border-bottom: 0;
+}
+
+.graph-node-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-dense-3);
+  flex-wrap: wrap;
+}
+
+.graph-in-corpus {
+  color: var(--status-ok);
+  border-color: var(--status-ok);
+}
+
+.graph-caption {
+  margin: var(--space-air-1) 0;
+  color: var(--ink-muted);
+}
+
+.force-3d-figure {
+  margin: var(--space-air-1) 0;
+}
+
+.force-3d-canvas {
+  border: var(--rule-hairline) solid var(--rule-color-strong);
+  min-height: 480px;
+  overflow: hidden;
+}
+
+.force-3d-figure figcaption {
+  margin-top: var(--space-dense-2);
+  color: var(--ink-muted);
+  font-size: var(--scale-1);
+}

@@ -43,6 +43,7 @@ from server.metrics import (
     LATEXML_DRIFT_DETECTED_COUNTER,
     reset_drift_metrics_for_tests,
 )
+from tests._platform_helpers import requires_working_latexmlc
 
 FIXTURE_NAMES = {"frac", "integral", "sum", "align", "pmatrix"}
 
@@ -454,6 +455,7 @@ class TestRunbookContent:
 
 
 @pytest.mark.requires_latexmlc
+@requires_working_latexmlc
 class TestIntegrationRealLatexmlc:
     """AC1 closure — the real cron path. Renders every checked-in
     fixture via the actual `latexmlc` binary and asserts no drift

@@ -1,9 +1,9 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "https://arxmcp/schemas/search_papers_result/v16.json",
+  "$id": "https://arxmcp/schemas/search_papers_result/v18.json",
   "additionalProperties": false,
-  "description": "Canonical structuredContent shape returned by the search_papers MCP tool. Frozen by E06_S04; bumped at E13_S02 to widen snippet.maxLength for the <retrieved_chunk> delimiter wrapping (Threat 2 defense). Bumped at proof-verify-handler-wiring-m1 for paper_id filter wiring (Field description change; output shape unchanged). Bumped at proof-verify-handler-wiring-m2 to add the optional filters_applied echo field. Bumped at verification-feedback-m1 (and again at its rectification) to track the TOOL_SCHEMA_VERSION rise for the cite_neighbors handler wiring (this search_papers result shape is unchanged — the version field tracks server.tools.TOOL_SCHEMA_VERSION globally). Bumped at verification-feedback-m3 (11 -> 12) to track the lean_verify tool addition; this search_papers result shape is unchanged. Bumped at textbook-ingest-m3 (12 -> 13) to track the SEARCH_PAPERS ToolMeta description edit that documented the textbook:<slug> paper_id form in filters validation; the result-row shape is unchanged (the textbook chunk_id pattern was already widened at textbook-ingest-m1 via the chunk_id.pattern mirror below). Bumped at textbook-ingest-m9 / e4 (13 -> 14) to ADD the per-row source_kind enum property (arxiv|textbook) + its required entry — the first result-row SHAPE change of the textbook family. Bumped again at textbook-ingest-m9 / e4 rectification (14 -> 15) to track the global TOOL_SCHEMA_VERSION rise from the critique-F3 filters-parameter inputSchema description fix; this result-row shape is unchanged at the 14 -> 15 step. Bumped at textbook-ingest-m11 / e5 (15 -> 16) to track the global TOOL_SCHEMA_VERSION rise from the get_chunk truncated_for_license response flag; this search_papers result-row shape is unchanged at the 15 -> 16 step (the license-truncation flag lands on get_chunk only, not on search rows). The byte-stability test in E06_S06 hashes this file's bytes and pins the SHA-256; any drift is a deliberate bump. The ``version`` field below MUST equal server.tools.TOOL_SCHEMA_VERSION (cross-checked by tests/test_snippet_contract.py).",
-  "version": 16,
+  "description": "Canonical structuredContent shape returned by the search_papers MCP tool. Frozen by E06_S04; bumped at E13_S02 to widen snippet.maxLength for the <retrieved_chunk> delimiter wrapping (Threat 2 defense). Bumped at proof-verify-handler-wiring-m1 for paper_id filter wiring (Field description change; output shape unchanged). Bumped at proof-verify-handler-wiring-m2 to add the optional filters_applied echo field. Bumped at verification-feedback-m1 (and again at its rectification) to track the TOOL_SCHEMA_VERSION rise for the cite_neighbors handler wiring (this search_papers result shape is unchanged — the version field tracks server.tools.TOOL_SCHEMA_VERSION globally). Bumped at verification-feedback-m3 (11 -> 12) to track the lean_verify tool addition; this search_papers result shape is unchanged. Bumped at textbook-ingest-m3 (12 -> 13) to track the SEARCH_PAPERS ToolMeta description edit that documented the textbook:<slug> paper_id form in filters validation; the result-row shape is unchanged (the textbook chunk_id pattern was already widened at textbook-ingest-m1 via the chunk_id.pattern mirror below). Bumped at textbook-ingest-m9 / e4 (13 -> 14) to ADD the per-row source_kind enum property (arxiv|textbook) + its required entry — the first result-row SHAPE change of the textbook family. Bumped again at textbook-ingest-m9 / e4 rectification (14 -> 15) to track the global TOOL_SCHEMA_VERSION rise from the critique-F3 filters-parameter inputSchema description fix; this result-row shape is unchanged at the 14 -> 15 step. Bumped at textbook-ingest-m11 / e5 (15 -> 16) to track the global TOOL_SCHEMA_VERSION rise from the get_chunk truncated_for_license response flag; this search_papers result-row shape is unchanged at the 15 -> 16 step (the license-truncation flag lands on get_chunk only, not on search rows). Bumped at stage2/arx-a1 (16 -> 17) to ADD the always-present ``filter_echo`` envelope property — the affirmative notebook-routing echo required by the Stage-1 bridge contract (finding 06 section 3 item 2 / spike-5: the server previously never affirmed which notebook a scoped query was routed to). Response-envelope shape change only; the SEARCH_PAPERS ToolMeta description and inputSchema are UNCHANGED, so EXPECTED_TOOL_SCHEMA_SHA256 re-pins (via the ``_meta.tool_schema_version`` echo) but EXPECTED_BP1_SHA256 does NOT (the v9 ``filters_applied`` / v16 precedent). The same 16 -> 17 step also carries the stage2/arx-d2 lean_verify soundness/provenance response blocks (one batched v17 event, landed together at stage2 integration; this search_papers result-row shape is unaffected by that half). The byte-stability test in E06_S06 hashes this file's bytes and pins the SHA-256; any drift is a deliberate bump. The ``version`` field below MUST equal server.tools.TOOL_SCHEMA_VERSION (cross-checked by tests/test_snippet_contract.py). Bumped at stage3/proving-p1 (17 -> 18) to track the global TOOL_SCHEMA_VERSION rise from the lean_verify ``kernel_statements`` response field (durable P1 soundness fix); this search_papers result-row shape is unchanged at the 17 -> 18 step (the field lands on lean_verify only). Response-envelope-unaffected version bump; EXPECTED_TOOL_SCHEMA_SHA256 re-pins via the ``_meta.tool_schema_version`` echo, EXPECTED_BP1_SHA256 does NOT.",
+  "version": 18,
   "properties": {
     "corpus_version": {
       "description": "The integer corpus_version pinned at server startup (per E04_S03's corpus-version.json marker). Echoed in every tool result envelope so the agent can correlate cached results.",
@@ -22,6 +22,18 @@
       "description": "Human-readable warnings about filter / cursor args that were accepted but not yet processed. v1 ignores the filters and cursor args (deferred to E07_S04); when set, this array carries one string per ignored arg.",
       "items": {"type": "string"},
       "type": "array"
+    },
+    "filter_echo": {
+      "additionalProperties": false,
+      "description": "Affirmative echo of the notebook ROUTING filter the server honored (stage2/arx-a1; finding 06 section 3 item 2). ALWAYS present — {\"notebook\": null} affirms the response was served from the shared corpus, NOT a notebook; {\"notebook\": \"<slug>\"} affirms per-notebook routing. Unlike filters_applied (absent when no filter applied), absence is never the no-filter signal here: the field exists precisely so a consumer can distinguish 'server honored my notebook filter' from 'server silently ignored it' (the spike-5 failure mode). Caller-specific — stamped post-cache on every serve path; never stored in cached payloads.",
+      "properties": {
+        "notebook": {
+          "description": "The notebook slug this response was routed to, or null for the shared corpus.",
+          "type": ["string", "null"]
+        }
+      },
+      "required": ["notebook"],
+      "type": "object"
     },
     "filters_applied": {
       "description": "Echo of the filter actually honored by this call. Absent when no filter was passed. Only contains keys from server.handlers.search.SUPPORTED_FILTER_KEYS (currently: paper_id). The paper_id list is sorted and coerced to list[str] per server.handlers.search._canonicalize_filters. Downstream agents use this to verify scoping without re-parsing filter_warnings. Added at proof-verify-handler-wiring-m2.",
@@ -82,7 +94,7 @@
       "type": "string"
     }
   },
-  "required": ["corpus_version", "embed_model", "excluded_kinds", "filter_warnings", "next_cursor", "results", "retrieval_mode"],
+  "required": ["corpus_version", "embed_model", "excluded_kinds", "filter_echo", "filter_warnings", "next_cursor", "results", "retrieval_mode"],
   "title": "search_papers result envelope",
   "type": "object"
 }

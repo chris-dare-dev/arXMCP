@@ -15,7 +15,7 @@
 # (E14_S03) — every hardening below traces to that critique.
 #
 # Explicit project name. WITHOUT this, Compose derives it from this file's
-# parent dir ("infra") — which COLLIDES with claude-otel's infra/docker-compose.yml
+# parent dir ("infra") — which COLLIDES with another project's infra/docker-compose.yml
 # (also "infra"), so `docker compose ... --remove-orphans` on one would delete
 # the other's containers. Distinct names keep the two stacks isolated.
 name: arxmcp

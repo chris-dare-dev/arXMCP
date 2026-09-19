@@ -176,6 +176,9 @@ def test_compose_file_parses_with_profile() -> None:
     assert len(volumes) == 1, f"expected 1 volume, got {volumes!r}"
     src = volumes[0].get("source") if isinstance(volumes[0], dict) else None
     assert src is not None, f"could not extract volume source from {volumes[0]!r}"
+    # Normalize separators: docker compose resolves the source to an
+    # OS-native absolute path ("\\"-separated on Windows).
+    src = src.replace("\\", "/")
     assert src.endswith("/var/arxmcp/observability/phoenix"), (
         f"bind-mount source did not resolve to repo-root "
         f"var/arxmcp/...; got {src!r}. F1 regression."

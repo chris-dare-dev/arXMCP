@@ -143,6 +143,122 @@ class TestUiCarveoutAcceptsSameOrigin:
         assert response.json()["error"] == "sec_fetch_site_forbidden"
 
 
+class TestAppCarveoutAcceptsSameOrigin:
+    """stage2/arx-b2: the /app SPA prefix is exempt with the same
+    {none, same-origin} relaxation as /ui. Without it, the /app/
+    navigation renders (Sec-Fetch-Site: none) but EVERY subresource
+    the shell loads — module script, stylesheet, lazy chunks, woff2
+    fonts — carries ``same-origin`` and 403s: HTML alive, app dead.
+    Found by the arx-b2 live-server smoke; invisible to the b1
+    Playwright harness (it mounts only SecurityHeadersMiddleware)."""
+
+    def test_app_asset_path_accepts_same_origin(
+        self, client: TestClient,
+    ) -> None:
+        """A same-origin GET under /app/assets/ must NOT be 403'd by
+        SecFetchSiteMiddleware. Downstream may 404 (hashed filename
+        not present in this checkout's dist) — anything BUT
+        sec_fetch_site_forbidden proves the carve-out fired."""
+        response = client.get(
+            "/app/assets/index-test.js",
+            headers={"Sec-Fetch-Site": "same-origin"},
+        )
+        if response.status_code == 403:
+            body = response.json()
+            assert body.get("error") != "sec_fetch_site_forbidden", (
+                "SecFetchSite carve-out for /app did not fire — the "
+                "SPA's own asset loads would 403 on the live server"
+            )
+
+    def test_app_path_rejects_cross_site(self, client: TestClient) -> None:
+        """The relaxation is NOT a bypass: cross-site fetches from
+        another localhost app are still rejected on /app."""
+        response = client.get(
+            "/app/assets/index-test.js",
+            headers={"Sec-Fetch-Site": "cross-site"},
+        )
+        assert response.status_code == 403
+        assert response.json()["error"] == "sec_fetch_site_forbidden"
+
+    def test_appother_path_not_exempt(self, client: TestClient) -> None:
+        """FM-3 prefix discipline holds for the new prefix too:
+        /appOTHER is not under /app."""
+        response = client.get(
+            "/appOTHER",
+            headers={"Sec-Fetch-Site": "same-origin"},
+        )
+        assert response.status_code == 403
+        assert response.json()["error"] == "sec_fetch_site_forbidden"
+
+
+class TestStatusCarveoutForTrustHeader:
+    """stage3/cross-r1: the /status prefix is exempt with the same
+    {none, same-origin} relaxation as /ui and /app.
+
+    The /app SPA fetches bare ``GET /status`` (server/health.py) for
+    the Connections C1 trust header and the graph NO-18 corpus-version
+    caption (frontend-app/src/api/obs.ts::status()). That fetch is a
+    same-origin browser subresource, so the browser injects
+    ``Sec-Fetch-Site: same-origin``. Before the fix, /status was
+    outside every exempt prefix ("/ui", "/api/v1", "/app"), so EVERY
+    real browser session got 403 ``sec_fetch_site_forbidden``: the
+    trust header read "server state unknown", the caption read "corpus
+    version unknown", and the 5s poll logged one WARNING per tick.
+
+    The hermetic gates missed this because the e2e harness mounts only
+    ``SecurityHeadersMiddleware`` and the SPA unit tests mock
+    ``ObsApi``; only a live-middleware-stack test (this one, on a real
+    ``create_app``) catches it."""
+
+    def test_status_accepts_same_origin(self, client: TestClient) -> None:
+        """A same-origin ``GET /status`` (the SPA's trust-header +
+        graph-caption probe) must NOT be 403'd by
+        SecFetchSiteMiddleware. Downstream returns 503 (lifespan not
+        warm in this fixture) or 200 (a real serving daemon) — anything
+        BUT 403 ``sec_fetch_site_forbidden`` proves the carve-out
+        fired. This assertion FAILS before the /status exemption is
+        added (the pre-fix middleware 403s the browser fetch)."""
+        response = client.get(
+            "/status", headers={"Sec-Fetch-Site": "same-origin"},
+        )
+        if response.status_code == 403:
+            body = response.json()
+            assert body.get("error") != "sec_fetch_site_forbidden", (
+                "SecFetchSite carve-out for /status did not fire — the "
+                "SPA's trust-header + graph-caption probe 403s on every "
+                "real browser session (Sec-Fetch-Site: same-origin)"
+            )
+
+    def test_status_rejects_cross_site(self, client: TestClient) -> None:
+        """The relaxation is NOT a bypass: a cross-site fetch to
+        /status from another localhost app is still rejected — same
+        posture as /ui, /app, /api/v1."""
+        response = client.get(
+            "/status", headers={"Sec-Fetch-Site": "cross-site"},
+        )
+        assert response.status_code == 403
+        assert response.json()["error"] == "sec_fetch_site_forbidden"
+
+    def test_status_rejects_same_site(self, client: TestClient) -> None:
+        """Same-site (same eTLD+1, different origin) is also rejected
+        on /status — only the in-page {none, same-origin} pair passes."""
+        response = client.get(
+            "/status", headers={"Sec-Fetch-Site": "same-site"},
+        )
+        assert response.status_code == 403
+        assert response.json()["error"] == "sec_fetch_site_forbidden"
+
+    def test_statusother_path_not_exempt(self, client: TestClient) -> None:
+        """FM-3 prefix discipline holds for /status too: a path like
+        /statusOTHER that merely begins with 'status' as a substring is
+        NOT under the /status prefix and must still be rejected."""
+        response = client.get(
+            "/statusOTHER", headers={"Sec-Fetch-Site": "same-origin"},
+        )
+        assert response.status_code == 403
+        assert response.json()["error"] == "sec_fetch_site_forbidden"
+
+
 class TestPrefixVsSubstring:
     """FM-3: the carve-out must use prefix matching, not substring.
     A path like /evil-ui/foo or /uiOTHER must NOT bypass the check."""

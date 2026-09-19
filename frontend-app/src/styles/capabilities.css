@@ -1,0 +1,156 @@
+/*
+ * capabilities.css — capability-config surface (arx-b3, WS-B over A2).
+ * Rules not cards (LA-2); dense tier inside profile rows, air tier
+ * between sections (DE-1); radius only via var(--radius); durations
+ * within the <=400ms DOM budget (gate M2).
+ */
+
+/* SR-only utility (labels for paired inputs the layout shows once). */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* D5 teaching block: editorial measure, quiet inset — a note, not a
+ * banner (no status color: this is doctrine, not an alert). */
+.caps-explainer {
+  max-width: var(--measure-editorial);
+  padding: var(--space-dense-3) var(--space-air-1);
+  margin-bottom: var(--space-air-1);
+  background: var(--paper-inset);
+  border-top: var(--rule-hairline) solid var(--rule-color);
+  border-bottom: var(--rule-hairline) solid var(--rule-color);
+}
+
+.caps-explainer p {
+  margin: var(--space-dense-2) 0;
+  font-size: var(--scale-1);
+  line-height: var(--leading-telemetry);
+}
+
+.caps-toolbar {
+  margin: var(--space-air-1) 0;
+}
+
+/* Profile rows: rule-separated list (the notebook-index grammar). */
+.caps-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.caps-row {
+  padding: var(--space-air-1) 0;
+  border-bottom: var(--rule-hairline) solid var(--rule-color);
+}
+
+.caps-row-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-dense-3);
+  flex-wrap: wrap;
+}
+
+.caps-row-actions {
+  margin-left: auto;
+  display: flex;
+  gap: var(--space-dense-2);
+}
+
+.caps-row-body {
+  display: flex;
+  gap: var(--space-air-2);
+  flex-wrap: wrap;
+  margin: var(--space-dense-3) 0 0;
+  font-size: var(--scale-1);
+}
+
+.caps-row-body dt {
+  margin-bottom: var(--space-dense-1);
+}
+
+.caps-row-body dd {
+  margin: 0;
+  max-width: 52ch;
+}
+
+.caps-row-body .chip {
+  margin-right: var(--space-dense-2);
+}
+
+/* Form: one column of labelled fields, dense inside fieldsets. */
+.caps-form {
+  margin: var(--space-air-1) 0 var(--space-air-2);
+  padding: var(--space-air-1);
+  border: var(--rule-hairline) solid var(--rule-color-strong);
+  max-width: 64ch;
+}
+
+.caps-form fieldset {
+  border: 0;
+  border-top: var(--rule-hairline) solid var(--rule-color);
+  padding: var(--space-dense-3) 0 0;
+  margin: var(--space-air-1) 0 0;
+}
+
+.caps-form legend {
+  padding-right: var(--space-dense-3);
+  font-size: var(--scale-1);
+}
+
+.caps-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-dense-2);
+  margin: var(--space-dense-3) 0;
+}
+
+.caps-field label {
+  font-size: var(--scale-1);
+}
+
+.caps-field input[type="text"],
+.caps-field input:not([type]) {
+  font-size: var(--scale-1);
+  padding: var(--space-dense-2) var(--space-dense-3);
+  border: var(--rule-hairline) solid var(--rule-color-strong);
+  border-radius: var(--radius);
+  background: var(--paper);
+  color: var(--ink);
+}
+
+.caps-field-inline {
+  display: flex;
+  align-items: center;
+  gap: var(--space-dense-3);
+  flex-wrap: wrap;
+}
+
+.caps-tool-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: var(--space-dense-2) var(--space-dense-3);
+  margin: var(--space-dense-3) 0;
+}
+
+.caps-cap-value {
+  width: 7ch;
+}
+
+.caps-form-error {
+  padding: var(--space-dense-2) var(--space-dense-3);
+  background: var(--paper-inset);
+}
+
+.caps-form-actions {
+  display: flex;
+  gap: var(--space-dense-3);
+  margin-top: var(--space-air-1);
+}

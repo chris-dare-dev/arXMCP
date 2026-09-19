@@ -311,6 +311,43 @@ def _inject_filters_applied(
     return {**payload, "filters_applied": applied}
 
 
+def _inject_filter_echo(
+    payload: dict[str, Any],
+    notebook_slug: str | None,
+) -> dict[str, Any]:
+    """stage2/arx-a1: affirm the notebook ROUTING filter the server honored.
+
+    Adds ``filter_echo: {"notebook": <slug | null>}`` to every
+    ``search_papers`` response. Closes the spike-5 caveat from the
+    triangulation cutover (finding 06 §3 item 2): the bridge envelope's
+    substrate block carries ``filter_echo`` as a load-bearing field, and
+    the server previously never affirmed which notebook (if any) a
+    scoped query was actually routed to — a consumer could not
+    distinguish "server honored my notebook filter" from "server
+    silently ignored it".
+
+    **Always present** (unlike ``filters_applied``, which is absent when
+    no supported filter applied). The whole point is an affirmative
+    echo: ``{"notebook": null}`` means "this response was served from
+    the shared corpus, NOT a notebook" — absence would be ambiguous
+    against pre-stage2 servers. This additive result-envelope change
+    ships as the deliberate v17 TOOL_SCHEMA_VERSION event (the v9
+    ``filters_applied`` sibling-field precedent): the frozen result
+    schema gains ``filter_echo`` and EXPECTED_TOOL_SCHEMA_SHA256
+    re-pins via the ``_meta.tool_schema_version`` echo, while the BP1
+    prompt-cache hashes ({name, description} only) stay untouched.
+
+    **Caller-specific — never cached.** ``notebook`` rides in the cache
+    key (per-notebook isolation, m2 AC3), so a cached payload could
+    safely carry it — but the house pattern (m2 rect F2,
+    ``_inject_filters_applied``) is strip-then-re-stamp: cached payloads
+    stay caller-agnostic and every serve path stamps post-hit /
+    post-store. This helper follows that pattern verbatim: shallow-copy,
+    never mutate the input.
+    """
+    return {**payload, "filter_echo": {"notebook": notebook_slug}}
+
+
 def _canonicalize_filters(
     filters: dict[str, Any] | None,
 ) -> dict[str, Any] | None:
@@ -565,6 +602,9 @@ async def handle_search_papers(
             # m2: stamp filters_applied post-cache (caller-specific
             # metadata; never stored in cached payload).
             structured = _inject_filters_applied(structured, canonical_filters)
+            # stage2/arx-a1: affirm the honored notebook routing filter
+            # (same post-cache stamp discipline as filters_applied).
+            structured = _inject_filter_echo(structured, notebook_slug)
             rows = structured.get("results", [])
             structured = _cap(structured)
             content = _build_content_blocks(structured, rows)
@@ -606,6 +646,9 @@ async def handle_search_papers(
             # m2: stamp filters_applied post-cache (caller-specific
             # metadata; never stored in cached payload).
             structured = _inject_filters_applied(structured, canonical_filters)
+            # stage2/arx-a1: affirm the honored notebook routing filter
+            # (same post-cache stamp discipline as filters_applied).
+            structured = _inject_filter_echo(structured, notebook_slug)
             rows = structured.get("results", [])
             structured = _cap(structured)
             content = _build_content_blocks(structured, rows)
@@ -749,6 +792,10 @@ async def handle_search_papers(
     # preserved because ``_build_content_blocks`` re-serializes via
     # ``json.dumps(sort_keys=True)`` (see server/tools.py:458).
     structured = _inject_filters_applied(structured, canonical_filters)
+    # stage2/arx-a1: affirm the honored notebook routing filter AFTER
+    # cache-store (the cached value stays caller-agnostic, mirroring
+    # filters_applied's F2 strip-then-re-add invariant).
+    structured = _inject_filter_echo(structured, notebook_slug)
 
     # E06_S04: assemble the wire ``content`` array — pretty-printed
     # JSON of structuredContent (the FastMCP default surface) +

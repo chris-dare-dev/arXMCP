@@ -1,0 +1,361 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "urn:arxmcp:bridge:evidence-bundle:v0",
+  "title": "arxmcp.bridge/evidence-bundle v0.2 (WS-D-authored content for the WS-C stub)",
+  "description": "Every proving run emits exactly one EvidenceBundle (AC-D.13); verdict-award rules are a pure function over the bundle, and no component can emit 'proved' free-text without a taxonomy tag. v0.2 authors the payload content for the v0.1 PLACEMENT STUB hosted on stage2/arx-c1 contracts/ (IF-5 custody split: WS-C hosts + versions, WS-D authors). The v0.1 pins are preserved unchanged: task_id + verdict required; the D9 five-verdict enum (append-only within a MAJOR; abstained is the structural default). New at v0.2: verdict 'refuted' REQUIRES a counterexample artifact (AC-D.7 FALSE-must-reject contract); cas artifacts carry the AC-D.11 replay floor (code + params + timeout recorded); the skeptic block pins prover_cycles to the const 0 (AC-D.10 counterexample-FIRST — the lane runs before any prover cycle, and the bundle's own budget accounting proves it). The faithfulness block is CLOSED at v0.2 by the D-3 gate authored in the same slice (server/proving/faithfulness.py): dual independent formalizations + Lean equivalence + blind back-translation diff + human sign-off (AC-D.5), with two bundle-level laws — verdict 'proven-formal' REQUIRES a faithfulness record, and a publishable proven-formal bundle REQUIRES human_signoff.signed=true (no automation may set it; server.proving.faithfulness.record_human_signoff is the only signer and is operator-invoked). Truth-values inside the record (established, match, attestations) are award-rule territory (server.proving.faithfulness.faithfulness_award_ok), not schema territory, so failed gates remain honestly recordable. Custody note: this file lives under server/proving/schemas/ ONLY until the Stage-2 integration step moves it into contracts/ per IF-5 (see server/proving/README.md).",
+  "x-bridge": {
+    "artifact": "arxmcp.bridge/evidence-bundle",
+    "version": "0.2",
+    "status": "draft",
+    "content_owner": "WS-D"
+  },
+  "allOf": [
+    { "$ref": "urn:arxmcp:bridge:envelope:v1" },
+    {
+      "properties": {
+        "bridge": {
+          "properties": {
+            "artifact": { "const": "arxmcp.bridge/evidence-bundle" }
+          }
+        },
+        "payload": {
+          "type": "object",
+          "required": ["task_id", "verdict"],
+          "allOf": [
+            {
+              "if": {
+                "properties": { "verdict": { "const": "refuted" } },
+                "required": ["verdict"]
+              },
+              "then": {
+                "required": ["task_id", "verdict", "counterexample"]
+              }
+            },
+            {
+              "if": {
+                "properties": { "verdict": { "const": "proven-formal" } },
+                "required": ["verdict"]
+              },
+              "then": {
+                "required": ["task_id", "verdict", "faithfulness"]
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "verdict": { "const": "proven-formal" },
+                  "publishable": { "const": true }
+                },
+                "required": ["verdict", "publishable"]
+              },
+              "then": {
+                "properties": {
+                  "faithfulness": {
+                    "required": ["human_signoff"],
+                    "properties": {
+                      "human_signoff": {
+                        "required": ["signed", "by", "at"],
+                        "properties": {
+                          "signed": { "const": true },
+                          "by": { "type": "string", "minLength": 1 },
+                          "at": { "type": "string", "minLength": 1 }
+                        }
+                      }
+                    }
+                  }
+                },
+                "required": ["faithfulness"]
+              }
+            }
+          ],
+          "properties": {
+            "task_id": { "type": "string", "minLength": 1 },
+            "verdict": {
+              "description": "D9 five-verdict taxonomy (v0.1 pin). Append-only within a MAJOR. abstained is the structural default; confidence derives from evidence tier attained, never model self-report.",
+              "type": "string",
+              "enum": [
+                "proven-formal",
+                "proven-informal-checked",
+                "plausible-unverified",
+                "refuted",
+                "abstained"
+              ]
+            },
+            "verdict_confidence": {
+              "type": "string",
+              "enum": ["high", "medium", "low"]
+            },
+            "verdict_reasons": {
+              "description": "Machine-readable award/denial trail (e.g. the formal_award_ok denial reasons).",
+              "type": "array",
+              "items": { "type": "string" }
+            },
+            "escalated": {
+              "description": "True when the standing escalation rules fired (any proven-* on a FALSE/OPEN control, AC-D.9; conflicting evidence, AC-D.12).",
+              "type": "boolean"
+            },
+            "counterexample": {
+              "description": "REQUIRED when verdict is 'refuted' (AC-D.7). kernel_confirmed=true only for a Lean-witness snippet that is kernel-accepted and soundness-clean (server.kat.witness_ok + sorry-taint scan); search-tactic and CAS hits are recorded with kernel_confirmed=false.",
+              "type": "object",
+              "required": ["source", "check", "kernel_confirmed", "description"],
+              "properties": {
+                "source": {
+                  "description": "Append-only enum within the MAJOR. 'literature' covers the L4 no-explicit-counterexample humility path (e.g. Mertens).",
+                  "type": "string",
+                  "enum": ["lean-witness", "lean-search", "cas-sympy", "literature"]
+                },
+                "check": { "type": "string", "minLength": 1 },
+                "kernel_confirmed": { "type": "boolean" },
+                "witness": {
+                  "description": "The witness data itself (bindings, numeric value, citation record...). Null when the source carries no explicit witness."
+                },
+                "description": { "type": "string", "minLength": 1 }
+              }
+            },
+            "skeptic": {
+              "description": "The D-5 counterexample-first lane record. prover_cycles is const 0: the lane runs BEFORE any prover cycle by contract, and this block is the budget-accounting proof (AC-D.10).",
+              "type": "object",
+              "required": ["ran", "refuted", "checks", "budget"],
+              "properties": {
+                "ran": { "type": "boolean" },
+                "refuted": { "type": "boolean" },
+                "checks": {
+                  "description": "One structured record per executed check, in execution order. Checks after a short-circuiting hit are not listed.",
+                  "type": "array",
+                  "items": { "type": "object" }
+                },
+                "cas_refused": {
+                  "description": "True when CAS checks were requested but the runner refused because ARXMCP_ENABLE_SKEPTIC_CAS is off (default).",
+                  "type": "boolean"
+                },
+                "budget": {
+                  "type": "object",
+                  "required": ["wall_clock_s", "lean_queries", "cas_runs", "prover_cycles"],
+                  "properties": {
+                    "wall_clock_s": { "type": "number", "minimum": 0 },
+                    "lean_queries": { "type": "integer", "minimum": 0 },
+                    "cas_runs": { "type": "integer", "minimum": 0 },
+                    "prover_cycles": { "const": 0 }
+                  }
+                },
+                "started_at": { "type": "string" },
+                "finished_at": { "type": "string" }
+              }
+            },
+            "formal": {
+              "description": "Formal-lane evidence: the hardened lean_verify result grain (soundness + provenance blocks; the award predicate is server.lean_soundness.formal_award_ok). Open at v0.",
+              "type": "object"
+            },
+            "faithfulness": {
+              "description": "D-3 statement-faithfulness gate record (AC-D.5), closed shape authored by server/proving/faithfulness.py (gate_version 1). Presence + shape are schema law; the TRUTH of the elements (independence attestations hold, equivalence established via lean-iff with both directions passing the hardened formal award, back-translation blind and matching, sign-off signed) is re-derived fail-closed by the pure award rule faithfulness_award_ok — a bundle missing or failing any element caps at plausible-unverified (AC-D.5). Failed gates are deliberately recordable here (no const-pinned attestation values outside the publishable law above).",
+              "type": "object",
+              "required": ["gate_ok", "dual", "equivalence", "back_translation", "skeptic_diff", "human_signoff"],
+              "properties": {
+                "gate_version": { "type": "string" },
+                "gate_ok": { "type": "boolean" },
+                "gate_reasons": { "type": "array", "items": { "type": "string" } },
+                "statement": {
+                  "type": "object",
+                  "properties": {
+                    "latex": { "type": "string" },
+                    "nl": { "type": ["string", "null"] }
+                  }
+                },
+                "dual": {
+                  "description": "Exactly two independent formalization passes ('dual' is the contract, not 'n-way'): distinct channels A/B, distinct sessions, neither saw the other's output. Attestation values are typed boolean (not const) so violations remain recordable; the award rule fails them.",
+                  "type": "object",
+                  "required": ["independent", "records"],
+                  "properties": {
+                    "independent": { "type": "boolean" },
+                    "records": {
+                      "type": "array",
+                      "minItems": 2,
+                      "maxItems": 2,
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "channel",
+                          "statement_lean",
+                          "producer",
+                          "session_id",
+                          "saw_original_statement",
+                          "saw_other_channel"
+                        ],
+                        "properties": {
+                          "channel": { "type": "string", "enum": ["A", "B"] },
+                          "statement_lean": { "type": "string", "minLength": 1 },
+                          "imports": { "type": "array", "items": { "type": "string" } },
+                          "producer": { "type": "string", "minLength": 1 },
+                          "session_id": { "type": "string", "minLength": 1 },
+                          "context_sha256": { "type": ["string", "null"] },
+                          "saw_original_statement": { "type": "boolean" },
+                          "saw_other_channel": { "type": "boolean" }
+                        }
+                      }
+                    }
+                  }
+                },
+                "equivalence": {
+                  "description": "Kernel-checked equivalence of the two formalizations: one obligation per direction through the D-2 hardened lean_verify, each direction award-eligible only when formal_award_ok passes. Only method 'lean-iff' is award-eligible; 'syntactic-identity' is reserved (documented-defeq path, not emitted by gate v1); 'none' records a not-attempted/failed check.",
+                  "type": "object",
+                  "required": ["established", "method"],
+                  "properties": {
+                    "established": { "type": "boolean" },
+                    "method": {
+                      "type": "string",
+                      "enum": ["lean-iff", "syntactic-identity", "none"]
+                    },
+                    "tactic_fwd": { "type": ["string", "null"] },
+                    "tactic_bwd": { "type": ["string", "null"] },
+                    "imports": { "type": "array", "items": { "type": "string" } },
+                    "forward": {
+                      "type": ["object", "null"],
+                      "properties": {
+                        "award_ok": { "type": "boolean" },
+                        "reasons": { "type": "array", "items": { "type": "string" } },
+                        "lean_status": { "type": ["string", "null"] },
+                        "transcript_sha256": { "type": ["string", "null"] },
+                        "snippet": { "type": "string" },
+                        "imports": { "type": "array", "items": { "type": "string" } }
+                      }
+                    },
+                    "backward": {
+                      "type": ["object", "null"],
+                      "properties": {
+                        "award_ok": { "type": "boolean" },
+                        "reasons": { "type": "array", "items": { "type": "string" } },
+                        "lean_status": { "type": ["string", "null"] },
+                        "transcript_sha256": { "type": ["string", "null"] },
+                        "snippet": { "type": "string" },
+                        "imports": { "type": "array", "items": { "type": "string" } }
+                      }
+                    }
+                  }
+                },
+                "back_translation": {
+                  "description": "Blind Lean→English rendering: the translator has NOT seen the original claim (translator_saw_original false, session distinct from both formalizer sessions) and rendered exactly the recorded channel statement. Null when the gate ran without one (recordable failure).",
+                  "type": ["object", "null"],
+                  "required": [
+                    "statement_en",
+                    "translator",
+                    "session_id",
+                    "source_channel",
+                    "rendered_statement_lean",
+                    "translator_saw_original"
+                  ],
+                  "properties": {
+                    "statement_en": { "type": "string", "minLength": 1 },
+                    "translator": { "type": "string", "minLength": 1 },
+                    "session_id": { "type": "string", "minLength": 1 },
+                    "source_channel": { "type": "string", "enum": ["A", "B"] },
+                    "rendered_statement_lean": { "type": "string", "minLength": 1 },
+                    "translator_saw_original": { "type": "boolean" }
+                  }
+                },
+                "skeptic_diff": {
+                  "description": "The skeptic's diff of the blind back-translation against the ORIGINAL claim (the skeptic must have seen the original — that is its job). A 'mismatch' verdict lists its discrepancies.",
+                  "type": ["object", "null"],
+                  "required": ["skeptic", "verdict", "saw_original"],
+                  "properties": {
+                    "skeptic": { "type": "string", "minLength": 1 },
+                    "verdict": { "type": "string", "enum": ["match", "mismatch"] },
+                    "saw_original": { "type": "boolean" },
+                    "discrepancies": { "type": "array", "items": { "type": "string" } }
+                  }
+                },
+                "human_signoff": {
+                  "description": "The AC-D.5 human checkbox. run_faithfulness_gate always emits signed=false; record_human_signoff (operator-invoked, never pipeline automation) is the only signer. When signed, by + at are required (also enforced conditionally below).",
+                  "type": "object",
+                  "required": ["signed"],
+                  "properties": {
+                    "signed": { "type": "boolean" },
+                    "by": { "type": ["string", "null"] },
+                    "at": { "type": ["string", "null"] },
+                    "note": { "type": ["string", "null"] }
+                  },
+                  "if": {
+                    "properties": { "signed": { "const": true } },
+                    "required": ["signed"]
+                  },
+                  "then": {
+                    "required": ["signed", "by", "at"],
+                    "properties": {
+                      "by": { "type": "string", "minLength": 1 },
+                      "at": { "type": "string", "minLength": 1 }
+                    }
+                  }
+                },
+                "budget": {
+                  "type": "object",
+                  "properties": {
+                    "wall_clock_s": { "type": "number", "minimum": 0 },
+                    "lean_queries": { "type": "integer", "minimum": 0 }
+                  }
+                },
+                "started_at": { "type": "string" },
+                "finished_at": { "type": "string" }
+              }
+            },
+            "publishable": {
+              "description": "Whether this bundle backs a publishable claim (an article-destined statement). Absent/false = internal run. A publishable proven-formal bundle REQUIRES faithfulness.human_signoff.signed=true (payload allOf law above) — the brief's 'no publishable proven-formal without the human checkbox' as schema, not convention.",
+              "type": "boolean"
+            },
+            "cas": {
+              "description": "CAS/numeric artifacts. AC-D.11 replay floor: every artifact records the executed code, structured params (seeds/ranges), and the timeout, so results replay.",
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["engine", "check", "status", "code", "params", "timeout_s"],
+                "properties": {
+                  "engine": { "type": "string" },
+                  "check": { "type": "string", "minLength": 1 },
+                  "status": {
+                    "type": "string",
+                    "enum": ["ok", "timeout", "error", "disabled"]
+                  },
+                  "code": { "type": "string" },
+                  "params": { "type": "object" },
+                  "timeout_s": { "type": "number", "exclusiveMinimum": 0 },
+                  "found": { "type": ["boolean", "null"] },
+                  "witness": {},
+                  "wall_clock_s": { "type": ["number", "null"], "minimum": 0 },
+                  "exit_code": { "type": ["integer", "null"] }
+                }
+              }
+            },
+            "numeric": { "type": "array", "items": { "type": "object" } },
+            "literature": { "type": "array", "items": { "type": "object" } },
+            "panel": { "type": "array", "items": { "type": "object" } },
+            "controls": {
+              "description": "Per-run KAT control outcomes (AC-D.8): sampled ids, outcomes, abstention rate, reportability.",
+              "type": "object",
+              "properties": {
+                "kat_run_id": { "type": "string" },
+                "kat_ids_run": {
+                  "type": "array",
+                  "items": { "type": "string" }
+                },
+                "abstention_rate": { "type": "number", "minimum": 0, "maximum": 1 },
+                "reportable": { "type": "boolean" }
+              }
+            },
+            "provenance": {
+              "description": "Producing-run provenance (orchestrator version, toolchain pins, timestamps). Open at v0.",
+              "type": "object"
+            },
+            "cost": {
+              "description": "Whole-run budget accounting. For a bundle refuted by the skeptic lane, prover_cycles MUST be 0 (AC-D.10) — enforced by the lane, evidenced here.",
+              "type": "object",
+              "properties": {
+                "wall_clock_s": { "type": "number", "minimum": 0 },
+                "lean_queries": { "type": "integer", "minimum": 0 },
+                "cas_runs": { "type": "integer", "minimum": 0 },
+                "prover_cycles": { "type": "integer", "minimum": 0 }
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

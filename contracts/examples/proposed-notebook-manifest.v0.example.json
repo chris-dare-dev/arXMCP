@@ -1,0 +1,86 @@
+{
+  "bridge": {
+    "artifact": "arxmcp.bridge/proposed-notebook-manifest",
+    "version": "0.2",
+    "producer": "exploration-scout-v0",
+    "produced_at": "2026-07-04T00:00:00Z",
+    "substrate": {
+      "server": "arxmcp",
+      "corpus_version": null,
+      "notebook": null,
+      "filter_echo": null,
+      "retrieval_mode": "dense_only",
+      "tool_schema_sha256": "c7df4c5c10c86693ac8553b7d079b55fba21749881c233f0f298955379d13375"
+    }
+  },
+  "payload": {
+    "topic": {
+      "title": "Fourier duality on locally compact abelian groups",
+      "description": "Pontryagin duality, characters, and the abstract Fourier transform - bridging toward the fourier-duality article follow-ups.",
+      "field_lane": "math.CA",
+      "categories": ["math.CA", "math.FA"],
+      "proposed_slug": "fourier-duality-followups"
+    },
+    "window": { "from": "2026-01-01", "to": "2026-07-01", "months": 6 },
+    "papers": [
+      {
+        "arxiv_id": "2602.11111",
+        "title": "Example recent-window paper on Pontryagin duality",
+        "published": "2026-02-15T09:00:00Z",
+        "primary_category": "math.CA",
+        "source_citation": "arXiv Atom channel cat:math.CA window 2026-01-01..2026-07-01 (sortBy=submittedDate)",
+        "corroborations": [
+          "cite_neighbors cited_by hop-1 from anchor 2008.12019",
+          "emergentmind-open-problems entry om-42: keyword overlap {duality, pontryagin}"
+        ]
+      },
+      {
+        "url": "https://arxiv.org/abs/2601.00001",
+        "title": "Example recent-window paper",
+        "published": "2026-01-20T12:00:00Z",
+        "source_citation": "arXiv Atom channel cat:math.CA window 2026-01-01..2026-07-01 (sortBy=submittedDate)"
+      }
+    ],
+    "textbooks": [
+      {
+        "title": "A Course in Abstract Harmonic Analysis",
+        "author": "G. B. Folland",
+        "source": "curated bridging-textbook table v0: category math.CA; topic match {duality}"
+      }
+    ],
+    "open_problem_sources": [
+      {
+        "name": "formal-conjectures",
+        "kind": "github-lean-corpus",
+        "url": "https://github.com/google-deepmind/formal-conjectures",
+        "retrieved_at": "2026-07-01T00:00:00Z",
+        "entries_considered": 120,
+        "entries_matched": 1
+      },
+      {
+        "name": "emergentmind-open-problems",
+        "kind": "api-snapshot",
+        "url": "https://www.emergentmind.com",
+        "retrieved_at": "2026-07-01T00:00:00Z",
+        "entries_considered": 40,
+        "entries_matched": 1
+      }
+    ],
+    "channels": {
+      "atom": {
+        "category": "math.CA",
+        "mode": "live",
+        "candidates_in_window": 2
+      },
+      "cite_neighbors": {
+        "graph_status": "absent",
+        "anchors": ["2008.12019"],
+        "neighbors_considered": 0
+      }
+    },
+    "dedup": {
+      "target": "fourier-duality",
+      "excluded_paper_ids": ["2008.12019"]
+    }
+  }
+}

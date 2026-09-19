@@ -1,0 +1,196 @@
+{
+  "bridge": {
+    "artifact": "arxmcp.bridge/evidence-bundle",
+    "version": "0.2",
+    "producer": "proving-orchestrator-v0",
+    "produced_at": "2026-07-04T03:00:00Z",
+    "substrate": {
+      "server": "arxmcp",
+      "corpus_version": 1690,
+      "notebook": {
+        "slug": "bridgeland-stability",
+        "uri": "arxmcp://notebooks/bridgeland-stability"
+      },
+      "filter_echo": null,
+      "retrieval_mode": "dense_only",
+      "tool_schema_sha256": "8665de4d1d52c053dbb1dbdd30e2a8a219c0b1e39ff9083124b5a0fa76ca304d"
+    }
+  },
+  "payload": {
+    "task_id": "even-add-even-bridgeland-stability",
+    "verdict": "proven-formal",
+    "verdict_confidence": "high",
+    "verdict_reasons": [],
+    "escalated": false,
+    "publishable": true,
+    "skeptic": {
+      "ran": true,
+      "refuted": false,
+      "cas_refused": false,
+      "checks": [
+        {
+          "lane": "lean",
+          "check": "even-add-search",
+          "kind": "search",
+          "status": "no-counterexample",
+          "hit": false,
+          "detail": null,
+          "snippet": "example : ∀ m n : Nat, Even m → Even n → Even (m + n) := by plausible",
+          "imports": [
+            "Mathlib.Tactic"
+          ],
+          "lean_status": "ok",
+          "transcript_sha256": "1111111111111111111111111111111111111111111111111111111111111111"
+        }
+      ],
+      "budget": {
+        "wall_clock_s": 4.1,
+        "lean_queries": 1,
+        "cas_runs": 0,
+        "prover_cycles": 0
+      },
+      "started_at": "2026-07-04T03:00:00Z",
+      "finished_at": "2026-07-04T03:00:05Z"
+    },
+    "formal": {
+      "statement_lean": "∀ m n : Nat, Even m → Even n → Even (m + n)",
+      "proof_snippet": "theorem even_add_even : ∀ m n : Nat, Even m → Even n → Even (m + n) := by\n  intro m n hm hn\n  exact hm.add hn",
+      "imports": [
+        "Mathlib.Algebra.Group.Even"
+      ],
+      "status": "ok",
+      "mode": "full",
+      "compilation_success": true,
+      "soundness": {
+        "guard": "passed",
+        "flags": [],
+        "audit_status": "ok",
+        "audited_decls": [
+          "even_add_even"
+        ],
+        "axiom_closure": [],
+        "axiom_closure_ok": true
+      },
+      "provenance": {
+        "lean_toolchain": "leanprover/lean4:v4.30.0-rc2",
+        "mathlib_rev": "5450b53e5ddc",
+        "transcript_sha256": "2222222222222222222222222222222222222222222222222222222222222222"
+      }
+    },
+    "faithfulness": {
+      "gate_version": "1",
+      "gate_ok": true,
+      "gate_reasons": [],
+      "statement": {
+        "latex": "The sum of two even natural numbers is even.",
+        "nl": "The sum of two even natural numbers is even."
+      },
+      "dual": {
+        "independent": true,
+        "records": [
+          {
+            "channel": "A",
+            "statement_lean": "∀ m n : Nat, Even m → Even n → Even (m + n)",
+            "imports": [
+              "Mathlib.Tactic"
+            ],
+            "producer": "autoformalizer-sonnet",
+            "session_id": "form-a-8f31",
+            "context_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "saw_original_statement": true,
+            "saw_other_channel": false
+          },
+          {
+            "channel": "B",
+            "statement_lean": "∀ a b : Nat, a % 2 = 0 → b % 2 = 0 → (a + b) % 2 = 0",
+            "imports": [
+              "Mathlib.Tactic"
+            ],
+            "producer": "autoformalizer-haiku",
+            "session_id": "form-b-2c77",
+            "context_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "saw_original_statement": true,
+            "saw_other_channel": false
+          }
+        ]
+      },
+      "equivalence": {
+        "established": true,
+        "method": "lean-iff",
+        "tactic_fwd": "first\n    | exact fun h => h\n    | tauto\n    | omega\n    | decide\n    | (norm_num; done)\n    | (intros; omega)\n    | (intros; norm_num; done)\n    | (intros; solve_by_elim)\n    | (intros; simp only [Nat.even_iff, Nat.odd_iff] at *; solve_by_elim)\n    | aesop",
+        "tactic_bwd": "first\n    | exact fun h => h\n    | tauto\n    | omega\n    | decide\n    | (norm_num; done)\n    | (intros; omega)\n    | (intros; norm_num; done)\n    | (intros; solve_by_elim)\n    | (intros; simp only [Nat.even_iff, Nat.odd_iff] at *; solve_by_elim)\n    | aesop",
+        "imports": [
+          "Mathlib.Tactic"
+        ],
+        "forward": {
+          "award_ok": true,
+          "reasons": [],
+          "lean_status": "ok",
+          "transcript_sha256": "3333333333333333333333333333333333333333333333333333333333333333",
+          "snippet": "theorem d3_gate_equiv_fwd : (∀ m n : Nat, Even m → Even n → Even (m + n)) → (∀ a b : Nat, a % 2 = 0 → b % 2 = 0 → (a + b) % 2 = 0) := by\n  ...",
+          "imports": [
+            "Mathlib.Tactic"
+          ]
+        },
+        "backward": {
+          "award_ok": true,
+          "reasons": [],
+          "lean_status": "ok",
+          "transcript_sha256": "4444444444444444444444444444444444444444444444444444444444444444",
+          "snippet": "theorem d3_gate_equiv_bwd : (∀ a b : Nat, a % 2 = 0 → b % 2 = 0 → (a + b) % 2 = 0) → (∀ m n : Nat, Even m → Even n → Even (m + n)) := by\n  ...",
+          "imports": [
+            "Mathlib.Tactic"
+          ]
+        }
+      },
+      "back_translation": {
+        "statement_en": "For all natural numbers m and n, if m is even and n is even, then m + n is even.",
+        "translator": "blind-translator-haiku",
+        "session_id": "bt-91d0",
+        "source_channel": "A",
+        "rendered_statement_lean": "∀ m n : Nat, Even m → Even n → Even (m + n)",
+        "translator_saw_original": false
+      },
+      "skeptic_diff": {
+        "skeptic": "statement-skeptic-sonnet",
+        "verdict": "match",
+        "saw_original": true,
+        "discrepancies": []
+      },
+      "human_signoff": {
+        "signed": true,
+        "by": "chris.dare",
+        "at": "2026-07-04T03:10:00Z",
+        "note": "Reviewed both formalizations and the back-translation against the article claim."
+      },
+      "budget": {
+        "wall_clock_s": 3.9,
+        "lean_queries": 2
+      },
+      "started_at": "2026-07-04T03:00:05Z",
+      "finished_at": "2026-07-04T03:00:09Z"
+    },
+    "controls": {
+      "kat_run_id": "kat-20260704T030000000000Z",
+      "kat_ids_run": [
+        "kat-tf-01",
+        "kat-fm-03",
+        "kat-op-02"
+      ],
+      "abstention_rate": 0.3333333333333333,
+      "reportable": true
+    },
+    "provenance": {
+      "orchestrator_version": "v0",
+      "lean_toolchain": "leanprover/lean4:v4.30.0-rc2",
+      "mathlib_rev": "5450b53e5ddc",
+      "created_at": "2026-07-04T03:00:12Z"
+    },
+    "cost": {
+      "wall_clock_s": 21.7,
+      "lean_queries": 4,
+      "cas_runs": 0,
+      "prover_cycles": 1
+    }
+  }
+}

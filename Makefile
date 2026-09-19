@@ -129,6 +129,13 @@ Try: make test PYTHON=python3.$(MIN_PY_MINOR)'"
 	$(PYTHON) -m ruff check .
 	$(PYTHON) -m pytest
 
+# stage2/arx-a1: regenerate the offline OpenAPI dump for the /api/v1
+# operator surface (Interface Artifact IF-1). Build-time only — the
+# runtime openapi_url stays disabled (Threat 4). Commit the result;
+# tests/test_openapi_dump.py fails when the committed file is stale.
+openapi:
+	$(PYTHON) -m tools.dump_openapi
+
 # The Tier-0 → Tier-1 exit gate. See .claude/TIER-GATES.md for the full
 # behavior matrix (pass / fail / SKIP) and the operator's prerequisite
 # checklist. SKIP is NOT a pass for promotion — verify the test

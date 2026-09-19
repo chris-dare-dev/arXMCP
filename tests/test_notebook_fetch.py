@@ -77,7 +77,7 @@ class TestNotebookFetchRun:
             ),
             patch.object(notebook_fetch, "CORPUS_RAW_DIR", raw_dir),
             patch.object(
-                notebook_fetch, "try_cache", side_effect=_local_cache_hit,
+                notebook_fetch, "try_html_sources", side_effect=_local_cache_hit,
             ),
             patch.object(
                 notebook_fetch, "fetch_raw_tex_if_missing",

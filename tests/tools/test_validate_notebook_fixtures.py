@@ -114,6 +114,27 @@ class TestHappyPath:
         assert data["notebook_slug"] == "demo-nb"
         assert len(data["queries"]) == 6
 
+    # The two real-notebook smoke tests depend on MACHINE-LOCAL data
+    # under the gitignored var/ tree, not on repo-committed fixtures.
+    # On the Windows workstation the curated queries.json files do not
+    # exist (bridgeland-stability has papers.txt but no queries.json;
+    # shimura-varieties lives only on the macOS machine — Stage-1
+    # finding 211 R-C / finding 03 F-10). Skip on data absence, not on
+    # platform: the tests re-arm automatically the moment the curated
+    # fixture lands on this box. Triage record:
+    # .claude/notes/windows-test-triage.md §6.
+    _REAL_NB_BASE = (
+        Path(__file__).resolve().parents[2] / "var" / "arxmcp" / "notebooks"
+    )
+
+    @pytest.mark.skipif(
+        not (_REAL_NB_BASE / "bridgeland-stability" / "queries.json").is_file(),
+        reason=(
+            "machine-local fixture var/arxmcp/notebooks/"
+            "bridgeland-stability/queries.json absent on this host — "
+            "see .claude/notes/windows-test-triage.md §6"
+        ),
+    )
     def test_real_bridgeland_notebook_validates(self) -> None:
         """Smoke-test against the actual on-disk bridgeland fixture.
 
@@ -125,6 +146,14 @@ class TestHappyPath:
         assert data["notebook_slug"] == "bridgeland-stability"
         assert len(data["queries"]) >= MIN_NOTEBOOK_QUERIES
 
+    @pytest.mark.skipif(
+        not (_REAL_NB_BASE / "shimura-varieties" / "queries.json").is_file(),
+        reason=(
+            "machine-local fixture var/arxmcp/notebooks/"
+            "shimura-varieties/queries.json absent on this host — "
+            "see .claude/notes/windows-test-triage.md §6"
+        ),
+    )
     def test_real_shimura_notebook_validates(self) -> None:
         """Smoke-test against the actual on-disk shimura fixture.
 

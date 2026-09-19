@@ -220,7 +220,88 @@ def _reset_debug_warning_for_tests() -> None:
     _debug_warning_emitted = False
 
 
+# ---------------------------------------------------------------------------
+# Ring-buffer log handler (stage2/arx-a23, WS-A A3 — gap R2)
+# ---------------------------------------------------------------------------
+
+
+class RingBufferLogHandler(logging.Handler):
+    """Feed post-redaction log records into the in-process log ring
+    (:data:`server.observability.events.LOG_EVENTS`) + the SSE bus.
+
+    **Redaction-ordering contract (AC-A.12).** This module's own
+    documented rule is that handlers added AFTER :func:`configure`
+    runs are NOT auto-protected. This handler therefore NEVER
+    reaches the root logger except through
+    :func:`install_ring_buffer_handler`, which attaches a
+    :class:`RedactionFilter` to the handler instance at install time
+    — the exact mechanism :func:`configure` uses for the stdout
+    handler. Handler-level filters run at emit time on records
+    propagated from child loggers, so every record entering the ring
+    has already had :data:`REDACTED_FIELDS` stripped at INFO+.
+
+    The stored shape mirrors :class:`JsonFormatter`'s payload (same
+    ``_FORMATTER_INTERNAL_ATTRS`` exclusion, same ``level`` rename,
+    same never-raise coercion discipline) so the tail endpoint and
+    the stdout stream describe records identically.
+    """
+
+    def emit(self, record: logging.LogRecord) -> None:  # noqa: D102
+        try:
+            # Lazy import — logging_setup must stay importable without
+            # the events module in exotic partial-install scenarios,
+            # and the import cost is paid once (module cache).
+            from server.observability.events import (  # noqa: PLC0415
+                publish_log_event,
+            )
+
+            payload = {
+                k: v
+                for k, v in record.__dict__.items()
+                if k not in _FORMATTER_INTERNAL_ATTRS
+            }
+            payload["message"] = record.getMessage()
+            if "levelname" in payload:
+                payload["level"] = payload["levelname"]
+            publish_log_event(payload)
+        except Exception:  # noqa: BLE001 — a broken ring must never kill logging
+            self.handleError(record)
+
+
+def install_ring_buffer_handler() -> RingBufferLogHandler:
+    """Idempotently install the ring handler on the root logger with
+    a :class:`RedactionFilter` attached FIRST (the R2 ordering
+    contract). Returns the installed (or pre-existing) handler.
+
+    Called from the server lifespan so both entry points (``python
+    -m server.main`` and test-constructed apps) get a protected ring
+    without re-running the full :func:`configure` (which would
+    clobber test logging levels)."""
+    root = logging.getLogger()
+    for handler in root.handlers:
+        if isinstance(handler, RingBufferLogHandler):
+            # Already installed — re-assert the filter (idempotent).
+            if not any(isinstance(f, RedactionFilter) for f in handler.filters):
+                handler.addFilter(RedactionFilter())
+            return handler
+    handler = RingBufferLogHandler()
+    handler.addFilter(RedactionFilter())
+    root.addHandler(handler)
+    return handler
+
+
+def remove_ring_buffer_handler() -> None:
+    """Detach any installed ring handler (lifespan shutdown / tests)."""
+    root = logging.getLogger()
+    for handler in list(root.handlers):
+        if isinstance(handler, RingBufferLogHandler):
+            root.removeHandler(handler)
+
+
 __all__ = [
     "JsonFormatter",
+    "RingBufferLogHandler",
     "configure",
+    "install_ring_buffer_handler",
+    "remove_ring_buffer_handler",
 ]

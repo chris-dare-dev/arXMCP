@@ -1,0 +1,41 @@
+{
+  "bridge": {
+    "artifact": "arxmcp.bridge/run-ledger-entry",
+    "version": "1.0",
+    "producer": "proof-verify-orchestrator",
+    "produced_at": "2026-07-04T00:30:00Z",
+    "substrate": {
+      "server": "arxmcp",
+      "corpus_version": 205,
+      "notebook": {
+        "slug": "fourier-duality",
+        "uri": "arxmcp://notebooks/fourier-duality"
+      },
+      "filter_echo": { "notebook": "fourier-duality" },
+      "retrieval_mode": "dense_only",
+      "tool_schema_sha256": "c7df4c5c10c86693ac8553b7d079b55fba21749881c233f0f298955379d13375"
+    }
+  },
+  "payload": {
+    "run_id": "proof-verify-fourier-duality-20260704-001",
+    "pipeline": "proof-verify",
+    "outcome": "completed",
+    "inputs": [
+      {
+        "artifact": "arxmcp.bridge/notebook-ref",
+        "version": "1.0",
+        "path": "artifacts/notebook-ref-fourier-duality.json",
+        "sha256": "b5bb9d8014a0f9b1d61e21e796d78dccdf1352f23cd32812f4850b878ae4944c"
+      }
+    ],
+    "outputs": [
+      {
+        "artifact": "arxmcp.bridge/retrieval-evidence",
+        "version": "1.0",
+        "path": "triangulation/C-001-arxmcp.json"
+      }
+    ],
+    "started_at": "2026-07-04T00:00:00Z",
+    "finished_at": "2026-07-04T00:30:00Z"
+  }
+}

@@ -485,6 +485,45 @@ def _encode_batch(
 # Per-paper NPZ write (atomic, mirrors preamble._write_preamble_json)
 # ---------------------------------------------------------------------------
 
+#: Bounded retry envelope for :func:`_replace_with_retry`. 100 x 10 ms
+#: = 1 s worst case before the original error re-raises — long enough
+#: to outlast a sibling writer's MoveFileEx window, short enough not
+#: to mask a genuinely wedged file handle.
+_REPLACE_RETRY_ATTEMPTS = 100
+_REPLACE_RETRY_SLEEP_SECONDS = 0.01
+
+
+def _replace_with_retry(tmp: Path, out_path: Path) -> None:
+    """``os.replace`` with a bounded retry for Windows rename contention.
+
+    On POSIX, ``rename(2)`` atomically replaces the destination even
+    while other processes hold it open — concurrent idempotent writers
+    (AC #5, two embedder processes) interleave freely. On Windows,
+    ``os.replace`` maps to ``MoveFileEx(MOVEFILE_REPLACE_EXISTING)``,
+    which fails with ``PermissionError`` (WinError 5) while another
+    process is mid-replace on, or holds an open handle to, the same
+    destination. Because every writer of these artifacts is idempotent
+    (identical inputs produce byte-identical NPZ/sidecar bytes — the
+    BP1 discipline), losing a rename race is benign; retrying briefly
+    converges to the same final state as POSIX last-writer-wins.
+
+    Verified live on Windows 11 / Python 3.11 (stage2/arx-ws0 baseline
+    triage, 2026-07-04): the two-process writer race in
+    ``tests/test_embedder_idempotent.py::TestMultiProcessConcurrency``
+    hits WinError 5 reliably without this retry and passes with it.
+    Non-PermissionError failures re-raise immediately; PermissionError
+    re-raises after the bounded envelope so a genuinely locked file
+    still surfaces loudly.
+    """
+    for attempt in range(_REPLACE_RETRY_ATTEMPTS):
+        try:
+            os.replace(tmp, out_path)
+            return
+        except PermissionError:
+            if attempt == _REPLACE_RETRY_ATTEMPTS - 1:
+                raise
+            time.sleep(_REPLACE_RETRY_SLEEP_SECONDS)
+
 
 def _write_embeddings_npz(
     out_path: Path,
@@ -550,7 +589,7 @@ def _write_embeddings_npz(
                 embedding_proof=embedding_proof,
                 embedding_stmt=embedding_stmt,
             )
-        os.replace(tmp, out_path)
+        _replace_with_retry(tmp, out_path)
     finally:
         with contextlib.suppress(OSError):
             tmp.unlink(missing_ok=True)
@@ -633,7 +672,7 @@ def _write_embeddings_manifest(
     )
     try:
         tmp.write_text(payload, encoding="utf-8")
-        os.replace(tmp, out_path)
+        _replace_with_retry(tmp, out_path)
     finally:
         with contextlib.suppress(OSError):
             tmp.unlink(missing_ok=True)

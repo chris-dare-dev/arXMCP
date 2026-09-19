@@ -97,7 +97,7 @@ def build_synthetic_kuzu_graph(
                     confidence=1.0,
                 )
     finally:
-        del db
+        kuzudb_schema.close_kuzu(db, conn)
     return paper_ids
 
 

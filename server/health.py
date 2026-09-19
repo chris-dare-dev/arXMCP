@@ -226,6 +226,12 @@ async def readyz(request: Request) -> Response:
             content={
                 "status": "bootstrap",
                 "bootstrap_mode_active": True,
+                # stage2/arx-a1: corpus_version restored to the /readyz
+                # body (finding 06 §3 item 2 — the spike-3 degradation
+                # was exactly this field silently vanishing). Bootstrap
+                # mode has no corpus, so the value is an explicit null,
+                # never absent.
+                "corpus_version": None,
                 "warm": warm_map,
             },
         )
@@ -264,6 +270,10 @@ async def readyz(request: Request) -> Response:
                 "reason": resources.degraded.reason,
                 "fallback_version": resources.degraded.fallback_version,
                 "original_version": resources.degraded.original_version,
+                # stage2/arx-a1: the version actually being SERVED (the
+                # fallback), so consumers reading only corpus_version
+                # pin against reality, not the failed original.
+                "corpus_version": resources.degraded.fallback_version,
                 "warm": {
                     "embedder": resources.is_resource_warm("embedder"),
                     "lancedb": resources.is_resource_warm("lancedb"),
@@ -284,6 +294,11 @@ async def readyz(request: Request) -> Response:
         status_code=200,
         content={
             "status": "ready",
+            # stage2/arx-a1: corpus_version restored to the ready body
+            # (finding 06 §3 item 2). The bridge substrate block treats
+            # this as load-bearing; spike-3 burned probe cycles when it
+            # silently dropped off this endpoint.
+            "corpus_version": resources.corpus_info.version,
             "chunk_count": None if startup_count < 0 else startup_count,
             "marker_chunk_count": resources.corpus_info.chunk_count,
             "warm": {
@@ -309,6 +324,68 @@ def _iso_now() -> str:
     from datetime import UTC, datetime  # noqa: PLC0415
 
     return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+async def _notebook_corpus_versions(store: object | None) -> dict[str, int | None]:
+    """Best-effort per-notebook ``corpus_version`` map (stage2/arx-a1).
+
+    Reads each registered notebook's ``lancedb/corpus-version.json``
+    marker and returns ``{slug: version | None}`` (``None`` = marker
+    absent or malformed — the notebook is scaffolded but never
+    ingested, or needs operator attention; the per-notebook
+    ``/ui/api/notebooks/{slug}/health`` endpoint is the detailed
+    diagnostic).
+
+    Restores the per-notebook half of the finding 06 §3 item 2
+    requirement ("corpus_version per notebook" on ``/status`` —
+    acceptance-criteria.md AC-A.3): the bridge substrate block pins
+    ``(notebook, corpus_version)`` pairs, and until now the only source
+    for a notebook's live version was a per-notebook diagnostic route
+    consumers had to call one-by-one.
+
+    Cost: one small JSON read per registered notebook (~6 today) —
+    acceptable on the 10 s badge poll. Every failure path degrades to
+    ``None`` values or an empty map; a status probe must never raise.
+    """
+    if store is None:
+        return {}
+    try:
+        rows = await store.list_notebooks()  # type: ignore[attr-defined]
+    except Exception:  # noqa: BLE001 — operability probe, must not 500
+        logger.warning(
+            "/status notebook corpus-version probe failed at list_notebooks",
+            exc_info=True,
+        )
+        return {}
+    from server.corpus import read_corpus_version  # noqa: PLC0415
+
+    out: dict[str, int | None] = {}
+    for row in rows:
+        slug = row.get("slug") if isinstance(row, dict) else None
+        if not slug:
+            continue
+        version: int | None = None
+        try:
+            lancedb_path = row.get("lancedb_path")
+            if lancedb_path:
+                marker_dir = Path(lancedb_path)
+            else:
+                from tools._notebook_common import (  # noqa: PLC0415
+                    notebook_lancedb_path,
+                )
+
+                marker_dir = notebook_lancedb_path(slug)
+            info = read_corpus_version(marker_dir)
+            if info is not None:
+                version = info.version
+        except Exception:  # noqa: BLE001 — per-notebook isolation; keep walking
+            logger.warning(
+                "/status corpus-version marker read failed for notebook %r",
+                slug,
+                exc_info=True,
+            )
+        out[slug] = version
+    return out
 
 
 async def compute_health_status(
@@ -346,6 +423,15 @@ async def compute_health_status(
         checks["process:uptime"] = [
             {"componentType": "system", "observedValue": round(uptime, 1),
              "observedUnit": "s", "status": "pass", "time": t}
+        ]
+        # stage2/arx-a1: per-notebook corpus versions surface even in
+        # bootstrap mode (marker reads need no warm resources) — an
+        # operator restoring a data tree sees which notebooks carry a
+        # live corpus before first ingest promotes the server.
+        checks["notebooks:corpus_versions"] = [
+            {"componentType": "datastore",
+             "observedValue": await _notebook_corpus_versions(store),
+             "status": "pass", "time": t}
         ]
         return {
             "status": "warn",
@@ -396,6 +482,15 @@ async def compute_health_status(
         {"componentType": "datastore",
          "observedValue": resources.corpus_info.version,
          "observedUnit": "version", "status": "pass", "time": t}
+    ]
+
+    # stage2/arx-a1: per-notebook corpus_version map (finding 06 §3
+    # item 2 / AC-A.3 — "corpus_version per notebook"). The shared
+    # corpus:version check above is unchanged; this is additive.
+    checks["notebooks:corpus_versions"] = [
+        {"componentType": "datastore",
+         "observedValue": await _notebook_corpus_versions(store),
+         "status": "pass", "time": t}
     ]
 
     # notebook count — degrade to warn (never 500) if the store is absent or

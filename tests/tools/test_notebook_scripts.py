@@ -24,6 +24,7 @@ from pathlib import Path
 import pytest
 
 from ingest.ar5iv_fetch import Ar5ivResult
+from tests._platform_helpers import requires_symlinks
 from tools import _notebook_common, notebook_fetch, notebook_ingest, notebook_init, notebook_purge
 from tools._notebook_common import NotebookError, validate_slug
 
@@ -246,7 +247,7 @@ def test_fetch_happy_path(
             paper_id=paper_id, hit=True, cache_path=Path("/x"),
             parsed_path=Path("/y"), reason="ok_local_cache",
         )
-    monkeypatch.setattr(notebook_fetch, "try_cache", _local_cache_hit)
+    monkeypatch.setattr(notebook_fetch, "try_html_sources", _local_cache_hit)
 
     rc = notebook_fetch.run("demo", sleep_seconds=0.0)
     out = capsys.readouterr().out
@@ -271,7 +272,7 @@ def test_fetch_distinguishes_rate_limit_from_miss(
     _seed_notebook(notebooks_base, "demo", ["2303.07061", "0705.3794", "1106.3430"])
 
     # Mock try_cache: first returns 429, second returns 404, third returns hit
-    def _mock(paper_id, *, cache_dir, parsed_dir):
+    def _mock(paper_id, *, native_cache_dir, ar5iv_cache_dir, parsed_dir):
         if paper_id == "2303.07061":
             return Ar5ivResult(
                 paper_id=paper_id, hit=False, cache_path=None,
@@ -286,7 +287,7 @@ def test_fetch_distinguishes_rate_limit_from_miss(
             paper_id=paper_id, hit=True, cache_path=Path("/x"),
             parsed_path=Path("/y"), reason="ok",
         )
-    monkeypatch.setattr(notebook_fetch, "try_cache", _mock)
+    monkeypatch.setattr(notebook_fetch, "try_html_sources", _mock)
 
     rc = notebook_fetch.run("demo", sleep_seconds=0.0)
     captured = capsys.readouterr()
@@ -314,10 +315,10 @@ def test_fetch_rejects_malformed_papers_txt_lines(
         "demo",
         ["https://arxiv.org/abs/2303.07061", "not-an-id", "0705.3794"],
     )
-    # try_cache for the one valid ID
+    # fetch ladder for the one valid ID
     monkeypatch.setattr(
         notebook_fetch,
-        "try_cache",
+        "try_html_sources",
         lambda paper_id, **kw: Ar5ivResult(
             paper_id=paper_id, hit=True, cache_path=Path("/x"),
             parsed_path=Path("/y"), reason="ok"
@@ -516,6 +517,7 @@ def test_purge_corpus_too_rejects_malformed_paper_ids(
     assert sentinel_root.exists()
 
 
+@requires_symlinks
 def test_notebook_dir_rejects_symlink(tmp_path: Path) -> None:
     """F3 regression (HIGH): if nb_base/<slug> is a symlink, refuse."""
     base = tmp_path / "nb_base"
@@ -557,7 +559,7 @@ def test_fetch_does_not_short_circuit_corrupt_parsed_file(
             paper_id=paper_id, hit=False, cache_path=None,
             parsed_path=None, reason="no_math_in_body",
         )
-    monkeypatch.setattr(notebook_fetch, "try_cache", _mock)
+    monkeypatch.setattr(notebook_fetch, "try_html_sources", _mock)
 
     notebook_fetch.run("demo", sleep_seconds=0.0)
     out = capsys.readouterr().out
@@ -779,7 +781,7 @@ def test_fetch_raw_tex_if_missing_invoked_after_ar5iv_hit(
             paper_id=paper_id, hit=True, cache_path=Path("/x"),
             parsed_path=Path("/y"), reason="ok_local_cache",
         )
-    monkeypatch.setattr(notebook_fetch, "try_cache", _local_cache_hit)
+    monkeypatch.setattr(notebook_fetch, "try_html_sources", _local_cache_hit)
 
     invocations: list[str] = []
 
@@ -813,7 +815,7 @@ def test_fetch_raw_tex_if_missing_failure_does_not_abort_notebook(
             paper_id=paper_id, hit=True, cache_path=Path("/x"),
             parsed_path=Path("/y"), reason="ok_local_cache",
         )
-    monkeypatch.setattr(notebook_fetch, "try_cache", _local_cache_hit)
+    monkeypatch.setattr(notebook_fetch, "try_html_sources", _local_cache_hit)
 
     # First paper succeeds, second fails (simulating 503), third succeeds.
     calls: list[str] = []

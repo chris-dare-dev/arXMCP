@@ -80,7 +80,17 @@ logger = logging.getLogger(__name__)
 #: route layer against ``{math.AG, math.NT, math-ph, hep-th}``) and
 #: free-text ``description``. Column-level DEFAULT ``''`` backfills
 #: every existing row; the route layer is the validation authority.
-SCHEMA_VERSION: int = 5
+#:
+#: v5→v6 is the stage2/arx-a45 ADDITIVE migration (AC-A.18) adding
+#: ``textbook_chunker`` to ``notebooks``: which chunking strategy
+#: server-side textbook processing uses — ``'html'`` (MinerU →
+#: LaTeXML render → section-div chunker; the historical default) or
+#: ``'markdown'`` (MinerU markdown chunked directly; no LaTeXML
+#: render — the documented best path for math-dense PDFs, HANDOFF
+#: §6.4). Column-level DEFAULT ``'html'`` backfills every existing
+#: row. The route layer's ``NotebookCreate`` model is the validation
+#: authority (``{html, markdown}``); irrelevant for arxiv-kind rows.
+SCHEMA_VERSION: int = 6
 
 
 class NotebooksStore:
@@ -293,6 +303,22 @@ class NotebooksStore:
                 except Exception:
                     conn.execute("ROLLBACK")
                     raise
+            # v5 -> v6: stage2/arx-a45 ADDITIVE migration (AC-A.18).
+            # Single ALTER + version bump wrapped in an explicit
+            # transaction for the same crash-mid-migration
+            # re-runnability reasoning as the v4->v5 block.
+            if current_version < 6:
+                conn.execute("BEGIN")
+                try:
+                    conn.execute(
+                        "ALTER TABLE notebooks ADD COLUMN "
+                        "textbook_chunker TEXT NOT NULL DEFAULT 'html'"
+                    )
+                    conn.execute("PRAGMA user_version = 6")
+                    conn.execute("COMMIT")
+                except Exception:
+                    conn.execute("ROLLBACK")
+                    raise
             return conn
 
         conn = await asyncio.to_thread(_open_sync)
@@ -328,7 +354,8 @@ class NotebooksStore:
                     "SELECT slug, display_name, lancedb_path, "
                     "created_at, notebook_kind, parse_status, "
                     "parse_error, parsed_html_path, "
-                    "discovery_category, description "
+                    "discovery_category, description, "
+                    "textbook_chunker "
                     "FROM notebooks ORDER BY created_at DESC, slug ASC"
                 ).fetchall()
                 return [
@@ -341,6 +368,7 @@ class NotebooksStore:
                         "parsed_html_path": r[7],
                         "discovery_category": r[8],
                         "description": r[9],
+                        "textbook_chunker": r[10],
                     }
                     for r in rows
                 ]
@@ -359,7 +387,8 @@ class NotebooksStore:
                     "SELECT slug, display_name, lancedb_path, "
                     "created_at, notebook_kind, parse_status, "
                     "parse_error, parsed_html_path, "
-                    "discovery_category, description "
+                    "discovery_category, description, "
+                    "textbook_chunker "
                     "FROM notebooks WHERE slug = ?",
                     (slug,),
                 ).fetchone()
@@ -374,6 +403,7 @@ class NotebooksStore:
                     "parsed_html_path": row[7],
                     "discovery_category": row[8],
                     "description": row[9],
+                    "textbook_chunker": row[10],
                 }
             return await asyncio.to_thread(_query)
 
@@ -387,6 +417,7 @@ class NotebooksStore:
         parse_status: str | None = None,
         discovery_category: str = "",
         description: str = "",
+        textbook_chunker: str = "html",
     ) -> None:
         """Insert a notebook row. Raises :class:`sqlite3.IntegrityError`
         on duplicate slug — the REST handler catches and translates to
@@ -411,6 +442,13 @@ class NotebooksStore:
         passes ``parse_status='pending'`` for textbook-kind so the
         upload-route's parse-task scheduler observes the right initial
         state.
+
+        stage2/arx-a45 (AC-A.18): ``textbook_chunker`` defaults to
+        ``'html'`` (matching the v6 column DEFAULT) so existing callers
+        keep the historical MinerU → LaTeXML render path. The route
+        layer's ``NotebookCreate`` model enforces the ``{html,
+        markdown}`` domain AND the textbook-kind-only constraint before
+        the call reaches this writer.
         """
         async with self._lock:
             def _insert() -> None:
@@ -418,21 +456,25 @@ class NotebooksStore:
                     self._conn.execute(
                         "INSERT INTO notebooks "
                         "(slug, display_name, lancedb_path, created_at, "
-                        " notebook_kind, discovery_category, description) "
-                        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                        " notebook_kind, discovery_category, description, "
+                        " textbook_chunker) "
+                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                         (slug, display_name, lancedb_path, created_at,
-                         notebook_kind, discovery_category, description),
+                         notebook_kind, discovery_category, description,
+                         textbook_chunker),
                     )
                 else:
                     self._conn.execute(
                         "INSERT INTO notebooks "
                         "(slug, display_name, lancedb_path, created_at, "
                         " notebook_kind, parse_status, "
-                        " discovery_category, description) "
-                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                        " discovery_category, description, "
+                        " textbook_chunker) "
+                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                         (slug, display_name, lancedb_path, created_at,
                          notebook_kind, parse_status,
-                         discovery_category, description),
+                         discovery_category, description,
+                         textbook_chunker),
                     )
             await asyncio.to_thread(_insert)
 
@@ -513,21 +555,60 @@ class NotebooksStore:
     # Papers (junction table)
     # ------------------------------------------------------------------
 
-    async def list_papers(self, slug: str) -> list[dict[str, str]]:
+    async def list_papers(
+        self,
+        slug: str,
+        *,
+        limit: int | None = None,
+        offset: int = 0,
+    ) -> list[dict[str, str]]:
         """Return junction rows for ``slug`` ordered by ``added_at DESC``.
 
         Returns an empty list if the notebook has no papers OR does
         not exist — callers check ``get_notebook(slug)`` first if
         404-vs-empty distinction matters.
+
+        When ``limit`` is given, the LIMIT/OFFSET is pushed into SQL so
+        only that page of rows is read from disk (the ordering is
+        stable — ``added_at DESC, paper_id ASC`` — so paging is
+        deterministic). ``limit=None`` (the default) preserves the
+        original "all rows" contract for callers that page in memory
+        (e.g. the ``/api/v1`` list envelope). The event-loop-blocking
+        cliff this guards is stage-3 finding
+        ``legacy-ui-detail-page-blocks-event-loop-then-413s``: the
+        ``/ui/notebooks/{slug}`` HTML page must NOT read + render every
+        row of an arbitrarily large notebook on the event loop.
         """
         async with self._lock:
             def _query() -> list[dict[str, str]]:
-                rows = self._conn.execute(
+                sql = (
                     "SELECT paper_id, added_at FROM notebook_papers "
-                    "WHERE slug = ? ORDER BY added_at DESC, paper_id ASC",
-                    (slug,),
-                ).fetchall()
+                    "WHERE slug = ? ORDER BY added_at DESC, paper_id ASC"
+                )
+                params: tuple[object, ...] = (slug,)
+                if limit is not None:
+                    # OFFSET is only meaningful with LIMIT in SQLite.
+                    sql += " LIMIT ? OFFSET ?"
+                    params = (slug, limit, offset)
+                rows = self._conn.execute(sql, params).fetchall()
                 return [{"paper_id": r[0], "added_at": r[1]} for r in rows]
+            return await asyncio.to_thread(_query)
+
+    async def count_papers(self, slug: str) -> int:
+        """Return the number of junction rows for ``slug`` (0 if absent).
+
+        A single ``COUNT(*)`` — O(1) with the ``idx_notebook_papers_slug``
+        index — so the paginated UI can show a total / compute a last
+        page without reading every row (finding
+        ``legacy-ui-detail-page-blocks-event-loop-then-413s``).
+        """
+        async with self._lock:
+            def _query() -> int:
+                row = self._conn.execute(
+                    "SELECT COUNT(*) FROM notebook_papers WHERE slug = ?",
+                    (slug,),
+                ).fetchone()
+                return int(row[0]) if row else 0
             return await asyncio.to_thread(_query)
 
     async def add_paper(

@@ -107,7 +107,11 @@ class TestNotebookCrud:
         assert body["slug"] == "demo-nb"
         assert body["display_name"] == "Demo notebook"
         assert "lancedb_path" in body
-        assert body["lancedb_path"].endswith("demo-nb/lancedb")
+        # lancedb_path is an OS-native filesystem path ("\\" on
+        # Windows) — normalize before the suffix check.
+        assert body["lancedb_path"].replace("\\", "/").endswith(
+            "demo-nb/lancedb"
+        )
 
     def test_create_then_list_returns_row(self, client: TestClient) -> None:
         client.post("/ui/api/notebooks", json={"slug": "demo-nb"})
@@ -363,6 +367,11 @@ class TestArxivUrlNormalizer:
             ("https://arxiv.org/abs/2604.26204v3", "2604.26204v3"),
             ("https://arxiv.org/abs/hep-th/0001234", "hep-th/0001234"),
             ("https://arxiv.org/abs/2604.26204/", "2604.26204"),  # trailing /
+            # stage2/arx-a45 (AC-A.16): arxiv.org/html/<id> — arXiv's
+            # first-party native HTML surface — is now an accepted
+            # add-paper form (the m7-era reject case moved up here).
+            ("https://arxiv.org/html/2604.26204", "2604.26204"),
+            ("https://arxiv.org/html/2604.26204v2", "2604.26204v2"),
         ],
     )
     def test_accepted_forms(
@@ -383,7 +392,9 @@ class TestArxivUrlNormalizer:
             # now a happy-path case — covered by
             # tests/test_ui_html_pages.py::TestAr5ivUrlNormalizer.
             "https://ar5iv.labs.arxiv.org/abs/2604.26204",     # wrong prefix for ar5iv host
-            "https://arxiv.org/html/2604.26204",               # wrong prefix for arxiv host
+            # NOTE: stage2/arx-a45 (AC-A.16) extended the normalizer to
+            # ALSO accept `https://arxiv.org/html/<id>` (native HTML) —
+            # that m7-era reject case is now a happy-path case above.
             "https://arxiv.org/abs/NOT-A-PAPER-ID",            # invalid id
             "https://arxiv.org/abs/2604.26204X",               # extra suffix
             "ftp://arxiv.org/abs/2604.26204",                  # wrong scheme
@@ -1120,7 +1131,8 @@ class TestNotebookKindMigration:
         self, tmp_path: Path,
     ) -> None:
         """After NotebooksStore.open on a fresh DB, PRAGMA user_version
-        is the CURRENT SCHEMA_VERSION (5 after notebook-paper-discovery-m1)."""
+        is the CURRENT SCHEMA_VERSION (6 after stage2/arx-a45's
+        textbook_chunker migration)."""
         import asyncio
         import sqlite3
 
@@ -1139,7 +1151,7 @@ class TestNotebookKindMigration:
                 await store.close()
 
         version = asyncio.run(_open_close())
-        assert version == 5
+        assert version == 6
 
     def test_v1_to_v3_migration_runs_both_blocks(
         self, tmp_path: Path,
@@ -1232,12 +1244,14 @@ class TestNotebookKindMigration:
             }
 
         result = asyncio.run(_run())
-        assert result["version"] == 5
+        assert result["version"] == 6
         assert result["ingest_runs_present"] is True
         assert "notebook_kind" in result["cols"]
         # textbook-ingest-m6 columns also present after v3→v4.
         assert "parse_status" in result["cols"]
         assert "parse_error" in result["cols"]
+        # stage2/arx-a45 column present after v5→v6.
+        assert "textbook_chunker" in result["cols"]
         assert "parsed_html_path" in result["cols"]
         # notebook-paper-discovery-m1 columns present after v4→v5.
         assert "discovery_category" in result["cols"]
@@ -1321,7 +1335,9 @@ class TestNotebookKindMigration:
             return v_first, cols_first, v_second, cols_second
 
         v1, c1, v2, c2 = asyncio.run(_open_close_open())
-        assert v1 == 5 and v2 == 5
+        # stage2/arx-a45: fresh opens land at v6 now; the guard under
+        # test (blocks short-circuit on re-open) is version-independent.
+        assert v1 == 6 and v2 == 6
         # Schema byte-stable across re-opens.
         assert c1 == c2, (
             f"notebooks columns drifted across re-open: "
@@ -1408,7 +1424,10 @@ class TestV4ToV5Migration:
             return row, version
 
         row, version = asyncio.run(_seed_v4_and_query_v5())
-        assert version == 5
+        # stage2/arx-a45: a full open now lands at v6 (the v4→v5 AND
+        # v5→v6 blocks both run); the v5 assertions below still pin
+        # the v4→v5 backfill behavior itself.
+        assert version == 6
         assert row["slug"] == "legacy-v4"
         assert row["discovery_category"] == "", (
             "legacy rows must backfill discovery_category='' via the "
@@ -1454,10 +1473,14 @@ class TestV4ToV5Migration:
             return v1, c1, v2, c2
 
         v1, c1, v2, c2 = asyncio.run(_open_twice())
-        assert v1 == 5 and v2 == 5
+        # stage2/arx-a45: fresh opens land at v6 now; the idempotency
+        # property under test (re-open must not re-ALTER) is version-
+        # independent.
+        assert v1 == 6 and v2 == 6
         assert c1 == c2
         assert "discovery_category" in c2
         assert "description" in c2
+        assert "textbook_chunker" in c2
 
 
 class TestNotebookTopicMetadata:

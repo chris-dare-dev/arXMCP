@@ -48,6 +48,7 @@ from __future__ import annotations
 import logging
 import socket
 import threading
+import time
 from contextlib import contextmanager
 from contextvars import ContextVar
 from typing import TYPE_CHECKING
@@ -178,6 +179,123 @@ current_agent_role: ContextVar[str | None] = ContextVar(
 current_cache_layer: ContextVar[str] = ContextVar(
     "current_cache_layer", default="miss"
 )
+
+#: stage2/arx-a23 (WS-A A3, gap R5): always-on lightweight phase
+#: timings for the in-flight tool call, keyed by phase name
+#: (``embed`` / ``ann`` / ``bm25`` / ``rerank``), values = cumulative
+#: seconds. ``server.tools._wrap_with_observability`` sets a fresh
+#: dict at call entry and folds the result into the request event at
+#: exit; the child-span helpers below record into it via
+#: :func:`_record_phase_seconds`. Independent of
+#: ``ARXMCP_OTEL_ENDPOINT`` — the perf_counter capture runs whether
+#: or not the OTel spans are no-ops, which is exactly the R5
+#: requirement ("reuse the span seams, not the exporter").
+current_phase_timings: ContextVar[dict[str, float] | None] = ContextVar(
+    "current_phase_timings", default=None
+)
+
+
+def _record_phase_seconds(phase: str, seconds: float) -> None:
+    """Accumulate ``seconds`` under ``phase`` on the in-flight timing
+    dict. No-op when no tool call is in flight (the ContextVar is
+    None — e.g. ingest-side embed calls)."""
+    timings = current_phase_timings.get()
+    if timings is not None:
+        timings[phase] = timings.get(phase, 0.0) + seconds
+
+
+def _validate_agent_role(raw: str | None) -> str | None:
+    """Apply the ``Arxmcp-Agent-Role`` allow-list + length cap.
+
+    Mirrors :class:`server.middleware.TracingContextMiddleware`'s
+    validation byte-for-byte so the request-ring event and the
+    session-cap roster agree on the role for the SAME call. Unknown or
+    oversized values fall back to ``None`` (no role attribute)."""
+    if raw is None:
+        return None
+    if len(raw.encode("utf-8")) > MAX_HEADER_BYTES or raw not in VALID_AGENT_ROLES:
+        return None
+    return raw
+
+
+def resolve_request_identity() -> tuple[str | None, str | None]:
+    """Return ``(session_id, agent_role)`` for the in-flight tool call.
+
+    **Why not just read the ContextVars.** ``current_session_id`` /
+    ``current_agent_role`` are set per-HTTP-request by
+    :class:`server.middleware.TracingContextMiddleware`. But the MCP
+    Streamable-HTTP session manager (``mcp.server.streamable_http_manager``)
+    runs every ``tools/call`` on a long-lived per-session task that was
+    started — and whose ``contextvars.Context`` was captured — at
+    ``initialize`` time. At ``initialize`` the ``Arxmcp-Agent-Role``
+    header exists but the ``Mcp-Session-Id`` has not been minted yet.
+    Reading the ContextVars from inside the handler therefore yields
+    ``session_id=None`` and the role frozen to the initialize-time
+    value, no matter what the actual ``tools/call`` request carried.
+    That is the stage3/cross-r1 bug the request-ring SESSION column and
+    the Connections roster ``requests`` cross-link surfaced (row
+    ``session_id=null``, dead-end empty state, role/lane contradiction).
+
+    **The fix.** The MCP low-level server stamps a fresh
+    :class:`mcp.shared.context.RequestContext` into its ``request_ctx``
+    ContextVar for EACH JSON-RPC message, carrying the Starlette
+    ``Request`` for THAT ``tools/call`` HTTP request (with its true
+    per-call ``Mcp-Session-Id`` + ``Arxmcp-Agent-Role`` headers — see
+    ``streamable_http.py`` ``ServerMessageMetadata(request_context=request)``
+    and ``lowlevel/server.py`` ``request_ctx.set(...)``). We read the
+    identity from those per-call headers first (applying the identical
+    validation the middleware applies), and fall back to the ContextVars
+    only when no MCP request context is present (direct handler calls in
+    unit tests, or non-``/mcp`` code paths). This keeps the ring and the
+    roster reading the SAME source of truth for a given call.
+
+    Best-effort: any failure resolving the MCP context falls back to the
+    ContextVars. Observability must never break the request path.
+    """
+    ctx_session = current_session_id.get()
+    ctx_role = current_agent_role.get()
+    try:
+        # Lazy import — avoids a module-load cycle
+        # (mcp.server.__init__ -> fastmcp -> server.tools -> tracing).
+        from mcp.server.lowlevel.server import request_ctx  # noqa: PLC0415
+
+        req_ctx = request_ctx.get()
+    except (ImportError, LookupError):
+        # LookupError: the ContextVar has no value in this context
+        # (no MCP request in flight). ImportError: mcp not importable.
+        return ctx_session, ctx_role
+
+    request = getattr(req_ctx, "request", None)
+    headers = getattr(request, "headers", None)
+    if headers is None:
+        return ctx_session, ctx_role
+
+    # Starlette Headers.get is case-insensitive; the transport injects
+    # the client-supplied values verbatim for this specific call.
+    try:
+        raw_sid = headers.get("mcp-session-id")
+        raw_role = headers.get("arxmcp-agent-role")
+    except Exception:  # noqa: BLE001 — never break the request path
+        return ctx_session, ctx_role
+
+    # Strict ASCII discipline mirrors the middleware's
+    # ``_decode_header_strict`` (Starlette already str-decodes headers;
+    # reject non-ASCII to match the middleware's None-on-garbage rule).
+    session_id: str | None = ctx_session
+    if raw_sid is not None:
+        try:
+            raw_sid.encode("ascii")
+            session_id = raw_sid
+        except UnicodeEncodeError:
+            session_id = None
+    role = ctx_role
+    if raw_role is not None:
+        try:
+            raw_role.encode("ascii")
+            role = _validate_agent_role(raw_role)
+        except UnicodeEncodeError:
+            role = None
+    return session_id, role
 
 
 # ---------------------------------------------------------------------------
@@ -335,9 +453,11 @@ def span_tool_call(
 ) -> Iterator[Span]:
     """Yield the parent OTel span for one JSON-RPC ``tools/call``.
 
-    Reads :data:`current_session_id` and :data:`current_agent_role`
-    from the request's ContextVars (populated by
-    :class:`server.middleware.TracingContextMiddleware`). Reads
+    Reads the session id + agent role via
+    :func:`resolve_request_identity` (the true per-``tools/call``
+    headers from the MCP request context, falling back to the
+    :class:`server.middleware.TracingContextMiddleware` ContextVars for
+    non-MCP call paths). Reads
     :data:`current_cache_layer` in the ``finally`` block so a
     handler that detects a Tier-N cache hit late in its execution
     still surfaces on the parent span.
@@ -365,10 +485,14 @@ def span_tool_call(
         # child spans.
         span.set_attribute(OPENINFERENCE_SPAN_KIND, "CHAIN")
         span.set_attribute("mcp.tool_name", tool_name)
-        sid = current_session_id.get()
+        # stage3/cross-r1: resolve from the MCP per-request context (the
+        # true per-``tools/call`` headers), not the ContextVars — the
+        # session task's captured context freezes them at initialize
+        # (session_id=None, initialize-time role). Keeps the parent span
+        # in agreement with the request-ring event + the session roster.
+        sid, role = resolve_request_identity()
         if sid is not None:
             span.set_attribute("mcp.session_id", sid)
-        role = current_agent_role.get()
         if role is not None:
             span.set_attribute("arxmcp.agent_role", role)
         if corpus_version is not None:
@@ -426,13 +550,21 @@ def span_embed(model_name: str, model_revision: str) -> Iterator[Span]:
     ``arxmcp.model.revision`` carries the commit SHA — no semconv
     equivalent exists for that. ``openinference.span.kind=EMBEDDING``
     gates the Phoenix embedding-stats view (E14_S03 D4).
+
+    stage2/arx-a23 (gap R5): also records wall-clock seconds into
+    :data:`current_phase_timings` (key ``embed``), independent of the
+    OTel exporter state.
     """
     tracer = trace.get_tracer(__name__)
     with tracer.start_as_current_span("arxmcp.embed") as span:
         span.set_attribute(OPENINFERENCE_SPAN_KIND, "EMBEDDING")
         span.set_attribute("gen_ai.request.model", model_name)
         span.set_attribute("arxmcp.model.revision", model_revision)
-        yield span
+        t0 = time.perf_counter()
+        try:
+            yield span
+        finally:
+            _record_phase_seconds("embed", time.perf_counter() - t0)
 
 
 @contextmanager
@@ -441,14 +573,18 @@ def span_ann(k: int | None = None) -> Iterator[Span]:
 
     ``openinference.span.kind=RETRIEVER`` gates the Phoenix
     retrieval-evaluation view that lists top-k chunks with scores
-    (E14_S03 D4).
+    (E14_S03 D4). Phase timing recorded under key ``ann`` (gap R5).
     """
     tracer = trace.get_tracer(__name__)
     with tracer.start_as_current_span("arxmcp.ann") as span:
         span.set_attribute(OPENINFERENCE_SPAN_KIND, "RETRIEVER")
         if k is not None:
             span.set_attribute("arxmcp.k", k)
-        yield span
+        t0 = time.perf_counter()
+        try:
+            yield span
+        finally:
+            _record_phase_seconds("ann", time.perf_counter() - t0)
 
 
 @contextmanager
@@ -456,26 +592,36 @@ def span_bm25(k: int | None = None) -> Iterator[Span]:
     """Child span for the BM25 sparse search (forward-compat for
     E07_S04+; v1 ``search_papers`` is dense-only and never enters
     this span). ``openinference.span.kind=RETRIEVER`` mirrors
-    :func:`span_ann` — both are retrieval phases."""
+    :func:`span_ann` — both are retrieval phases. Phase timing under
+    key ``bm25`` (gap R5)."""
     tracer = trace.get_tracer(__name__)
     with tracer.start_as_current_span("arxmcp.bm25") as span:
         span.set_attribute(OPENINFERENCE_SPAN_KIND, "RETRIEVER")
         if k is not None:
             span.set_attribute("arxmcp.k", k)
-        yield span
+        t0 = time.perf_counter()
+        try:
+            yield span
+        finally:
+            _record_phase_seconds("bm25", time.perf_counter() - t0)
 
 
 @contextmanager
 def span_rerank(model_name: str, model_revision: str) -> Iterator[Span]:
     """Child span for one BGE-reranker-v2-m3 cross-encoder forward
     pass. ``openinference.span.kind=RERANKER`` gates the Phoenix
-    rerank-quality view (E14_S03 D4)."""
+    rerank-quality view (E14_S03 D4). Phase timing under key
+    ``rerank`` (gap R5)."""
     tracer = trace.get_tracer(__name__)
     with tracer.start_as_current_span("arxmcp.rerank") as span:
         span.set_attribute(OPENINFERENCE_SPAN_KIND, "RERANKER")
         span.set_attribute("gen_ai.request.model", model_name)
         span.set_attribute("arxmcp.model.revision", model_revision)
-        yield span
+        t0 = time.perf_counter()
+        try:
+            yield span
+        finally:
+            _record_phase_seconds("rerank", time.perf_counter() - t0)
 
 
 @contextmanager
@@ -520,8 +666,10 @@ __all__ = [
     "SERVICE_VERSION",
     "current_agent_role",
     "current_cache_layer",
+    "current_phase_timings",
     "current_session_id",
     "reset_tracing_for_tests",
+    "resolve_request_identity",
     "set_cache_layer",
     "setup_tracing",
     "shutdown_tracing",

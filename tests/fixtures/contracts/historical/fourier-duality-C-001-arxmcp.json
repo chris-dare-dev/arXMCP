@@ -1,0 +1,23 @@
+{
+  "claim_id": "C-001",
+  "agent": "proof-verify-arxmcp-querier",
+  "source": "arxmcp",
+  "found": false,
+  "queried_at": "2026-06-18T15:49:25.940719+00:00",
+  "result": {
+    "top_score": 0.6845031380653381,
+    "mean_score": 0.6412079423666001,
+    "top_snippet": "<retrieved_chunk>Corollary 4.44 Let $G$ be a locally compact group. The following are equivalent. 1. We have a canonical isometry $\\mathrm{CB}(\\mathrm{L}^{1}(\\mathrm{V</retrieved_chunk>",
+    "top_paper_id": "2008.12019",
+    "domain_hints": [
+      "harmonic-analysis"
+    ],
+    "score_floor_pass": true,
+    "multi_signal_pass": false,
+    "result_count": 10,
+    "corpus_version": 205,
+    "notebook_slug": "fourier-duality",
+    "query_used": "A **character** of a locally compact abelian group $G$ is a continuous homomorphism $\\chi : G \\to S^1$ The transform you know",
+    "tier": "found_with_caveat"
+  }
+}

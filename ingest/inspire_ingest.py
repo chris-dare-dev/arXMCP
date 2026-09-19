@@ -108,7 +108,7 @@ from ingest.graph_ingest import (
     save_checkpoint,
 )
 from ingest.identifiers import is_valid_arxiv_paper_id
-from ingest.kuzudb_schema import apply_schema
+from ingest.kuzudb_schema import apply_schema, close_kuzu
 from tools.arxiv_fetch import (
     DEFAULT_503_BACKOFF_SECONDS,
     MAX_503_BACKOFF_SECONDS,
@@ -577,6 +577,7 @@ def enrich(
 
     apply_schema(db_path)
     db = kuzu.Database(str(db_path))
+    conn: kuzu.Connection | None = None
     try:
         conn = kuzu.Connection(db)
         state = load_checkpoint(checkpoint_path)
@@ -716,7 +717,10 @@ def enrich(
         save_checkpoint(checkpoint_path, state)
         return state
     finally:
-        del db
+        # Close conn THEN db; `del db` left the Windows file lock held
+        # via the live conn, breaking the documented resume re-run in
+        # the same process (see kuzudb_schema.close_kuzu).
+        close_kuzu(db, conn)
 
 
 # ---------------------------------------------------------------------------
@@ -814,11 +818,12 @@ def main(argv: list[str] | None = None) -> int:
             return 2
     else:
         db = kuzu.Database(str(args.kuzudb))
+        conn = None
         try:
             conn = kuzu.Connection(db)
             paper_ids = sorted(_existing_paper_ids(conn))
         finally:
-            del db
+            close_kuzu(db, conn)
         if not paper_ids:
             sys.stderr.write(
                 "ERROR: no `papers` nodes found in the graph. Run the "

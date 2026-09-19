@@ -280,8 +280,10 @@ class TestAr5ivUrlNormalizer:
         [
             # Wrong path prefix for ar5iv host
             "https://ar5iv.labs.arxiv.org/abs/2604.26204",
-            # Wrong path prefix for arxiv.org host
-            "https://arxiv.org/html/2604.26204",
+            # NOTE: stage2/arx-a45 (AC-A.16) made arxiv.org/html/<id>
+            # an ACCEPTED form (arXiv-native HTML) — the m7-era reject
+            # case moved to test_accepted_forms in
+            # tests/test_notebook_api.py.
             # arxiv.org with /pdf/ still rejected (m7 behavior)
             "https://arxiv.org/pdf/2604.26204.pdf",
             # Subdomain that isn't in the whitelist

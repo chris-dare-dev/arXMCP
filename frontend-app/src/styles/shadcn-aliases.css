@@ -1,0 +1,23 @@
+/*
+ * shadcn-aliases.css — mechanical alias layer, NAMES only (brief §3,
+ * finding 210 §3 rec 3). The canonical sheet is tokens.css with
+ * register-based owned names; this file exists so a future borrowed
+ * component written against shadcn-style variables works without
+ * editing. NO shadcn token VALUES are imported here — every value
+ * is a reference into the owned sheet (gate R3).
+ */
+
+:root {
+  --background: var(--paper);
+  --foreground: var(--ink);
+  --muted: var(--paper-inset);
+  --muted-foreground: var(--ink-muted);
+  --primary: var(--accent);
+  --primary-foreground: var(--paper);
+  --destructive: var(--danger);
+  --destructive-foreground: var(--paper);
+  --border: var(--rule-color);
+  --input: var(--rule-color-strong);
+  --ring: var(--focus-ring);
+  /* shadcn's --radius default is 10px — banned; ours stays 0-2px (L1). */
+}

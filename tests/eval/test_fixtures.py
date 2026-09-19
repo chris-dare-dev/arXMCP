@@ -562,7 +562,10 @@ class TestManifestErrors:
         kind_index = _make_full_corpus(chunks_dir)
         # Plant a malformed-name directory with a manifest that
         # claims a chunk_id (which would otherwise resolve).
-        rogue_dir = chunks_dir / "evil; rm -rf /"
+        # Name must be filesystem-legal on every platform ("/" is a
+        # separator everywhere; a trailing space is stripped/rejected
+        # by Win32) while still failing _PAPER_ID_RE.
+        rogue_dir = chunks_dir / "evil; rm -rf tmp"
         rogue_dir.mkdir()
         rogue_cid = _make_chunk_id("2307.99999", "f")
         rogue_dir.joinpath("chunk_manifest.json").write_text(

@@ -320,7 +320,8 @@ class TestSchemaSentinel:
 
 @pytest.mark.skipif(
     sys.platform == "win32",
-    reason="POSIX file modes; Windows ACLs are out of scope",
+    reason="POSIX file modes; Windows ACLs are out of scope — see "
+    ".claude/notes/windows-test-triage.md §7 (win32)",
 )
 class TestChmodOnFirstCreate:
     def test_first_create_chmod_0600(self, tmp_path: Path):
@@ -365,4 +366,5 @@ class TestDefaults:
         """The CLI helpers default to the same path Config uses for
         the notebooks DB. Drift between the two would silently store
         operator prefs in a different file than the server's reader."""
-        assert str(DEFAULT_DB_PATH) == "var/arxmcp/cache/notebooks.db"
+        # as_posix(): str() renders backslash separators on Windows.
+        assert DEFAULT_DB_PATH.as_posix() == "var/arxmcp/cache/notebooks.db"

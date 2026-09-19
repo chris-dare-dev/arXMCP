@@ -1,0 +1,16 @@
+{
+  "name": "emergentmind-open-problems",
+  "kind": "api-snapshot",
+  "url": "https://www.emergentmind.com",
+  "retrieved_at": "2026-07-01T00:00:00Z",
+  "entries": [
+    {
+      "id": "em-42",
+      "title": "Open problems on moduli spaces of Bridgeland semistable objects",
+      "statement": "Which walls give birational moduli of semistable objects under Bridgeland stability on Kuznetsov components?",
+      "tags": ["math.AG"],
+      "arxiv_ids": [],
+      "url": "https://www.emergentmind.com/open-problems/fixture-em-42"
+    }
+  ]
+}

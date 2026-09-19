@@ -100,7 +100,7 @@ from typing import Any
 
 import kuzu
 
-from ingest.kuzudb_schema import apply_schema
+from ingest.kuzudb_schema import apply_schema, close_kuzu
 from tools.arxiv_fetch import (
     DEFAULT_503_BACKOFF_SECONDS,
     MAX_503_BACKOFF_SECONDS,
@@ -162,12 +162,20 @@ class _ResolvedWork:
 def _build_works_url(arxiv_id: str, contact_email: str) -> str:
     """Construct the OpenAlex Works URL for a given arXiv ID.
 
-    OpenAlex resolves external identifiers in the path component, so
-    ``/works/https%3A%2F%2Farxiv.org%2Fabs%2F<id>`` is the canonical
-    form for an arXiv-ID lookup. The ``?mailto=`` query parameter
-    enrols the request in the polite pool.
+    OpenAlex resolves external identifiers in the path component. The
+    original E09_S01 form — ``/works/https%3A%2F%2Farxiv.org%2Fabs%2F
+    <id>`` — stopped resolving upstream (live-verified 404 for every
+    corpus id on 2026-07-04, stage2/arx-a45); the **arXiv DataCite
+    DOI** form ``/works/https%3A%2F%2Fdoi.org%2F10.48550%2FarXiv.<id>``
+    resolves reliably for both new-style and old-style ids
+    (live-verified 12/12 on the bridgeland corpus sample, including
+    ``math/0212237``). arXiv registers ``10.48550/arXiv.<id>`` for
+    every e-print, so the mapping is total.
+
+    The ``?mailto=`` query parameter enrols the request in the polite
+    pool.
     """
-    inner = f"https://arxiv.org/abs/{arxiv_id}"
+    inner = f"https://doi.org/10.48550/arXiv.{arxiv_id}"
     encoded = urllib.parse.quote(inner, safe="")
     mailto = urllib.parse.quote_plus(contact_email)
     return f"{OPENALEX_BASE}/works/{encoded}?mailto={mailto}"
@@ -554,6 +562,7 @@ def ingest(
 
     apply_schema(db_path)
     db = kuzu.Database(str(db_path))
+    conn: kuzu.Connection | None = None
     try:
         conn = kuzu.Connection(db)
         state = load_checkpoint(checkpoint_path)
@@ -665,7 +674,10 @@ def ingest(
         save_checkpoint(checkpoint_path, state)
         return state
     finally:
-        del db
+        # Close conn THEN db; `del db` left the Windows file lock held
+        # via the live conn, breaking the documented resume re-run in
+        # the same process (see kuzudb_schema.close_kuzu).
+        close_kuzu(db, conn)
 
 
 def _serialize_failures(failures: dict[str, str]) -> list[dict[str, str]]:

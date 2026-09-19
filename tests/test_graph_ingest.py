@@ -152,7 +152,7 @@ class TestSchemaMigration:
                 row = r.get_next()
                 tables[row[0]] = row[1]
         finally:
-            del db
+            kuzudb_schema.close_kuzu(db, conn)
         assert tables.get("papers") == "NODE"
         assert tables.get("cites") == "REL"
 
@@ -180,7 +180,7 @@ class TestSchemaMigration:
             r2 = conn.execute("MATCH (m:_schema_meta) RETURN COUNT(*)")
             assert r2.get_next()[0] == 1
         finally:
-            del db
+            kuzudb_schema.close_kuzu(db, conn)
 
     def test_creates_parent_directory(self, tmp_path: Path):
         """F10 fix from the E09_S01 critique: the assertion was previously
@@ -240,7 +240,7 @@ class TestIngestHappyPath:
             while r.has_next():
                 paper_ids.append(r.get_next()[0])
         finally:
-            del db
+            kuzudb_schema.close_kuzu(db, conn)
         assert paper_ids == sorted(CORPUS_IDS)
 
     def test_in_corpus_edges_only(
@@ -270,7 +270,7 @@ class TestIngestHappyPath:
             while r.has_next():
                 edges.append(tuple(r.get_next()))
         finally:
-            del db
+            kuzudb_schema.close_kuzu(db, conn)
 
         # Expected: P1→P2, P1→P3, P3→P5, P5→P1 (cycle via P5).
         # External work cited by P1 must NOT appear (not in corpus).
@@ -318,7 +318,7 @@ class TestIngestHappyPath:
             )
             assert r2.get_next()[0] == 0
         finally:
-            del db
+            kuzudb_schema.close_kuzu(db, conn)
 
     def test_metadata_populated_from_openalex(
         self,
@@ -343,7 +343,7 @@ class TestIngestHappyPath:
             )
             row = r.get_next()
         finally:
-            del db
+            kuzudb_schema.close_kuzu(db, conn)
         title, authors, year, abstract, oa_work_id = row
         assert title == "Paper One"
         assert authors == "Alice Adams, Bob Brown"
@@ -394,7 +394,7 @@ class TestResume:
                 "MATCH ()-[r:cites]->() RETURN COUNT(*)"
             ).get_next()[0]
         finally:
-            del db
+            kuzudb_schema.close_kuzu(db, conn)
         assert paper_count == len(CORPUS_IDS)
         assert edge_count == 4
 
@@ -539,11 +539,20 @@ class TestPolitePool:
         assert "mailto=operator%40example.com" in url
         assert url.startswith("https://api.openalex.org/works/")
 
-    def test_works_url_encodes_inner_arxiv_url(self):
+    def test_works_url_encodes_inner_arxiv_doi(self):
         url = graph_ingest._build_works_url(P1, "x@y")
-        # The inner https:// must be percent-encoded so a proxy doesn't
-        # mistake it for a path component.
-        assert "https%3A%2F%2Farxiv.org%2Fabs%2F2401.00001" in url
+        # stage2/arx-a45: resolution moved to the arXiv DataCite DOI
+        # form after the original /abs/ external-id form started
+        # 404ing upstream (live-verified 2026-07-04). The inner
+        # https:// must be percent-encoded so a proxy doesn't mistake
+        # it for a path component.
+        assert "https%3A%2F%2Fdoi.org%2F10.48550%2FarXiv.2401.00001" in url
+
+    def test_works_url_old_style_id_maps_to_doi(self):
+        # Old-style ids embed a slash; the DOI form carries it inside
+        # the percent-encoded inner URL.
+        url = graph_ingest._build_works_url("math/0212237", "x@y")
+        assert "10.48550%2FarXiv.math%2F0212237" in url
 
 
 # ---------------------------------------------------------------------------

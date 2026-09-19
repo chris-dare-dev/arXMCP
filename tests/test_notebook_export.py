@@ -33,6 +33,7 @@ from server.main import _is_exempt_path
 from server.notebooks_store import NotebooksStore
 from server.routes import notebooks as notebooks_module
 from server.routes.notebooks import router as notebooks_router
+from tests._platform_helpers import requires_lax_filenames, requires_symlinks
 from tools import _notebook_common
 
 
@@ -215,6 +216,7 @@ class TestErrorCases:
 
 
 class TestPreflightSafety:
+    @requires_symlinks
     def test_symlink_under_slug_dir_is_skipped_and_warned(
         self, exp_client, caplog
     ) -> None:
@@ -312,6 +314,7 @@ class TestPreflightAdditional:
             for rec in caplog.records
         )
 
+    @requires_lax_filenames
     def test_filename_with_control_char_is_skipped(
         self, exp_client, caplog
     ) -> None:
@@ -340,6 +343,7 @@ class TestPreflightAdditional:
             for rec in caplog.records
         )
 
+    @requires_symlinks
     def test_slug_level_symlink_returns_422(self, exp_client) -> None:
         """m6-rect F4: if ``<base>/<slug>`` is ITSELF a symlink,
         ``notebook_dir(slug)`` raises ``NotebookError`` → 422 (the existing

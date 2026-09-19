@@ -244,7 +244,11 @@ class TestNotebookTableRegistry:
             assert info1.version == 42
 
         _run(go())
-        assert len([p for p in patched_open if p.endswith("alpha-nb/lancedb")]) == 1
+        # Normalize: recorded open() paths are OS-native ("\\" on Windows).
+        assert len([
+            p for p in patched_open
+            if p.replace("\\", "/").endswith("alpha-nb/lancedb")
+        ]) == 1
 
     def test_lru_eviction_bounds_registry(self, patched_open) -> None:
         """m2 FM-6: opening more than MAX_NOTEBOOK_TABLE_SLOTS distinct
@@ -272,9 +276,11 @@ class TestNotebookTableRegistry:
             )
 
         _run(go())
-        assert len(
-            [p for p in patched_open if p.endswith("conc-nb/lancedb")]
-        ) == 1
+        # Normalize: recorded open() paths are OS-native ("\\" on Windows).
+        assert len([
+            p for p in patched_open
+            if p.replace("\\", "/").endswith("conc-nb/lancedb")
+        ]) == 1
 
 
 # ===========================================================================

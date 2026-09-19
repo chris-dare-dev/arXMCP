@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>MathML render spike fixture</title>
+<!-- Shaped like stored ar5iv/LaTeXML output (finding 211 R-D): -->
+<!-- <math class="ltx_Math" alttext="..."> + semantics + x-tex annotation. -->
+</head>
+<body>
+<p id="probe-text"><span id="inline-ref">reference line height</span></p>
+
+<p>Inline math:
+<math id="m-inline" class="ltx_Math" alttext="\mu(E)" display="inline">
+  <semantics>
+    <mrow><mi>&mu;</mi><mo>&ApplyFunction;</mo><mrow><mo stretchy="false">(</mo><mi>E</mi><mo stretchy="false">)</mo></mrow></mrow>
+    <annotation encoding="application/x-tex">\mu(E)</annotation>
+  </semantics>
+</math>
+</p>
+
+<p>Display fraction (vertical layout is the MathML-Core support signal):
+<math id="m-frac" class="ltx_Math" alttext="\frac{c_1(E)\cdot H}{\operatorname{rk}E}" display="block">
+  <semantics>
+    <mfrac>
+      <mrow><msub><mi>c</mi><mn>1</mn></msub><mrow><mo stretchy="false">(</mo><mi>E</mi><mo stretchy="false">)</mo></mrow><mo>&sdot;</mo><mi>H</mi></mrow>
+      <mrow><mi>rk</mi><mo>&ApplyFunction;</mo><mi>E</mi></mrow>
+    </mfrac>
+    <annotation encoding="application/x-tex">\frac{c_1(E)\cdot H}{\operatorname{rk}E}</annotation>
+  </semantics>
+</math>
+</p>
+
+<p>Radical and operators:
+<math id="m-sqrt" class="ltx_Math" alttext="\sqrt{\Delta(E)}\geq 0" display="inline">
+  <semantics>
+    <mrow><msqrt><mrow><mi>&Delta;</mi><mrow><mo stretchy="false">(</mo><mi>E</mi><mo stretchy="false">)</mo></mrow></mrow></msqrt><mo>&ge;</mo><mn>0</mn></mrow>
+    <annotation encoding="application/x-tex">\sqrt{\Delta(E)}\geq 0</annotation>
+  </semantics>
+</math>
+</p>
+
+<!-- CSP canary: under script-src 'none' this must NEVER run. -->
+<script>document.body.dataset.scriptExecuted = "true";</script>
+</body>
+</html>

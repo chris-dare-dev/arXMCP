@@ -1,0 +1,63 @@
+{
+  "_comment": "Append-only enum baseline for the bridge contract schemas (versioning rule 2 in contracts/CONTRACTS.md). tests/test_bridge_versioning_rules.py asserts that every enum recorded here still exists at the same JSON-pointer path in the named schema AND that the recorded values are a subset of the current values. Removing or renaming a recorded value fails the gate; appending a value passes (extend this baseline in the same change). Paths are RFC 6901 JSON pointers into the schema file.",
+  "envelope.v1.schema.json": {
+    "/properties/bridge/properties/substrate/properties/server/enum": [
+      "arxmcp"
+    ],
+    "/properties/bridge/properties/substrate/properties/retrieval_mode/enum": [
+      "dense_only"
+    ]
+  },
+  "verdict-record.v1.schema.json": {
+    "/allOf/1/properties/payload/properties/domain/enum": [
+      "lean",
+      "proof-verify",
+      "cite-audit",
+      "proving"
+    ],
+    "/allOf/1/properties/payload/allOf/0/then/properties/verdict/enum": [
+      "proven-formal",
+      "proven-informal-checked",
+      "plausible-unverified",
+      "refuted",
+      "abstained"
+    ],
+    "/allOf/1/properties/payload/allOf/1/then/properties/verdict/enum": [
+      "VERIFIED",
+      "UNVERIFIED",
+      "LIKELY-WRONG",
+      "DISPUTED",
+      "OUT-OF-CORPUS"
+    ],
+    "/allOf/1/properties/payload/allOf/2/then/properties/verdict/enum": [
+      "ok",
+      "sorry",
+      "error",
+      "timeout",
+      "unavailable"
+    ]
+  },
+  "run-ledger-entry.v1.schema.json": {
+    "/allOf/1/properties/payload/properties/outcome/enum": [
+      "completed",
+      "failed",
+      "halted",
+      "escalated",
+      "abandoned"
+    ]
+  },
+  "evidence-bundle.v0.schema.json": {
+    "/allOf/1/properties/payload/properties/verdict/enum": [
+      "proven-formal",
+      "proven-informal-checked",
+      "plausible-unverified",
+      "refuted",
+      "abstained"
+    ],
+    "/allOf/1/properties/payload/properties/verdict_confidence/enum": [
+      "high",
+      "medium",
+      "low"
+    ]
+  }
+}

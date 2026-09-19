@@ -25,6 +25,7 @@ at ``/ui/static/`` in :func:`server.main.create_app`.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 from collections.abc import Iterable
@@ -32,7 +33,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import jinja2
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import HTMLResponse, Response
 from fastapi.templating import Jinja2Templates
 
@@ -72,6 +73,56 @@ _META_REFRESH_RE: re.Pattern[bytes] = re.compile(
     rb"<\s*meta[^>]+http-equiv\s*=\s*['\"]?refresh['\"]?[^>]*>",
     re.IGNORECASE,
 )
+
+#: stage3/arx-server-r2 — repoint non-hosted stylesheet <link> hrefs in
+#: the served preview to a same-origin vendored baseline. The stored
+#: ar5iv / arxiv-native HTML references absolute stylesheet paths the
+#: daemon does NOT mount:
+#:
+#:   * ar5iv:        ``/assets/ar5iv-fonts.0.8.4.css``,
+#:                   ``/assets/ar5iv.0.8.4.css``,
+#:                   ``/assets/ar5iv-site.0.2.2.css``
+#:   * arxiv-native: ``/static/browse/<ver>/css/*.css`` (fetch-ladder
+#:                   rung 1 — ingest/ar5iv_fetch.py; native fixture head)
+#:
+#: Each 404s with ``content-type: application/json`` (the JSON 404 body
+#: FastAPI/Starlette emit for an unrouted path), so the browser refuses
+#: it ("Refused to apply style ... its MIME type application/json is not
+#: a supported stylesheet MIME type") — 3 console errors per stored
+#: paper and UA-default (unstyled) typography. The tight preview CSP
+#: ``style-src 'self'`` WOULD allow same-origin CSS; the server just had
+#: nothing at those paths. Rather than mount a large, versioned,
+#: web-font-bearing ar5iv bundle (which we deliberately do not vendor,
+#: and whose exact filenames drift with ar5iv releases), we rewrite the
+#: link targets to ``/ui/static/preview.css`` — an in-repo LaTeXML
+#: baseline (frontend/static/preview.css). Same byte-rewrite discipline
+#: as the meta-refresh strip above; done on the served copy only, never
+#: on disk.
+#:
+#: Scope discipline (why this cannot break anything):
+#:   * Restricted to the two absolute prefixes we KNOW the daemon does
+#:     not host — a ``data:``/relative/``/ui/static/`` link is left
+#:     untouched, so a hypothetical future self-hosted stylesheet is
+#:     unaffected.
+#:   * Restricted to ``.css`` targets — ar5iv MathJax ``<script>`` and
+#:     any font/preload links are NOT rewritten (the blocked-MathJax
+#:     console errors are an intentional ``script-src 'none'`` effect,
+#:     explicitly out of scope).
+#:   * ``[^>]*`` cannot cross a ``>`` so each match stays inside one
+#:     ``<link ...>`` tag; the trailing capture group preserves any
+#:     ``media=``/``rel=`` attributes and a self-closing ``/>``.
+_PREVIEW_STYLESHEET_LINK_RE: re.Pattern[bytes] = re.compile(
+    rb"(<link\b[^>]*\bhref\s*=\s*['\"])"
+    rb"(?:/assets/|/static/browse/)"
+    rb"[^'\"]*\.css"
+    rb"(['\"][^>]*>)",
+    re.IGNORECASE,
+)
+
+#: The same-origin baseline the rewrite points at. Kept as a module
+#: constant so the regression test can assert the exact target without
+#: duplicating the literal.
+_PREVIEW_STYLESHEET_HREF: bytes = b"/ui/static/preview.css"
 
 #: Repo-root-relative templates dir. Resolved once at import.
 _TEMPLATES_DIR: Path = Path(__file__).resolve().parents[2] / "frontend" / "templates"
@@ -395,6 +446,23 @@ async def ui_index(
     )
 
 
+#: Papers rendered per page on the ``/ui/notebooks/{slug}`` HTML detail
+#: page. Stage-3 finding ``legacy-ui-detail-page-blocks-event-loop-then-413s``:
+#: the page used to fetch EVERY junction row, ``stat()`` two files per
+#: paper, and Jinja-render the whole table inline on the event loop —
+#: ~O(n) work that (a) froze the single-process server for any concurrent
+#: request (a 50k-row render blocked ``/healthz`` for ~14 s) and (b) once
+#: the rendered HTML crossed the 256 KiB
+#: :class:`server.main.BodySizeCapMiddleware` cap (~300–450 rows) was
+#: rejected 413 AFTER the whole render was burned. Server-side pagination
+#: bounds all three costs to one page regardless of notebook size. 100
+#: mirrors ``server.routes.api_v1._DEFAULT_PAGE_LIMIT`` and renders ~75 KiB
+#: — a comfortable margin under the 256 KiB cap. The per-page stat loop
+#: (now at most :data:`_DETAIL_PAGE_SIZE` stats) runs off the event loop
+#: via :func:`asyncio.to_thread`.
+_DETAIL_PAGE_SIZE: int = 100
+
+
 @router.get(
     "/notebooks/{slug}",
     response_class=HTMLResponse,
@@ -403,12 +471,20 @@ async def ui_index(
 async def ui_notebook_detail(
     slug: str,
     request: Request,
+    page: int = Query(default=1, ge=1),  # noqa: B008  (FastAPI DI pattern)
     store: NotebooksStore = Depends(get_notebooks_store),  # noqa: B008  (FastAPI DI pattern)
 ) -> HTMLResponse:
     """Per-notebook detail page — paper list + paste form + upload
     card (the "open" link from the landing page).
 
     404 if the slug doesn't exist; 422 on a malformed slug.
+
+    The paper list is **paginated** (``?page=N``, 1-based,
+    :data:`_DETAIL_PAGE_SIZE` rows/page) so the page cost is bounded
+    regardless of notebook size — see :data:`_DETAIL_PAGE_SIZE`. A
+    ``page`` past the last page renders an empty table (with working
+    prev navigation); ``page`` is clamped to ``>= 1`` by the query
+    validator.
     """
     try:
         validate_slug(slug)
@@ -423,24 +499,37 @@ async def ui_notebook_detail(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"notebook {slug!r} not found",
         )
-    papers = await store.list_papers(slug)
+    # Bounded page read: only this page's rows leave the DB (LIMIT/OFFSET
+    # pushed into SQL) and only its total is counted (one O(1) COUNT(*)).
+    total_papers = await store.count_papers(slug)
+    offset = (page - 1) * _DETAIL_PAGE_SIZE
+    papers = await store.list_papers(slug, limit=_DETAIL_PAGE_SIZE, offset=offset)
     # m10 AC #2 — annotate each paper row with on-disk preview existence
     # so the template can conditionally render the Preview link vs a
     # "no preview available" tooltip. Two filesystem stats per paper
-    # (notebook-scoped + corpus-global); loopback-only deployment makes
-    # this cheap. ``store.list_papers`` returns ``list[dict[str, str]]``;
-    # we widen the value type to include the new bool but the template
-    # only reads it via ``p.has_preview`` style access so the existing
-    # ``paper_id`` / ``added_at`` keys are untouched.
-    annotated_papers: list[dict[str, object]] = []
-    for row in papers:
-        paper_id = row.get("paper_id", "")
-        has_preview = (
-            isinstance(paper_id, str)
-            and is_valid_arxiv_paper_id(paper_id)
-            and _preview_html_path(slug, paper_id) is not None
-        )
-        annotated_papers.append({**row, "has_preview": has_preview})
+    # (notebook-scoped + corpus-global). This is bounded to at most
+    # ``_DETAIL_PAGE_SIZE`` stats (was O(all rows)) AND is moved OFF the
+    # event loop into a worker thread — a page of blocking ``stat()``
+    # syscalls must never freeze the single-process async server for
+    # concurrent requests (finding
+    # ``legacy-ui-detail-page-blocks-event-loop-then-413s``).
+    # ``store.list_papers`` returns ``list[dict[str, str]]``; we widen the
+    # value type to include the new bool but the template only reads it via
+    # ``p.has_preview`` style access so the existing ``paper_id`` /
+    # ``added_at`` keys are untouched.
+    def _annotate() -> list[dict[str, object]]:
+        out: list[dict[str, object]] = []
+        for row in papers:
+            paper_id = row.get("paper_id", "")
+            has_preview = (
+                isinstance(paper_id, str)
+                and is_valid_arxiv_paper_id(paper_id)
+                and _preview_html_path(slug, paper_id) is not None
+            )
+            out.append({**row, "has_preview": has_preview})
+        return out
+
+    annotated_papers = await asyncio.to_thread(_annotate)
     # notebook-surface-expansion-m1: per-notebook freshness signal. ONE O(1)
     # call (NOT per paper); returns the latest ingest-run row or None when the
     # notebook has never been ingested. The template renders "Never indexed" on
@@ -450,6 +539,21 @@ async def ui_notebook_detail(
     parse_status_css = _PARSE_STATUS_CSS.get(
         notebook.get("parse_status") or "", "warn"
     )
+    # Pagination context for the template. ``total_pages`` is >= 1 so an
+    # empty notebook still reads "Page 1 of 1".
+    total_pages = max(1, (total_papers + _DETAIL_PAGE_SIZE - 1) // _DETAIL_PAGE_SIZE)
+    pagination = {
+        "page": page,
+        "page_size": _DETAIL_PAGE_SIZE,
+        "total_papers": total_papers,
+        "total_pages": total_pages,
+        "has_prev": page > 1,
+        "has_next": page < total_pages,
+        "prev_page": page - 1,
+        "next_page": page + 1,
+        "first_index": offset + 1 if annotated_papers else 0,
+        "last_index": offset + len(annotated_papers),
+    }
     return templates.TemplateResponse(
         request=request,
         name="notebook_detail.html",
@@ -458,6 +562,7 @@ async def ui_notebook_detail(
             "papers": annotated_papers,
             "latest_run": latest_run,
             "parse_status_css": parse_status_css,
+            "pagination": pagination,
         },
     )
 
@@ -504,10 +609,29 @@ async def ui_paper_preview(
     when the handler already supplied a value — so our tight CSP wins
     over the broader m8 ``/ui/*`` CSP without any middleware change.
 
-    Math-rendering trade-off (m10 synthesis A6): ar5iv uses MathJax 3
-    which requires ``script-src 'self' 'unsafe-eval'``. With
-    ``script-src 'none'`` math displays as raw LaTeX markup. Accepted
-    for v2 m10; server-side KaTeX pre-render is a future enhancement.
+    Math rendering under the tight CSP (m10 synthesis A6, corrected
+    2026-07-04 per Stage-1 finding 211 R-D/E-9): stored ar5iv HTML
+    carries full presentation MathML (``<math class="ltx_Math">`` with
+    ``application/x-tex`` annotations); ar5iv's MathJax 3 loader is
+    only an enhancement layer over that markup. ``script-src 'none'``
+    blocks the MathJax layer, but modern browsers (Chrome 109+,
+    Firefox, Safari) render the underlying MathML natively via
+    MathML Core with zero JS — math does NOT display as raw LaTeX,
+    as this comment previously claimed. Server-side KaTeX pre-render
+    remains a future enhancement for ``$TeX$`` chunk-text surfaces
+    only (chunk bodies store LaTeX text, not MathML).
+
+    Stylesheet repointing (stage3/arx-server-r2): the stored HTML links
+    absolute stylesheet paths the daemon does not host (ar5iv
+    ``/assets/*.css``; arxiv-native ``/static/browse/*/css/*.css``), each
+    of which 404s as ``application/json`` so the browser refuses it and
+    the document renders unstyled with 3 console errors per paper. Before
+    serving, we rewrite those stylesheet ``<link>`` hrefs to the
+    same-origin vendored baseline ``/ui/static/preview.css`` (allowed by
+    the tight CSP's ``style-src 'self'``). See
+    :data:`_PREVIEW_STYLESHEET_LINK_RE` for the scope discipline; the
+    MathJax ``<script>`` blocking is an intentional ``script-src 'none'``
+    effect and is deliberately NOT touched.
     """
     # 1. Slug validation. NotebookError -> 422.
     try:
@@ -553,10 +677,15 @@ async def ui_paper_preview(
             detail=str(e),
         ) from e
     corpus_root = CORPUS_PARSED_DIR.resolve()
+    # Containment via Path.is_relative_to (lexical, separator-aware).
+    # The previous string check appended a literal "/" to the prefix,
+    # which never matches the "\\"-separated str(Path) on Windows —
+    # every preview 404'd on the authoritative host (stage2/arx-ws0
+    # Windows-baseline triage, 2026-07-04). is_relative_to also
+    # covers the resolved == prefix case the old check special-cased.
     if not (
-        str(resolved).startswith(str(nb_ar5iv) + "/")
-        or str(resolved).startswith(str(corpus_root) + "/")
-        or resolved in (nb_ar5iv, corpus_root)
+        resolved.is_relative_to(nb_ar5iv)
+        or resolved.is_relative_to(corpus_root)
     ):
         # Generic 404 — never leak the resolved path or which prefix
         # check failed. F5 closure (m10 adversary critique): also
@@ -591,6 +720,17 @@ async def ui_paper_preview(
     # roughly stable for line-numbered debugging in browser devtools.
     content_bytes = _META_REFRESH_RE.sub(
         b"<!-- meta-refresh stripped (m10 F1) -->", content_bytes,
+    )
+    # stage3/arx-server-r2: repoint the stored HTML's non-hosted
+    # stylesheet <link>s (ar5iv /assets/*.css, arxiv-native
+    # /static/browse/*.css) at the same-origin vendored baseline so the
+    # browser stops 404ing them as application/json and the document
+    # picks up readable LaTeXML typography. See _PREVIEW_STYLESHEET_LINK_RE
+    # for the full rationale + scope discipline. Group 1 keeps the tag
+    # opener up to the opening quote; group 2 keeps the closing quote,
+    # any trailing attributes, and the ``>`` (self-closing ``/>`` intact).
+    content_bytes = _PREVIEW_STYLESHEET_LINK_RE.sub(
+        rb"\g<1>" + _PREVIEW_STYLESHEET_HREF + rb"\g<2>", content_bytes,
     )
     return Response(
         content=content_bytes,

@@ -639,3 +639,299 @@ class TestUploadFragmentPreviewLink:
         )
         assert 'target="_blank"' in body
         assert 'rel="noopener"' in body
+
+
+# ---------------------------------------------------------------------------
+# stage3/cross-r1 — byte-cap exemption for the stored-doc preview
+# ---------------------------------------------------------------------------
+
+
+class TestPreviewByteCapExemption:
+    """The preview route serves verbatim ar5iv/LaTeXML HTML, which for
+    real papers routinely exceeds the 256 KiB inline-response cap
+    (BodySizeCapMiddleware). Before the fix, the entry point of the D7
+    stored-document MathML track dead-ended on a raw JSON 413 for real
+    content (the mandated E2E's own 1.78 MB paper reproduces it).
+
+    The other preview tests build a MINIMAL app WITHOUT the byte-cap
+    middleware (that is exactly why the hermetic gate missed this), so
+    this class drives the FULL ``create_app()`` stack — the same one the
+    daemon runs — with a >256 KiB stored fixture. It would FAIL before
+    ``_is_exempt_path`` learned the preview route (raw 413
+    ``payload_too_large``)."""
+
+    OVER_CAP_HTML = (
+        b"<!DOCTYPE html><html><body>"
+        + (b"<p>theorem body with MathML</p>" * 12000)
+        + b"</body></html>"
+    )  # ~372 KB > 262144
+
+    def _real_app_client(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    ) -> TestClient:
+        from server.config import Config
+        from server.main import create_app
+
+        monkeypatch.setenv("ARXMCP_LANCEDB_PATH", str(tmp_path / "lancedb-empty"))
+        monkeypatch.delenv("ARXMCP_ALLOWED_ORIGINS", raising=False)
+        monkeypatch.delenv("ARXMCP_UNSAFE_NETWORK_BIND", raising=False)
+        monkeypatch.delenv("ARXMCP_CONTACT_EMAIL", raising=False)
+        return TestClient(create_app(Config()))
+
+    def test_over_cap_preview_not_413_new_style_id(
+        self, tmp_path: Path, corpus_parsed: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A >256 KiB stored preview (new-style arXiv id) must be served,
+        not 413'd, through the real create_app() middleware stack."""
+        assert len(self.OVER_CAP_HTML) > 262144, "fixture must exceed the cap"
+        _plant_corpus_html(corpus_parsed, "0705.3794", self.OVER_CAP_HTML)
+        client = self._real_app_client(tmp_path, monkeypatch)
+        r = client.get("/ui/notebooks/e2e-live/papers/0705.3794/preview")
+        assert r.status_code != 413, (
+            f"preview 413'd on a {len(self.OVER_CAP_HTML)}-byte stored paper "
+            f"— the D7 stored-doc math track dead-ends on real content; "
+            f"body={r.text[:200]!r}"
+        )
+        assert r.status_code == 200, r.text
+        assert r.content == self.OVER_CAP_HTML
+
+    def test_over_cap_preview_not_413_old_style_id(
+        self, tmp_path: Path, corpus_parsed: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Old-style ids (``math/0211159`` — the route's ``paper_id:path``
+        converter, an extra path segment) also clear the cap."""
+        _plant_corpus_html(corpus_parsed, "math/0211159", self.OVER_CAP_HTML)
+        client = self._real_app_client(tmp_path, monkeypatch)
+        r = client.get("/ui/notebooks/e2e-live/papers/math/0211159/preview")
+        assert r.status_code != 413, r.text[:200]
+        assert r.status_code == 200, r.text
+
+    def test_over_cap_non_preview_ui_json_still_capped(
+        self, tmp_path: Path, corpus_parsed: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Defense-in-depth: the exemption is preview-only. A JSON route
+        under /ui/api that somehow returned >256 KiB must STILL trip the
+        cap — the exemption must not bleed onto sibling notebook routes.
+        We assert the helper directly (no oversized JSON route exists to
+        exercise live)."""
+        from server.main import _is_exempt_path
+
+        # The preview route is exempt; a sibling export/JSON path is not.
+        assert _is_exempt_path(
+            "/ui/notebooks/e2e-live/papers/0705.3794/preview"
+        )
+        assert not _is_exempt_path(
+            "/ui/notebooks/e2e-live/papers/0705.3794/export"
+        )
+        assert not _is_exempt_path("/ui/api/notebooks/e2e-live/papers")
+        assert not _is_exempt_path("/ui/notebooks/e2e-live/preview")
+
+
+# ---------------------------------------------------------------------------
+# stage3/arx-server-r2 — non-hosted stylesheet <link>s are repointed at a
+# same-origin baseline so the browser stops 404ing them as application/json
+# ---------------------------------------------------------------------------
+
+
+#: A realistic stored-ar5iv <head>: the three absolute stylesheet links
+#: ar5iv emits (each 404s as application/json on this daemon — nothing is
+#: mounted at /assets/), plus a MathJax loader <script> and a font-preload
+#: link that MUST survive the rewrite untouched. Body carries a MathML
+#: node (the native-render surface the CSP intentionally leaves working).
+_STORED_AR5IV_HTML = (
+    b"<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n"
+    b"<meta charset=\"utf-8\">\n"
+    b'<link media="all" rel="stylesheet" href="/assets/ar5iv-fonts.0.8.4.css">\n'
+    b'<link media="all" rel="stylesheet" href="/assets/ar5iv.0.8.4.css">\n'
+    b'<link media="all" rel="stylesheet" href="/assets/ar5iv-site.0.2.2.css">\n'
+    b'<link rel="preload" as="font" type="font/woff2" '
+    b'href="/assets/latinmodern-math.woff2" crossorigin>\n'
+    b'<script src="/assets/ar5iv-mathjax.js" defer></script>\n'
+    b"</head>\n<body><article class=\"ltx_document\">"
+    b'<math class="ltx_Math" display="inline"><mi>X</mi></math>'
+    b"</article></body></html>"
+)
+
+
+class TestPreviewStylesheetRewrite:
+    """The stored ar5iv / arxiv-native HTML links absolute stylesheet
+    paths the daemon does NOT host (``/assets/*.css``,
+    ``/static/browse/*/css/*.css``). Each 404s with
+    ``content-type: application/json`` — so the browser refuses it
+    ('Refused to apply style ... its MIME type application/json is not a
+    supported stylesheet MIME type'), logs 3 console errors per stored
+    paper, and the document renders with UA-default (unstyled) typography.
+
+    The handler rewrites those non-hosted stylesheet ``<link>`` hrefs to
+    the same-origin vendored baseline ``/ui/static/preview.css`` (which
+    the tight preview CSP ``style-src 'self'`` allows and which the
+    static mount serves as ``text/css``).
+
+    Drives the FULL ``create_app()`` stack (same as the byte-cap class)
+    so the assertions exercise the real static mount + middleware — the
+    minimal-app fixtures elsewhere in this file do not mount
+    ``/ui/static`` or ``/assets``. Before the fix these tests FAIL: the
+    served body still carries ``/assets/*.css`` links and a probe of one
+    such path returns 404 ``application/json``.
+    """
+
+    def _real_app_client(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    ) -> TestClient:
+        from server.config import Config
+        from server.main import create_app
+
+        monkeypatch.setenv("ARXMCP_LANCEDB_PATH", str(tmp_path / "lancedb-empty"))
+        monkeypatch.delenv("ARXMCP_ALLOWED_ORIGINS", raising=False)
+        monkeypatch.delenv("ARXMCP_UNSAFE_NETWORK_BIND", raising=False)
+        monkeypatch.delenv("ARXMCP_CONTACT_EMAIL", raising=False)
+        return TestClient(create_app(Config()))
+
+    def test_assets_css_probe_404s_as_json_without_a_mount(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Root-cause pin: the daemon hosts nothing at ``/assets/``, so
+        the ar5iv stylesheet path the stored HTML references 404s with a
+        JSON body — the exact MIME the browser rejects. This asserts the
+        server-side half of the finding independent of the rewrite; it
+        stays true (the mount is deliberately never added) and documents
+        WHY the rewrite is necessary."""
+        client = self._real_app_client(tmp_path, monkeypatch)
+        r = client.get("/assets/ar5iv.0.8.4.css")
+        assert r.status_code == 404
+        assert "application/json" in r.headers.get("content-type", "")
+
+    def test_stored_stylesheet_links_repointed_new_style_id(
+        self, tmp_path: Path, corpus_parsed: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """The served preview no longer references any ``/assets/*.css``;
+        all three are repointed at ``/ui/static/preview.css`` — which the
+        static mount serves 200 as ``text/css`` (a stylesheet MIME the
+        browser accepts under the tight ``style-src 'self'`` CSP)."""
+        _plant_corpus_html(corpus_parsed, "0705.3794", _STORED_AR5IV_HTML)
+        client = self._real_app_client(tmp_path, monkeypatch)
+
+        r = client.get("/ui/notebooks/e2e-live/papers/0705.3794/preview")
+        assert r.status_code == 200, r.text
+        body = r.content
+        # No non-hosted stylesheet path survives (these 404'd as JSON).
+        assert b"/assets/ar5iv-fonts.0.8.4.css" not in body
+        assert b"/assets/ar5iv.0.8.4.css" not in body
+        assert b"/assets/ar5iv-site.0.2.2.css" not in body
+        # All three now point at the same-origin baseline.
+        assert body.count(b"/ui/static/preview.css") == 3
+
+        # And that baseline is actually served with a stylesheet MIME.
+        css = client.get("/ui/static/preview.css")
+        assert css.status_code == 200, css.text
+        assert "text/css" in css.headers.get("content-type", "")
+
+    def test_native_browse_stylesheet_repointed(
+        self, tmp_path: Path, corpus_parsed: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """The arxiv-native render family (fetch-ladder rung 1) links
+        ``/static/browse/<ver>/css/*.css`` — same non-hosted problem,
+        same repoint. (native fixture head; ingest/ar5iv_fetch.py)."""
+        native = (
+            b"<!DOCTYPE html><html><head>"
+            b'<link rel="stylesheet" '
+            b'href="/static/browse/0.3.4/css/latexml_styles.css"/>'
+            b"</head><body><article class=\"ltx_document\">x</article>"
+            b"</body></html>"
+        )
+        _plant_corpus_html(corpus_parsed, "0705.3794", native)
+        client = self._real_app_client(tmp_path, monkeypatch)
+        r = client.get("/ui/notebooks/e2e-live/papers/0705.3794/preview")
+        assert r.status_code == 200, r.text
+        assert b"/static/browse/" not in r.content
+        assert r.content.count(b"/ui/static/preview.css") == 1
+
+    def test_rewrite_scope_leaves_script_and_font_and_csp_intact(
+        self, tmp_path: Path, corpus_parsed: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Scope discipline: the rewrite touches ONLY ``.css`` stylesheet
+        links. The MathJax ``<script src="/assets/...js">`` (its blocking
+        is an intentional ``script-src 'none'`` effect, explicitly NOT the
+        finding) and the ``/assets/*.woff2`` font-preload are left
+        verbatim, and the tight preview CSP header is unchanged."""
+        _plant_corpus_html(corpus_parsed, "0705.3794", _STORED_AR5IV_HTML)
+        client = self._real_app_client(tmp_path, monkeypatch)
+        r = client.get("/ui/notebooks/e2e-live/papers/0705.3794/preview")
+        assert r.status_code == 200, r.text
+        body = r.content
+        # MathJax loader script + its /assets/ src survive untouched.
+        assert b'<script src="/assets/ar5iv-mathjax.js" defer></script>' in body
+        # Font-preload link (a .woff2, not a .css) is NOT rewritten.
+        assert b'href="/assets/latinmodern-math.woff2"' in body
+        # The exact tight preview CSP still wins (no widening).
+        assert (
+            r.headers["content-security-policy"]
+            == CONTENT_SECURITY_POLICY_PREVIEW.decode("ascii")
+        )
+
+
+class TestPreviewStylesheetRewriteRegex:
+    """Route-independent contract for the rewrite regex, pinning the
+    substitution to the module constant so a future refactor of the
+    handler cannot silently regress the boundary (same discipline as
+    ``test_is_valid_paper_id_rejects_traversal_directly`` above)."""
+
+    def _rewrite(self, raw: bytes) -> bytes:
+        from server.routes.ui import (
+            _PREVIEW_STYLESHEET_HREF,
+            _PREVIEW_STYLESHEET_LINK_RE,
+        )
+
+        return _PREVIEW_STYLESHEET_LINK_RE.sub(
+            rb"\g<1>" + _PREVIEW_STYLESHEET_HREF + rb"\g<2>", raw,
+        )
+
+    @pytest.mark.parametrize(
+        "link",
+        [
+            b'<link media="all" rel="stylesheet" href="/assets/ar5iv.0.8.4.css">',
+            b'<link rel="stylesheet" href="/static/browse/0.3.4/css/x.css"/>',
+            b'<link rel="stylesheet" href="/assets/a.css" />',      # self-closing
+            b'<link href="/assets/a.css" rel="stylesheet">',        # href first
+            b"<link rel='stylesheet' href='/assets/a.css'>",        # single quotes
+            b'<LINK REL="stylesheet" HREF="/assets/a.css">',        # uppercase
+        ],
+    )
+    def test_rewrites_non_hosted_css_links(self, link: bytes) -> None:
+        out = self._rewrite(link)
+        assert b"/ui/static/preview.css" in out
+        assert b"/assets/" not in out or b"/assets/a.css" not in out
+        assert b"/static/browse/" not in out
+
+    def test_self_closing_slash_is_preserved(self) -> None:
+        out = self._rewrite(
+            b'<link rel="stylesheet" href="/assets/a.css" />'
+        )
+        assert out.rstrip().endswith(b"/>")
+
+    def test_multiple_links_each_rewritten(self) -> None:
+        out = self._rewrite(
+            b'<link rel="stylesheet" href="/assets/a.css">'
+            b'<link rel="stylesheet" href="/assets/b.css">'
+        )
+        assert out.count(b"/ui/static/preview.css") == 2
+
+    @pytest.mark.parametrize(
+        "link",
+        [
+            b'<link rel="preload" as="font" href="/assets/x.woff2">',  # not .css
+            b'<link rel="modulepreload" href="/assets/x.js">',         # not .css
+            b'<link rel="stylesheet" href="data:text/css,body{}">',    # data uri
+            b'<link rel="stylesheet" href="/ui/static/app.css">',      # already ok
+            b'<link rel="stylesheet" href="styles.css">',              # relative
+            b'<link rel="stylesheet" href="https://cdn.example/x.css">',  # remote
+        ],
+    )
+    def test_leaves_out_of_scope_links_untouched(self, link: bytes) -> None:
+        assert self._rewrite(link) == link

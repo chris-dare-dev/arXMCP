@@ -12,11 +12,28 @@ from __future__ import annotations
 import pathlib
 import shutil
 import subprocess
+import sys
 
 import pytest
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
 SCRIPT = REPO_ROOT / "tools" / "quarterly_drill_reminder.sh"
+
+# The drill reminder is a POSIX ops script (bash + cron; see
+# docs/ops/backup-restore.md). On Windows the `bash` on PATH is the
+# WSL launcher, which cannot execute a script addressed by a
+# C:\-style Windows path (exit 127, "No such file or directory") —
+# and the script's cron deployment target is macOS/Linux only.
+# Documented Windows-baseline skip: see
+# .claude/notes/windows-test-triage.md §5 (win32).
+pytestmark = pytest.mark.skipif(
+    sys.platform == "win32",
+    reason=(
+        "POSIX ops script (bash + cron); WSL bash cannot take "
+        "C:\\-style script paths — see "
+        ".claude/notes/windows-test-triage.md §5 (win32)"
+    ),
+)
 
 
 def test_script_present_and_executable():

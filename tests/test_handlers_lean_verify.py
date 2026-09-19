@@ -71,15 +71,33 @@ class _FakeLeanRepl:
     ``responses`` is a list of REPL JSON responses returned in order.
     ``raise_with`` (optional) is the LeanReplError to raise on the
     first ``query`` call instead — used for the timeout path.
+
+    **D-2 (stage2/arx-d2) default audit synthesis.** A kernel-accepted
+    full-mode result now triggers a ``#print axioms <decl>`` follow-up
+    query per audited declaration. When the queued ``responses`` list
+    is exhausted AND the command is a ``#print axioms`` audit, the fake
+    synthesizes the clean-closure response (``'<decl>' does not depend
+    on any axioms``) so pre-D-2 test sites keep working unchanged.
+    Tests that pin a specific closure queue their own audit responses.
+
+    **stage3/proving-p1 default kernel-type synthesis.** A kernel-
+    accepted full-mode result ALSO triggers a ``#check @<decl>`` follow-up
+    per audited declaration (the durable P1 proved-statement query).
+    ``check_types`` (name -> raw ``data`` string, or ``None`` for an
+    "Unknown identifier" error) overrides per test; an unmapped name
+    defaults to a parseable ``<decl> : True`` synthesized out of band, so
+    the ordered ``responses`` queue is never consumed by a ``#check``.
     """
 
     def __init__(
         self,
         responses: list[dict[str, Any]] | None = None,
         raise_with: Exception | None = None,
+        check_types: dict[str, str | None] | None = None,
     ) -> None:
         self._responses = list(responses or [])
         self._raise_with = raise_with
+        self._check_types = dict(check_types or {})
         self.commands: list[dict[str, Any]] = []
         self.closed = False
 
@@ -87,6 +105,47 @@ class _FakeLeanRepl:
         self.commands.append(command)
         if self._raise_with is not None:
             raise self._raise_with
+        cmd_text = str(command.get("cmd", ""))
+        if not self._responses and cmd_text.startswith("#print axioms "):
+            decl = cmd_text.removeprefix("#print axioms ").strip()
+            return {
+                "env": int(command.get("env", 0)) + 1,
+                "messages": [
+                    {
+                        "severity": "info",
+                        "pos": {"line": 1, "column": 0},
+                        "data": f"'{decl}' does not depend on any axioms",
+                    }
+                ],
+            }
+        # Durable P1 kernel-type query — synthesize `<decl> : <type>` out
+        # of band (never consumes the ordered queue). `check_types[name] =
+        # None` models a `#check` that errors (name OMITTED from
+        # kernel_statements, fail-closed).
+        if cmd_text.startswith("#check @"):
+            decl = cmd_text.removeprefix("#check @").strip()
+            data = self._check_types.get(decl, f"{decl} : True")
+            if data is None:
+                return {
+                    "env": int(command.get("env", 0)) + 1,
+                    "messages": [
+                        {
+                            "severity": "error",
+                            "pos": {"line": 1, "column": 8},
+                            "data": f"Unknown identifier `{decl}`",
+                        }
+                    ],
+                }
+            return {
+                "env": int(command.get("env", 0)) + 1,
+                "messages": [
+                    {
+                        "severity": "info",
+                        "pos": {"line": 1, "column": 0},
+                        "data": data,
+                    }
+                ],
+            }
         return self._responses.pop(0)
 
     async def close(self) -> None:
@@ -172,8 +231,19 @@ class TestToolRegistration:
         drifted the global version; lean_verify result shape again
         unchanged), 15->16 (textbook-ingest-m11 / e5 — get_chunk
         truncated_for_license response flag drifted the global version;
-        lean_verify result shape once more unchanged)."""
-        assert TOOL_SCHEMA_VERSION == 16
+        lean_verify result shape once more unchanged), 16->17
+        (ONE batched stage2 event, landed together at integration:
+        stage2/arx-a1's search_papers filter_echo envelope addition AND
+        stage2/arx-d2 WS-D D-2 — the lean_verify RESULT envelope grows
+        the ``soundness`` + ``provenance`` hardening blocks; ToolMeta
+        descriptions and inputSchemas unchanged, BP1 unaffected), 17->18
+        (stage3/proving-p1 durable P1 soundness fix — the lean_verify
+        RESULT envelope grows the ``kernel_statements`` field, the
+        KERNEL-reported proved-statement source the verdict-linkage
+        choke-point consumes in place of the retired author-source text
+        scan; ToolMeta description + inputSchema unchanged, BP1
+        unaffected)."""
+        assert TOOL_SCHEMA_VERSION == 18
 
         schema_path = (
             Path(__file__).parent.parent
@@ -353,8 +423,17 @@ class TestHandlerHappyPaths:
         assert result["lean_status"] == "available"
         assert result["mode"] == "full"
         assert result["corpus_version"] == 1
-        # Command sent to REPL is the bare snippet.
-        assert repl.commands == [{"cmd": "theorem t : 1+1=2 := rfl"}]
+        # Command 0 is the bare snippet; command 1 is the D-2 axiom
+        # audit; command 2 is the durable-P1 kernel-type query — all in
+        # the verification env (env 0).
+        assert repl.commands[0] == {"cmd": "theorem t : 1+1=2 := rfl"}
+        assert repl.commands[1] == {"cmd": "#print axioms t", "env": 0}
+        assert repl.commands[2] == {"cmd": "#check @t", "env": 0}
+        assert result["soundness"]["audit_status"] == "ok"
+        assert result["soundness"]["axiom_closure_ok"] is True
+        # kernel_statements carries the KERNEL-reported proved statement
+        # (durable P1 soundness fix) — the default fake type for `t`.
+        assert result["kernel_statements"] == {"t": "True"}
 
     def test_full_mode_type_error(self, fake_resources_with_repl):
         _fake, repl = fake_resources_with_repl
@@ -507,7 +586,8 @@ class TestSpawnRlimitGuard:
 
     @pytest.mark.skipif(
         sys.platform == "win32",
-        reason="POSIX-only branch: setrlimit/preexec_fn required",
+        reason="POSIX-only branch: setrlimit/preexec_fn required — see "
+        ".claude/notes/windows-test-triage.md §7 (win32)",
     )
     def test_posix_attaches_preexec_fn(self, tmp_path, monkeypatch):
         from server import lean_repl as lean_mod
@@ -589,7 +669,8 @@ class TestSpawnRlimitGuard:
 
     @pytest.mark.skipif(
         sys.platform != "win32",
-        reason="Windows-only branch: preexec_fn must NOT be set",
+        reason="Windows-only branch: preexec_fn must NOT be set — see "
+        ".claude/notes/windows-test-triage.md §7 (win32)",
     )
     def test_windows_skips_preexec_fn_and_warns(
         self, tmp_path, monkeypatch, caplog
@@ -1002,7 +1083,8 @@ class TestRealLeanRepl:
     @pytest.mark.skipif(
         sys.platform == "win32",
         reason="RLIMIT_AS is POSIX-only; Windows path tested via the unit "
-        "test that monkeypatches create_subprocess_exec",
+        "test that monkeypatches create_subprocess_exec — see "
+        ".claude/notes/windows-test-triage.md §7 (win32)",
     )
     def test_real_rlimit_as_bounds_subprocess(self):
         """The m3 AC: RLIMIT_AS bounds the subprocess. m3 critique F1
@@ -1155,12 +1237,12 @@ class _SlowFakeLeanRepl(_FakeLeanRepl):
         self._delay_s = delay_s
 
     async def query(self, command: dict[str, Any]) -> dict[str, Any]:
-        self.commands.append(command)
         if self._delay_s > 0:
             await asyncio.sleep(self._delay_s)
-        if self._raise_with is not None:
-            raise self._raise_with
-        return self._responses.pop(0)
+        # Delegate to the parent for append/raise/pop AND the D-2
+        # default audit synthesis (stage2/arx-d2) — the audit follow-up
+        # query lands here too on a kernel-accepted full-mode result.
+        return await super().query(command)
 
 
 class TestProgressHeartbeat:

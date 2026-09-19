@@ -37,7 +37,7 @@ How might we surface per-notebook scoping and (eventually) two-stage retrieval t
 - `[MUST]` Threading the `filters={"paper_id": [...]}` argument into a LanceDB ANN search via `.where("paper_id IN (...)")` composes correctly with HNSW indexing and returns mathematically-sound rankings within the filtered subset. (Will be validated by handler tests + a downstream re-probe; the pattern is shipped in `BM25Phase._apply_supported_filters` at `server/retrieval/bm25.py:670-687` but not yet proven on the ANN call path.)
 - `[MUST]` A 100-paper math.AG notebook fixture with chunk-level relevance labels for ~10 pointed sub-questions can be produced within the roadmap horizon. The curation runbook exists at `.claude/docs/eval-curation.md` (E05_S02 deliverable); the data does not. Without it, every hybrid+rerank-vs-dense claim stays unmeasured.
 - `[SHOULD]` Per-call paper_id lists of ~100 ids fit comfortably inside the MCP request byte caps. 100 × ~12 bytes ≈ 1.2 KB; cap is 256 KB (E13_S04b).
-- `[SHOULD]` No downstream consumer has a load-bearing parser on the output `retrieval_mode` string. (Worth pinging the personal-website session before flipping the value.)
+- `[SHOULD]` No downstream consumer has a load-bearing parser on the output `retrieval_mode` string. (Worth pinging the consumer session before flipping the value.)
 - `[MIGHT]` Rerank latency drops 10× on GPU (still ~0.7s; opt-in only even then).
 - `[MIGHT]` Sparse-vector fusion (BGE-M3's multi-vector head) lifts precision on top of hybrid+rerank for technical-term-heavy queries — relevant only if hybrid+rerank itself shows lift at scale.
 

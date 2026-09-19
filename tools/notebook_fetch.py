@@ -1,11 +1,14 @@
-"""Fetch ar5iv HTML for any paper_id in a notebook missing from corpus/parsed.
+"""Fetch rendered HTML for any paper_id in a notebook missing from corpus/parsed.
 
 Walks ``var/arxmcp/notebooks/<slug>/papers.txt``, validates each line,
 and for every paper_id missing from ``var/arxmcp/corpus/parsed/<id>/index.html``
-delegates to :func:`ingest.ar5iv_fetch.try_cache`. Delegation inherits
+delegates to :func:`ingest.ar5iv_fetch.try_html_sources` — the arx-a45
+fetch ladder (arxiv.org/html native render first, ar5iv second; local
+LaTeXML remains the operator-side third rung). Delegation inherits
 the existing security machinery: 100 MB cap, 5 s timeout, 429/503
-handling, ``<math`` body-presence check. See the synthesis "Disagreement
-1" resolution for why we delegate rather than re-implement HTTP.
+handling, ``<math`` body-presence check, off-base redirect rejection.
+See the synthesis "Disagreement 1" resolution for why we delegate
+rather than re-implement HTTP.
 
 notebook-preamble-recovery-m1: after each ar5iv hit, also pulls raw
 ``.tex`` source via :func:`tools._notebook_common.fetch_raw_tex_if_missing`
@@ -58,8 +61,9 @@ import time
 
 from ingest.ar5iv_fetch import (
     DEFAULT_AR5IV_CACHE_DIR,
+    DEFAULT_NATIVE_CACHE_DIR,
     DEFAULT_PARSED_DIR,
-    try_cache,
+    try_html_sources,
 )
 from ingest.identifiers import is_valid_arxiv_paper_id
 from tools._notebook_common import (
@@ -127,19 +131,24 @@ def run(slug: str, *, sleep_seconds: float = POLITENESS_SLEEP_SECONDS) -> int:
 
     # F4 fix: dropped the bare >1024-byte size heuristic. It admitted
     # corrupt local files (manually dropped invalid HTML, half-written
-    # files from a crashed pre-m6 run) as cache hits. Always call
-    # try_cache; it does the correct dual-file existence + content
-    # validation. The sleep is suppressed when try_cache reports a
+    # files from a crashed pre-m6 run) as cache hits. Always call the
+    # fetch ladder; it does the correct dual-file existence + content
+    # validation. The sleep is suppressed when the ladder reports a
     # local-cache hit (no network round-trip).
+    #
+    # arx-a45: try_cache → try_html_sources (native → ar5iv ladder).
+    # The reason vocabulary is unchanged, so the miss categorization
+    # below is untouched; a miss carries the ar5iv rung's reason.
     for paper_id in valid_ids:
-        result = try_cache(
+        result = try_html_sources(
             paper_id,
-            cache_dir=DEFAULT_AR5IV_CACHE_DIR,
+            native_cache_dir=DEFAULT_NATIVE_CACHE_DIR,
+            ar5iv_cache_dir=DEFAULT_AR5IV_CACHE_DIR,
             parsed_dir=DEFAULT_PARSED_DIR,
         )
         if result.hit:
             # Categorize: was this a local-cache hit (no fetch) or a
-            # genuine fetch? try_cache returns reason="ok_local_cache"
+            # genuine fetch? The ladder returns reason="ok_local_cache"
             # when both files were already present; "ok" means a real
             # network fetch happened. Reflect that in our summary —
             # AND skip the politeness sleep on local-cache hits.

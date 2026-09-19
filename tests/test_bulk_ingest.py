@@ -331,17 +331,33 @@ class TestIngestOnePaperFailurePath:
         """
         cache_dir = tmp_path / "cache"
         parsed_dir = tmp_path / "parsed"
-        # ar5iv stubbed to return a miss.
-        with patch(
-            "ingest.bulk_ingest.try_cache",
-            return_value=__import__(
-                "ingest.ar5iv_fetch", fromlist=["Ar5ivResult"]
-            ).Ar5ivResult(
-                paper_id="2401.00001",
-                hit=False,
-                cache_path=None,
-                parsed_path=None,
-                reason="http_404",
+        _Ar5ivResult = __import__(
+            "ingest.ar5iv_fetch", fromlist=["Ar5ivResult"]
+        ).Ar5ivResult
+        # Both remote rungs stubbed to return a miss (arx-a45: the
+        # native rung fires before ar5iv, so it must be stubbed too
+        # or the test would attempt a live arxiv.org fetch).
+        with (
+            patch(
+                "ingest.bulk_ingest.try_native",
+                return_value=_Ar5ivResult(
+                    paper_id="2401.00001",
+                    hit=False,
+                    cache_path=None,
+                    parsed_path=None,
+                    reason="http_404",
+                    source="native_html",
+                ),
+            ),
+            patch(
+                "ingest.bulk_ingest.try_cache",
+                return_value=_Ar5ivResult(
+                    paper_id="2401.00001",
+                    hit=False,
+                    cache_path=None,
+                    parsed_path=None,
+                    reason="http_404",
+                ),
             ),
         ):
             outcome = ingest_one_paper(
@@ -352,6 +368,7 @@ class TestIngestOnePaperFailurePath:
             )
         assert outcome.parser_used is None
         assert outcome.failure_reason == "no_parsed_html"
+        assert "native_html" in outcome.parsers_tried
         assert "ar5iv" in outcome.parsers_tried
         assert "latexml" in outcome.parsers_tried
 
@@ -405,6 +422,19 @@ class TestEmbedderFailureSurfaces:
         (parsed_dir / "2401.00001" / "index.html").write_text("<html/>")
 
         with (
+            patch(
+                "ingest.bulk_ingest.try_native",
+                return_value=__import__(
+                    "ingest.ar5iv_fetch", fromlist=["Ar5ivResult"]
+                ).Ar5ivResult(
+                    paper_id="2401.00001",
+                    hit=False,
+                    cache_path=None,
+                    parsed_path=None,
+                    reason="http_404",
+                    source="native_html",
+                ),
+            ),
             patch(
                 "ingest.bulk_ingest.try_cache",
                 return_value=__import__(

@@ -1,0 +1,22 @@
+{
+  "claim_id": "C-001",
+  "agent": "proof-verify-arxmcp-querier",
+  "source": "arxmcp",
+  "found": true,
+  "queried_at": "2026-06-11T18:29:53.267051+00:00",
+  "result": {
+    "top_score": 0.6222322285175323,
+    "mean_score": 0.5860378324985505,
+    "top_snippet": "<retrieved_chunk>Let $X$ be a smooth projective variety defined over an algebraically closed field $k$ of characteristic $p>0$. Let $X^{(1)}=X\\times_{\\operatorname{Spe</retrieved_chunk>",
+    "top_paper_id": "2006.00756",
+    "domain_hints": [
+      "algebraic-geometry"
+    ],
+    "score_floor_pass": true,
+    "multi_signal_pass": true,
+    "result_count": 10,
+    "corpus_version": 1186,
+    "notebook_slug": "bridgeland-stability",
+    "query_used": "For polynomials $f_1, \\ldots, f_r \\in k[x_1, \\ldots, x_n]$ over an algebraically closed field $k$, the **affine variety** they cut out is $V(f_1, \\ldots, f_r) = \\{ p \\in \\AA^n_k \\mid f_i(p) = 0 \\text{ for all } i \\}$. Affine variety"
+  }
+}

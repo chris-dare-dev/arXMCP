@@ -23,6 +23,15 @@ chapter-length guides linked from it.
 | [Support](support.md) | Troubleshoot, find answers, and report a problem the right way. |
 | [Releasing](releasing.md) | Cut a versioned release (maintainer workflow). |
 
+## Decisions & security
+
+- [Architecture decision records](adr/README.md) — the Stage-2 gating
+  decisions (D1–D9) and the third-repo extraction triggers, as durable
+  operator-facing records.
+- [Security notes](security/) — currently the
+  [issue #9 scope-amendment draft](security/issue-9-scope-amendment-draft.md)
+  (local draft; not posted to GitHub).
+
 ## Contributing & policy
 
 - [Contributing guide](../CONTRIBUTING.md) — how changes are made in this repo.

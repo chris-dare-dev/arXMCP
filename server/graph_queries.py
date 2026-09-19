@@ -357,6 +357,49 @@ async def cite_neighbors(
         and lock the contract at the tool-input boundary (mirrors
         ``server.corpus.open_chunks_table``'s warning).
     """
+    # Validation order preserved from the original single-function
+    # shape (E09_S03): the max_results/direction gates fire BEFORE the
+    # chunk_id parse, so ``max_results=0`` returns ``[]`` even for a
+    # malformed chunk_id.
+    if max_results <= 0:
+        return []
+    if direction not in ("cites", "cited_by", "depends_on"):
+        raise ValueError(
+            "direction must be one of 'cites', 'cited_by', "
+            f"'depends_on'; got {direction!r}"
+        )
+    paper_id = paper_id_from_chunk_id(chunk_id)
+    return await cite_neighbors_for_paper(
+        paper_id,
+        depth=depth,
+        direction=direction,
+        max_results=max_results,
+        kuzudb_path=kuzudb_path,
+        lancedb_path=lancedb_path,
+    )
+
+
+async def cite_neighbors_for_paper(
+    paper_id: str,
+    depth: int = 2,
+    direction: Direction = "cites",
+    max_results: int = DEFAULT_MAX_RESULTS,
+    kuzudb_path: str | Path = DEFAULT_KUZUDB_PATH,
+    lancedb_path: str | Path | None = None,
+) -> list[CitationNeighbor]:
+    """Paper-id-level entry point (stage2/arx-a45, AC-A.20).
+
+    Identical semantics to :func:`cite_neighbors` minus the
+    chunk_id → paper_id parse — the REST graph read endpoint
+    (``GET /api/v1/notebooks/{slug}/graph/neighbors``) queries by
+    ``paper_id`` directly (its callers hold junction rows, not chunk
+    ids). :func:`cite_neighbors` (the MCP tool's library entry)
+    delegates here after parsing, so the two surfaces cannot drift.
+
+    Same trust contract as :func:`cite_neighbors`: ``kuzudb_path`` /
+    ``lancedb_path`` MUST be config-derived, never caller JSON;
+    ``paper_id`` MUST be pre-validated at the route/tool boundary.
+    """
     if max_results <= 0:
         return []
     if direction not in ("cites", "cited_by", "depends_on"):
@@ -367,7 +410,6 @@ async def cite_neighbors(
             "direction must be one of 'cites', 'cited_by', "
             f"'depends_on'; got {direction!r}"
         )
-    paper_id = paper_id_from_chunk_id(chunk_id)
 
     db = kuzu.Database(str(Path(kuzudb_path)))
     try:

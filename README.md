@@ -110,15 +110,19 @@ Releases: [docs/releasing.md](docs/releasing.md).
 arXMCP/
 ├── server/     long-running MCP server (FastAPI + Streamable HTTP; indices + caches + /ui/ console)
 ├── ingest/     corpus pipeline (chunker, embedder, BM25, citation-graph ingest)
-├── shim/       stateless stdio↔HTTP bridge registered in Claude Code's ~/.claude.json
-├── frontend/   operator-console templates + vendored htmx/CSS (no SPA, no Node build chain)
-├── tools/      dev + ingest utilities (seed/notebook fetch, eval gates, ops reports)
-├── tests/      pytest suite + retrieval-quality eval harness under tests/eval/
-├── docker/     multi-stage Dockerfile (non-root, tini, HEALTHCHECK on /readyz)
-├── infra/      deployment + observability manifests
-├── docs/       user/operator-facing documentation (this README's chapters)
-├── var/        gitignored data tree (created by `make bootstrap`)
-└── .claude/    agent-internal: design notes, roadmap, milestones, engineering refs
+├── shim/         stateless stdio↔HTTP bridge registered in Claude Code's ~/.claude.json
+├── frontend/     Jinja2+htmx operator-console templates + vendored htmx/CSS for /ui/ (server-rendered)
+├── frontend-app/ the /app SPA (Vite + React + TS); committed dist/ served by the server (build-time Node/Vite per ADR-0001)
+├── contracts/    cross-repo bridge contracts (envelope + type schemas; served at /bridge/contracts)
+├── tools/        dev + ingest utilities (seed/notebook fetch, eval gates, ops reports, exploration engine)
+├── tests/        pytest suite + retrieval-quality eval harness under tests/eval/
+├── docker/       multi-stage Dockerfile (non-root, tini, HEALTHCHECK on /readyz)
+├── infra/        deployment + observability manifests
+├── ops/          ops CLIs + cron/systemd units (cutover, restic restore drill, drift check)
+├── plans/        post-epic roadmaps driven via /milestone-pipeline
+├── docs/         user/operator-facing documentation (this README's chapters)
+├── var/          gitignored data tree (created by `make bootstrap`)
+└── .claude/      agent-internal: design notes, roadmap, milestones, engineering refs
 ```
 
 ## Hard constraints

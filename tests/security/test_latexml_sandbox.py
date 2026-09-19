@@ -785,7 +785,8 @@ class TestProcessGroupKill:
 @pytest.mark.skipif(
     sys.platform == "win32",
     reason="sandbox-exec / bwrap are POSIX-only; Windows takes the "
-    "degraded path unconditionally (no sandbox layer available)",
+    "degraded path unconditionally (no sandbox layer available) — "
+    "see .claude/notes/windows-test-triage.md §7 (win32)",
 )
 class TestSandboxWiring:
     """E13_S03b — closes Threat 3 Phase 2 gap G3.

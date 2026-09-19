@@ -123,6 +123,22 @@ class SessionState:
     #: does NOT append, so the deque cannot exceed ``MAX_CALLS_PER_HOUR``
     #: in steady state.
     call_timestamps: deque[float] = field(default_factory=deque)
+    #: stage2/arx-a23 (WS-A A2): per-tool call counts for tools that
+    #: are NOT in :data:`TOOLS_WITH_CAPS` but carry a capability-
+    #: profile cap. ``search_papers`` / ``get_chunk`` stay on their
+    #: dedicated counters above (pinned by the E08_S04 test surface);
+    #: this dict only grows when a profile caps some other tool.
+    extra_tool_counts: dict[str, int] = field(default_factory=dict)
+    #: stage2/arx-a23 (WS-A A3, gap R3): agent roles observed on this
+    #: session's requests (validated ``Arxmcp-Agent-Role`` values).
+    #: Populated best-effort by :func:`note_session_role`; read-only
+    #: projection via :func:`snapshot_sessions`.
+    roles_seen: set[str] = field(default_factory=set)
+    #: stage2/arx-a23: the per-tool limits that were EFFECTIVE at the
+    #: last cap check (capability-profile overrides included), so the
+    #: registry snapshot can report honest cap-remaining numbers.
+    #: Absent key = the legacy default applies.
+    effective_limits: dict[str, int] = field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------
@@ -227,10 +243,40 @@ async def check_and_increment(
             return True, 0, 0
 
 
+def _default_limit_for(tool_name: str) -> int | None:
+    """The legacy (pre-capability) per-session limit for ``tool_name``:
+    3 for ``search_papers``, 4 for ``get_chunk``, uncapped otherwise."""
+    if tool_name == "search_papers":
+        return MAX_SEARCH_PAPERS_CALLS
+    if tool_name == "get_chunk":
+        return MAX_GET_CHUNK_CALLS
+    return None
+
+
+def _count_for(state: SessionState, tool_name: str) -> int:
+    if tool_name == "search_papers":
+        return state.search_count
+    if tool_name == "get_chunk":
+        return state.chunk_count
+    return state.extra_tool_counts.get(tool_name, 0)
+
+
+def _increment_count(state: SessionState, tool_name: str) -> None:
+    if tool_name == "search_papers":
+        state.search_count += 1
+    elif tool_name == "get_chunk":
+        state.chunk_count += 1
+    else:
+        state.extra_tool_counts[tool_name] = (
+            state.extra_tool_counts.get(tool_name, 0) + 1
+        )
+
+
 async def check_both_caps(
     state: SessionState,
     tool_name: str,
     now: float | None = None,
+    per_tool_limits: dict[str, int] | None = None,
 ) -> tuple[str, int, int]:
     """Atomically check the per-tool retrieval cap AND the hourly
     rate limit under a SINGLE lock acquisition (E13_S04 F1 rect).
@@ -261,26 +307,34 @@ async def check_both_caps(
     and for code paths that need only one cap. ``SessionCapMiddleware``
     uses this compound function exclusively to avoid the F1 budget
     leak.
+
+    **stage2/arx-a23 (WS-A A2).** ``per_tool_limits`` carries the
+    capability profile's per-tool cap overrides (AC-A.7). Resolution
+    per tool: override when present → legacy constant (3 search /
+    4 chunk) → uncapped. Overrides may cap tools OUTSIDE
+    :data:`TOOLS_WITH_CAPS`; their counts live in
+    ``state.extra_tool_counts``. ``None`` (the default) is
+    byte-for-byte the legacy behavior. The effective limit is
+    recorded on ``state.effective_limits`` so the read-only registry
+    snapshot (gap R3/R7) reports honest cap-remaining numbers.
     """
     if now is None:
         now = time.time()
 
     async with state.lock:
-        # --- Step 1: per-tool retrieval cap (no mutation yet) ---
-        per_tool_limit = 0
-        per_tool_count = 0
-        if tool_name == "search_papers":
-            per_tool_limit = MAX_SEARCH_PAPERS_CALLS
-            per_tool_count = state.search_count
-            if per_tool_count >= per_tool_limit:
-                return "per_tool_rejected", per_tool_count + 1, per_tool_limit
-        elif tool_name == "get_chunk":
-            per_tool_limit = MAX_GET_CHUNK_CALLS
-            per_tool_count = state.chunk_count
-            if per_tool_count >= per_tool_limit:
-                return "per_tool_rejected", per_tool_count + 1, per_tool_limit
-        # Tools not in TOOLS_WITH_CAPS have no per-tool cap; fall
-        # through to the hourly check.
+        # --- Step 1: per-tool cap (profile override → legacy → none;
+        #     no mutation yet) ---
+        limit: int | None = None
+        if per_tool_limits is not None and tool_name in per_tool_limits:
+            limit = per_tool_limits[tool_name]
+        else:
+            limit = _default_limit_for(tool_name)
+        if limit is not None:
+            state.effective_limits[tool_name] = limit
+            per_tool_count = _count_for(state, tool_name)
+            if per_tool_count >= limit:
+                return "per_tool_rejected", per_tool_count + 1, limit
+        # Uncapped tools fall through to the hourly check.
 
         # --- Step 2: hourly rate limit (prune old, no mutation yet) ---
         cutoff = now - HOURLY_WINDOW_SECONDS
@@ -291,10 +345,8 @@ async def check_both_caps(
             return "hourly_rejected", hourly_count + 1, MAX_CALLS_PER_HOUR
 
         # --- Step 3: BOTH passed — commit BOTH atomically ---
-        if tool_name == "search_papers":
-            state.search_count += 1
-        elif tool_name == "get_chunk":
-            state.chunk_count += 1
+        if limit is not None:
+            _increment_count(state, tool_name)
         state.call_timestamps.append(now)
         return "allowed", hourly_count + 1, MAX_CALLS_PER_HOUR
 
@@ -366,6 +418,91 @@ def get_session_count() -> int:
     return len(_SESSIONS)
 
 
+async def note_session_role(session_id: str, role: str | None) -> None:
+    """Record a validated ``Arxmcp-Agent-Role`` sighting on a session
+    (stage2/arx-a23, gap R3). Best-effort: unknown session ids are a
+    no-op (the registry entry appears on the first capped call);
+    ``None`` roles are ignored. The caller (SessionCapMiddleware)
+    has already validated the role against the canonical allow-list.
+    """
+    if role is None:
+        return
+    async with _REGISTRY_LOCK:
+        state = _SESSIONS.get(session_id)
+        if state is not None:
+            state.roles_seen.add(role)
+
+
+#: Session-id prefix length exposed by :func:`snapshot_sessions` —
+#: matches the middleware/log discipline (``session_id[:16]`` in logs;
+#: 8 visible chars is the finding-09 UI recommendation, 16 here keeps
+#: parity with the audit store's stored prefix).
+SNAPSHOT_ID_PREFIX_LEN: int = 16
+
+
+def snapshot_sessions(*, now: float | None = None) -> list[dict]:
+    """Read-only projection of the session registry (AC-A.13; gaps
+    R3/R7). The registry itself stays module-private — this function
+    copies scalars out under the GIL and NEVER mutates state (the
+    hourly window is counted against ``now`` without pruning).
+
+    Returns newest-activity-first rows::
+
+        {
+          "session_id_prefix": str,   # first 16 hex chars
+          "created_at": float, "last_seen_at": float,
+          "roles_seen": [str, ...],
+          "counts": {tool: int, ...},
+          "caps": {tool: {"limit": int, "used": int, "remaining": int}},
+          "hourly": {"used": int, "limit": int, "window_seconds": int},
+        }
+    """
+    if now is None:
+        now = time.time()
+    cutoff = now - HOURLY_WINDOW_SECONDS
+    rows: list[dict] = []
+    # list() snapshots the values atomically under the GIL; per-entry
+    # reads below tolerate concurrent counter increments (a snapshot
+    # is by definition point-in-time).
+    for state in list(_SESSIONS.values()):
+        counts: dict[str, int] = {
+            "search_papers": state.search_count,
+            "get_chunk": state.chunk_count,
+            **dict(state.extra_tool_counts),
+        }
+        caps: dict[str, dict[str, int]] = {}
+        limits = {
+            "search_papers": MAX_SEARCH_PAPERS_CALLS,
+            "get_chunk": MAX_GET_CHUNK_CALLS,
+            **dict(state.effective_limits),
+        }
+        for tool, limit in limits.items():
+            used = counts.get(tool, 0)
+            caps[tool] = {
+                "limit": limit,
+                "used": used,
+                "remaining": max(limit - used, 0),
+            }
+        hourly_used = sum(1 for ts in list(state.call_timestamps) if ts >= cutoff)
+        rows.append(
+            {
+                "session_id_prefix": state.session_id[:SNAPSHOT_ID_PREFIX_LEN],
+                "created_at": state.created_at,
+                "last_seen_at": state.last_seen_at,
+                "roles_seen": sorted(state.roles_seen),
+                "counts": counts,
+                "caps": caps,
+                "hourly": {
+                    "used": hourly_used,
+                    "limit": MAX_CALLS_PER_HOUR,
+                    "window_seconds": HOURLY_WINDOW_SECONDS,
+                },
+            }
+        )
+    rows.sort(key=lambda r: r["last_seen_at"], reverse=True)
+    return rows
+
+
 def reset_session_state_for_tests() -> None:
     """Test hook — drop every tracked session.
 
@@ -382,6 +519,7 @@ __all__ = [
     "MAX_GET_CHUNK_CALLS",
     "MAX_REGISTRY_SIZE",
     "MAX_SEARCH_PAPERS_CALLS",
+    "SNAPSHOT_ID_PREFIX_LEN",
     "TOOLS_WITH_CAPS",
     "SessionState",
     "check_and_increment",
@@ -389,5 +527,7 @@ __all__ = [
     "check_hourly_rate_limit",
     "get_or_create_session",
     "get_session_count",
+    "note_session_role",
     "reset_session_state_for_tests",
+    "snapshot_sessions",
 ]

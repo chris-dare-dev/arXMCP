@@ -369,8 +369,12 @@ class TestSentinelScrapeHook:
     ):
         reports_dir = tmp_path / "eval-reports"
         reports_dir.mkdir()
-        old = reports_dir / "corpus_v3-2026-05-01T00:00:00.json"
-        new = reports_dir / "corpus_v3-2026-05-14T00:00:00.json"
+        # Timestamps use the writer's real colon-free format
+        # (ops/watchdog_eval._utc_ts_filename, "YYYYMMDDTHHMMSS") —
+        # the previous "T00:00:00" names were both unfaithful to the
+        # producer and illegal filenames on Windows (":" is reserved).
+        old = reports_dir / "corpus_v3-20260501T000000.json"
+        new = reports_dir / "corpus_v3-20260514T000000.json"
         old.write_text(json.dumps({"ndcg5_mean": 0.10}))
         new.write_text(json.dumps({"ndcg5_mean": 0.42}))
         # Force ``new``'s mtime to be later than ``old``'s.

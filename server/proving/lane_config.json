@@ -1,0 +1,43 @@
+{
+  "config_version": 1,
+  "description": "AC-D.14 field-tiered lane defaults for the D-6 proving orchestrator — encoded as configuration, not prose. Loaded and structurally validated by server/proving/orchestrator.py::load_lane_config (a malformed config refuses to run). The field_lanes keys track the proof-task schema's field_lane enum in lockstep (pinned by tests/test_proving_orchestrator.py). Every lane_order starts with 'skeptic' — the counterexample-first pass is a hard contract (AC-D.10), not a per-field choice. verdict_ceiling is the highest verdict earnable in the lane by default; a run whose evidence exceeds its ceiling is capped by the pure ceiling rule (orchestrator.apply_lane_ceiling) with the cap recorded in verdict_reasons.",
+  "lanes": {
+    "skeptic": "D-5 counterexample-first pass (server/proving/skeptic.py). Always first.",
+    "formal": "Lean prover cycles through the D-2 hardened lean_verify + the D-3 faithfulness gate.",
+    "informal": "Panel-checked informal proof lane. NOT AUTOMATED at v0 — recorded as not-automated-v0 in the lane trace; contributes no verdict.",
+    "cas": "CAS/numeric support lane (sandboxed SymPy runner). A completed no-hit counterexample scan is recorded numeric support — never a proof."
+  },
+  "default_budget": {
+    "wall_clock_s": 600,
+    "lean_queries": 20,
+    "cas_runs": 8,
+    "prover_cycles": 4
+  },
+  "field_lanes": {
+    "math.NT": {
+      "lane_order": ["skeptic", "formal"],
+      "verdict_ceiling": "proven-formal",
+      "note": "Formal-first: mathlib number-theory coverage is deep enough that small NT claims are realistically kernel-provable (finding 05 §2.E)."
+    },
+    "math.AG": {
+      "lane_order": ["skeptic", "informal", "formal"],
+      "verdict_ceiling": "proven-informal-checked",
+      "note": "Informal-checked ceiling: modern algebraic geometry sits beyond the mathlib formalization frontier (finding 05 §2.E; KAT class TRUE-known-informal). A formal award on an AG-class claim is a misformalization/leakage signal until a human audits it — the ceiling cap keeps it out of proven-formal."
+    },
+    "math-ph": {
+      "lane_order": ["skeptic", "cas", "formal"],
+      "verdict_ceiling": "proven-formal",
+      "note": "CAS/numerics-first: mathematical-physics claims usually yield to symbolic/numeric checking long before formalization; the CAS lane runs inside the skeptic pass and its completed scans are recorded as numeric support."
+    },
+    "hep-th": {
+      "lane_order": ["skeptic", "cas", "informal"],
+      "verdict_ceiling": "proven-informal-checked",
+      "note": "Physics lane: the formal lane is not a realistic default; CAS first, informal panel ceiling."
+    },
+    "general": {
+      "lane_order": ["skeptic", "formal"],
+      "verdict_ceiling": "proven-formal",
+      "note": "No-metadata fallback (the proof-task schema's 'general')."
+    }
+  }
+}

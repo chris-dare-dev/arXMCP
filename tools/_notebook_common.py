@@ -147,6 +147,65 @@ def notebook_lancedb_path(slug: str, *, base: Path | None = None) -> Path:
     return notebook_dir(slug, base=base) / "lancedb"
 
 
+def notebook_paper_metadata_db_path(slug: str, *, base: Path | None = None) -> Path:
+    """Return the per-notebook paper-metadata SQLite path for ``slug``.
+
+    This is ``notebook_dir(slug) / PAPER_METADATA_DB_FILENAME`` — the same
+    path ``tools/notebook_metadata_backfill.py`` writes to (paper-metadata-m1)
+    and the MCP ``get_paper`` handler reads (the deferred m1→m2 wiring). It
+    inherits :func:`notebook_dir`'s slug validation + symlink rejection +
+    containment check (Threat 1), so the returned path is safe to hand to
+    ``sqlite3.connect`` / ``PaperMetadataStore.open``.
+
+    The filename constant lives in :mod:`server.paper_metadata_store`; it is
+    imported lazily (like :func:`resolve_contact_email`'s ``server`` import)
+    so a stripped-down CLI virtualenv that never touches the metadata store
+    does not pay the import at module load.
+
+    The path may not exist yet (a notebook can be registered / ingested
+    before its metadata is backfilled); callers check for the file
+    themselves and degrade when it is absent.
+    """
+    from server.paper_metadata_store import (  # noqa: PLC0415
+        PAPER_METADATA_DB_FILENAME,
+    )
+
+    return notebook_dir(slug, base=base) / PAPER_METADATA_DB_FILENAME
+
+
+def iter_notebook_slugs(*, base: Path | None = None) -> list[str]:
+    """Return the slugs of every on-disk notebook directory, sorted.
+
+    Enumerates the immediate child directories of :data:`NOTEBOOKS_BASE`
+    (or ``base`` for tests) and returns those whose name passes
+    :func:`validate_slug`. This is the membership-discovery primitive the
+    ``get_paper`` handler uses to find which per-notebook
+    ``paper_metadata.db`` might hold a paper's row (paper-metadata-m1's
+    membership source of truth is per-notebook on-disk state, NOT the
+    central ``notebook_papers`` junction, which m1 documents as empty).
+
+    Safety: a child whose name fails the slug regex (a symlink target
+    name, a stray dotfile, an out-of-band directory) is silently skipped
+    rather than raising — enumeration must be robust to filesystem debris.
+    Symlinked entries are skipped too (``is_dir()`` on a symlink is not
+    followed here because :func:`notebook_dir` — the caller's next step —
+    rejects symlinks; skipping early avoids surfacing them at all).
+
+    Returns an empty list when the notebooks base does not exist (the
+    common state on a workstation with no ingested notebooks).
+    """
+    nb_base = (base or NOTEBOOKS_BASE)
+    if not nb_base.is_dir():
+        return []
+    slugs: list[str] = []
+    for child in sorted(nb_base.iterdir()):
+        if child.is_symlink() or not child.is_dir():
+            continue
+        if SLUG_RE.fullmatch(child.name):
+            slugs.append(child.name)
+    return slugs
+
+
 def resolve_contact_email(
     arg: str | None,
     *,
@@ -375,8 +434,10 @@ __all__ = [
     "REPO_ROOT",
     "SLUG_RE",
     "fetch_raw_tex_if_missing",
+    "iter_notebook_slugs",
     "notebook_dir",
     "notebook_lancedb_path",
+    "notebook_paper_metadata_db_path",
     "read_paper_ids_from_papers_txt",
     "validate_slug",
 ]

@@ -206,12 +206,24 @@ class TestShimLineCount:
     #: - F5: extending retry to cover ``resp.read()``.
     #: - F8: pinning ``Mcp-Protocol-Version: 2025-06-18``.
     #:
-    #: These are non-negotiable. The new cap is 100 LOC (excluding
-    #: comments, blanks, AND docstrings — the F2 interpretation). The
-    #: shim is still a single-file module reviewable in one sitting;
-    #: the cap is a "small reviewable surface" guardrail, not an
-    #: arbitrary code-golf target.
-    SHIM_LOC_CAP = 100
+    #: These are non-negotiable. That raise set the cap at 100 LOC
+    #: (excluding comments, blanks, AND docstrings — the F2
+    #: interpretation).
+    #:
+    #: stage2/arx-a23 (WS-A A2) added ``--token-env`` — the optional
+    #: capability bearer-token flag mandated by the Stage-1 synthesis
+    #: (workstreams.md §WS-A A2; AC-A.10: token via environment only,
+    #: never argv or persisted files, FATAL when the named var is
+    #: absent). That is ~20 effective LOC of contract surface
+    #: (resolver + argparse wiring + per-request header), taking the
+    #: shim to 120. Cap re-raised 100 → 130, preserving the same
+    #: ~10-line headroom the 100 cap gave the ~90-LOC shim. The shim
+    #: is still a single-file module reviewable in one sitting; the
+    #: cap is a "small reviewable surface" guardrail, not an
+    #: arbitrary code-golf target — compressing the existing error
+    #: messages / argparse help to duck the counter would make the
+    #: file LESS reviewable, which is the metric's whole point.
+    SHIM_LOC_CAP = 130
 
     def test_loc_under_cap(self):
         """The LOC cap is the F2-resolution reading: excludes

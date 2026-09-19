@@ -1,0 +1,572 @@
+/*
+ * base.css — Technical Editorial base layer.
+ * Swiss grid, flush-left ragged-right, rules-not-cards (LA-1/LA-2).
+ * Hierarchy from structure (size, weight, rules, register switch),
+ * never decoration. Zero gradients, zero blur, zero glow (TX-1).
+ */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+/* Universal reduced-motion clamp — the shipped console's backstop,
+ * carried forward verbatim in spirit (brief §5.1; gate M1). Every
+ * JS-driven animation ADDITIONALLY checks the media query at trigger
+ * time (src/motion/reducedMotion.ts). */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+html {
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-chrome);
+  font-size: var(--scale-1);
+  line-height: var(--leading-telemetry);
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  text-align: left; /* flush-left ragged-right everywhere (LA-1) */
+}
+
+/* --- Register classes (TY-1: exactly one register per text element) --- */
+.reg-editorial {
+  font-family: var(--font-editorial);
+  font-size: var(--scale-2);
+  line-height: var(--leading-editorial);
+  max-width: var(--measure-editorial);
+}
+
+.reg-telemetry {
+  font-family: var(--font-telemetry);
+  font-size: var(--scale-1);
+  line-height: var(--leading-telemetry);
+  font-variant-numeric: tabular-nums; /* TY-3 */
+}
+
+.reg-math {
+  font-family: var(--font-math);
+}
+
+/* Display-math overflow containment (both math tracks). Real
+ * chunk-track paper equations are arbitrarily wide, so a long display
+ * block would otherwise spill past the page edge and scroll the whole
+ * document horizontally (worst at narrow widths — a Yang-Mills action
+ * hits ~549px inside a 335px column at 375px). Contain it the same way
+ * tables use .table-scroll: the block scrolls in place, the page never
+ * does. overflow-y stays hidden so the auto x-scroll never spawns a
+ * phantom vertical scrollbar.
+ *
+ * KaTeX track: .katex-display is the visual container to scroll. Its
+ * sibling .katex-mathml (the visually-hidden a11y MathML copy) is left
+ * ALONE — KaTeX clips it to 1px via overflow:hidden, and turning its
+ * inner <math> into a scroll container instead lets that MathML's wide
+ * mrow subtree extend the document scroll width. So the block-MathML
+ * rule below is scoped to LaTeXML's class-marked MathML (`.ltx_Math`,
+ * the stored-document track), never KaTeX's hidden a11y copy. */
+.katex-display {
+  overflow-x: auto;
+  overflow-y: hidden;
+  max-width: 100%;
+}
+
+math.ltx_Math[display="block"] {
+  overflow-x: auto;
+  overflow-y: hidden;
+  max-width: 100%;
+}
+
+/* --- Rules, not cards (LA-2) --- */
+.rule {
+  border: 0;
+  border-top: var(--rule-hairline) solid var(--rule-color);
+  margin: var(--space-air-2) 0;
+}
+
+.rule-heavy {
+  border: 0;
+  border-top: var(--rule-heavy) solid var(--rule-color-strong);
+  margin: var(--space-air-2) 0;
+}
+
+/* The single tracked-caps micro-label style (TY-4; gate T4 allows
+ * text-transform: uppercase ONLY here, at <=11px). */
+.microlabel {
+  font-family: var(--font-chrome);
+  font-size: var(--text-micro);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--ink-muted);
+}
+
+/* Section headers: smallcaps labels over a hairline (LA-6). */
+.section-header {
+  border-bottom: var(--rule-hairline) solid var(--rule-color);
+  padding-bottom: var(--space-dense-3);
+  margin: var(--space-air-3) 0 var(--space-air-1);
+}
+
+h1,
+h2,
+h3 {
+  font-family: var(--font-chrome);
+  font-weight: 600;
+  margin: 0;
+}
+
+h1 {
+  font-size: var(--scale-4);
+}
+
+h2 {
+  font-size: var(--scale-3);
+}
+
+h3 {
+  font-size: var(--scale-2);
+}
+
+a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+/* Focus discipline (a11y floor): visible rings; louder danger variant. */
+:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+  border-radius: var(--radius);
+}
+
+.danger :focus-visible,
+button.danger:focus-visible {
+  outline: 3px solid var(--focus-ring-danger);
+  outline-offset: 2px;
+}
+
+/* Skip link (a11y floor, carried from the shipped console). */
+.skip-link {
+  position: absolute;
+  left: -999px;
+  top: 0;
+  background: var(--paper);
+  color: var(--accent);
+  padding: var(--space-dense-3) var(--space-air-1);
+  border: var(--rule-hairline) solid var(--rule-color-strong);
+  z-index: 10;
+}
+
+.skip-link:focus-visible {
+  left: var(--space-dense-3);
+}
+
+/* Owned, simple button set [C] — not shadcn (brief §7.0). */
+button {
+  font-family: var(--font-chrome);
+  font-size: var(--scale-1);
+  color: var(--ink);
+  background: var(--paper);
+  border: var(--rule-hairline) solid var(--rule-color-strong);
+  border-radius: var(--radius);
+  padding: var(--space-dense-2) var(--space-air-1);
+  cursor: pointer;
+}
+
+button:hover {
+  border-color: var(--ink-muted);
+}
+
+button:disabled {
+  opacity: 0.55; /* in-flight dim is a signal, not motion */
+  cursor: default;
+}
+
+button.danger {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+/* Data table [T]: full-bleed, rule+smallcaps headers, no zebra (LA-6). */
+table.data {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--font-telemetry);
+  font-size: var(--scale-1);
+  font-variant-numeric: tabular-nums;
+}
+
+table.data th {
+  font-family: var(--font-chrome);
+  font-size: var(--text-micro);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 600;
+  color: var(--ink-muted);
+  text-align: left;
+  border-bottom: var(--rule-heavy) solid var(--rule-color-strong);
+  padding: var(--space-dense-2) var(--space-air-1) var(--space-dense-2) 0;
+}
+
+table.data td {
+  border-bottom: var(--rule-hairline) solid var(--rule-color);
+  padding: var(--space-dense-2) var(--space-air-1) var(--space-dense-2) 0;
+  vertical-align: top;
+}
+
+.table-scroll {
+  overflow-x: auto;
+}
+
+/* Status badge (4-state), generalized from the shipped console:
+ * text + hairline outline, fixed-width slot, no fills, no glow. */
+.badge {
+  display: inline-block;
+  font-family: var(--font-telemetry);
+  font-size: var(--text-micro);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.6;
+  padding: 0 var(--space-dense-3);
+  border: var(--rule-hairline) solid currentColor;
+  border-radius: var(--radius);
+  min-width: 5.5em;
+  text-align: center;
+}
+
+.badge-ok {
+  color: var(--status-ok);
+}
+
+.badge-warn {
+  color: var(--status-warn);
+}
+
+.badge-ops {
+  color: var(--status-ops);
+}
+
+.badge-down {
+  color: var(--status-down);
+}
+
+/* Domain chip [T]: slugs, arXiv IDs, tool names. Click-to-filter later. */
+.chip {
+  display: inline-block;
+  font-family: var(--font-telemetry);
+  font-size: var(--text-micro);
+  color: var(--ink-muted);
+  border: var(--rule-hairline) solid var(--rule-color);
+  border-radius: var(--radius);
+  padding: 0 var(--space-dense-2);
+}
+
+/* Telemetry well: stderr tails, log fragments. */
+.well {
+  background: var(--paper-inset);
+  border: var(--rule-hairline) solid var(--rule-color);
+  border-radius: var(--radius);
+  padding: var(--space-dense-3);
+  font-family: var(--font-telemetry);
+  font-size: var(--scale-1);
+  overflow-x: auto;
+}
+
+/* Margin-metadata channel (LA-4, Tufte donor): content left, provenance
+ * right on wide viewports; stacks on narrow. */
+.with-margin {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-air-2);
+}
+
+@media (min-width: 900px) {
+  .with-margin {
+    grid-template-columns: minmax(0, 1fr) 16rem;
+  }
+}
+
+.margin-note {
+  font-family: var(--font-telemetry);
+  font-size: var(--text-micro);
+  color: var(--ink-muted);
+  border-left: var(--rule-hairline) solid var(--rule-color);
+  padding-left: var(--space-air-1);
+}
+
+.margin-note dt {
+  margin-top: var(--space-dense-3);
+}
+
+.margin-note dd {
+  margin: 0;
+  color: var(--ink);
+}
+
+/* App shell */
+.shell-header {
+  display: flex;
+  align-items: baseline;
+  /* Wrap the brand + nav onto stacked rows before they push the page:
+   * the primary nav is a fixed set of domain links whose natural row
+   * (~393px) overruns a phone column, and a fixed chrome bar must never
+   * scroll the whole document horizontally. Same flush-left wrapping the
+   * instrument strips already use (.stat-grid/.run-meta/.health-line).
+   * No effect at desk widths, where everything fits one row. */
+  flex-wrap: wrap;
+  gap: var(--space-air-2);
+  padding: var(--space-air-1) var(--space-air-2);
+  border-bottom: var(--rule-heavy) solid var(--rule-color-strong);
+}
+
+.shell-header nav {
+  display: flex;
+  /* Links rag onto further rows at narrow widths (LA-1) rather than
+   * overflowing; min-width:0 lets the nav shrink below its single-row
+   * max-content inside the header flex line so the wrap can engage. */
+  flex-wrap: wrap;
+  min-width: 0;
+  gap: var(--space-air-1);
+}
+
+.shell-main {
+  padding: var(--space-air-2);
+  max-width: 1200px;
+}
+
+/* Notebook index: rule-separated rows, never a card grid (LA-2/L1). */
+.notebook-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.notebook-row {
+  border-top: var(--rule-hairline) solid var(--rule-color);
+  padding: var(--space-air-1) 0;
+}
+
+.notebook-list > .notebook-row:last-child {
+  border-bottom: var(--rule-hairline) solid var(--rule-color);
+}
+
+.notebook-name {
+  font-weight: 600;
+}
+
+.notebook-desc {
+  color: var(--ink-muted);
+}
+
+.notebook-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-dense-3);
+  margin-top: var(--space-dense-2);
+  align-items: baseline;
+}
+
+.notebook-created {
+  color: var(--ink-muted);
+  font-size: var(--text-micro);
+}
+
+/* --- Notebook detail (brief §7.1): editorial header over telemetry --- */
+.detail-title {
+  font-family: var(--font-editorial);
+  font-size: var(--scale-3);
+  line-height: var(--leading-editorial);
+  max-width: var(--measure-editorial);
+  font-weight: 600;
+}
+
+.note-muted {
+  color: var(--ink-muted);
+}
+
+/* Corpus-version stat block [T]: bare numbers over micro-labels —
+ * instrument panel, not cards (LA-2); tabular-nums per TY-3. */
+.stat-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-dense-3) var(--space-air-3);
+  margin: var(--space-air-1) 0;
+}
+
+.stat-grid > div {
+  min-width: 7rem;
+}
+
+.stat-value {
+  font-family: var(--font-telemetry);
+  font-size: var(--scale-3);
+  font-variant-numeric: tabular-nums;
+  margin: 0;
+}
+
+.stat-value-sm {
+  font-family: var(--font-telemetry);
+  font-size: var(--scale-1);
+  font-variant-numeric: tabular-nums;
+  margin: 0;
+}
+
+.stat-sub {
+  display: block;
+  font-size: var(--text-micro);
+}
+
+/* Drift indicator: quiet when clean, amber sentence when drifted
+ * (brief §7.1). Status color on a status-BEARING element only (CO-4);
+ * both tokens are AA-verified against paper in both modes. */
+.drift-note {
+  color: var(--status-warn);
+}
+
+.malformed-note {
+  color: var(--status-down);
+}
+
+.health-line {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-dense-3);
+  flex-wrap: wrap;
+}
+
+/* --- Forms [C] (brief §7.0): flush-left labels, hairline borders --- */
+.form-row {
+  display: flex;
+  gap: var(--space-air-1);
+  align-items: flex-end;
+  flex-wrap: wrap;
+  margin: var(--space-dense-3) 0;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-dense-1);
+}
+
+.field label {
+  font-family: var(--font-chrome);
+  font-size: var(--text-micro);
+  color: var(--ink-muted);
+}
+
+.field-wide {
+  flex: 1 1 16rem;
+}
+
+input[type="text"],
+select {
+  font-family: var(--font-telemetry);
+  font-size: var(--scale-1);
+  color: var(--ink);
+  background: var(--paper);
+  border: var(--rule-hairline) solid var(--rule-color-strong);
+  border-radius: var(--radius);
+  padding: var(--space-dense-2) var(--space-dense-3);
+}
+
+input[type="text"]:disabled,
+select:disabled {
+  opacity: 0.55; /* in-flight dim: signal, not motion */
+}
+
+.inline-edit {
+  display: flex;
+  gap: var(--space-dense-3);
+  align-items: baseline;
+  flex-wrap: wrap;
+  margin: var(--space-dense-3) 0;
+}
+
+/* Discovery candidates [E rows]: rule-separated, never a card grid. */
+.candidate-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.candidate {
+  border-top: var(--rule-hairline) solid var(--rule-color);
+  padding: var(--space-air-1) 0;
+}
+
+.candidate-list > .candidate:last-child {
+  border-bottom: var(--rule-hairline) solid var(--rule-color);
+}
+
+.candidate-title {
+  font-weight: 600;
+}
+
+/* Upload progress [T] (brief §7.2): determinate, monotone-only bar.
+ * width transition at --motion-dur-2 standard ease (gate M2 ≤250ms);
+ * the universal reduced-motion clamp above covers it. Accent is the
+ * working color here — not a status color (CO-4). */
+.progress-track {
+  border: var(--rule-hairline) solid var(--rule-color-strong);
+  border-radius: var(--radius);
+  height: 0.75rem;
+  max-width: 28rem;
+  margin: var(--space-dense-3) 0;
+}
+
+.progress-fill {
+  height: 100%;
+  background: var(--accent);
+  transition: width var(--motion-dur-2) var(--motion-ease-standard);
+}
+
+/* Ingest run metadata strip [T]: inline dl, dense tier (DE-1). */
+.run-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-dense-2) var(--space-air-2);
+  align-items: baseline;
+  margin: var(--space-dense-3) 0;
+}
+
+.run-meta dt {
+  margin: 0;
+}
+
+.run-meta dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+/* File input rides the form field styling [C]. */
+input[type="file"] {
+  font-family: var(--font-telemetry);
+  font-size: var(--text-micro);
+  color: var(--ink);
+}
+
+input[type="file"]:disabled {
+  opacity: 0.55;
+}
+
+/* Empty state [C]: copy + next action; no illustrations (IC-1/P2). */
+.empty-state {
+  color: var(--ink-muted);
+  padding: var(--space-air-2) 0;
+  border-top: var(--rule-hairline) solid var(--rule-color);
+  border-bottom: var(--rule-hairline) solid var(--rule-color);
+}

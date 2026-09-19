@@ -548,9 +548,22 @@ class TestRunDelta:
         assert summary.budget_breached is False
         assert summary.elapsed_seconds < DEFAULT_BUDGET_SECONDS
 
-    def test_budget_breach_emits_sentinel(self, tmp_path):
+    def test_budget_breach_emits_sentinel(self, tmp_path, monkeypatch):
         fetcher = _MockFetcher([_final_page(["2401.00001"])])
         flag = tmp_path / "timeout.flag"
+        # Deterministic clock: on Windows/CPython < 3.13 time.monotonic
+        # ticks at ~15.6 ms granularity, so a fast mock run can measure
+        # elapsed_seconds == 0.0 exactly and `0.0 > budget 0.0` never
+        # breaches. Advance 50 ms per call on every platform instead.
+        import itertools as _itertools
+        import time as _time
+
+        _base = _time.monotonic()
+        _ticks = _itertools.count(1)
+        monkeypatch.setattr(
+            "ingest.oai_delta.time.monotonic",
+            lambda: _base + 0.05 * next(_ticks),
+        )
         with patch(
             "ingest.oai_delta.ingest_one_paper",
             side_effect=lambda pid, **kw: _ok_paper_outcome(pid),

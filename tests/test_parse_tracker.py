@@ -187,8 +187,11 @@ class TestParseTaskTrackerSurface:
         store.update_parse_status.assert_called()
         last_call = store.update_parse_status.call_args
         assert last_call.args[1] == "complete"
-        assert last_call.kwargs["parsed_html_path"] == str(
-            render_result.output_html_path,
+        # redact_html_path stores separator-stable posix form (the
+        # tmp path here has no var/arxmcp anchor, so the fallback
+        # branch applies).
+        assert last_call.kwargs["parsed_html_path"] == (
+            render_result.output_html_path.as_posix()
         )
 
     def test_mineru_failure_records_parse_status_failed(

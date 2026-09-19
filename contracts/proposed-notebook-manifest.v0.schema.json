@@ -1,0 +1,162 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "urn:arxmcp:bridge:proposed-notebook-manifest:v0",
+  "title": "arxmcp.bridge/proposed-notebook-manifest v0 (WS-E authored content; 1.0 promotion pending)",
+  "description": "A proposed notebook manifest (papers + bridging textbooks + topic metadata) emitted by the exploration pipeline v0 for operator confirmation - strictly propose-then-confirm, never auto-ingest. v0.2 (stage2/arx-e1) authors the WS-E payload content on the v0.1 spine: every proposed paper MUST carry a non-empty source_citation (AC-E.4 - no unsourced 'this is open' claims), open-problem source entries are pinned to a named-source shape, and optional channels/dedup blocks record how the proposal was assembled. Stays status=stub until promoted to 1.0 (the additive-only MINOR guarantee binds from 1.0; see CONTRACTS.md 'v0 stub types'). Producer: tools/exploration (exploration-scout-v0). Consumer: operator console / ingest CLIs (after confirm).",
+  "x-bridge": {
+    "artifact": "arxmcp.bridge/proposed-notebook-manifest",
+    "version": "0.2",
+    "status": "stub",
+    "content_owner": "WS-E"
+  },
+  "allOf": [
+    { "$ref": "urn:arxmcp:bridge:envelope:v1" },
+    {
+      "properties": {
+        "bridge": {
+          "properties": {
+            "artifact": { "const": "arxmcp.bridge/proposed-notebook-manifest" }
+          }
+        },
+        "payload": {
+          "type": "object",
+          "required": ["topic", "window", "papers", "textbooks"],
+          "properties": {
+            "topic": {
+              "type": "object",
+              "required": ["title"],
+              "properties": {
+                "title": { "type": "string", "minLength": 1 },
+                "description": { "type": "string" },
+                "field_lane": { "type": "string" },
+                "categories": {
+                  "type": "array",
+                  "items": { "type": "string" }
+                },
+                "proposed_slug": {
+                  "type": "string",
+                  "pattern": "^[a-z0-9][a-z0-9._-]*$"
+                }
+              }
+            },
+            "window": {
+              "description": "The literature scan window (3-12 months; span enforced by the producer, tools/exploration/windowing.py).",
+              "type": "object",
+              "required": ["from", "to"],
+              "properties": {
+                "from": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" },
+                "to": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" },
+                "months": {
+                  "description": "Approximate window span in months (informational; producer validates 3-12).",
+                  "type": "integer",
+                  "minimum": 3,
+                  "maximum": 12
+                }
+              }
+            },
+            "papers": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["source_citation"],
+                "anyOf": [
+                  { "required": ["arxiv_id"] },
+                  { "required": ["url"] }
+                ],
+                "properties": {
+                  "arxiv_id": { "type": "string" },
+                  "url": { "type": "string" },
+                  "title": { "type": "string" },
+                  "published": { "type": "string" },
+                  "primary_category": { "type": "string" },
+                  "abstract_head": { "type": "string" },
+                  "source_citation": {
+                    "description": "REQUIRED provenance for why this paper is proposed (open-problem source entry, citation-graph edge, Atom channel hit). AC-E.4: no unsourced proposals.",
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "corroborations": {
+                    "description": "Additional provenance lines beyond source_citation (e.g. an open-problem source match on top of an Atom window hit).",
+                    "type": "array",
+                    "items": { "type": "string", "minLength": 1 }
+                  }
+                }
+              }
+            },
+            "textbooks": {
+              "description": "Bridging graduate textbooks proposed alongside the papers.",
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["title"],
+                "properties": {
+                  "title": { "type": "string", "minLength": 1 },
+                  "author": { "type": "string" },
+                  "source": { "type": "string" }
+                }
+              }
+            },
+            "open_problem_sources": {
+              "description": "Structured open-problem sources consulted (formal-conjectures, EmergentMind, Randomstrasse101, ...). v0.2 pins the named-source shape.",
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["name"],
+                "properties": {
+                  "name": { "type": "string", "minLength": 1 },
+                  "kind": { "type": "string" },
+                  "url": { "type": "string" },
+                  "retrieved_at": { "type": "string" },
+                  "entries_considered": { "type": "integer", "minimum": 0 },
+                  "entries_matched": { "type": "integer", "minimum": 0 }
+                }
+              }
+            },
+            "channels": {
+              "description": "How the proposal was assembled (informational; one key per discovery channel).",
+              "type": "object",
+              "properties": {
+                "atom": {
+                  "type": "object",
+                  "properties": {
+                    "category": { "type": "string" },
+                    "mode": { "type": "string", "enum": ["live", "fixture"] },
+                    "candidates_in_window": { "type": "integer", "minimum": 0 }
+                  }
+                },
+                "cite_neighbors": {
+                  "type": "object",
+                  "properties": {
+                    "graph_status": {
+                      "type": "string",
+                      "enum": ["present", "absent", "unavailable", "skipped"]
+                    },
+                    "anchors": {
+                      "type": "array",
+                      "items": { "type": "string" }
+                    },
+                    "neighbors_considered": { "type": "integer", "minimum": 0 }
+                  }
+                }
+              }
+            },
+            "dedup": {
+              "description": "Dedup record: papers already present in the target corpus are excluded (AC-E.2).",
+              "type": "object",
+              "properties": {
+                "target": {
+                  "description": "What the proposal was deduplicated against (notebook slug or papers-file path), or null when no dedup input was given.",
+                  "type": ["string", "null"]
+                },
+                "excluded_paper_ids": {
+                  "type": "array",
+                  "items": { "type": "string" }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

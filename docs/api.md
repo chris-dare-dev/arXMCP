@@ -88,11 +88,19 @@ carries `dedup_key`, `display_name`, `paper_id`, `chunk_id`, `section_path`,
 
 ## `get_paper`
 
-Return per-paper metadata. v1 synthesizes from the chunks table
-(`paper_id`, `chunker_version`, `embedder_version`, `chunk_count`,
-`section_count`). `authors` / `title` / `abstract` / `year` / `categories`
-are `null` until a dedicated papers-metadata table lands (E11/E12);
-`metadata_status` documents the mode.
+Return per-paper metadata. The chunk-derived fields (`paper_id`,
+`chunker_version`, `embedder_version`, `chunk_count`, `section_count`)
+are always synthesized from the chunks table. The identity fields
+(`authors` / `title` / `abstract` / `year` / `categories`, plus
+`primary_category` / `published`) are served from the paper's
+per-notebook metadata store (`var/arxmcp/notebooks/<slug>/paper_metadata.db`,
+hydrated from the arXiv Atom API by `tools/notebook_metadata_backfill.py`)
+when a row exists — the handler resolves which notebook by enumerating
+the on-disk notebooks and reading the first store with a matching row.
+`metadata_status` documents the mode: `notebook_metadata_store` when the
+store supplied the identity fields, `synthesized_from_chunks` (with `null`
+identity fields) when no store/row is found — e.g. the metadata has not
+been backfilled, or no notebook is ingested on this workstation.
 
 ## `cite_neighbors`
 
@@ -127,6 +135,27 @@ position), `proof_state` (first unresolved goal), `goals_remaining`,
 `sorry_goals`. **Gated by `ARXMCP_ENABLE_LEAN`** — when disabled returns
 `lean_status='disabled'` instead of a 5xx. A 30 s elaboration timeout kills
 and respawns the REPL before the next call.
+
+Every result additionally carries two soundness-hardening blocks
+(tool-schema v17):
+
+- `soundness` — snippets that declare `axiom` / `opaque` are **rejected
+  before elaboration**; `native_decide` / `unsafe` / `partial` are flagged;
+  a kernel-accepted `full`-mode result triggers a post-verification
+  **axiom-closure audit** (`#print axioms` per declared theorem, run in the
+  verification environment). `axiom_closure_ok` is true only when the
+  closure stays within `{propext, Classical.choice, Quot.sound}`; a failed
+  or partial audit reports false, never true.
+- `provenance` — the REPL project's `lean-toolchain` string, the pinned
+  mathlib revision from `lake-manifest.json`, and a replayable
+  `transcript_sha256` over (snippet, imports, mode, toolchain, mathlib rev,
+  normalized result). Two runs of the same snippet on the same toolchain
+  hash identically.
+
+A `status: 'ok'` alone is **not** a proof award: consumers deciding
+"proven-formal" must also require `soundness.axiom_closure_ok == true` and
+an empty forbidden-flag set (the reference predicate is
+`server.lean_soundness.formal_award_ok`).
 
 ---
 

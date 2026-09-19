@@ -1,0 +1,111 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "urn:arxmcp:bridge:verdict-record:v1",
+  "title": "arxmcp.bridge/verdict-record v1",
+  "description": "A domain-tagged verdict over a statement. Verdict vocabularies are deliberately NOT unified across domains (SP2 measured exactly [\"VERIFIED\"] overlap across pipelines); each domain carries its own vocabulary, enforced below via if/then so a cross-domain enum leak is a schema violation. Domain vocabularies are append-only within this MAJOR. The cite-audit vocabulary is intentionally UNPINNED at v1.0 (no code-verified ground truth for its enum at authoring time); pinning it later is constraint-tightening and therefore lands as a MAJOR bump or before the first cite-audit producer ships (see CONTRACTS.md). Producer: lean_verify wrappers / panel agents / proving orchestrator. Consumer: articles, run ledger.",
+  "x-bridge": {
+    "artifact": "arxmcp.bridge/verdict-record",
+    "version": "1.0",
+    "status": "stable"
+  },
+  "allOf": [
+    { "$ref": "urn:arxmcp:bridge:envelope:v1" },
+    {
+      "properties": {
+        "bridge": {
+          "properties": {
+            "artifact": { "const": "arxmcp.bridge/verdict-record" }
+          }
+        },
+        "payload": {
+          "type": "object",
+          "required": ["domain", "verdict", "statement_sha256"],
+          "properties": {
+            "domain": {
+              "description": "Verdict domain. Append-only within this MAJOR. lean = raw lean_verify result status; proof-verify = the website panel/judge/final vocabulary; cite-audit = the citation-audit pipeline (vocabulary unpinned at v1.0); proving = the WS-D five-verdict taxonomy (D9).",
+              "type": "string",
+              "enum": ["lean", "proof-verify", "cite-audit", "proving"]
+            },
+            "verdict": {
+              "type": "string",
+              "minLength": 1
+            },
+            "statement_sha256": {
+              "description": "SHA-256 of the exact statement text the verdict is about.",
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "statement": {
+              "description": "Optional inline copy of the statement text (LaTeX or Lean).",
+              "type": "string"
+            },
+            "toolchain": {
+              "description": "Toolchain/environment pins for replayability (e.g. lean_toolchain, mathlib_rev, repl_transcript_sha256, model ids).",
+              "type": "object"
+            },
+            "environment": {
+              "type": "object"
+            },
+            "details": {
+              "description": "Domain-specific evidence details (open by design).",
+              "type": "object"
+            }
+          },
+          "allOf": [
+            {
+              "if": {
+                "properties": { "domain": { "const": "proving" } },
+                "required": ["domain"]
+              },
+              "then": {
+                "properties": {
+                  "verdict": {
+                    "enum": [
+                      "proven-formal",
+                      "proven-informal-checked",
+                      "plausible-unverified",
+                      "refuted",
+                      "abstained"
+                    ]
+                  }
+                }
+              }
+            },
+            {
+              "if": {
+                "properties": { "domain": { "const": "proof-verify" } },
+                "required": ["domain"]
+              },
+              "then": {
+                "properties": {
+                  "verdict": {
+                    "enum": [
+                      "VERIFIED",
+                      "UNVERIFIED",
+                      "LIKELY-WRONG",
+                      "DISPUTED",
+                      "OUT-OF-CORPUS"
+                    ]
+                  }
+                }
+              }
+            },
+            {
+              "if": {
+                "properties": { "domain": { "const": "lean" } },
+                "required": ["domain"]
+              },
+              "then": {
+                "properties": {
+                  "verdict": {
+                    "enum": ["ok", "sorry", "error", "timeout", "unavailable"]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

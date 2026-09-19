@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xmlns:arxiv="http://arxiv.org/schemas/atom">
+  <title>ArXiv Query: search_query=cat:math.AG</title>
+  <id>http://arxiv.org/api/fixture-exploration-window</id>
+  <updated>2026-07-01T00:00:00Z</updated>
+  <entry>
+    <id>http://arxiv.org/abs/2602.11111v1</id>
+    <updated>2026-02-15T09:00:00Z</updated>
+    <published>2026-02-15T09:00:00Z</published>
+    <title>Bridgeland stability conditions on Kuznetsov components of cubic fourfolds</title>
+    <summary>We study moduli spaces of semistable objects under Bridgeland stability
+conditions, with wall-crossing techniques on Kuznetsov components.</summary>
+    <author><name>A. Author</name></author>
+    <author><name>B. Author</name></author>
+    <arxiv:primary_category xmlns:arxiv="http://arxiv.org/schemas/atom" term="math.AG" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="math.AG" scheme="http://arxiv.org/schemas/atom"/>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/2603.22222v2</id>
+    <updated>2026-03-12T10:00:00Z</updated>
+    <published>2026-03-10T08:30:00Z</published>
+    <title>Moduli of complexes on surfaces and derived categories</title>
+    <summary>Derived categories of coherent sheaves and moduli of objects on
+algebraic surfaces.</summary>
+    <author><name>C. Author</name></author>
+    <arxiv:primary_category xmlns:arxiv="http://arxiv.org/schemas/atom" term="math.AG" scheme="http://arxiv.org/schemas/atom"/>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/2601.00777v1</id>
+    <updated>2026-01-20T12:00:00Z</updated>
+    <published>2026-01-20T12:00:00Z</published>
+    <title>A paper the operator already curated into the notebook</title>
+    <summary>Already-present paper used by the dedup test (AC-E.2).</summary>
+    <author><name>D. Author</name></author>
+    <arxiv:primary_category xmlns:arxiv="http://arxiv.org/schemas/atom" term="math.AG" scheme="http://arxiv.org/schemas/atom"/>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/2604.33333v1</id>
+    <updated>2026-04-05T15:00:00Z</updated>
+    <published>2026-04-05T15:00:00Z</published>
+    <title>Tilt-stability and Bogomolov-Gieseker type inequalities on threefolds</title>
+    <summary>We prove partial cases of the conjectural inequality for tilt-stable
+objects on smooth projective threefolds.</summary>
+    <author><name>E. Author</name></author>
+    <arxiv:primary_category xmlns:arxiv="http://arxiv.org/schemas/atom" term="math.AG" scheme="http://arxiv.org/schemas/atom"/>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/2512.99999v1</id>
+    <updated>2025-12-20T09:00:00Z</updated>
+    <published>2025-12-20T09:00:00Z</published>
+    <title>Too-early paper (before the scan window)</title>
+    <summary>Submitted before the window start; the recency filter must drop it.</summary>
+    <author><name>F. Author</name></author>
+    <arxiv:primary_category xmlns:arxiv="http://arxiv.org/schemas/atom" term="math.AG" scheme="http://arxiv.org/schemas/atom"/>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/2507.55555v1</id>
+    <updated>2026-07-15T09:00:00Z</updated>
+    <published>2026-07-15T09:00:00Z</published>
+    <title>Too-late paper (after the scan window)</title>
+    <summary>Submitted after the window end; the recency filter must drop it.</summary>
+    <author><name>G. Author</name></author>
+    <arxiv:primary_category xmlns:arxiv="http://arxiv.org/schemas/atom" term="math.AG" scheme="http://arxiv.org/schemas/atom"/>
+  </entry>
+</feed>

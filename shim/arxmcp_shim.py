@@ -58,6 +58,7 @@ from __future__ import annotations
 import argparse
 import http.client
 import json
+import os
 import sys
 import urllib.parse
 
@@ -122,7 +123,31 @@ def _error_frame(status: int, body: bytes) -> bytes:
     return json.dumps(payload).encode("utf-8") + b"\n"
 
 
-def _proxy(url: str) -> None:
+def _resolve_token(token_env: str | None) -> str | None:
+    """Resolve the optional capability bearer token (stage2/arx-a23).
+
+    ``--token-env NAME`` names an ENVIRONMENT VARIABLE holding the
+    token — the token value itself never appears on a command line
+    (visible in process listings) or in ``~/.claude.json`` (AC-A.10;
+    finding 212 volatile-file warning). A named-but-missing/empty var
+    is a FATAL misconfiguration: silently proceeding unauthenticated
+    would downgrade the caller to the ``default`` profile without
+    anyone noticing. The error message names the VAR, never a value.
+    """
+    if token_env is None:
+        return None
+    token = os.environ.get(token_env, "").strip()
+    if not token:
+        raise SystemExit(
+            f"FATAL: --token-env {token_env!r} is set but the environment "
+            f"variable is missing or empty. Export the capability token "
+            f"in that variable (e.g. via the MCP registration's env "
+            f"block) or drop --token-env to run as the default profile."
+        )
+    return token
+
+
+def _proxy(url: str, token: str | None = None) -> None:
     sid: str | None = None
     conn = _connect(url, 60.0)
     try:
@@ -131,6 +156,12 @@ def _proxy(url: str) -> None:
             if not body:
                 continue
             h = {**HEADERS, "Content-Length": str(len(body))}
+            if token is not None:
+                # Capability bearer token (stage2/arx-a23). Header-only,
+                # every request — the server's CapabilityMiddleware
+                # resolves it to a profile per call; the shim never
+                # logs or echoes it.
+                h["Authorization"] = f"Bearer {token}"
             if sid is not None:
                 h["mcp-session-id"] = sid
             # F5 fix: include resp.read() in the retry block — a
@@ -162,9 +193,23 @@ def _proxy(url: str) -> None:
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="arxmcp-shim")
     p.add_argument("--server", default=DEFAULT_SERVER)
+    p.add_argument(
+        "--token-env",
+        default=None,
+        metavar="ENV_VAR",
+        help=(
+            "Name of an environment variable holding the capability "
+            "bearer token (stage2/arx-a23). The token is sent as "
+            "'Authorization: Bearer <token>' on every request so the "
+            "server's CapabilityMiddleware can resolve the caller's "
+            "profile. Omit to run as the 'default' profile. The token "
+            "VALUE never appears on the command line."
+        ),
+    )
     args = p.parse_args(argv)
+    token = _resolve_token(args.token_env)
     _probe(args.server)
-    _proxy(args.server)
+    _proxy(args.server, token=token)
     return 0
 
 

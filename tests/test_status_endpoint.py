@@ -541,10 +541,26 @@ class TestMakefileTarget:
 
 
 class TestStatusSecFetchSiteDeviation:
-    """m4 rect F4: pin Deviation #1's two premises to the REAL paths via a
-    full create_app middleware stack (the bare-FastAPI tests above bypass
-    SecFetchSiteMiddleware). A future router-prefix change to either path
-    would otherwise silently regress the badge's design."""
+    """Pin the /status + /ui/status-badge SecFetchSite behavior to the REAL
+    paths via a full create_app middleware stack (the bare-FastAPI tests above
+    bypass SecFetchSiteMiddleware). A future router-prefix change would
+    otherwise silently regress these surfaces.
+
+    **stage3/cross-r1 update.** The m4 "Deviation #1" premise —
+    that a browser same-origin XHR to bare ``/status`` is 403'd, so the
+    *Jinja/htmx console* must poll ``/ui/status-badge`` instead — held only
+    while the htmx console was the sole browser surface. The later ``/app``
+    SPA (arx-a1/arx-a23/arx-b3) has NO ``/ui/status-badge`` equivalent: its
+    typed OpenAPI client and ``obs.ts::status()`` fetch bare ``GET /status``
+    same-origin for the Connections C1 trust header and the graph NO-18
+    corpus-version caption. Leaving ``/status`` outside the SecFetchSite
+    exemption 403'd that fetch on every real browser session (trust header
+    "server state unknown", caption "corpus version unknown", a WARNING per
+    5s poll). ``/status`` is now in ``exempt_prefixes`` alongside ``/ui``,
+    ``/app``, ``/api/v1`` — read-only health probe, {none, same-origin}
+    relaxation, cross-site/same-site still rejected. The ``/ui/status-badge``
+    HTML fragment remains valid for the Jinja console; both surfaces now work.
+    """
 
     def _client(self, tmp_path, monkeypatch) -> TestClient:
         # Mirror tests/security/test_sec_fetch_site_carveout.py::_build_test_client
@@ -559,19 +575,35 @@ class TestStatusSecFetchSiteDeviation:
 
         return TestClient(create_app(Config()))
 
-    def test_status_403s_browser_same_origin(self, tmp_path, monkeypatch):
-        """WHY the badge can't hx-get /status: a browser same-origin XHR to the
-        non-/ui /status is 403'd by SecFetchSiteMiddleware."""
+    def test_status_not_403s_browser_same_origin(self, tmp_path, monkeypatch):
+        """stage3/cross-r1: the /app SPA's same-origin ``GET /status`` (trust
+        header + graph caption) must NOT be 403'd. Downstream returns 503
+        (lifespan not warm here) or 200 — anything BUT sec_fetch_site_forbidden
+        proves the /status carve-out fired. FAILS before the exemption is
+        added (the pre-fix middleware 403s the SPA's probe)."""
         client = self._client(tmp_path, monkeypatch)
         r = client.get("/status", headers={"Sec-Fetch-Site": "same-origin"})
+        if r.status_code == 403:
+            assert r.json().get("error") != "sec_fetch_site_forbidden", (
+                "SecFetchSite carve-out for /status did not fire — the SPA's "
+                "trust-header + graph-caption probe 403s on every browser "
+                "session"
+            )
+
+    def test_status_still_403s_browser_cross_site(self, tmp_path, monkeypatch):
+        """The /status relaxation is {none, same-origin}, NOT a bypass: a
+        cross-site fetch from another localhost app is still rejected."""
+        client = self._client(tmp_path, monkeypatch)
+        r = client.get("/status", headers={"Sec-Fetch-Site": "cross-site"})
         assert r.status_code == 403
         assert r.json()["error"] == "sec_fetch_site_forbidden"
 
     def test_ui_status_badge_not_403_browser_same_origin(
         self, tmp_path, monkeypatch
     ):
-        """The badge endpoint under /ui is exempt → NOT 403 (the deviation
-        works); the handler renders a badge even with no warm resources."""
+        """The badge endpoint under /ui is exempt → NOT 403; the handler
+        renders a badge even with no warm resources. Still valid for the
+        Jinja/htmx console after the /status exemption lands."""
         client = self._client(tmp_path, monkeypatch)
         r = client.get(
             "/ui/status-badge", headers={"Sec-Fetch-Site": "same-origin"}

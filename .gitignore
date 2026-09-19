@@ -36,3 +36,11 @@ ops/restic-env.sh
 # tag's signed SBOM.
 .claude/docs/security/sbom/*.json
 .claude/docs/security/sbom/*.cdx.json
+
+# frontend-app (WS-B): build-time-only Node toolchain (D1 ADR).
+# dist/ IS committed deliberately - the FastAPI process serves it at
+# /app and the design-gate pytest suite reads its compiled CSS.
+frontend-app/node_modules/
+frontend-app/test-results/
+frontend-app/playwright-report/
+frontend-app/*.tsbuildinfo

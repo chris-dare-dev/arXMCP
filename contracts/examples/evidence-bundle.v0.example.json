@@ -1,0 +1,80 @@
+{
+  "bridge": {
+    "artifact": "arxmcp.bridge/evidence-bundle",
+    "version": "0.2",
+    "producer": "proving-orchestrator-v0",
+    "produced_at": "2026-07-04T01:00:00Z",
+    "substrate": {
+      "server": "arxmcp",
+      "corpus_version": 1690,
+      "notebook": {
+        "slug": "bridgeland-stability",
+        "uri": "arxmcp://notebooks/bridgeland-stability"
+      },
+      "filter_echo": null,
+      "retrieval_mode": "dense_only",
+      "tool_schema_sha256": "8665de4d1d52c053dbb1dbdd30e2a8a219c0b1e39ff9083124b5a0fa76ca304d"
+    }
+  },
+  "payload": {
+    "task_id": "kat-fm-02-bridgeland-stability",
+    "verdict": "refuted",
+    "verdict_confidence": "high",
+    "verdict_reasons": [
+      "skeptic lane: kernel-accepted, soundness-clean refutation witness (lean-witness n2n41-witness-40)"
+    ],
+    "escalated": false,
+    "counterexample": {
+      "source": "lean-witness",
+      "check": "n2n41-witness-40",
+      "kernel_confirmed": true,
+      "witness": { "n": 40, "value": 1681 },
+      "description": "40² + 40 + 41 = 1681 = 41² — kernel-checked (norm_num)."
+    },
+    "skeptic": {
+      "ran": true,
+      "refuted": true,
+      "cas_refused": false,
+      "checks": [
+        {
+          "lane": "lean",
+          "check": "n2n41-witness-40",
+          "kind": "witness",
+          "status": "witness-accepted",
+          "hit": true,
+          "snippet": "example : ¬ Nat.Prime (40 ^ 2 + 40 + 41) := by norm_num",
+          "imports": ["Mathlib.Tactic"],
+          "lean_status": "ok",
+          "transcript_sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+        }
+      ],
+      "budget": {
+        "wall_clock_s": 8.4,
+        "lean_queries": 1,
+        "cas_runs": 0,
+        "prover_cycles": 0
+      },
+      "started_at": "2026-07-04T01:00:00Z",
+      "finished_at": "2026-07-04T01:00:09Z"
+    },
+    "cas": [],
+    "controls": {
+      "kat_run_id": "kat-20260704T010000000000Z",
+      "kat_ids_run": ["kat-tf-05", "kat-fm-01", "kat-op-01"],
+      "abstention_rate": 0.3333333333333333,
+      "reportable": true
+    },
+    "provenance": {
+      "orchestrator_version": "v0",
+      "lean_toolchain": "leanprover/lean4:v4.30.0-rc2",
+      "mathlib_rev": "5450b53e5ddc",
+      "created_at": "2026-07-04T01:00:09Z"
+    },
+    "cost": {
+      "wall_clock_s": 8.4,
+      "lean_queries": 1,
+      "cas_runs": 0,
+      "prover_cycles": 0
+    }
+  }
+}

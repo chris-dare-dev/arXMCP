@@ -1,0 +1,56 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "urn:arxmcp:bridge:run-ledger-entry:v1",
+  "title": "arxmcp.bridge/run-ledger-entry v1",
+  "description": "One longitudinal-tracking row per pipeline run: run id, pipeline, input/output artifact refs, outcome. Producer: orchestrator/pipelines. Consumer: longitudinal tracking (and, on trigger, the future math-research-orchestrator repo's cross-repo run ledger). The outcome enum is append-only within this MAJOR; escalated is the halt-for-human state the standing escalation rules require.",
+  "x-bridge": {
+    "artifact": "arxmcp.bridge/run-ledger-entry",
+    "version": "1.0",
+    "status": "stable"
+  },
+  "allOf": [
+    { "$ref": "urn:arxmcp:bridge:envelope:v1" },
+    {
+      "properties": {
+        "bridge": {
+          "properties": {
+            "artifact": { "const": "arxmcp.bridge/run-ledger-entry" }
+          }
+        },
+        "payload": {
+          "type": "object",
+          "required": ["run_id", "pipeline", "outcome", "inputs", "outputs"],
+          "properties": {
+            "run_id": { "type": "string", "minLength": 1 },
+            "pipeline": {
+              "description": "The producing pipeline, e.g. proof-verify, cite-audit, proving-orchestrator, exploration-scout.",
+              "type": "string",
+              "minLength": 1
+            },
+            "outcome": {
+              "type": "string",
+              "enum": ["completed", "failed", "halted", "escalated", "abandoned"]
+            },
+            "inputs": {
+              "type": "array",
+              "items": { "$ref": "urn:arxmcp:bridge:envelope:v1#/definitions/artifact_ref" }
+            },
+            "outputs": {
+              "type": "array",
+              "items": { "$ref": "urn:arxmcp:bridge:envelope:v1#/definitions/artifact_ref" }
+            },
+            "started_at": {
+              "type": "string",
+              "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?(Z|[+-][0-9]{2}:[0-9]{2})$"
+            },
+            "finished_at": {
+              "type": "string",
+              "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?(Z|[+-][0-9]{2}:[0-9]{2})$"
+            },
+            "notes": { "type": "string" }
+          }
+        }
+      }
+    }
+  ]
+}

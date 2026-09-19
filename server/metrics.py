@@ -147,6 +147,29 @@ RETRIEVAL_CAP_REJECTIONS_COUNTER: Counter = Counter(
 
 
 # ---------------------------------------------------------------------------
+# Capability-denial metric (stage2/arx-a23, WS-A A2)
+# ---------------------------------------------------------------------------
+
+#: Counts CAPABILITY_DENIED short-circuits from the
+#: :class:`server.middleware.CapabilityMiddleware`. Peer of
+#: :data:`RETRIEVAL_CAP_REJECTIONS_COUNTER` — the capability layer
+#: also short-circuits BEFORE FastMCP, so per-tool request counters
+#: never see denied calls; this counter is the operator's only
+#: aggregate signal (per-call detail lives in the ``tool_calls``
+#: audit store and the request-event ring).
+CAPABILITY_DENIALS_COUNTER: Counter = Counter(
+    "arxmcp_capability_denials_total",
+    "Total number of `tools/call` requests denied by the capability "
+    "layer (CapabilityMiddleware). Labeled by denial reason "
+    "(`token_unknown` / `profile_disabled` / `tool_not_allowed` / "
+    "`notebook_not_allowed` / `notebook_scope_required`). A rising "
+    "count is either a misconfigured pipeline role or a policy "
+    "working as intended — the audit store has the per-call detail.",
+    labelnames=["reason"],
+)
+
+
+# ---------------------------------------------------------------------------
 # LaTeXML drift detection (E10_S04)
 # ---------------------------------------------------------------------------
 
@@ -428,6 +451,7 @@ __all__ = [
     "ALL_TIERS",
     "BACKUP_LAST_SUCCESS_GAUGE",
     "BACKUP_STATUS_GAUGE",
+    "CAPABILITY_DENIALS_COUNTER",
     "CACHE_BYTES_GAUGE",
     "CACHE_EVICTIONS_COUNTER",
     "CACHE_HITS_COUNTER",

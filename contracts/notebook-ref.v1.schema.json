@@ -1,0 +1,52 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "urn:arxmcp:bridge:notebook-ref:v1",
+  "title": "arxmcp.bridge/notebook-ref v1",
+  "description": "A pinned reference to a notebook substrate: slug, URI, corpus_version pin, and optionally the export-manifest digest. Producer: any. Consumer: any. The payload pin is authoritative; the substrate block mirrors it so the generic replay checker works on this type like any other.",
+  "x-bridge": {
+    "artifact": "arxmcp.bridge/notebook-ref",
+    "version": "1.0",
+    "status": "stable"
+  },
+  "allOf": [
+    { "$ref": "urn:arxmcp:bridge:envelope:v1" },
+    {
+      "properties": {
+        "bridge": {
+          "properties": {
+            "artifact": { "const": "arxmcp.bridge/notebook-ref" },
+            "substrate": {
+              "properties": {
+                "notebook": { "type": "object" },
+                "corpus_version": { "type": "integer" }
+              }
+            }
+          }
+        },
+        "payload": {
+          "type": "object",
+          "required": ["slug", "uri", "corpus_version"],
+          "properties": {
+            "slug": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9._-]*$"
+            },
+            "uri": {
+              "type": "string",
+              "pattern": "^arxmcp://notebooks/[a-z0-9][a-z0-9._-]*$"
+            },
+            "corpus_version": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "export_manifest_digest": {
+              "description": "Optional SHA-256 of the notebook export manifest (tar+manifest export contract).",
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            }
+          }
+        }
+      }
+    }
+  ]
+}

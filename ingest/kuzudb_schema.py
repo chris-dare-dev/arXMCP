@@ -33,9 +33,31 @@ Idempotency: every DDL statement uses ``CREATE … IF NOT EXISTS`` (Kùzu
 from __future__ import annotations
 
 import argparse
+import contextlib
 from pathlib import Path
 
 import kuzu
+
+
+def close_kuzu(db: kuzu.Database, conn: kuzu.Connection | None) -> None:
+    """Close ``conn`` then ``db`` explicitly, tolerating either being
+    already closed / half-constructed.
+
+    ``del db`` alone is NOT a substitute: a live :class:`kuzu.Connection`
+    keeps the Database object (and its exclusive file lock) alive, and
+    on Windows that lock then blocks every subsequent reopen of the
+    same path in the same process — resume flows, the v1→v2 migration
+    path, and pytest ``tmp_path`` teardown all break. Verified live on
+    kuzu 0.11.3 / Windows 11 (stage2/arx-ws0 baseline triage,
+    2026-07-04): reopen after ``del db`` with the connection alive
+    fails with "Could not set lock on file"; close-conn-then-db
+    releases the lock deterministically on every platform.
+    """
+    if conn is not None:
+        with contextlib.suppress(Exception):
+            conn.close()
+    with contextlib.suppress(Exception):
+        db.close()
 
 #: Schema version. Bump whenever ``SCHEMA_STATEMENTS`` mutates so
 #: callers (and downstream cache layers, e.g. ``cite_neighbors`` in
@@ -113,6 +135,7 @@ def apply_schema(db_path: Path) -> None:
     """
     db_path.parent.mkdir(parents=True, exist_ok=True)
     db = kuzu.Database(str(db_path))
+    conn: kuzu.Connection | None = None
     try:
         conn = kuzu.Connection(db)
         for statement in SCHEMA_STATEMENTS:
@@ -138,11 +161,9 @@ def apply_schema(db_path: Path) -> None:
             {"key": "version", "value": KUZU_SCHEMA_VERSION},
         )
     finally:
-        # kuzu.Database closes implicitly when the Python object is GC'd;
-        # explicitly drop the local reference so the close runs deterministically
-        # (matters on Windows where the open file handle blocks parent rmtree
-        # in pytest tmp_path teardown).
-        del db
+        # Deterministic close of BOTH handles (see close_kuzu docstring;
+        # `del db` left the Windows file lock held via the live conn).
+        close_kuzu(db, conn)
 
 
 def _introspect_columns(conn: kuzu.Connection, table_name: str) -> set[str]:
@@ -170,6 +191,7 @@ def read_schema_version(db_path: Path) -> int | None:
     if not db_path.exists():
         return None
     db = kuzu.Database(str(db_path))
+    conn: kuzu.Connection | None = None
     try:
         conn = kuzu.Connection(db)
         result = conn.execute(
@@ -180,7 +202,7 @@ def read_schema_version(db_path: Path) -> int | None:
             return None
         return int(result.get_next()[0])
     finally:
-        del db
+        close_kuzu(db, conn)
 
 
 def main() -> int:

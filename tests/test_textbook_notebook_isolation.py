@@ -348,7 +348,9 @@ class TestNotebookScopedLanceDBIsolation:
         """
         from ingest.store import DEFAULT_LANCEDB_PATH
 
-        default_str = str(DEFAULT_LANCEDB_PATH.resolve())
+        # as_posix(): str() renders "\\" separators on Windows and the
+        # forward-slash needles below would never match.
+        default_str = DEFAULT_LANCEDB_PATH.resolve().as_posix()
         # The default path must NOT be under a notebooks subtree.
         assert "/notebooks/" not in default_str, (
             f"DEFAULT_LANCEDB_PATH {default_str!r} is under a "

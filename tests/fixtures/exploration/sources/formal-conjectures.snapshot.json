@@ -1,0 +1,24 @@
+{
+  "name": "formal-conjectures",
+  "kind": "github-lean-corpus",
+  "url": "https://github.com/google-deepmind/formal-conjectures",
+  "retrieved_at": "2026-07-01T00:00:00Z",
+  "entries": [
+    {
+      "id": "fc-bg-threefolds",
+      "title": "Bogomolov-Gieseker inequality for tilt-stable objects on threefolds",
+      "statement": "The conjectural Bogomolov-Gieseker type inequality holds for nu-tilt-stable objects on every smooth projective threefold.",
+      "tags": ["math.AG", "stability"],
+      "arxiv_ids": ["2604.33333"],
+      "url": "https://github.com/google-deepmind/formal-conjectures/tree/main/FormalConjectures/fixture/bg-threefolds"
+    },
+    {
+      "id": "fc-erdos-discrepancy-variant",
+      "title": "A variant of the Erdos discrepancy problem over function fields",
+      "statement": "Discrepancy of completely multiplicative sequences over function fields is unbounded.",
+      "tags": ["math.NT", "math.CO"],
+      "arxiv_ids": [],
+      "url": "https://github.com/google-deepmind/formal-conjectures/tree/main/FormalConjectures/fixture/erdos-variant"
+    }
+  ]
+}

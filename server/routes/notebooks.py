@@ -107,14 +107,21 @@ _ACCEPTED_HOSTS: frozenset[str] = frozenset({
     "arxiv.org", "ar5iv.labs.arxiv.org",
 })
 
-#: Per-host path-prefix dispatch (m8). ``arxiv.org`` papers live
-#: under ``/abs/<id>``; ar5iv's HTML mirror lives under
-#: ``/html/<id>``. The extracted paper_id is then validated via
-#: ``is_valid_paper_id`` regardless of which host it came from
-#: — the m1-rect-F3 ``\Z``-anchor hardening protects both paths.
-_HOST_PATH_PREFIX: dict[str, str] = {
-    "arxiv.org": "/abs/",
-    "ar5iv.labs.arxiv.org": "/html/",
+#: Per-host path-prefix dispatch (m8; stage2/arx-a45 extends
+#: ``arxiv.org`` to also accept ``/html/`` — arXiv's first-party
+#: native HTML surface, the institutionally-backed successor to
+#: ar5iv). Both render pipelines are LaTeXML 0.8.8 output with an
+#: identical ``ltx_*`` class vocabulary (finding 211 R-E), so the
+#: chunker consumes either unchanged. ``arxiv.org`` papers live
+#: under ``/abs/<id>`` (abstract page) or ``/html/<id>`` (native
+#: HTML render); ar5iv's mirror lives under ``/html/<id>`` only.
+#: The extracted paper_id is then validated via
+#: ``is_valid_paper_id`` regardless of which host/prefix it came
+#: from — the m1-rect-F3 ``\Z``-anchor hardening protects all
+#: paths.
+_HOST_PATH_PREFIX: dict[str, tuple[str, ...]] = {
+    "arxiv.org": ("/abs/", "/html/"),
+    "ar5iv.labs.arxiv.org": ("/html/",),
 }
 
 
@@ -125,17 +132,19 @@ def _arxiv_url_to_paper_id(url: str) -> str | None:
     does not match the accepted form. Caller translates ``None`` to
     HTTP 422.
 
-    Accepted forms (m7 FM-4 + m8 AC #3):
+    Accepted forms (m7 FM-4 + m8 AC #3 + stage2/arx-a45 AC-A.16):
       - ``https://arxiv.org/abs/<paper_id>``
       - ``http://arxiv.org/abs/<paper_id>``  (scheme tolerated)
       - ``https://arxiv.org/abs/<paper_id>v<N>`` (version suffix)
       - ``https://arxiv.org/abs/hep-th/0001234`` (old style)
+      - ``https://arxiv.org/html/<paper_id>`` (arx-a45 — native HTML)
+      - ``https://arxiv.org/html/<paper_id>v<N>`` (arx-a45)
       - ``https://ar5iv.labs.arxiv.org/html/<paper_id>`` (m8)
       - ``https://ar5iv.labs.arxiv.org/html/<paper_id>v<N>`` (m8)
 
     Rejected (returns None):
       - ``www.arxiv.org`` (subdomain not in whitelist)
-      - ``arxiv.org/pdf/...`` (path prefix mismatch — only /abs/)
+      - ``arxiv.org/pdf/...`` (path prefix mismatch — /abs/ + /html/ only)
       - ``ar5iv.labs.arxiv.org/abs/...`` (wrong prefix for that host)
       - Any host outside :data:`_ACCEPTED_HOSTS`
       - Trailing newlines / whitespace (rejected via
@@ -151,18 +160,22 @@ def _arxiv_url_to_paper_id(url: str) -> str | None:
         return None
     if parsed.hostname not in _ACCEPTED_HOSTS:
         return None
-    # m8: dispatch on the host to pick the right path prefix
-    # (arxiv.org → /abs/, ar5iv.labs.arxiv.org → /html/).
-    prefix = _HOST_PATH_PREFIX.get(parsed.hostname, "")
+    # m8: dispatch on the host to pick the accepted path prefixes
+    # (arxiv.org → /abs/ + /html/, ar5iv.labs.arxiv.org → /html/).
+    # arx-a45: a host may accept several prefixes; first match wins
+    # (the prefixes are mutually exclusive by construction).
+    prefixes = _HOST_PATH_PREFIX.get(parsed.hostname, ())
     path = parsed.path
-    if not prefix or not path.startswith(prefix):
+    for prefix in prefixes:
+        if not path.startswith(prefix):
+            continue
+        candidate = path[len(prefix):]
+        # Strip trailing slash for cosmetic tolerance (``/abs/<id>/``).
+        candidate = candidate.rstrip("/")
+        if candidate and is_valid_arxiv_paper_id(candidate):
+            return candidate
         return None
-    candidate = path[len(prefix):]
-    # Strip trailing slash for cosmetic tolerance (``/abs/<id>/``).
-    candidate = candidate.rstrip("/")
-    if not candidate or not is_valid_arxiv_paper_id(candidate):
-        return None
-    return candidate
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -248,6 +261,19 @@ class NotebookCreate(BaseModel):
     # enum check). ``description`` is free text, rendered autoescaped.
     discovery_category: str = Field(default="", max_length=32)
     description: str = Field(default="", max_length=512)
+    # stage2/arx-a45 (AC-A.18): textbook chunking strategy. ``html``
+    # (default) = MinerU → LaTeXML render → section-div chunker (the
+    # historical path); ``markdown`` = MinerU markdown chunked
+    # directly, no LaTeXML render (the documented best path for
+    # math-dense PDFs, HANDOFF §6.4 — mirrors the
+    # ``tools/notebook_textbook_ingest.py --chunker`` CLI choices).
+    # Only meaningful for textbook-kind notebooks; the handler 422s a
+    # ``markdown`` value on arxiv-kind so the field can never
+    # silently no-op.
+    chunker: str = Field(
+        default="html",
+        pattern="^(html|markdown)$",
+    )
 
 
 class NotebookRename(BaseModel):
@@ -357,6 +383,21 @@ async def create_notebook(
             detail=str(e),
         ) from e
 
+    # stage2/arx-a45 (AC-A.18): the markdown chunker is a textbook-
+    # parse concept — an arxiv-kind notebook never runs MinerU, so a
+    # non-default ``chunker`` there would be a silent no-op. Reject it
+    # loudly instead (422) so operators discover the mismatch at
+    # create time, not at first parse.
+    if body.chunker != "html" and body.notebook_kind != "textbook":
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                f"chunker {body.chunker!r} is only valid for "
+                f"textbook-kind notebooks (this notebook is "
+                f"{body.notebook_kind!r})"
+            ),
+        )
+
     # Belt-and-braces: notebook_dir runs the m6 F3 symlink-rejection
     # containment check before any mkdir.
     try:
@@ -402,6 +443,7 @@ async def create_notebook(
             parse_status=initial_parse_status,
             discovery_category=body.discovery_category,
             description=cleaned_description,
+            textbook_chunker=body.chunker,
         )
     except sqlite3.IntegrityError as e:
         # FM-5: duplicate slug. The async lock inside NotebooksStore
@@ -761,6 +803,7 @@ def _discover_results_fragment(
 )
 async def discover_papers(
     slug: str,
+    request: Request,
     store: NotebooksStore = Depends(get_notebooks_store),  # noqa: B008  (FastAPI DI pattern)
 ) -> HTMLResponse:
     """Discover new arXiv papers for a notebook's topic (notebook-paper-discovery-m4).
@@ -789,7 +832,8 @@ async def discover_papers(
             detail=str(e),
         ) from e
 
-    if await store.get_notebook(slug) is None:
+    notebook = await store.get_notebook(slug)
+    if notebook is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"notebook {slug!r} not found",
@@ -1152,6 +1196,16 @@ class _NotebookHealthResult(BaseModel):
       ``make reconcile NOTEBOOK=<slug>``).
     - ``no_marker``: ``make ingest`` hasn't run yet.
     - ``malformed_marker``: marker JSON is invalid; investigate.
+
+    stage2/arx-b2 (WS-B, additive MINOR): the marker's provenance
+    fields — ``marker_created_at`` / ``chunker_version`` /
+    ``embedder_version`` — ride along so the frontend's notebook
+    detail can render the full ``corpus-version.json`` stat block
+    (paper/chunk counts, version, created_at; finding 211 rec 4)
+    and the margin-metadata channel (embedder ``bge-m3@…``, chunker
+    version) without a second endpoint. ``None`` whenever the marker
+    is absent or malformed. Additive-only: no existing field changed,
+    no consumer breaks (the /api/v1 contract's MINOR tolerance).
     """
 
     slug: str
@@ -1163,6 +1217,9 @@ class _NotebookHealthResult(BaseModel):
     drift: int | None
     corpus_version: int | None
     detail: str | None
+    marker_created_at: str | None = None
+    chunker_version: str | None = None
+    embedder_version: str | None = None
 
 
 @router.post(
@@ -1443,6 +1500,9 @@ async def notebook_health(
         actual_paper_count=actual_papers,
         drift=drift,
         corpus_version=info.version,  # type: ignore[attr-defined]
+        marker_created_at=info.created_at,  # type: ignore[attr-defined]
+        chunker_version=info.chunker_version,  # type: ignore[attr-defined]
+        embedder_version=info.embedder_version,  # type: ignore[attr-defined]
         detail=None
         if in_sync
         else (
@@ -1664,6 +1724,133 @@ def _run_pdf_preflight(content: bytes) -> None:
         )
 
 
+# ---------------------------------------------------------------------------
+# stage2/arx-a45 — streamed-to-disk upload support (AC-A.17)
+# ---------------------------------------------------------------------------
+
+#: Copy-loop chunk size for streaming an upload from the multipart
+#: spool to its destination .tmp file. Bounds handler memory to one
+#: chunk regardless of upload size ("chunked reads" — the
+#: XHR-progress-compatible semantics AC-A.17 names: the server
+#: consumes the request stream as it arrives instead of buffering,
+#: so client-side ``xhr.upload.onprogress`` reflects real transfer).
+_UPLOAD_COPY_CHUNK_BYTES: int = 1 * 1024 * 1024
+
+#: Overlap carried between windows in the chunked full-body scans so
+#: a token split across a window boundary is still seen. Must exceed
+#: the longest dangerous PDF name token (``/JavaScript`` — 11 bytes)
+#: and any realistic ``/Count <int>`` span. 64 bytes gives ample
+#: slack. (A pathological ``/Count`` padded with > 64 whitespace
+#: bytes between name and integer could straddle undetected — the
+#: same class of documented heuristic gap as the m4 comment-
+#: interposition limitation; MinerU's wall-clock sandbox remains the
+#: runtime backstop.)
+_SCAN_WINDOW_OVERLAP_BYTES: int = 64
+
+#: Window size for the chunked full-body scans (JS tokens + page
+#: count). 8 MB keeps the scan fast (few dozen reads for a 200 MB
+#: body) while bounding memory.
+_SCAN_WINDOW_BYTES: int = 8 * 1024 * 1024
+
+
+def _scan_pdf_file(path: Path) -> tuple[list[str], int]:
+    """Bounded-memory equivalent of the two full-body preflight
+    regexes over an on-disk PDF: returns
+    ``(dangerous_tokens, max_declared_page_count)``.
+
+    Reads the file in :data:`_SCAN_WINDOW_BYTES` windows carrying a
+    :data:`_SCAN_WINDOW_OVERLAP_BYTES` tail between reads. Matches in
+    a non-final window that end inside the carried tail region are
+    deferred to the next window (which re-scans those bytes), so a
+    boundary-straddling token is counted exactly once and the
+    ``/JavaScript``-vs-``/JS`` longest-match discipline and the
+    end-of-stream lookahead (``\\Z``) fire only where genuine.
+    """
+    from tools.security.pdfid import _DANGEROUS_PATTERN  # noqa: PLC0415
+
+    tokens: list[str] = []
+    max_count = 0
+    carry = b""
+    with path.open("rb") as fh:
+        while True:
+            window = carry + fh.read(_SCAN_WINDOW_BYTES)
+            if not window:
+                break
+            final = len(window) < len(carry) + _SCAN_WINDOW_BYTES
+            # Matches ending in the last OVERLAP bytes of a non-final
+            # window are re-found (complete) in the next window.
+            cutoff = (
+                len(window)
+                if final
+                else len(window) - _SCAN_WINDOW_OVERLAP_BYTES
+            )
+            for m in _DANGEROUS_PATTERN.finditer(window):
+                if m.end() <= cutoff:
+                    tokens.append(m.group(0).decode("ascii"))
+            for m in _PDF_COUNT_RE.finditer(window):
+                if m.end() <= cutoff:
+                    max_count = max(max_count, int(m.group(1)))
+            if final:
+                break
+            carry = window[-_SCAN_WINDOW_OVERLAP_BYTES:]
+    return tokens, max_count
+
+
+def _run_pdf_preflight_file(path: Path) -> None:
+    """Streamed-to-disk variant of :func:`_run_pdf_preflight`
+    (arx-a45, AC-A.17): the same 5 rejection vectors, in the same
+    fast-first order, with the same 415 details — but operating on
+    the on-disk .tmp file via bounded reads (head 5 bytes, tail 1 KB,
+    windowed full-body scan) so a 200 MB textbook never occupies
+    process memory.
+    """
+    size = path.stat().st_size
+    with path.open("rb") as fh:
+        head = fh.read(5)
+        fh.seek(max(0, size - _PDF_POLYGLOT_TAIL_BYTES))
+        tail = fh.read(_PDF_POLYGLOT_TAIL_BYTES)
+
+    if not _is_pdf_bytes(head):
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail=(
+                "uploaded file does not appear to be a PDF "
+                "(first 5 bytes must be '%PDF-' per ISO 32000)"
+            ),
+        )
+    lowered_tail = tail.lower()
+    for marker in _POLYGLOT_TAIL_MARKERS:
+        if marker.lower() in lowered_tail:
+            raise HTTPException(
+                status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+                detail=(
+                    f"polyglot file detected (tail contains "
+                    f"{marker!r})"
+                ),
+            )
+    dangerous_tokens, declared_pages = _scan_pdf_file(path)
+    if dangerous_tokens:
+        unique_tokens = sorted(set(dangerous_tokens))
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail=(
+                f"PDF contains embedded active-content tokens "
+                f"({unique_tokens}) — rejected per the textbook-"
+                f"ingest pre-flight gate. See tools/security/"
+                f"pdfid.py for the detection rules."
+            ),
+        )
+    if declared_pages > _PDF_MAX_PAGE_COUNT:
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail=(
+                f"PDF declares {declared_pages} pages — exceeds "
+                f"the {_PDF_MAX_PAGE_COUNT}-page cap per the "
+                f"textbook-ingest pre-flight gate"
+            ),
+        )
+
+
 @router.post(
     "/notebooks/{slug}/papers/upload",
     response_class=HTMLResponse,
@@ -1745,75 +1932,13 @@ async def upload_paper(
                 detail=f"paper_id {paper_id!r} is not a valid arXiv id",
             )
 
-    # Read the upload. For arxiv notebooks the body is capped at
-    # _ARXIV_UPLOAD_MAX_BYTES (10 MB) by the handler-level check
-    # below; for textbook notebooks the middleware envelope of 200 MB
-    # is the upper bound. The middleware has already buffered the
-    # bytes by the time we reach here (eager-read per the
-    # RequestBodySizeLimitMiddleware F1 fix), so the handler-level
-    # checks see the full body in memory.
-    #
-    # textbook-ingest-m4 rect F1: the per-kind cap fires AFTER the
-    # full body is read — there is NO "non-PDF caught at 5 bytes"
-    # short-circuit. A 200 MB body to an arxiv-kind notebook is
-    # buffered fully before the 10 MB check below fires HTTP 413.
-    # Acceptable under loopback-only deployment per CLAUDE.md; a
-    # future networked deployment must move the per-kind cap into
-    # the middleware. See `.claude/docs/security-pdf-sandbox.md` §
-    # "Memory-pressure caveat" for the design tradeoff.
-    try:
-        content = await file.read()
-    except Exception as e:  # noqa: BLE001
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"could not read uploaded file: {e}",
-        ) from e
-
-    if not content:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="uploaded file is empty",
-        )
-
-    # textbook-ingest-m4 D3: per-kind upload-cap enforcement. The
-    # middleware envelope allows 200 MB through unconditionally for
-    # the /ui/api/notebooks prefix; this handler-level check rejects
-    # arxiv-kind uploads that exceed the 10 MB ar5iv cap.
-    if not is_textbook and len(content) > _ARXIV_UPLOAD_MAX_BYTES:
-        raise HTTPException(
-            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-            detail=(
-                f"upload of {len(content)} bytes exceeds the "
-                f"{_ARXIV_UPLOAD_MAX_BYTES}-byte cap for arxiv-kind "
-                f"notebooks (textbook-kind notebooks accept up to "
-                f"200 MB; raise this notebook's kind to 'textbook' "
-                f"if you intend to upload PDFs)"
-            ),
-        )
-
-    # Magic-byte + format dispatch per notebook_kind.
-    if is_textbook:
-        # textbook-ingest-m4: 5-vector PDF preflight gate. Order is
-        # fast-first (magic-byte → polyglot tail → JS detection →
-        # page-count) per the synthesis D5. Any rejection raises
-        # HTTPException(415) with a vector-specific detail.
-        _run_pdf_preflight(content)
-    elif not _is_html_bytes(content[:_MAGIC_SNIFF_BYTES]):
-        # arxiv-kind notebook: m8 FM-2 magic-byte sniff for HTML.
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=(
-                "uploaded file does not appear to be HTML "
-                f"(first {_MAGIC_SNIFF_BYTES} bytes must start with "
-                "'<!' or '<h')"
-            ),
-        )
-
-    # Compute the on-disk paths. FM-4: filename derives EXCLUSIVELY
-    # from the validated paper_id, NEVER from file.filename. The
-    # subdirectory (ar5iv/ for arxiv; pdfs/ for textbook) is created
-    # on first upload (notebook_dir runs the m6 F3 symlink-rejection
-    # check).
+    # Compute the on-disk paths BEFORE reading the body (arx-a45:
+    # the body now streams straight into the .tmp file, so the
+    # destination must exist first). FM-4: filename derives
+    # EXCLUSIVELY from the validated paper_id, NEVER from
+    # file.filename. The subdirectory (ar5iv/ for arxiv; pdfs/ for
+    # textbook) is created on first upload (notebook_dir runs the m6
+    # F3 symlink-rejection check).
     try:
         nb_dir = notebook_dir(slug)
     except NotebookError as e:
@@ -1851,10 +1976,108 @@ async def upload_paper(
     target_path = upload_dir / f"{flat_paper_id}.{ext}"
     tmp_path = upload_dir / f"{flat_paper_id}.{ext}.tmp"
 
-    # FM-5: atomic write. Write to .tmp, then os.replace() to the
-    # final name so readers never see a partial file.
+    # Stream the upload to the .tmp file in bounded chunks (arx-a45,
+    # AC-A.17 — retires the m4-rect-F1 memory-pressure caveat: the
+    # old flow buffered the full body via ``await file.read()``, so
+    # a 200 MB textbook occupied process memory; combined with the
+    # middleware's spooled pre-read, upload RSS is now bounded by
+    # chunk sizes at every stage). The per-kind cap for arxiv-kind
+    # notebooks fires MID-COPY at the first over-cap chunk instead
+    # of after a full-body read; the middleware's 200 MB envelope
+    # bounds textbook-kind uploads upstream. Validation order for
+    # the client is unchanged: 413 (cap) / 422 (empty, magic) / 415
+    # (PDF preflight) — the .tmp file is unlinked on every rejection
+    # path and the final name only ever appears via os.replace (FM-5
+    # atomicity preserved; readers never see a partial file).
+    per_kind_cap = None if is_textbook else _ARXIV_UPLOAD_MAX_BYTES
+    bytes_copied = 0
+    head = b""
     try:
-        tmp_path.write_bytes(content)
+        with tmp_path.open("wb") as out:
+            while True:
+                chunk = await file.read(_UPLOAD_COPY_CHUNK_BYTES)
+                if not chunk:
+                    break
+                if not head:
+                    head = chunk[:_MAGIC_SNIFF_BYTES]
+                bytes_copied += len(chunk)
+                if (
+                    per_kind_cap is not None
+                    and bytes_copied > per_kind_cap
+                ):
+                    raise HTTPException(
+                        status_code=(
+                            status.HTTP_413_REQUEST_ENTITY_TOO_LARGE
+                        ),
+                        detail=(
+                            f"upload exceeds the "
+                            f"{_ARXIV_UPLOAD_MAX_BYTES}-byte cap for "
+                            f"arxiv-kind notebooks (textbook-kind "
+                            f"notebooks accept up to 200 MB; raise "
+                            f"this notebook's kind to 'textbook' if "
+                            f"you intend to upload PDFs)"
+                        ),
+                    )
+                out.write(chunk)
+    except HTTPException:
+        with contextlib.suppress(OSError):
+            tmp_path.unlink()
+        raise
+    except OSError as e:
+        with contextlib.suppress(OSError):
+            tmp_path.unlink()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"could not write uploaded file: {e}",
+        ) from e
+    except Exception as e:  # noqa: BLE001
+        with contextlib.suppress(OSError):
+            tmp_path.unlink()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"could not read uploaded file: {e}",
+        ) from e
+
+    def _reject(exc: HTTPException) -> HTTPException:
+        # Rejection helper: no partial artifact may survive a failed
+        # validation (the .tmp never became the target).
+        with contextlib.suppress(OSError):
+            tmp_path.unlink()
+        return exc
+
+    if bytes_copied == 0:
+        raise _reject(HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="uploaded file is empty",
+        ))
+
+    # Magic-byte + format dispatch per notebook_kind.
+    if is_textbook:
+        # textbook-ingest-m4: 5-vector PDF preflight gate. Order is
+        # fast-first (magic-byte → polyglot tail → JS detection →
+        # page-count) per the synthesis D5. Any rejection raises
+        # HTTPException(415) with a vector-specific detail. arx-a45:
+        # runs against the on-disk .tmp via bounded reads (head,
+        # tail, windowed scans) — same vectors, same details.
+        try:
+            _run_pdf_preflight_file(tmp_path)
+        except HTTPException as e:
+            raise _reject(e) from None
+    elif not _is_html_bytes(head):
+        # arxiv-kind notebook: m8 FM-2 magic-byte sniff for HTML.
+        raise _reject(HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                "uploaded file does not appear to be HTML "
+                f"(first {_MAGIC_SNIFF_BYTES} bytes must start with "
+                "'<!' or '<h')"
+            ),
+        ))
+
+    # FM-5: atomic promotion. The body was streamed to .tmp above;
+    # os.replace() to the final name so readers never see a partial
+    # file.
+    try:
         os.replace(tmp_path, target_path)
     except OSError as e:
         # Clean up the .tmp file if it survived.
@@ -1889,7 +2112,7 @@ async def upload_paper(
     logger.info(
         "uploaded %s: slug=%s paper_id=%s bytes=%d claimed_filename=%r",
         "pdf" if is_textbook else "ar5iv html",
-        slug, paper_id, len(content), file.filename,
+        slug, paper_id, bytes_copied, file.filename,
     )
 
     # textbook-ingest-m6: schedule the parse task for textbook uploads.
@@ -1934,6 +2157,12 @@ async def upload_paper(
             mineru_output_dir = nb_dir / "parsed" / flat_paper_id / "_mineru"
             mineru_output_dir.mkdir(parents=True, exist_ok=True)
             parsed_dir = nb_dir / "parsed"
+            # stage2/arx-a45 (AC-A.18): the notebook's stored chunker
+            # steers the parse pipeline — 'markdown' stops after
+            # MinerU (no LaTeXML render). The row was fetched above
+            # for the kind check; ``.get`` default covers rows from a
+            # pre-v6 DB snapshot in tests.
+            textbook_chunker = notebook.get("textbook_chunker", "html")
             parse_tracker.start_parse(
                 slug=slug,
                 pdf_path=target_path,
@@ -1941,11 +2170,13 @@ async def upload_paper(
                 output_dir=mineru_output_dir,
                 parsed_dir=parsed_dir,
                 store=store,
+                chunker=textbook_chunker,
             )
             logger.info(
-                "parse scheduled: slug=%s paper_id=%s "
+                "parse scheduled: slug=%s paper_id=%s chunker=%s "
                 "mineru_output=%s parsed_dir=%s",
-                slug, paper_id, mineru_output_dir, parsed_dir,
+                slug, paper_id, textbook_chunker,
+                mineru_output_dir, parsed_dir,
             )
 
     return HTMLResponse(
@@ -2109,6 +2340,44 @@ def _get_ingest_tracker(request: Request):
     return tracker
 
 
+async def _ingest_dispatch_kwargs(
+    store: NotebooksStore, notebook: dict,
+) -> dict:
+    """Compute the kind-aware ``start_ingest`` kwargs for ``notebook``.
+
+    stage2/arx-a45 (AC-A.18). Shared by the legacy ``/ui/api`` trigger
+    and the ``/api/v1`` alias so both surfaces dispatch identically:
+
+    - arxiv-kind → ``{}`` (tracker defaults: ``tools.notebook_ingest``).
+    - textbook-kind → the notebook's junction-row paper_ids plus the
+      stored ``textbook_chunker``, steering the tracker to
+      ``tools.notebook_textbook_ingest ... --chunker <c>``.
+
+    A textbook notebook with ZERO papers 422s here (fail-fast) —
+    otherwise the CLI's ``--paper-id required`` argparse error would
+    surface only as a cryptic failed-run stderr tail.
+    """
+    if notebook.get("notebook_kind", "arxiv") != "textbook":
+        return {}
+    slug = notebook["slug"]
+    papers = await store.list_papers(slug)
+    paper_ids = [row["paper_id"] for row in papers]
+    if not paper_ids:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                f"textbook notebook {slug!r} has no uploaded papers — "
+                f"upload a PDF (and wait for its parse) before "
+                f"triggering ingest"
+            ),
+        )
+    return {
+        "notebook_kind": "textbook",
+        "textbook_chunker": notebook.get("textbook_chunker", "html"),
+        "textbook_paper_ids": paper_ids,
+    }
+
+
 @router.post(
     "/notebooks/{slug}/ingest",
     response_class=HTMLResponse,
@@ -2145,7 +2414,8 @@ async def trigger_ingest(
             detail=str(e),
         ) from e
 
-    if await store.get_notebook(slug) is None:
+    notebook = await store.get_notebook(slug)
+    if notebook is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"notebook {slug!r} not found",
@@ -2166,6 +2436,11 @@ async def trigger_ingest(
             ),
         )
 
+    # stage2/arx-a45 (AC-A.18): kind-aware dispatch — textbook
+    # notebooks spawn the textbook chunk→embed CLI with the stored
+    # chunker; arxiv notebooks keep the papers.txt bulk ingest.
+    dispatch = await _ingest_dispatch_kwargs(store, notebook)
+
     # FM-7: insert the run row BEFORE spawning the task so the
     # first 2s poll always finds a row to render.
     started_at = _now_iso()
@@ -2176,6 +2451,7 @@ async def trigger_ingest(
     tracker.start_ingest(
         slug=slug, run_id=run_id, store=store,
         now_iso_provider=_now_iso,
+        **dispatch,
     )
 
     return HTMLResponse(

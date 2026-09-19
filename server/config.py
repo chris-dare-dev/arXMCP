@@ -204,6 +204,19 @@ class Config(BaseSettings):
     #: ``RerankerUnavailableError`` precedent: trust the operator).
     enable_lean: bool = False
 
+    #: stage2/arx-d3 (WS-D D-5; AC-D.11) — gates the sandboxed SymPy/CAS
+    #: subprocess runner used by the counterexample-first skeptic lane
+    #: (``server/proving/sympy_runner.py``). Default OFF, exactly
+    #: mirroring :attr:`enable_lean`: with the flag off the runner
+    #: REFUSES (returns a structured ``status: "disabled"`` envelope and
+    #: spawns nothing). Unlike ``enable_lean`` there is no startup-time
+    #: resource to spawn — the runner is a per-check subprocess — so the
+    #: flag is consulted at call time. The proving lane is a library
+    #: (nothing on the MCP surface); this field exists so the sanctioned
+    #: config surface names the knob and ``ARXMCP_ENABLE_SKEPTIC_CAS``
+    #: passes ``server/main.py``'s unknown-``ARXMCP_*`` env scan.
+    enable_skeptic_cas: bool = False
+
     #: onboarding-uplift-m4 — opt-in "wizard mode" for fresh-clone
     #: operators who want to boot the server BEFORE any corpus exists.
     #: Default ``False`` preserves the historical behaviour: a cold-start
@@ -319,6 +332,40 @@ class Config(BaseSettings):
     #: is applied on top so tiny corpora do not alarm on a single-row
     #: delta. Set via ``ARXMCP_CORPUS_CHUNK_COUNT_TOLERANCE``.
     corpus_chunk_count_tolerance: float = 0.05
+
+    # --- Capability + event tier (stage2/arx-a23, WS-A A2/A3) --------------
+
+    #: SQLite file for the append-only ``tool_calls`` audit store
+    #: (AC-A.9). Dedicated file — NOT ``notebooks.db`` — because the
+    #: audit writer fires on every tool call and must not contend
+    #: with the operator-CRUD store. Sibling of ``cache_db_path``.
+    audit_db_path: Path = Path("var/arxmcp/cache/tool_calls.db")
+
+    #: Ring bound for the audit store: inserting row N+1 over this cap
+    #: evicts the oldest row (AC-A.9). Matches the 10K session-registry
+    #: / Tier-1 cache sizing convention.
+    audit_max_rows: int = Field(default=10_000, ge=10)
+
+    #: TTL (seconds) of the capability-profile read-through cache.
+    #: ``operator_settings`` writes become effective within this window
+    #: with NO restart (AC-A.7); the ``/api/v1/capabilities`` CRUD
+    #: surface additionally invalidates the cache inline. 0 disables
+    #: caching (every tools/call reads SQLite).
+    capability_cache_ttl_s: float = Field(default=1.0, ge=0.0)
+
+    #: Capacity of the in-process request-event ring buffer (finding
+    #: 09 gap R1 sizes this 5–10 K).
+    request_event_ring_size: int = Field(default=5000, ge=10)
+
+    #: Capacity of the in-process log ring buffer (gap R2) and of the
+    #: ingest stage-event ring (gap R4).
+    log_ring_size: int = Field(default=2000, ge=10)
+
+    #: Per-client queue cap on the multiplexed SSE stream (gap R8 /
+    #: AC-A.14). A stalled consumer's queue never exceeds this many
+    #: events; overflow drops OLDEST and the stream emits an explicit
+    #: gap marker.
+    sse_queue_cap: int = Field(default=256, ge=8)
 
     #: Root directory for runtime state — corpus, indices, caches,
     #: ops sentinels. The disk-full scrape hook (E14_S05 D4) calls

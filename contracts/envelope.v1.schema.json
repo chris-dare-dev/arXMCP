@@ -1,0 +1,124 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "urn:arxmcp:bridge:envelope:v1",
+  "title": "arXMCP bridge artifact envelope v1",
+  "description": "Common envelope carried by EVERY bridge artifact exchanged between arXMCP and its consumers (downstream consumer pipelines, proving/exploration agents). The substrate block is the anti-stale-substrate device: given only an artifact file, a checker can decide whether the current server substrate matches the one the artifact was produced against (the spike-1/2/3 failure class). Versioning is per-artifact-type MAJOR.MINOR: MINOR bumps are additive-only and consumers MUST ignore unknown fields (this schema therefore does NOT set additionalProperties:false anywhere); MAJOR bumps are breaking and consumers MUST refuse an unknown MAJOR with a precise diagnostic. Enums are append-only within a MAJOR. See contracts/CONTRACTS.md for the changelog and full rules.",
+  "x-bridge": {
+    "artifact": "arxmcp.bridge/envelope",
+    "version": "1.0",
+    "status": "stable"
+  },
+  "type": "object",
+  "required": ["bridge", "payload"],
+  "properties": {
+    "bridge": {
+      "type": "object",
+      "required": ["artifact", "version", "producer", "produced_at", "substrate"],
+      "properties": {
+        "artifact": {
+          "description": "Artifact type id, e.g. arxmcp.bridge/retrieval-evidence.",
+          "type": "string",
+          "pattern": "^arxmcp\\.bridge/[a-z0-9][a-z0-9-]*$"
+        },
+        "version": {
+          "description": "MAJOR.MINOR of THAT artifact type (per-type, not repo-global).",
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"
+        },
+        "producer": {
+          "description": "Producing component, e.g. proof-verify-arxmcp-querier, arxmcp-server, exploration-scout.",
+          "type": "string",
+          "minLength": 1
+        },
+        "produced_at": {
+          "description": "RFC 3339 timestamp. The pattern is enforced (jsonschema format checking is annotation-only by default).",
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?(Z|[+-][0-9]{2}:[0-9]{2})$"
+        },
+        "substrate": {
+          "description": "The substrate pin. notebook/corpus_version/filter_echo are null ONLY for server-scoped artifacts (e.g. corpus-snapshot); notebook-scoped artifact types tighten these to non-null in their own schemas.",
+          "type": "object",
+          "required": [
+            "server",
+            "corpus_version",
+            "notebook",
+            "filter_echo",
+            "retrieval_mode",
+            "tool_schema_sha256"
+          ],
+          "properties": {
+            "server": {
+              "description": "Producing substrate server. Append-only enum within this MAJOR.",
+              "type": "string",
+              "enum": ["arxmcp"]
+            },
+            "corpus_version": {
+              "description": "The per-notebook LanceDB corpus-version marker value at production time; null only for server-scoped artifacts.",
+              "type": ["integer", "null"],
+              "minimum": 0
+            },
+            "notebook": {
+              "description": "Notebook scope (slug + arxmcp:// URI), or null for server-scoped artifacts.",
+              "anyOf": [
+                { "type": "null" },
+                { "$ref": "#/definitions/notebook_scope" }
+              ]
+            },
+            "filter_echo": {
+              "description": "The notebook filter the server AFFIRMED it honored (requires the filter-echo server fix, WS-A). Null when no notebook filter was in play.",
+              "type": ["object", "null"]
+            },
+            "retrieval_mode": {
+              "description": "D8 pin: dense_only is the sole live retrieval mode (hybrid modules exist but are unwired behind a CLOSED-NO verdict, finding 211 R-B). Any change to this enum is a versioned, deliberately-batched event recorded in CONTRACTS.md, never a side effect.",
+              "type": "string",
+              "enum": ["dense_only"]
+            },
+            "tool_schema_sha256": {
+              "description": "EXPECTED_TOOL_SCHEMA_SHA256 (the BP1 tools/list byte-stability pin) at call time.",
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            }
+          }
+        }
+      }
+    },
+    "payload": {
+      "description": "Artifact-type-specific payload; per-domain verdict vocabularies allowed (vocabularies do NOT unify across pipelines - SP2 evidence).",
+      "type": "object"
+    }
+  },
+  "definitions": {
+    "notebook_scope": {
+      "type": "object",
+      "required": ["slug", "uri"],
+      "properties": {
+        "slug": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9._-]*$"
+        },
+        "uri": {
+          "type": "string",
+          "pattern": "^arxmcp://notebooks/[a-z0-9][a-z0-9._-]*$"
+        }
+      }
+    },
+    "artifact_ref": {
+      "description": "A reference to another bridge artifact (used by run-ledger-entry and future composers).",
+      "type": "object",
+      "required": ["artifact"],
+      "properties": {
+        "artifact": {
+          "type": "string",
+          "pattern": "^arxmcp\\.bridge/[a-z0-9][a-z0-9-]*$"
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"
+        },
+        "path": { "type": "string" },
+        "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+      }
+    }
+  }
+}

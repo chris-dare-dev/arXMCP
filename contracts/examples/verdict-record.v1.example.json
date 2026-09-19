@@ -1,0 +1,35 @@
+{
+  "bridge": {
+    "artifact": "arxmcp.bridge/verdict-record",
+    "version": "1.0",
+    "producer": "lean-verify-wrapper",
+    "produced_at": "2026-07-04T00:00:00Z",
+    "substrate": {
+      "server": "arxmcp",
+      "corpus_version": 1690,
+      "notebook": {
+        "slug": "bridgeland-stability",
+        "uri": "arxmcp://notebooks/bridgeland-stability"
+      },
+      "filter_echo": null,
+      "retrieval_mode": "dense_only",
+      "tool_schema_sha256": "c7df4c5c10c86693ac8553b7d079b55fba21749881c233f0f298955379d13375"
+    }
+  },
+  "payload": {
+    "domain": "lean",
+    "verdict": "ok",
+    "statement_sha256": "0b0e5c9538e2f0b8cf477535f4e92d6cb31efcbcf65f34e4d1c1cbd6b8d874e2",
+    "statement": "theorem two_add_two : 2 + 2 = 4 := rfl",
+    "toolchain": {
+      "lean_toolchain": "leanprover/lean4:v4.30.0-rc2",
+      "mathlib_rev": null,
+      "repl_transcript_sha256": "3f0c2b1a4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f8"
+    },
+    "details": {
+      "mode": "full",
+      "sorries": 0,
+      "note": "Core-Lean statement; mathlib_rev is null because the spike REPL has no mathlib (the WS-D mathlib REPL milestone changes this)."
+    }
+  }
+}

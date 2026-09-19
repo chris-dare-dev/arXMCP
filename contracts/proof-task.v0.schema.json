@@ -1,0 +1,190 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "urn:arxmcp:bridge:proof-task:v0",
+  "title": "arxmcp.bridge/proof-task v0.3 (WS-D-authored content for the WS-C stub)",
+  "description": "Every proving run consumes exactly one ProofTask (AC-D.13). v0.2 authors the payload content for the v0.1 PLACEMENT STUB hosted on stage2/arx-c1 contracts/ (IF-5 custody split: WS-C hosts + versions, WS-D authors). The v0.1 pins are preserved unchanged: task_id + statement_latex required; known_truth is set ONLY for KAT/control tasks. New at v0.2: the field_lane enum is pinned (append-only within the MAJOR), target_verdict_floor is pinned to the D9 five-verdict taxonomy, budget/formal/skeptic_checks blocks are typed. New at v0.3 (additive, back-compatible 0.MINOR bump per CONTRACTS.md v0-stub rule): each skeptic_checks.lean[] / skeptic_checks.cas[] entry MAY carry an OPTIONAL `discharges` declaration naming which claim-derived proposition that witness/scan discharges (the round-3 refutation statement-linkage input). The verdict-award choke-point (server/proving/verdict_linkage.py) kernel-checks a witness's proved statement against `discharges.proposition` and requires `discharges.refutes_claim: true` before a confident `refuted` is earned. A MISSING declaration fails CLOSED (the confident `refuted` is capped/escalated, never opened), so 0.2 producers stay valid but their author-supplied refutations no longer earn a confident `refuted` without declaring linkage. Custody note: this file lives under server/proving/schemas/ ONLY until the Stage-2 integration step moves it into contracts/ per IF-5 (see server/proving/README.md). Still v0: do NOT build long-lived consumers against optional fields before 1.0.",
+  "x-bridge": {
+    "artifact": "arxmcp.bridge/proof-task",
+    "version": "0.3",
+    "status": "draft",
+    "content_owner": "WS-D"
+  },
+  "allOf": [
+    { "$ref": "urn:arxmcp:bridge:envelope:v1" },
+    {
+      "properties": {
+        "bridge": {
+          "properties": {
+            "artifact": { "const": "arxmcp.bridge/proof-task" }
+          }
+        },
+        "payload": {
+          "type": "object",
+          "required": ["task_id", "statement_latex"],
+          "properties": {
+            "task_id": {
+              "description": "Stable id, content-addressed from statement_latex + notebook (v0.1 pin).",
+              "type": "string",
+              "minLength": 1
+            },
+            "statement_latex": {
+              "description": "The claim exactly as it will appear in the article (v0.1 pin).",
+              "type": "string",
+              "minLength": 1
+            },
+            "statement_nl": {
+              "description": "Natural-language reading of the claim (the KAT fixture's statement_nl grain).",
+              "type": "string"
+            },
+            "statement_context": {
+              "description": "Open context block: definitions in force, standing hypotheses, source chunk/paper references. Deliberately open at v0 (the D-6 context-pack composer authors the closed shape).",
+              "type": "object"
+            },
+            "field_lane": {
+              "description": "Sets lane defaults (AC-D.14: math.NT formal-first; math.AG informal-checked ceiling; math-ph CAS/numerics-first). Enum pinned at v0.2; append-only within the MAJOR. 'general' is the no-metadata fallback.",
+              "type": "string",
+              "enum": ["math.NT", "math.AG", "math-ph", "hep-th", "general"]
+            },
+            "claim_type": {
+              "description": "Free string at v0. Documented values in use: theorem-statement, lemma, worked-example, identity, inequality.",
+              "type": "string"
+            },
+            "notebook": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9._-]*$"
+            },
+            "budget": {
+              "description": "Resource ceilings for the run. Budget exhaustion maps to `abstained` with best partial evidence attached, never to the highest verdict reached so far (AC-D.15).",
+              "type": "object",
+              "properties": {
+                "wall_clock_s": { "type": "number", "exclusiveMinimum": 0 },
+                "lean_queries": { "type": "integer", "minimum": 0 },
+                "cas_runs": { "type": "integer", "minimum": 0 },
+                "prover_cycles": { "type": "integer", "minimum": 0 }
+              }
+            },
+            "target_verdict_floor": {
+              "description": "The weakest verdict the caller considers useful. D9 five-verdict taxonomy (append-only within a MAJOR).",
+              "type": "string",
+              "enum": [
+                "proven-formal",
+                "proven-informal-checked",
+                "plausible-unverified",
+                "refuted",
+                "abstained"
+              ]
+            },
+            "known_truth": {
+              "description": "ONLY set for KAT/control tasks (null for real tasks; v0.1 pin).",
+              "type": ["boolean", "null"]
+            },
+            "kat_id": {
+              "description": "For KAT/control tasks: the entry id in tests/eval/fixtures/kat/kat_v1.json this task instantiates.",
+              "type": "string",
+              "minLength": 1
+            },
+            "formal": {
+              "description": "Optional candidate formalization seed. NOT trusted: the D-3 faithfulness gate (dual formalization + equivalence + blind back-translation) decides whether any formalization is faithful to statement_latex.",
+              "type": "object",
+              "required": ["statement_lean"],
+              "properties": {
+                "statement_lean": { "type": "string", "minLength": 1 },
+                "imports": {
+                  "type": "array",
+                  "items": { "type": "string", "minLength": 1 }
+                }
+              }
+            },
+            "skeptic_checks": {
+              "description": "Counterexample-first checks the D-5 skeptic lane runs BEFORE any prover cycle (AC-D.10). A hit terminates the run `refuted` without spending proof-search budget.",
+              "type": "object",
+              "properties": {
+                "lean": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": ["name", "kind", "snippet"],
+                    "properties": {
+                      "name": { "type": "string", "minLength": 1 },
+                      "kind": {
+                        "description": "'witness': the snippet PROVES a refutation witness (decide/norm_num class) — kernel-confirmed when accepted and soundness-clean. 'search': the snippet asserts the ORIGINAL claim under a falsification-search tactic (plausible; slim_check on older mathlib) — a counterexample message is a hit, NOT kernel-confirmed.",
+                        "type": "string",
+                        "enum": ["witness", "search"]
+                      },
+                      "snippet": {
+                        "description": "The Lean snippet. NAMED-DECLARATION CONTRACT (durable P1 soundness fix): a 'witness' whose statement must link to earn a confident `refuted` MUST declare a NAMED `theorem`/`lemma` (not an anonymous `example`), so the kernel type `#check @<name>` reports can be linked against `discharges.proposition`. An anonymous `example` yields no `kernel_statements` entry -> linkage fails closed -> the refutation is capped/escalated.",
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "imports": {
+                        "type": "array",
+                        "items": { "type": "string", "minLength": 1 }
+                      },
+                      "description": { "type": "string" },
+                      "discharges": {
+                        "description": "Refutation statement-linkage (v0.3, optional). Declares which claim-derived proposition this witness discharges. For a 'witness' kind, the verdict-award choke-point takes the KERNEL-REPORTED elaborated type of the witness's declaration from the lean_verify envelope's `kernel_statements` (via `#check @<name>` — durable P1 soundness fix; NEVER a re-scan of the author's snippet source) and requires it to string-match `proposition` (kernel-vs-declaration — the author's declared string is never trusted over the kernel result), AND requires `refutes_claim: true`. Requires the witness to be a NAMED theorem/lemma (see `snippet`). Absent this, a confident `refuted` is capped/escalated (fail closed). Ignored for 'search' kind (linked by construction — the snippet asserts the ORIGINAL claim).",
+                        "type": "object",
+                        "required": ["proposition", "refutes_claim"],
+                        "properties": {
+                          "proposition": {
+                            "description": "The Lean proposition this witness proves, string-matched against the witness declaration's KERNEL-REPORTED elaborated type (`#check @<name>`). MUST be written in the KERNEL's pretty-printed form (e.g. no space after `¬`, inferred binder types elided, `Real.sqrt`→`√`) — it is compared against the elaborated type, not the author's source. A mismatch (including a formatting mismatch) fails the linkage CLOSED, which is safe (denies, never falsely accepts).",
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "refutes_claim": {
+                            "description": "Attestation that `proposition` is a refutation obligation for THIS claim (the recorded, auditable obligation link — mirrors the faithfulness gate's attestation grain; the semantic entailment is human/escalation-backstopped, not machine-proved pre-formalization).",
+                            "type": "boolean"
+                          },
+                          "justification": {
+                            "description": "Optional prose: why `proposition` entails the negation of the claim.",
+                            "type": "string"
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                "cas": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": ["name", "code"],
+                    "properties": {
+                      "name": { "type": "string", "minLength": 1 },
+                      "engine": {
+                        "description": "Append-only enum within the MAJOR. v0 ships the sandboxed SymPy subprocess runner only.",
+                        "type": "string",
+                        "enum": ["sympy"]
+                      },
+                      "code": {
+                        "description": "Python source defining find_counterexample(**params) -> JSON-serializable witness | None. Executed ONLY inside the sandboxed subprocess runner (server/proving/sympy_runner.py), gated by ARXMCP_ENABLE_SKEPTIC_CAS (default OFF).",
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "params": {
+                        "description": "Structured seeds/ranges passed as keyword arguments (AC-D.11: seeds + ranges are recorded data, so results replay).",
+                        "type": "object"
+                      },
+                      "timeout_s": { "type": "number", "exclusiveMinimum": 0 },
+                      "description": { "type": "string" },
+                      "discharges": {
+                        "description": "Round-3 refutation statement-linkage (v0.3, optional). Same shape as the lean-witness `discharges`. A CAS hit is evaluation-checked (no kernel statement), so the choke-point rests on this recorded declaration (`refutes_claim: true` + `proposition`); a CAS hit with no declaration is capped/escalated (fail closed).",
+                        "type": "object",
+                        "required": ["proposition", "refutes_claim"],
+                        "properties": {
+                          "proposition": { "type": "string", "minLength": 1 },
+                          "refutes_claim": { "type": "boolean" },
+                          "justification": { "type": "string" }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

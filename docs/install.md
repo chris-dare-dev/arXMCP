@@ -321,6 +321,66 @@ Resources.startup: warm
 /readyz`) prints a readable error to stderr if the server is not
 ready, so a misordered start surfaces clearly rather than hanging.
 
+### Optional — enable `lean_verify` (mathlib-built Lean REPL)
+
+`lean_verify` is registered on every server but returns
+`lean_status: "disabled"` unless the Lean lane is switched on. Lean is
+a *system* dependency (like `latexml`), not a pip dep. Enabling it
+requires three env vars and a built
+[`leanprover-community/repl`](https://github.com/leanprover-community/repl)
+environment:
+
+```sh
+ARXMCP_ENABLE_LEAN=true
+ARXMCP_LAKE_PATH=<absolute path to lake / lake.exe>       # e.g. ~/.elan/bin/lake
+ARXMCP_LEAN_REPL_DIR=<Lake package dir to run the REPL in>
+```
+
+`ARXMCP_LEAN_REPL_DIR` is the directory the server runs `lake exe repl`
+in — `lake` resolves `LEAN_PATH` for exactly that package's workspace.
+Point it at a **mathlib-enabled** workspace or `import Mathlib.*`
+snippets will fail to elaborate: a bare `repl` checkout (zero package
+deps) verifies core-Lean arithmetic/logic only.
+
+To build a mathlib-enabled REPL environment, create a Lake package that
+requires **both** mathlib and the REPL, with all three pins on the same
+toolchain (matched pair; mathlib tags track Lean releases):
+
+```toml
+# <env>/project/lakefile.toml     (lean-toolchain: leanprover/lean4:v4.30.0-rc2)
+name = "arxmcpMathlibRepl"
+
+[[require]]
+name = "mathlib"
+git = "https://github.com/leanprover-community/mathlib4"
+rev = "v4.30.0-rc2"
+
+[[require]]
+name = "REPL"
+path = "../repl"        # a leanprover-community/repl checkout on the SAME toolchain
+```
+
+```sh
+cd <env>/project
+lake update             # clones mathlib + deps; mathlib's post-update hook
+                        # fetches the prebuilt olean cache (`lake exe cache get`
+                        # re-runs it idempotently)
+lake build repl         # builds the REPL executable into the workspace
+ARXMCP_LEAN_REPL_DIR=$PWD
+```
+
+Keep the environment **outside** this repo (it is multi-GB and
+machine-local). Sizing/latency measured on the reference Windows
+workstation (Ryzen 7800X3D / 32 GB): setup ≈ 4 min end-to-end
+(download-bound); a REPL with a single `import Mathlib.*` module loads
+in 5–14 s warm, but a COLD OS file cache can push larger import towers
+(e.g. the Analysis chain) past `lean_verify`'s 30 s per-query timeout —
+pre-warm the environment (one throwaway import) before relying on it;
+a full `import Mathlib` takes 16–34 s and holds ≈ 3.1 GiB RSS — budget
+2–3 concurrent REPLs on a 32 GB box. Build recipe, measured numbers,
+and the Windows sandbox decision live in
+`.claude/docs/lean-mathlib-toolchain.md`.
+
 ## 4. Verify the shim end-to-end
 
 ```sh
