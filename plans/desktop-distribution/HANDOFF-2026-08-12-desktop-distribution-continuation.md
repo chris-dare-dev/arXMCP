@@ -1,16 +1,9 @@
 ---
-project: desktop-distribution
-type: handoff
-status: complete
-authorship: agent-generated
 handoff_kind: continuation
 date: 2026-08-12
 roadmap: plans/desktop-distribution-roadmap.md
 resume_target: opus
 tags:
-  - project/desktop-distribution
-  - type/handoff
-  - authorship/agent-generated
   - handoff/continuation
 aliases:
   - "desktop-distribution — continuation handoff (2026-08-12)"
