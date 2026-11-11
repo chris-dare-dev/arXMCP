@@ -137,7 +137,10 @@ Returns `status` (`elaborated_no_errors` / `error` / `sorry` / `incomplete` /
 `goals_remaining`, `sorry_goals`, `axiom_audit`, `env`, `proof_state_id`,
 `continuation_status`. **Gated by `ARXMCP_ENABLE_LEAN`** — when disabled returns
 `lean_status='disabled'` instead of a 5xx. A 30 s elaboration timeout kills
-and respawns the REPL before the next call.
+and respawns the REPL before the next call. A REPL that dies during a call
+returns `status='unavailable'` with `lean_status='crashed'` and is restarted;
+if it cannot be restarted, calls return `lean_status='unavailable'` until a
+restart succeeds. Neither is a verdict on the snippet.
 
 That shape is also advertised as the tool's `outputSchema` in `tools/list`, so
 a client does not have to read this table to know it — it is
