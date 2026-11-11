@@ -1207,7 +1207,7 @@ Note: `.claude/notes/09-feature-priorities.md` is **SUPERSEDED** by
 
 ## 12. The user
 
-- The primary user is `chris.dare@nalej.com`. See [`OWNERS.md`](OWNERS.md).
+- The primary user is Chris Dare (`cedare96@gmail.com`). See [`OWNERS.md`](OWNERS.md).
 - They invoke milestones with `/milestone-pipeline E<NN>_S<MM>`.
 - They expect **autonomous execution** (auto-mode) and **minimal
   interruption** — make reasonable assumptions and proceed.

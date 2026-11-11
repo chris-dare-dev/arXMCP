@@ -72,7 +72,7 @@ goal:
     - "SECURITY.md:59-63 — issue #9, tracked at chris-dare-dev/arXMCP#9, console not yet security-audited"
     - "server/routes/ui.py:556-559 — verified live: the POSIX-only startswith(... + '/') path-containment check breaks on Windows path separators"
     - "tests/eval/fixtures/queries.json — verified live: 0 queries today (schema_version/chunker_version/created_at/queries keys only)"
-    - "CLAUDE.md sections 2, 7, and 12 — console description, get_paper's shipped-but-unwired-to-display metadata store, and the single named user (chris.dare@nalej.com)"
+    - "CLAUDE.md sections 2, 7, and 12 — console description, get_paper's shipped-but-unwired-to-display metadata store, and the single named user (Chris Dare)"
 generated_by: { agent: claude-sonnet-5, at: "2026-07-07" }
 generations:
   - { rev: 1, at: "2026-07-07" }

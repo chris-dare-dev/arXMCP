@@ -215,7 +215,7 @@ _None — no file:line region was flagged by ≥ 2 critics._
 - **Proposed fix:** none required for ship; surface the choice for Chris's
   confirmation. Alternatives: "ar" (clearest at 16×16 but loses the X
   hook), "arX" (3 chars fits but compressed), or a plain abstract glyph
-  (no-text path). Defer to chris.dare@nalej.com.
+  (no-text path). Defer to Chris Dare.
 - **Regression guard:** N/A.
 
 ## What was done well

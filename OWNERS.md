@@ -4,7 +4,7 @@ This is a single-user research project. There is one owner.
 
 ## Primary owner
 
-**Chris Dare** — `chris.dare@nalej.com`
+**Chris Dare** — `cedare96@gmail.com`
 
 The owner is the sole maintainer, code reviewer, security contact, and
 release manager. All design decisions, milestone schedules, and merges to
@@ -27,7 +27,7 @@ release manager. All design decisions, milestone schedules, and merges to
 
 ## Contact
 
-- **General contact / questions:** `chris.dare@nalej.com`
+- **General contact / questions:** `cedare96@gmail.com`
 - **Security reports:** see [`SECURITY.md`](SECURITY.md). Same email; do
   not file public GitHub issues for unfixed vulnerabilities.
 
