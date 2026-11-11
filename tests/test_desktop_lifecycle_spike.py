@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import importlib.util
-import json
 import subprocess
 from pathlib import Path
 
@@ -9,16 +8,6 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 SPIKE = ROOT / "tools" / "desktop_lifecycle_spike"
-RESULTS = (
-    ROOT
-    / ".claude"
-    / "notes"
-    / "milestones"
-    / "desktop-distribution-spike-3"
-    / "implement"
-    / "lifecycle-results.json"
-)
-ADR = ROOT / ".claude" / "notes" / "spikes" / "desktop-distribution-spike-3.md"
 
 
 def _load_harness():
@@ -132,56 +121,3 @@ def test_provenance_validator_rejects_stale_or_substitute_inputs() -> None:
         harness._validate_provenance({**host, "source_sha256": "b" * 64}, fixture, digest)
     with pytest.raises(RuntimeError, match="identity mismatch"):
         harness._validate_provenance({**host, "role": "shell-script"}, fixture, digest)
-
-
-def test_committed_lifecycle_evidence_is_go() -> None:
-    payload = json.loads(RESULTS.read_text(encoding="utf-8"))
-    assert payload["decision"] == "GO"
-    assert payload["artifacts"]["host_is_tauri_binary"] is True
-    harness = _load_harness()
-    assert payload["artifacts"]["source_sha256"] == harness._tracked_source_digest()
-    assert payload["artifacts"]["build_provenance"]["host"]["role"] == "tauri-host"
-    assert (
-        payload["artifacts"]["build_provenance"]["fixture"]["role"]
-        == "fixture-sidecar"
-    )
-    assert len(payload["fault_matrix"]) == 11
-    assert all(item["ok"] for item in payload["fault_matrix"])
-    cycle_gate = payload["thirty_cycle_gate"]
-    assert cycle_gate["completed"] == 30
-    assert cycle_gate["all_passed"] is True
-    assert len(cycle_gate["cycles"]) == 30
-    assert payload["totals"] == {
-        "orphan_process_groups": 0,
-        "residual_listeners": 0,
-        "secret_scan_failures": 0,
-    }
-    cases = {item["scenario"]: item for item in payload["fault_matrix"]}
-    startup = cases["startup-timeout"]
-    assert startup["post_run_audit"]["identity_source"] == "sidecar_spawned"
-    assert startup["post_run_audit"]["audit_complete"] is True
-    assert "direct_sigterm" in startup["events"]
-    duplicate = cases["duplicate"]
-    assert duplicate["duplicate_launch"]["startup_overlap"] is True
-    assert duplicate["events"].count("duplicate_activation") <= 1
-    assert (
-        duplicate["duplicate_arbitration"]["activations"] == 1
-        or duplicate["duplicate_arbitration"]["supervisor_lock_contention"] is True
-    )
-    for scenario in ("crash-before-bound", "crash-after-ready"):
-        result = cases[scenario]
-        assert result["post_run_audit"]["metadata_present"] is True
-        assert "crash_group_sigterm" in result["events"]
-        assert "crash_group_clean" in result["events"]
-    assert all(item["event_trace_valid"] for item in payload["fault_matrix"])
-    assert all(
-        item["event_trace_valid"] for item in payload["thirty_cycle_gate"]["cycles"]
-    )
-    assert ADR.is_file()
-
-
-@pytest.mark.parametrize("case", ["wildcard-v4", "wildcard-v6", "malformed-bound"])
-def test_invalid_bound_cases_record_rejection(case: str) -> None:
-    payload = json.loads(RESULTS.read_text(encoding="utf-8"))
-    result = next(item for item in payload["fault_matrix"] if item["scenario"] == case)
-    assert "invalid_bound_rejected" in result["events"]

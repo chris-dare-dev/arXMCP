@@ -11,6 +11,8 @@ landing.
 - **Open an issue first** for anything non-trivial. The maintainer steers a
   roadmap ([`.claude/roadmap/README.md`](.claude/roadmap/README.md)); a quick
   discussion avoids work that collides with it.
+- **Read [CREDO.md](CREDO.md)** — one page on what this repository holds and
+  what it refuses. It overrides every other file here.
 - **Read [CLAUDE.md](CLAUDE.md)** — it is the working constitution
   (conventions, gotchas, directory layout). It overrides convention when the
   two differ.
@@ -54,14 +56,21 @@ These are enforced by tests and review — see [CLAUDE.md §4.7](CLAUDE.md):
 
 ## Documentation placement
 
-The repo enforces a strict doc-placement rule (see [CLAUDE.md §1](CLAUDE.md)):
+Markdown in the tree is limited to the allow-list in
+[CREDO.md](CREDO.md), and the `credo` CI job fails a pull request that adds
+or edits any other:
 
-- **Repo root:** only `README.md`, `CLAUDE.md`, `CHANGES.md`, `SECURITY.md`,
-  `OWNERS.md`, `LICENSE`, `CONTRIBUTING.md`, `CONTRIBUTORS.md`.
-- **`docs/`:** user/operator-facing documentation linked from the README.
-- **`.claude/`:** all agent-internal docs (design notes, roadmap,
-  milestones, engineering references).
-- **Other subdirs:** only a navigational `README.md` / `CLAUDE.md`.
+- **Repo root:** only `README.md`, `AGENTS.md`, `CLAUDE.md`, `CREDO.md`,
+  `CHANGES.md`, `SECURITY.md`, `OWNERS.md`, `LICENSE`, `CONTRIBUTING.md`,
+  `CONTRIBUTORS.md`.
+- **Elsewhere:** a navigational `README.md` in a product or test directory,
+  `.github/pull_request_template.md` and `server/frontend/static/VENDORED.md`.
+- **Wiki:** guides, runbooks, API reference, architecture, design notes and
+  rules agents follow.
+- **Issue or pull request:** plans, research, critiques and handoffs.
+
+Markdown already under `docs/`, `.claude/` and `plans/` is frozen while it
+moves to the wiki: a pull request may delete it, never edit it.
 
 ## Commit & PR conventions
 

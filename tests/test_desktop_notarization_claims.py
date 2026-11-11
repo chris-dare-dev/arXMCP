@@ -26,8 +26,8 @@ m9's compatibility scanner reads root `*.md`, `docs/**`, `apps/**.md` and
 `apps/desktop/crates/**/*.rs` — and deliberately NOT `.claude/`. That scope is
 wrong for this claim: the single most likely place to write "the bundle is
 notarization-ready" is the ADR that decides the bundle layout, which lives in
-`.claude/docs/`. So this scan ADDS `.claude/docs/**.md`, this milestone's own
-notes, `plans/**.md` (where the acceptance criteria are written) and
+`.claude/docs/`. So this scan ADDS `.claude/docs/**.md`, `plans/**.md` (where
+the acceptance criteria are written) and
 `apps/desktop/pyinstaller/**.py` (where the signing code and its docstrings
 live) on top of m9's set. Widening m9's own scan instead was rejected: its
 corpus and its calibration are about a different claim, and merging them would
@@ -162,21 +162,7 @@ def scanned_files() -> list[Path]:
     paths.extend((REPO_ROOT / "apps" / "desktop" / "pyinstaller").rglob("*.py"))
     paths.extend((REPO_ROOT / "plans").rglob("*.md"))
     paths.extend((REPO_ROOT / ".claude" / "docs").rglob("*.md"))
-    paths.extend(
-        (REPO_ROOT / ".claude" / "notes" / "milestones" / "desktop-distribution-m15").rglob(
-            "*.md"
-        )
-    )
-    # Critique artifacts are EXCLUDED, and only critique artifacts. An
-    # adversarial critic must be able to write "the pre-fix gate returned MISS
-    # for 'the artifact is ready for notarization'" — quoting a forbidden
-    # phrasing is how a bypass gets reported at all, and gating that would
-    # make the finding unwriteable. They are analysis of the project, not
-    # claims by it, and nothing ships from them. research/, implement/ and
-    # rectify/ stay in scope: those DO speak for the project.
-    return sorted(
-        {p for p in paths if p.is_file() and p.parent.name != "critique"}
-    )
+    return sorted({p for p in paths if p.is_file()})
 
 
 #: Sentences that MUST be flagged.
