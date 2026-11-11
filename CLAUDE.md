@@ -5,6 +5,10 @@ captures the project's mission, current state, working conventions, and the
 landmines learned across E01–E09. **If you're a new agent picking up this
 codebase, read this top-to-bottom before touching code.**
 
+[`CREDO.md`](CREDO.md) states what this repository holds and what it refuses.
+Where this file disagrees with it, the Credo wins. Its "Not yet met" list names
+the rules that are not in force yet; for those, this file still applies.
+
 ## Distribution machine ownership (2026-08-08)
 
 - The Windows machine owned by Chris is the build and execution authority for
@@ -20,28 +24,28 @@ codebase, read this top-to-bottom before touching code.**
 
 ## 1. Repo doc layout (READ FIRST)
 
-This repo enforces a strict doc-placement rule:
+The Markdown allow-list is in [`CREDO.md`](CREDO.md) under "In this
+repository", and the `credo` CI job enforces it:
 
 | Location | What's allowed |
 |---|---|
-| **Repo root** | Only `README.md`, `CLAUDE.md`, `CHANGES.md`, `SECURITY.md`, `OWNERS.md`, `LICENSE`, `CONTRIBUTING.md`, `CONTRIBUTORS.md`. Nothing else. (The last three are the standard community-health files, added 2026-05-31.) |
-| **Subdirs other than `.claude/`** | Only `README.md` and `CLAUDE.md` (if useful for that subdir). No other Markdown. |
-| **`docs/`** | ONLY user-facing documentation referenced by the root `README.md` — the README's "chapters": `install.md`, `usage.md`, `api.md`, `architecture.md`, `evaluation.md`, `support.md`, `releasing.md`, plus the `docs/ops/` and `docs/observability/` runbook trees. |
-| **`.claude/`** | All other Markdown agents create — design notes, roadmap, milestones, agent-internal references, scans, gate specs. Free real estate; organize as `.claude/notes/`, `.claude/docs/`, `.claude/roadmap/`, etc. |
+| **Repo root** | Only `README.md`, `AGENTS.md` (gitignored), `CLAUDE.md`, `CREDO.md`, `CHANGES.md`, `SECURITY.md`, `OWNERS.md`, `LICENSE`, `CONTRIBUTING.md`, `CONTRIBUTORS.md`. |
+| **Product and test dirs** | A navigational `README.md`, plus `server/frontend/static/VENDORED.md`. |
+| **`.github/`** | `pull_request_template.md`. |
+| **`docs/`, `.claude/`, `plans/`** | No new or edited Markdown. What is there is frozen: it may be deleted, never edited. |
+| **Wiki** | Install, usage and API guides, architecture, runbooks, design notes, decision records, rules agents follow, roadmap, spike write-ups. |
+| **Issue or pull request** | Plans, research, critiques, scans, handoffs. |
 
 **Concrete consequences:**
 
 - The root `README.md` is restricted to **what the project does, how to
   use it, its layout, hard constraints**. NOT a place to link the
   roadmap, list epics, or describe outstanding work.
-- Anything roadmap-flavored or work-tracking goes under `.claude/`.
-- Agent-internal documents (model policy, orchestrator rules, snippet
-  contracts, proof-chain workflow, tier gates) live under
-  `.claude/docs/` — they used to be in `docs/` but moved during the
-  2026-05-10 doc consolidation.
-
-When you create a new Markdown file, default to `.claude/` unless the
-content is BOTH operator-facing AND linked from the root README.
+- A code change never carries an edit to a guide, runbook or rule file. If
+  one is now wrong, say so in the pull request; the wiki is updated apart.
+- Pipeline output under `.claude/notes/{milestones,capability-scouts,frontend-uplifts}/`
+  and agent memory under `.claude/agent-memory/` are written there but are
+  gitignored: they stay on the machine that ran the pipeline.
 
 ---
 
@@ -150,9 +154,8 @@ The Windows-platform failures this box used to show (≈56, up from the stale
 **2026-07-12 win32-portability push**: **30 FIXED**, **18 GUARDED**, and
 **8 RESOLVED** (the kuzu re-open tests — see below). FIXED = test-only portability bugs (path-separator assertions normalized via `.as_posix()` / `replace("\\","/")`, missing `encoding="utf-8"` on `.tex`/`.py`/JSON reads, a `newline=""` staging write so the byte-`source_hash` is stable, a `repr()` fix for a Windows path embedded in a `python -c` string, a deterministic fake clock for a coarse-`time.monotonic()` budget test, colon-free eval-report fixture filenames) **plus one real bug in `server/routes/ui.py`** (the preview path-containment check used a hard-coded `/` separator and 404'd every valid path on Windows — replaced with `Path.is_relative_to`). GUARDED = `sys.platform == "win32"`-scoped `skipif` where the OS capability is genuinely absent: symlink creation (9), POSIX bash-script subprocess (5), `os.replace`-under-concurrency (1), control-char filename (1); plus 2 data-precondition skips (local curated notebooks mid-curation — a data state, NOT a portability issue). Every win32 skip still RUNS on macOS/Linux, preserving the §4.1 POSIX authority. RESOLVED = the 8 kuzu 0.11.3 mandatory-lock DB re-open tests, unguarded on 2026-07-12 by moving the production ingest lifecycle off `del db` to explicit `conn.close(); db.close()` (connection before database, nested so `db.close()` always runs) in milestone `adhoc-20260712-955c958`; they now run and pass on Windows. Residual `del db` sites remain at `server/graph_queries.py::cite_neighbors`, `ingest/intra_paper_refs.py::ingest`, and `ops/restore_drill_check.py` (tracked fast-follow — the identical Windows lock bug on those paths).
 
-For per-milestone ground truth, see
-[`.claude/notes/milestones/<EXX_SYY>/state.json`](.claude/notes/milestones/).
-Files with `phase: complete` are shipped. The authoritative roadmap index is
+Milestone completion is recorded in the progress journal,
+`plans/<slug>/progress/agent.jsonl`. The authoritative roadmap index is
 [`.claude/roadmap/README.md`](.claude/roadmap/README.md).
 
 ---
@@ -173,6 +176,9 @@ Files with `phase: complete` are shipped. The authoritative roadmap index is
   path-filtered to that surface and installs three packages, not the corpus
   stack — see the header comment for why it deliberately does not run
   `make test`.
+- **`.github/workflows/credo.yml`** runs on every pull request and push to
+  `main`. It fails a change that adds or edits Markdown outside the §1
+  allow-list, reads only git metadata, and runs no tests.
 - **Worktrees are fine** (e.g. for parallel milestone-pipeline researchers)
   but the final commits land on `main`.
 
@@ -200,7 +206,10 @@ The state machine lives at
 `.claude/notes/milestones/<ID>/state.json` and is strict-forward-only
 through `init → research-running → research-complete → implement-running →
 implement-complete → critique-running → critique-complete → rectify-running
-→ complete`.
+→ complete`. That directory is gitignored: state, briefs, critiques and
+summaries stay on the machine that ran the milestone and are never committed.
+A milestone is resumed on the machine that started it. To hand it to another
+machine, put what the next session needs in the milestone's issue.
 
 Trivial edits (one-liners, formatting fixes) can skip the command — but if a
 change touches more than ~3 files or adds new tests, run the pipeline.
@@ -211,12 +220,13 @@ change touches more than ~3 files or adds new tests, run the pipeline.
   Types in this repo: `feat`, `rect`, `chore`, `docs`. Scopes match
   subsystems: `server`, `ingest`, `shim`, `infra`, `tests`, `skill`, `notes`,
   `repo`.
-- **Three-commit-per-milestone pattern.** Every milestone produces:
+- **Two commits per milestone.** Every milestone produces:
   1. `feat(<scope>): <topic> (E<NN>_S<MM>)` — the implementation commit
   2. `rect(<scope>): close <N> <severity> from E<NN>_S<MM> critique` —
      adversary findings closed via the rectifier protocol
-  3. `chore(notes): finalize E<NN>_S<MM> state -> complete` — state.json
-     bookkeeping
+
+  There is no `chore(notes)` commit: pipeline state is gitignored, and
+  completion is the progress-journal append the pipeline makes in Phase 4c.
 - **GPG signing is enabled** (`commit.gpgsign=true`). **Never**
   `--no-gpg-sign`.
 - **No co-author or attribution trailers. Ever.** (Pinned by
@@ -452,14 +462,15 @@ Run `make wheel-check` (~10 s) after touching `pyproject.toml`, and
 ### 4.6 Doc placement (re-stated; this is load-bearing)
 
 - **Never put a Markdown file in `server/`, `ingest/`, `tests/`, `tools/`,
-  `shim/`, `docker/`, or `infra/`** unless it's a navigational
-  `README.md` / `CLAUDE.md` for that subdir.
-- **All new agent-internal documents go under `.claude/`** — typically
-  `.claude/docs/` (per-feature references), `.claude/notes/` (design
-  constitution), or `.claude/notes/milestones/<ID>/` (per-milestone
-  research / critique / implementation summary).
-- **Don't bring back `ROADMAP.md` at the root** — the authoritative
-  roadmap is `.claude/roadmap/README.md`.
+  `shim/`, `docker/`, or `infra/`** unless it's a navigational `README.md`
+  for that subdir.
+- **Never add or edit Markdown under `docs/`, `.claude/` or `plans/`.**
+  Guides, runbooks and rules go in the wiki; plans, research, critiques and
+  summaries go in the issue or pull request (`CREDO.md` §1). Pipeline output
+  (`.claude/notes/milestones/`, `capability-scouts/`, `frontend-uplifts/`)
+  and `.claude/agent-memory/` are gitignored; never force-add them.
+- **Don't bring back `ROADMAP.md` at the root.** The roadmap belongs in the
+  wiki; until it moves, `.claude/roadmap/README.md` is read-only.
 
 ### 4.7 Coding conventions
 
@@ -733,6 +744,7 @@ caveat that matters more than the row does:
 arXMCP/
 ├── README.md                user-facing landing page (project / how-to-use / layout)
 ├── CLAUDE.md                this file
+├── CREDO.md                 what the tree holds and refuses; overrides this file
 ├── CHANGES.md               changelog (epic-grain)
 ├── SECURITY.md              security reporting + threat-model pointer
 ├── OWNERS.md                ownership / contact
@@ -743,7 +755,7 @@ arXMCP/
 │   └── Dockerfile.server    multi-stage; non-root user; tini; HEALTHCHECK on /readyz
 ├── infra/
 │   └── README.md            placeholder for docker-compose (E14)
-├── docs/                    operator-facing ONLY
+├── docs/                    frozen; moving to the wiki
 │   └── install.md           operator setup + Claude Code MCP registration
 ├── server/                  long-running MCP server (FastAPI + Streamable HTTP)
 │   ├── main.py              FastAPI app factory + lifespan
@@ -817,9 +829,9 @@ arXMCP/
 │   └── fixtures/            chunker + preamble golden fixtures
 ├── var/                     gitignored data tree (created by `make bootstrap`)
 │   └── arxmcp/              corpus/, index/, cache/, ops/
-└── .claude/                 ALL agent-internal docs live here
+└── .claude/                 agent harness; its Markdown is frozen
     ├── TIER-GATES.md        machine-checkable tier-promotion gates
-    ├── docs/                per-feature internal references (moved from docs/ 2026-05-10)
+    ├── docs/                frozen rule references; moving to the wiki
     │   ├── chunker-fixtures.md
     │   ├── eval-curation.md
     │   ├── model-policy.md
@@ -833,7 +845,7 @@ arXMCP/
     │   ├── prompts-bp-discipline.md   E08_S02 prompt-cache breakpoint doc
     │   ├── HANDOFF.md        in-session handoff snapshot
     │   ├── scans/            repo-wide research scans (history)
-    │   └── milestones/       per-milestone state.json + research/critique artifacts
+    │   └── milestones/       per-milestone pipeline output (gitignored, machine-local)
     ├── roadmap/             14 per-epic plans (E01–E14) + authoritative index
     │   ├── README.md         authoritative epic index (NOT the root)
     │   └── E<NN>-*.md        per-epic specs
@@ -855,7 +867,7 @@ arXMCP/
     ├── scripts/             flat scripts
     │   ├── milestone-pipeline-*.{py,sh} + roadmap-*.py + sync-repos.py  (synced)
     │   └── capability-scout/ + frontend-uplift/                  (repo-local pipelines)
-    ├── agent-memory/        per-agent project-scope memory (auto-injected by harness)
+    ├── agent-memory/        per-agent project-scope memory (gitignored, machine-local)
     │   └── milestone-*/      MEMORY.md per bespoke sub-agent
     └── .registry-manifest.json  hashes of claude-registry-synced files (never edit synced copies)
 ```
@@ -1110,7 +1122,7 @@ drives Phase-2 implementation inline or via the `milestone-implementer`
 agent, Phase-3 critique via parallel critic agents
 (`milestone-adversary-critic` always, plus overlays and the opt-in
 `milestone-oss-scout`), and Phase-4 rectification in the main session.
-Emits a `feat(...)` + `rect(...)` + `chore(...)` commit triple.
+Emits a `feat(...)` + `rect(...)` commit pair.
 
 ### Check status of an in-flight milestone
 
@@ -1150,8 +1162,9 @@ Health: `curl http://127.0.0.1:7733/healthz` (always 200),
    stay byte-stable for BP1 prompt-cache discipline. Use
    `pytest --update-tool-schema-hash` to regenerate.
 5. Add tests under `tests/test_handlers_<tool>.py`.
-6. Update [`.claude/docs/snippet-contract.md`](.claude/docs/snippet-contract.md)
-   if the new tool returns a result row with snippet semantics.
+6. If the new tool returns a result row with snippet semantics, it meets
+   the contract in [`.claude/docs/snippet-contract.md`](.claude/docs/snippet-contract.md).
+   That file is frozen; a contract change is stated in the pull request.
 
 ---
 
@@ -1174,7 +1187,8 @@ Health: `curl http://127.0.0.1:7733/healthz` (always 200),
 The `.claude/notes/` files are the **why** (architectural rationale);
 `.claude/roadmap/` files are the **how** (epic-level plans);
 `.claude/docs/` files are per-feature internal references. When a design
-question arises, quote the note by filename — don't paraphrase.
+question arises, quote the note by filename — don't paraphrase. All three
+are frozen and moving to the wiki: read them, never edit or add to them.
 
 - [`.claude/notes/README.md`](.claude/notes/README.md) — reading order
 - [`.claude/notes/01-mission-and-context.md`](.claude/notes/01-mission-and-context.md) — Why arXMCP exists
