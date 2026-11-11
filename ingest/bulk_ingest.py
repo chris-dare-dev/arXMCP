@@ -65,7 +65,12 @@ from ingest.ar5iv_fetch import (
 from ingest.chunker import STRUCTURE_SIGNAL_CLASSES, chunk_paper
 from ingest.embedder import embed_paper
 from ingest.identifiers import is_valid_arxiv_paper_id
-from ingest.store import DEFAULT_LANCEDB_PATH, load_embed_record, write_chunks
+from ingest.store import (
+    DEFAULT_LANCEDB_PATH,
+    WapGateError,
+    load_embed_record,
+    write_chunks,
+)
 from server.application_paths import ApplicationPaths
 
 logger = logging.getLogger(__name__)
@@ -292,7 +297,11 @@ def ingest_one_paper(
 
     Returns a :class:`PaperOutcome` regardless of success or
     failure. The caller (the bulk loop) decides what to do with
-    failed outcomes (log to parser-failures, continue).
+    failed outcomes (log to parser-failures, continue). An exception
+    from any stage becomes ``failure_reason="raised:<type>: <message>"``
+    so one bad paper cannot end a run; only :class:`WapGateError`
+    propagates, because a marker that disagrees with the table breaks
+    every later write too.
     """
     if not is_valid_arxiv_paper_id(paper_id):
         raise ValueError(
@@ -355,6 +364,11 @@ def ingest_one_paper(
             "wrote %d chunks for %s at staging version %d",
             outcome.chunks_written, paper_id, version,
         )
+    except WapGateError:
+        raise
+    except Exception as exc:  # noqa: BLE001 — per-paper isolation
+        logger.exception("ingest failed for %s; recording it and continuing", paper_id)
+        outcome.failure_reason = f"raised:{type(exc).__name__}: {exc}"
     finally:
         outcome.elapsed_seconds = time.monotonic() - start
 

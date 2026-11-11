@@ -449,6 +449,77 @@ class TestEmbedderFailureSurfaces:
         write_mock.assert_not_called()
 
 
+class TestPerPaperIsolation:
+    """A paper whose pipeline raises is recorded as failed and the run
+    goes on; only a WAP-gate failure, which is table-wide, stops it."""
+
+    def _run(self, tmp_path, write_side_effect):
+        from contextlib import ExitStack
+
+        from ingest.ar5iv_fetch import Ar5ivResult
+        from ingest.embedder import EmbedStats
+
+        ids = ["2401.00001", "2401.00002", "2401.00003"]
+        parsed_dir = tmp_path / "parsed"
+        for pid in ids:
+            (parsed_dir / pid).mkdir(parents=True)
+            (parsed_dir / pid / "index.html").write_text("<html/>")
+
+        def _hit(paper_id, *a, **kw):
+            html = parsed_dir / paper_id / "index.html"
+            return Ar5ivResult(
+                paper_id=paper_id, hit=True, cache_path=html,
+                parsed_path=html, reason="ok_local_cache",
+            )
+
+        with ExitStack() as stack:
+            for target, kwargs in [
+                ("try_cache", {"side_effect": _hit}),
+                ("chunk_paper", {"return_value": [object()]}),
+                ("embed_paper", {"side_effect": lambda pid: EmbedStats(
+                    paper_id=pid, chunks_processed=1, chunks_skipped=0,
+                    truncated_count=0, elapsed_s=0.0,
+                )}),
+                ("load_embed_record", {"return_value": object()}),
+                ("write_chunks", {"side_effect": write_side_effect}),
+            ]:
+                stack.enter_context(patch(f"ingest.bulk_ingest.{target}", **kwargs))
+            return run_bulk_ingest(
+                ids,
+                lancedb_staging_path=tmp_path / "staging",
+                parsed_dir=parsed_dir,
+                failures_path=tmp_path / "failures.jsonl",
+                log_path=tmp_path / "ingestion.log",
+                ops_dir=tmp_path / "ops",
+            )
+
+    def test_a_raising_paper_is_recorded_and_the_run_continues(self, tmp_path):
+        def _write(chunks, record, *, lancedb_path):
+            if _write.calls == 1:
+                _write.calls += 1
+                raise ValueError("chunk/vector misalignment")
+            _write.calls += 1
+            return 7
+
+        _write.calls = 0
+        summary = self._run(tmp_path, _write)
+        assert summary.papers_succeeded == 2
+        assert summary.papers_failed == 1
+        failures = (tmp_path / "failures.jsonl").read_text().splitlines()
+        assert len(failures) == 1
+        row = json.loads(failures[0])
+        assert row["paper_id"] == "2401.00002"
+        assert row["failure_reason"] == (
+            "raised:ValueError: chunk/vector misalignment"
+        )
+
+    def test_a_wap_gate_failure_stops_the_run(self, tmp_path):
+        from ingest.store import WapGateError
+
+        with pytest.raises(WapGateError):
+            self._run(tmp_path, WapGateError("marker disagrees with table"))
+
+
 class TestResumeFlagRemoved:
     """Closes F3 + IS2: the no-op `--resume` flag is gone from the
     CLI, the `run_bulk_ingest` signature, and the runbook."""

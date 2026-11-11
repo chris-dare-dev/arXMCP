@@ -193,6 +193,16 @@ _ALLOWED_PARSER_USED = frozenset(
 )
 
 
+class WapGateError(RuntimeError):
+    """The corpus-version marker and the table disagree after a write.
+
+    Raised by the WAP gate in :func:`write_chunks`. Unlike a failure
+    confined to one paper's rows, this is a table-wide state that every
+    later write inherits, so drivers stop the run instead of skipping
+    the paper.
+    """
+
+
 @dataclass
 class WriteStats:
     """Per-call summary of a :func:`write_chunks` invocation.
@@ -1064,7 +1074,7 @@ def write_chunks(
 
     # corpus-integrity-completion-e1 (spike-1 §3): WAP gate.
     # Placed OUTSIDE the try/except above (per spike-1 CRITICAL F1) so this
-    # block's `raise RuntimeError(...)` propagates to the caller. Placing the
+    # block's `raise WapGateError(...)` propagates to the caller. Placing the
     # gate INSIDE the try-block would have the `except Exception as exc:
     # logger.error(...)` above silently absorb its own raise -- a structurally
     # non-functional gate.
@@ -1099,7 +1109,7 @@ def write_chunks(
             re_read_marker = read_corpus_version(target_path)
         except ValueError as exc:
             stats.gate_failure_reason = "malformed_marker"
-            raise RuntimeError(
+            raise WapGateError(
                 f"WAP gate: corpus-version.json marker at {target_path} is "
                 f"malformed and cannot be parsed: {exc}. Likely cause: a "
                 f"truncated atomic rename, a partial write before os.replace, "
@@ -1110,7 +1120,7 @@ def write_chunks(
         fresh_count = tbl.count_rows()
         if re_read_marker is None:
             stats.gate_failure_reason = "missing_marker"
-            raise RuntimeError(
+            raise WapGateError(
                 f"WAP gate: corpus-version.json marker at {target_path} is "
                 f"absent after write_corpus_version_marker returned. This is "
                 f"the cold-clone case: no prior marker existed AND the write "
@@ -1150,7 +1160,7 @@ def write_chunks(
                     "arithmetic regression in this call (the marker "
                     "write itself succeeded; its content is just wrong)"
                 )
-            raise RuntimeError(
+            raise WapGateError(
                 f"WAP gate: corpus-version.json marker at {target_path} reports "
                 f"chunk_count={re_read_marker.chunk_count} but tbl.count_rows()="
                 f"{fresh_count} for corpus_version={dataset_version}. "
@@ -1180,6 +1190,7 @@ __all__ = [
     "CORPUS_VERSION_MARKER_NAME",
     "DEFAULT_LANCEDB_PATH",
     "STORE_STATS_PATH",
+    "WapGateError",
     "WriteStats",
     "load_embed_record",
     "write_chunks",
