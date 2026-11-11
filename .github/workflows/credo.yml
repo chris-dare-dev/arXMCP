@@ -1,0 +1,39 @@
+name: credo
+
+# Invariant: no change adds or edits Markdown outside the allow-list in
+# CREDO.md ("In this repository"), and the exceptions list, LEGACY in
+# .github/credo_prose.py, only shrinks.
+#
+# Not path-filtered: the question is what a change touches, so every change
+# is judged. It reads git metadata only, with the runner's own python3, and
+# installs and tests nothing.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  prose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      # Two commits are enough for a pull request: HEAD is the merge commit
+      # and HEAD^1 is the base branch as it is now.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: fetch the commit main was pushed over
+        if: github.event_name == 'push'
+        env:
+          BEFORE: ${{ github.event.before }}
+        run: git fetch --depth=1 origin "$BEFORE"
+
+      - name: markdown stays on the allow-list
+        env:
+          BASE: ${{ github.event_name == 'push' && github.event.before || 'HEAD^1' }}
+        run: python3 .github/credo_prose.py "$BASE"
