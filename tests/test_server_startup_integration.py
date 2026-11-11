@@ -314,31 +314,26 @@ def test_pre_m1_bug_shape_is_caught_by_integration(tmp_path, monkeypatch):
     marker_data["chunk_count"] = _CHUNKS_PER_PAPER
     marker_path.write_text(json.dumps(marker_data), encoding="utf-8")
 
-    # Step 3: boot the server. /readyz must detect the divergence.
+    # Step 3: boot the server. /readyz must detect the divergence and,
+    # because only a count is wrong, keep serving (200) while naming it.
     cfg = Config(lancedb_path=lancedb_path)
     app = create_app(cfg)
     reset_metrics_for_tests()
     with TestClient(app) as client:
         r = client.get("/readyz")
 
-    if r.status_code != 503:
+    if r.status_code != 200:
         raise AssertionError(
-            f"mutation test expected /readyz 503 (degraded); got "
-            f"{r.status_code}. The m3 read-side divergence "
-            f"detection regressed. Full body: {r.json()!r}"
+            f"mutation test expected /readyz 200 (count-only degradation "
+            f"still serves); got {r.status_code}. Full body: {r.json()!r}"
         )
     body = r.json()
-    if body["status"] != "degraded":
+    if body.get("degraded") != {"reason": "chunk_count_diverged"}:
         raise AssertionError(
-            f"mutation test expected body['status']='degraded'; got "
-            f"{body['status']!r}. Body: {body!r}"
-        )
-    if body["reason"] != "chunk_count_diverged":
-        raise AssertionError(
-            f"mutation test expected body['reason']='chunk_count_diverged'; "
-            f"got {body['reason']!r}. The wrong divergence reason was "
-            f"set — the regression-detection path may have been "
-            f"clobbered. Body: {body!r}"
+            f"mutation test expected body['degraded']={{'reason': "
+            f"'chunk_count_diverged'}}; got {body.get('degraded')!r}. The "
+            f"m3 read-side divergence detection regressed, or the wrong "
+            f"reason was set. Body: {body!r}"
         )
 
 

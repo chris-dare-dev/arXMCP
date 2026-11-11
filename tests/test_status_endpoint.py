@@ -27,6 +27,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from server.backup_status import BACKUP_STATE_FAILED, BACKUP_STATE_OK
+from server.corpus import DegradedState
 from server.health import compute_health_status
 from server.health import router as health_router
 from tools.status_line import format_status_line
@@ -60,7 +61,7 @@ class _FakeResources:
         raise KeyError(name)
 
 
-_FakeDegraded = SimpleNamespace  # carries .reason/.fallback_version/.original_version
+_FakeDegraded = DegradedState
 
 
 class _FakeStore:
