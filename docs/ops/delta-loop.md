@@ -184,13 +184,19 @@ for an hour and resume.
 
 ### Resume token expired
 
-arXiv resumption tokens expire daily. The state file persists
-both `last_resumption_token` AND `last_harvest_date`. On restart:
+arXiv resumption tokens expire daily. While a run is in flight the
+state file holds `last_resumption_token`, `last_harvest_date` (the day
+of the last page) and `harvest_from` (the start of the window being
+harvested). On restart:
 - If `last_harvest_date == today`, the token is fresh — resume.
 - If `last_harvest_date < today`, the token is stale — discard,
-  re-harvest from `last_harvest_date` to yesterday.
+  re-harvest from `harvest_from` to yesterday.
 
-This recovery is automatic; no operator action required.
+A crashed run's window always restarts at `harvest_from`, so papers it
+harvested but never ingested are not skipped. A second run on a day
+whose run already finished harvests today alone; tomorrow's run covers
+today again in full. This recovery is automatic; no operator action
+required.
 
 ### `ingest_one_paper` raises
 

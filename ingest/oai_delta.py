@@ -118,8 +118,9 @@ DEFAULT_SETS: tuple[str, ...] = (
 #: omits version history. Use ``arXivRaw`` (synthesis D5).
 METADATA_PREFIX: str = "arXivRaw"
 
-#: Default state file location. Persists ``last_harvest_date`` and
-#: ``last_resumption_token`` so a mid-harvest crash can resume.
+#: Default state file location. Persists ``last_harvest_date``,
+#: ``last_resumption_token`` and, while a run is in flight, ``harvest_from``
+#: so a mid-harvest crash can resume.
 DEFAULT_STATE_PATH: Path = (
     REPO_ROOT / "var" / "arxmcp" / "ops" / "oai-pmh-state.json"
 )
@@ -248,6 +249,10 @@ def _resolve_resume(state: dict) -> tuple[str, str | None, str | None]:
     is harvesting the same set the token originated from (F3 — arXiv
     resumption tokens are typed to the originating set).
 
+    ``harvest_from`` is present only when a run stopped before it
+    finished. Its window was never fully ingested, so the resume starts
+    there rather than at ``last_harvest_date``, the day of the crash.
+
     Closes F8: if ``last_harvest_date`` is in the FUTURE (operator
     error or system clock skew), reset to yesterday. Without this
     guard ``from > today`` could be passed to OAI-PMH.
@@ -256,6 +261,7 @@ def _resolve_resume(state: dict) -> tuple[str, str | None, str | None]:
     last_date = state.get("last_harvest_date")
     last_token = state.get("last_resumption_token")
     last_set = state.get("last_set_spec")
+    resume_from = state.get("harvest_from") or last_date
     if last_date and last_date > today:
         # Future-date guard (F8). Discard the broken state.
         logger.warning(
@@ -265,11 +271,11 @@ def _resolve_resume(state: dict) -> tuple[str, str | None, str | None]:
         )
         return _yesterday_utc_iso(), None, None
     if last_token and last_date == today:
-        return last_date, last_token, last_set
+        return resume_from, last_token, last_set
     if last_date:
         # Resume from the date we were mid-harvest on; the token
         # itself is stale and would 4xx if reused.
-        return last_date, None, None
+        return resume_from, None, None
     # First run: harvest yesterday's window.
     return _yesterday_utc_iso(), None, None
 
@@ -591,6 +597,7 @@ def harvest_set(
         state["last_resumption_token"] = next_token
         state["last_set_spec"] = set_spec if next_token else None
         state["last_harvest_date"] = _today_utc_iso()
+        state["harvest_from"] = from_date
         _write_state(state_path, state)
         token = next_token
         if token is None:
@@ -723,10 +730,12 @@ def run_delta(
     started = time.monotonic()
     state = _read_state(state_path)
     resume_date, resume_token, resume_set = _resolve_resume(state)
-    # Default window: harvest yesterday → today, OR the resume date
-    # the state file points us at.
+    # Default window: from the resume date the state file points us at
+    # (yesterday on a first run) to yesterday. A second run on the same
+    # day resumes at today, so the window is today alone: records it
+    # misses are harvested again tomorrow, and re-ingest is idempotent.
     effective_from = from_date or resume_date
-    effective_until = until_date or _yesterday_utc_iso()
+    effective_until = until_date or max(effective_from, _yesterday_utc_iso())
 
     # Closes F9: reject inverted windows at entry (operator typo —
     # `from > until` reaches arXiv as a `badArgument` error, which
