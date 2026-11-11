@@ -650,7 +650,7 @@ files are the *why*. **Quote them, don't paraphrase.**
 
 ## 10. The user
 
-- **`chris.dare@nalej.com`** is the primary user.
+- **Chris Dare** (`cedare96@gmail.com`) is the primary user.
 - They invoke milestones with `/milestone-pipeline E<NN>_S<MM>`.
 - They expect autonomous execution (auto-mode framing) and
   minimal interruption — make reasonable assumptions and proceed.

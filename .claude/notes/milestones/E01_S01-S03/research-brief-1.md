@@ -242,7 +242,7 @@ The implementer must resolve these before writing code:
    `var/arxmcp/` tree.
 
 5. **`mailto:` value in User-Agent?** The acceptance criteria say
-   `arXMCP/0.1 (mailto:...)`. The project owner's email (`chris.dare@nalej.com`
+   `arXMCP/0.1 (mailto:...)`. The project owner's email (`cedare96@gmail.com`
    per user context) is the natural value. It should be configurable via an
    environment variable (`ARXMCP_CONTACT_EMAIL`) so the implementer doesn't
    hard-code a personal email in committed code.

@@ -453,7 +453,7 @@ class TestOverride:
             json.dumps(
                 {
                     "enabled": True,
-                    "set_by": "chris.dare@nalej.com",
+                    "set_by": "owner@example.com",
                     "set_at": "2026-07-20T10:00:00Z",
                     "note": "accepted pending re-hydration",
                 }
@@ -465,7 +465,7 @@ class TestOverride:
         )
         override = payload["snapshot"]["notebooks"]["ov-nb"]["override"]
         assert override["license_unknown_escalation_override"] is True
-        assert override["set_by"] == "chris.dare@nalej.com"
+        assert override["set_by"] == "owner@example.com"
         assert override["set_at"] == "2026-07-20T10:00:00Z"
         assert override["note"] == "accepted pending re-hydration"
 

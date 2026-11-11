@@ -358,17 +358,17 @@ should treat the upper bound as real, not decorative.
 - `Makefile:156-164` — `desktop-conformance` target, the likely hook point
   for AC6.
 
-## 12. Relevant Nalej MCP context
+## 12. Relevant external MCP context
 
 Not applicable — this is an arXMCP-repo-local milestone (Python desktop
-packaging for a Claude MCP server product), not a Nalej platform GitOps/
-Kubernetes change. The Nalej platform-knowledge MCP tools (chart context,
+packaging for a Claude MCP server product), not a platform GitOps/
+Kubernetes change. The platform-knowledge MCP tools (chart context,
 ops references, environment maps) have no relevant surface here; skipped
-per the task's actual domain. No `lessons.md`/Nalej-memory entries apply.
+per the task's actual domain. No `lessons.md`/workspace-memory entries apply.
 
 ## 13. Existing skills/agents that could implement this
 
-None of the Nalej-workspace platform skills/agents apply (this is not a
+None of the workspace platform skills/agents apply (this is not a
 Kubernetes/ArgoCD/Terraform change). Within this repo, the milestone
 brief's own specialist suggestions — `security-reviewer` (build-root
 leakage, `direct_url.json` sanitization has security-adjacent provenance
@@ -502,7 +502,7 @@ unmeasured until a `.spec` exists to build from.
 None. This milestone is entirely local build/test tooling within the
 arXMCP repo — no `git push`, no MR, no ArgoCD sync, no AWS mutation is
 implied by the research itself. The implementer's eventual commit+push (if
-this repo follows the Nalej workspace's direct-to-`main` convention, or its
+this repo follows the parent workspace's direct-to-`main` convention, or its
 own repo-local convention — verify `arXMCP/CLAUDE.md`, not read in this
 research pass since it's outside this milestone's explore scope) is the
 only external write, and ordinary per the repo's existing workflow — no

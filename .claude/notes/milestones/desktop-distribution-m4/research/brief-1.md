@@ -96,10 +96,10 @@ split.
   desktop-child-mode script exists; M4 needs either a new flag/subcommand
   on `arxmcp-server` or a new console-script entry (see §6).
 
-## 3. Relevant Nalej MCP context
+## 3. Relevant external MCP context
 
 Not applicable — this milestone is entirely internal to the arXMCP repo;
-Nalej platform MCP tools (ArgoCD, AWS, service-mesh, etc.) have no bearing
+external platform MCP tools (ArgoCD, AWS, service-mesh, etc.) have no bearing
 on a desktop Tauri/Rust+Python lifecycle contract. No `search_platform_knowledge`
 findings were relevant; skipped per repo scope.
 

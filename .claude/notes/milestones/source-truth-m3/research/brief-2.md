@@ -409,7 +409,7 @@ already-known, already-validated slug.
 **Value shape:** a JSON string (the store's `value` column is `TEXT`):
 
 ```json
-{"enabled": true, "set_by": "chris.dare@nalej.com", "set_at": "2026-07-20T10:00:00Z",
+{"enabled": true, "set_by": "owner@example.com", "set_at": "2026-07-20T10:00:00Z",
  "note": "accepted bridgeland-stability's unknown rate pending re-hydration"}
 ```
 

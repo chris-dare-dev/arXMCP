@@ -83,10 +83,10 @@ than absorbing spike-1's open release blockers into this M-complexity slice.
   `chris-dare-dev/arXMCP` (GitHub, not GitLab — this repo's remote is GitHub,
   confirmed via `git remote -v`).
 
-## 3. Relevant Nalej MCP context
+## 3. Relevant external MCP context
 
-Not applicable — this is the arXMCP repo (not a Nalej platform repo); no
-Nalej MCP tools were queried, per repo scope.
+Not applicable — this is the arXMCP repo (not a platform-infrastructure
+repo); no external MCP tools were queried, per repo scope.
 
 ## 4. Existing skills/agents that could implement this
 
