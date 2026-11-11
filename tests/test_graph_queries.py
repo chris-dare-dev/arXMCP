@@ -625,6 +625,44 @@ class TestE09S03RectificationGuards:
         assert "direction" in str(excinfo.value)
 
 
+class TestCiteNeighborsOpensReadOnly:
+    """The served process never writes the graph, so it must not take
+    the exclusive lock a read-write open holds."""
+
+    def test_reads_while_another_process_holds_a_read_only_open(
+        self, kuzu_db: Path
+    ):
+        import subprocess
+        import sys
+
+        holder = subprocess.Popen(
+            [
+                sys.executable,
+                "-c",
+                "import kuzu, sys, time;"
+                f"d = kuzu.Database({str(kuzu_db)!r}, read_only=True);"
+                "print('held', flush=True); time.sleep(30)",
+            ],
+            stdout=subprocess.PIPE,
+            text=True,
+        )
+        try:
+            assert holder.stdout.readline().strip() == "held"
+            neighbors = _run(
+                cite_neighbors(
+                    CHUNK_A,
+                    depth=1,
+                    direction="cites",
+                    kuzudb_path=kuzu_db,
+                    lancedb_path=None,
+                )
+            )
+        finally:
+            holder.kill()
+            holder.wait()
+        assert {n.paper_id for n in neighbors} == {P_B, P_C}
+
+
 class TestCiteNeighborsReopenReleasesLock:
     """Behavioral guard for the kuzu 0.11.3 close-discipline fix.
 
@@ -698,8 +736,8 @@ class TestCiteNeighborsReopenReleasesLock:
         closed: list[str] = []
 
         class _DBSpy:
-            def __init__(self, path):
-                self._real = real_database(path)
+            def __init__(self, path, **kwargs):
+                self._real = real_database(path, **kwargs)
 
             def close(self):
                 closed.append("db")

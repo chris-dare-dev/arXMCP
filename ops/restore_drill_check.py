@@ -140,7 +140,9 @@ def smoke_check_kuzu(restore_path: Path) -> int | None:
     db = None
     conn = None
     try:
-        db = kuzu.Database(str(kuzu_path))
+        # Read-only: the drill audits the restored artifact and must not
+        # checkpoint or otherwise rewrite it.
+        db = kuzu.Database(str(kuzu_path), read_only=True)
         conn = kuzu.Connection(db)
         # Restored DB may be empty; we only require it to open.
         result = conn.execute("MATCH (p:Paper) RETURN count(p) AS c")

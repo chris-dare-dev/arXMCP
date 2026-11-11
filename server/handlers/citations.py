@@ -119,8 +119,10 @@ async def handle_cite_neighbors(
             )
         except RuntimeError as exc:
             # The Kùzu path exists but is not a queryable graph — a
-            # stray directory, or an empty / half-ingested / corrupt
-            # DB. Kùzu surfaces all of these as RuntimeError. (Bad
+            # stray directory, an empty / half-ingested / corrupt DB, or
+            # another process holding the write lock (an ingest run;
+            # read-only opens share the lock with each other). Kùzu
+            # surfaces all of these as RuntimeError. (Bad
             # chunk_id / direction / depth are pre-validated above and
             # by Pydantic, so cite_neighbors cannot raise RuntimeError
             # for an input error here — a RuntimeError is unambiguously
