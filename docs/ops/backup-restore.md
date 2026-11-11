@@ -136,7 +136,16 @@ journalctl -u arxmcp-backup.service -n 200
 ## Retention policy
 
 `restic forget --prune --keep-daily 7 --keep-weekly 4
---keep-monthly 12` after every backup.
+--keep-monthly 12` after every clean backup.
+
+Each snapshot is tagged `arxmcp-clean` or `arxmcp-partial` (restic
+exit 3, or a degraded `notebooks.db` checkpoint). restic keeps
+snapshots by recency, not by quality, so the policy counts only
+`arxmcp-clean` snapshots and the untagged ones taken before tagging
+began. A partial run prunes nothing, and its sentinel carries
+`"forget_status": null`. The next clean run removes the partial
+snapshots it supersedes. A partial snapshot is still a restore point
+until then; check its tag before restoring from it.
 
 | Tier | Count | Rationale |
 |---|---|---|
