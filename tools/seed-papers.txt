@@ -3,8 +3,7 @@
 # Curated by tools/curate_seed.py from export.arxiv.org/api/query?cat=math.AG
 # (200 candidates pulled, filtered to 1-2 authors with math.AG primary
 # category, then top-50 sampled by submission date descending). All 50 IDs
-# below were returned by the live arXiv API and are post-2018 per
-# .claude/notes/09-feature-priorities.md Tier 0 guidance.
+# below were returned by the live arXiv API and are post-2018.
 #
 # E01_S03 acceptance threshold: at least 45/50 must parse cleanly under
 # tools/fetch_seed.py. The first ID in the list doubles as the E01_S02

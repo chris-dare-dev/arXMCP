@@ -259,9 +259,6 @@ def fetch_raw_tex_if_missing(
 ) -> bool:
     """Ensure raw `.tex` source for ``paper_id`` exists under ``raw_dir``.
 
-    notebook-preamble-recovery-m1 — Option A from the scan brief at
-    ``.claude/notes/scans/preamble-without-raw-tex-2026-05-27.md``.
-
     ``raw_dir`` is the PARENT directory (e.g. ``var/arxmcp/corpus/raw/``);
     ``fetch_eprint`` appends ``paper_id`` internally and creates the
     paper-specific subdir.

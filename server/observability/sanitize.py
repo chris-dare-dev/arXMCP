@@ -14,9 +14,7 @@ to be tokenized as role-control tokens by current LLMs:
 The literal-byte check is intentional: these patterns are what the consuming
 LLM sees AFTER LaTeXML rendering. LaTeX-encoded variants (e.g.
 ``\\text{<|system|>}``) are not matched here — defending against semantic /
-encoded injection requires a model-aware classifier, which is out of scope
-per ``.claude/notes/09-feature-priorities.md`` § "Things to explicitly NOT
-build in v1".
+encoded injection requires a model-aware classifier, which is out of scope.
 
 **Activation.** Set the environment variable ``ARXMCP_SANITIZE_RETRIEVED_CONTENT=1``
 to enable. Any other value (including ``true``, ``yes``, ``on``) is treated as

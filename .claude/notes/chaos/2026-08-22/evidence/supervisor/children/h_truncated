@@ -1,7 +1,0 @@
-#!/bin/sh
-exec /usr/bin/python3 -c '
-import sys,time
-sys.stdout.write("{\"kind\":\"bound\",\"contract\"")
-sys.stdout.flush()
-time.sleep(300)
-'
