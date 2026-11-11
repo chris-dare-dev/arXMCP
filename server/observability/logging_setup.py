@@ -115,6 +115,15 @@ class JsonFormatter(logging.Formatter):
         # stdlib name.
         if "levelname" in payload:
             payload["level"] = payload["levelname"]
+        # The traceback text that ``logging.Formatter.format`` appends in
+        # text mode; without these keys ``logger.exception`` keeps only its
+        # message. ``exc_text`` caches the rendering the way the stdlib does.
+        if record.exc_info and not record.exc_text:
+            record.exc_text = self.formatException(record.exc_info)
+        if record.exc_text:
+            payload["exception"] = record.exc_text
+        if record.stack_info:
+            payload["stack"] = self.formatStack(record.stack_info)
         return json.dumps(payload, default=str, sort_keys=True)
 
 

@@ -552,6 +552,42 @@ class TestJsonFormatter:
         payload = _parse_one(stream)
         assert payload["obj"] == "<NotJsonable>"
 
+    def test_exception_traceback_survives(self):
+        logger, stream = _make_isolated_logger(
+            "test.e13_s08.formatter.exc", level=logging.INFO
+        )
+
+        def open_manifest():
+            raise ValueError("manifest version 9 unsupported")
+
+        try:
+            open_manifest()
+        except ValueError:
+            logger.exception("corpus warm failed")
+        payload = _parse_one(stream)
+        assert payload["message"] == "corpus warm failed"
+        assert payload["exception"].startswith("Traceback (most recent call last)")
+        assert "in open_manifest" in payload["exception"]
+        assert "ValueError: manifest version 9 unsupported" in payload["exception"]
+
+    def test_stack_info_survives(self):
+        logger, stream = _make_isolated_logger(
+            "test.e13_s08.formatter.stack", level=logging.INFO
+        )
+        logger.warning("where am I", stack_info=True)
+        payload = _parse_one(stream)
+        assert payload["stack"].startswith("Stack (most recent call last)")
+        assert "test_stack_info_survives" in payload["stack"]
+
+    def test_no_traceback_keys_without_an_exception(self):
+        logger, stream = _make_isolated_logger(
+            "test.e13_s08.formatter.noexc", level=logging.INFO
+        )
+        logger.info("fine")
+        payload = _parse_one(stream)
+        assert "exception" not in payload
+        assert "stack" not in payload
+
 
 # ===========================================================================
 # Audit-doc presence
