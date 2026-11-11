@@ -21,13 +21,12 @@ returns a sentinel envelope (``status: "unavailable"``,
 ``lean_status: "disabled"``) rather than 5xx — mirrors the
 ``cite_neighbors`` ``graph_status="absent"`` precedent (m1).
 
-**Timeout = kill + respawn.** The m2 ``LeanRepl.query`` wall-clock
-timeout raises ``LeanReplError`` but does NOT terminate the subprocess.
-A wedged elaboration would corrupt every subsequent call (stale
-stdout interleave). This handler closes the REPL on timeout and
-respawns from config (the contract named in
-``.claude/docs/lean-sandbox-design.md`` row "Per-query timeout":
-"m3 will additionally kill+respawn the process on timeout").
+**A failed round-trip restarts the REPL.** ``LeanRepl.query`` kills and
+restarts its own subprocess on a timeout, a crash or a broken protocol,
+so this handler never replaces ``Resources.lean_repl``. It reports what
+happened on the ``lean_status`` axis: ``timeout``, ``crashed`` (the
+process failed during this call), or ``unavailable`` (Lean is enabled
+but the process cannot be started; the next call tries again).
 
 Design references:
 - ``.claude/notes/milestones/verification-feedback-m3/research-synthesis.md``
@@ -50,8 +49,8 @@ from pydantic import Field
 
 from server.lean_repl import (
     DEFAULT_QUERY_TIMEOUT_S,
-    LeanRepl,
     LeanReplError,
+    LeanReplRestartedError,
     LeanReplTimeoutError,
     LeanUnavailableError,
 )
@@ -138,7 +137,7 @@ def _continuation_reject_message(kind: str, disposition: str) -> str:
     if disposition == "expired":
         return (
             f"The {kind} continuation token was minted by a previous Lean REPL "
-            "instance (the REPL is respawned after a per-query timeout). "
+            "instance (the REPL restarts after a timeout or a crash). "
             "Continuation tokens do not survive a respawn — re-run the setup "
             "call (e.g. re-import) to obtain a fresh token before continuing."
         )
@@ -1112,6 +1111,40 @@ def _timeout_envelope(
     }
 
 
+def _repl_failure_envelope(
+    mode: str, lean_status: str, text: str, *, continuation_status: str
+) -> dict[str, Any]:
+    """The REPL crashed or could not start, so this call has no verdict.
+
+    ``status`` is the operational ``unavailable``, never ``error``: ``error``
+    reports a Lean diagnostic, and a caller reading it would start repairing
+    a proof Lean never checked.
+    """
+    return {
+        "status": "unavailable",
+        "lean_status": lean_status,
+        "mode": mode,
+        "messages": [
+            {
+                "severity": "error",
+                "position": {"line": 0, "column": 0},
+                "text": text,
+            }
+        ],
+        "sorry_goals": [],
+        "goals_remaining": [],
+        "proof_state": None,
+        "proof_state_id": None,
+        "compilation_success": None,
+        "env": None,
+        "continuation_status": continuation_status,
+        "axiom_audit": _audit_not_applicable(
+            "The Lean REPL failed before returning a checked environment, so "
+            "no axiom closure exists to audit."
+        ),
+    }
+
+
 def _invalid_continuation_envelope(
     mode: str, *, continuation_status: str, message: str
 ) -> dict[str, Any]:
@@ -1221,33 +1254,6 @@ def _build_command(snippet: str, imports: list[str], mode: str) -> str:
     return body
 
 
-async def _respawn_after_timeout(resources: Any, lean_repl: Any) -> None:
-    """Close a wedged REPL and respawn it from config.
-
-    The lean-sandbox-design contract: ``LeanRepl.query``'s wall-clock timeout
-    raises but does NOT terminate the subprocess, so a wedged elaboration would
-    interleave its stdout into every subsequent call. Shared by the primary
-    query path and the axiom-audit round-trip.
-
-    Best-effort by design: ``close`` on an already-wedged process can
-    legitimately raise, and a failed respawn degrades later calls to
-    "unavailable" rather than raising here. ``CancelledError`` propagates (it
-    is a ``BaseException``), so the narrow excepts below cannot swallow it.
-    """
-    try:
-        await lean_repl.close()
-    except (OSError, LeanReplError):
-        logger.exception("lean_verify: REPL close after timeout failed")
-    try:
-        resources.lean_repl = await LeanRepl.spawn_from_config(resources.config)
-    except (LeanUnavailableError, OSError):
-        logger.exception(
-            "lean_verify: respawn after timeout failed; "
-            "subsequent calls degrade to 'unavailable'"
-        )
-        resources.lean_repl = None
-
-
 def _invalidate_continuation_tokens(payload: dict[str, Any]) -> None:
     """Strip every continuation token from ``payload`` in place.
 
@@ -1269,8 +1275,8 @@ async def _attach_axiom_audit(
     snippet: str,
     env_raw: Any,
     *,
-    resources: Any,
     lean_repl: Any,
+    generation: str,
 ) -> dict[str, Any]:
     """Measure the axiom-hygiene axis and attach it to ``payload``.
 
@@ -1309,26 +1315,21 @@ async def _attach_axiom_audit(
         "env": env_raw,
     }
     try:
-        audit_resp = await lean_repl.query(command)
-    except LeanReplTimeoutError:
-        # Same stale-stdout hazard as the primary path — kill + respawn, then
-        # drop the now-dead tokens the primary response minted.
-        logger.warning(
-            "lean_verify: axiom audit timed out — closing and respawning"
-        )
-        await _respawn_after_timeout(resources, lean_repl)
+        # Pinned: env_raw only means something to the process that issued it.
+        audit_resp = await lean_repl.query(command, generation=generation)
+    except (LeanReplError, LeanUnavailableError) as exc:
+        logger.warning("lean_verify: axiom audit REPL error: %s", exc)
+        # Every failure here means the process that minted the primary
+        # response's tokens is gone: a failed round-trip restarts it, and a
+        # stale pin means it already restarted.
         _invalidate_continuation_tokens(payload)
         payload["axiom_audit"] = _audit_unknown(
             "The '#print axioms' round-trip exceeded the per-query wall-clock; "
-            "the REPL was killed and respawned. The axiom closure is unknown "
+            "the REPL was killed and restarted. The axiom closure is unknown "
             "for this snippet."
-        )
-        return payload
-    except LeanReplError as exc:
-        logger.warning("lean_verify: axiom audit REPL error: %s", exc)
-        payload["axiom_audit"] = _audit_unknown(
-            f"The '#print axioms' round-trip failed ({exc}); the axiom closure "
-            "is unknown for this snippet."
+            if isinstance(exc, LeanReplTimeoutError)
+            else f"The '#print axioms' round-trip failed ({exc}); the axiom "
+            "closure is unknown for this snippet."
         )
         return payload
 
@@ -1563,26 +1564,37 @@ async def handle_lean_verify(
 
     try:
         try:
-            resp = await lean_repl.query(command)
+            try:
+                resp = await lean_repl.query(command, generation=generation)
+            except LeanReplRestartedError:
+                if resumed:
+                    raise
+                # The REPL restarted after ``generation`` was read. This
+                # command names no REPL ids, so it runs unchanged on the new
+                # process, and the ids it returns belong to that process.
+                generation = lean_repl.generation
+                resp = await lean_repl.query(command, generation=generation)
         finally:
             if heartbeat_task is not None:
                 heartbeat_task.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
                     await heartbeat_task
+    except LeanReplRestartedError:
+        token_kind = "proof_state" if mode == "tactic_step" else "env"
+        return envelope(
+            _invalid_continuation_envelope(
+                mode,
+                continuation_status="expired",
+                message=_continuation_reject_message(token_kind, "expired"),
+            )
+        )
     except LeanReplTimeoutError as exc:
-        # FM-2 / m3 critique F3 — kill + respawn so the next call
-        # doesn't read this call's stale stdout. The lean-sandbox-design
-        # contract. Distinct exception class so the discriminator is the
+        # FM-2 / m3 critique F3 — the REPL has already killed and restarted
+        # its process. Distinct exception class so the discriminator is the
         # type, not a substring match on the message.
         from server.lean_repl import DEFAULT_QUERY_TIMEOUT_S
 
-        logger.warning(
-            "lean_verify: REPL timed out — closing and respawning (%s)", exc
-        )
-        # m3 critique F4 — narrow the bare-except. The teardown is
-        # best-effort (close on an already-wedged process can legitimately
-        # raise OSError / LeanReplError); CancelledError MUST propagate.
-        await _respawn_after_timeout(resources, lean_repl)
+        logger.warning("lean_verify: REPL timed out (%s)", exc)
         # m5 critique F4: a resumed continuation that then timed out still
         # had its token accepted THIS call — record that, don't claim
         # "not-applicable".
@@ -1593,35 +1605,31 @@ async def handle_lean_verify(
             )
         )
     except LeanReplError as exc:
-        # Any other LeanReplError (process exited, non-JSON response,
-        # etc.) — surface as an error envelope, do NOT raise (the agent
-        # gets a usable response with the error message).
+        # The process exited, broke the pipe or broke the protocol. The
+        # snippet may have caused it (the RLIMIT_AS cap kills an elaboration
+        # that grows too large), so this is a failed call, not a verdict.
         logger.warning("lean_verify: REPL error: %s", exc)
         return envelope(
-            {
-                "status": "error",
-                "lean_status": "available",
-                "mode": mode,
-                "messages": [
-                    {
-                        "severity": "error",
-                        "position": {"line": 0, "column": 0},
-                        "text": f"Lean REPL error: {exc}",
-                    }
-                ],
-                "sorry_goals": [],
-                "goals_remaining": [],
-                "proof_state": None,
-                "proof_state_id": None,
-                "compilation_success": False,
-                "env": None,
+            _repl_failure_envelope(
+                mode,
+                "crashed",
+                f"Lean REPL failed during this call ({exc}). The snippet was "
+                "not checked; the REPL is restarted before the next call.",
                 # m5 critique F4 — reflect whether a token was resumed.
-                "continuation_status": "resumed" if resumed else "not-applicable",
-                "axiom_audit": _audit_not_applicable(
-                    "The Lean REPL failed before returning a checked "
-                    "environment, so no axiom closure exists to audit."
-                ),
-            }
+                continuation_status="resumed" if resumed else "not-applicable",
+            )
+        )
+    except LeanUnavailableError as exc:
+        logger.warning("lean_verify: REPL could not be started: %s", exc)
+        return envelope(
+            _repl_failure_envelope(
+                mode,
+                "unavailable",
+                f"Lean is enabled but the REPL could not be started ({exc}). "
+                "The next call tries again.",
+                # A token addresses the process that is gone.
+                continuation_status="expired" if resumed else "not-applicable",
+            )
         )
 
     payload = _normalize_response(
@@ -1639,8 +1647,8 @@ async def handle_lean_verify(
             payload,
             snippet,
             resp.get("env"),
-            resources=resources,
             lean_repl=lean_repl,
+            generation=generation,
         )
     # Multi-result cap surface — long elaborations can emit hundreds of
     # diagnostic rows; cap_result_list trims the trailing entries from

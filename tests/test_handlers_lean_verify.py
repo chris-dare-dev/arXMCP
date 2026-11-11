@@ -43,7 +43,12 @@ from server.handlers.lean_verify import (
     _normalize_response,
     handle_lean_verify,
 )
-from server.lean_repl import LeanReplError, LeanReplTimeoutError
+from server.lean_repl import (
+    LeanReplError,
+    LeanReplRestartedError,
+    LeanReplTimeoutError,
+    LeanUnavailableError,
+)
 from server.tools import (
     LEAN_VERIFY,
     TOOL_SCHEMA_VERSION,
@@ -114,7 +119,11 @@ class _FakeLeanRepl:
         """
         return self._responses.pop(0) if self._responses else {}
 
-    async def query(self, command: dict[str, Any]) -> dict[str, Any]:
+    async def query(
+        self, command: dict[str, Any], *, generation: str | None = None
+    ) -> dict[str, Any]:
+        if generation is not None and generation != self.generation:
+            raise LeanReplRestartedError("restarted")
         self.commands.append(command)
         if self._raise_with is not None:
             raise self._raise_with
@@ -237,7 +246,10 @@ class TestToolRegistration:
         # changes is that a client can read it. tools/list carries
         # outputSchema, so the hash moves; no tool description is edited, so
         # BP1 does not.
-        assert TOOL_SCHEMA_VERSION == 24
+        # 24->25: lean_status gains "crashed" and "unavailable", so a REPL
+        # failure stops reading as "available" or "disabled". Hash moves,
+        # BP1 does not.
+        assert TOOL_SCHEMA_VERSION == 25
 
         schema_path = (
             Path(__file__).parent.parent
@@ -918,32 +930,16 @@ class TestHandlerDisabled:
 
 
 class TestHandlerTimeout:
-    def test_timeout_kills_and_respawns_repl(self, monkeypatch):
-        """FM-2: a per-query wall-clock timeout raises
-        LeanReplTimeoutError; the handler must close the wedged REPL
-        and spawn a fresh one before returning. Otherwise the next
-        call reads stale stdout."""
-        from server.lean_repl import LeanReplTimeoutError
-
+    def test_timeout_returns_timeout_envelope_and_keeps_the_handle(self):
+        """FM-2: LeanRepl restarts its own process on timeout, so the
+        handler reports the timeout and leaves Resources.lean_repl alone.
+        Replacing it from the request path is what raced."""
         timed_out = _FakeLeanRepl(
             raise_with=LeanReplTimeoutError(
                 "Lean REPL query exceeded the 30s timeout."
             )
         )
         fake = _attach_fake_resources(timed_out)
-
-        respawned = _FakeLeanRepl()
-
-        async def _fake_spawn_from_config(config):
-            return respawned
-
-        # Patch the spawn_from_config classmethod the handler calls.
-        import server.lean_repl as lean_mod
-
-        monkeypatch.setattr(
-            lean_mod.LeanRepl, "spawn_from_config", _fake_spawn_from_config
-        )
-
         try:
             result = _run(
                 handle_lean_verify(snippet="theorem t : True := trivial")
@@ -951,13 +947,74 @@ class TestHandlerTimeout:
             assert result["status"] == "timeout"
             assert result["lean_status"] == "timeout"
             assert result["compilation_success"] is False
-            # The wedged REPL was closed.
-            assert timed_out.closed is True
-            # A fresh REPL replaced it on Resources.lean_repl so the
-            # next call doesn't hit the disabled path.
-            assert fake.lean_repl is respawned
+            assert fake.lean_repl is timed_out
+            assert timed_out.closed is False
         finally:
             reset_resources_for_tests()
+
+
+class TestHandlerReplFailure:
+    """A REPL that crashes or cannot start must not read as a kernel
+    verdict, as "available", or as operator-disabled."""
+
+    def teardown_method(self):
+        reset_resources_for_tests()
+
+    def test_crash_reports_crashed_not_an_error_verdict(self):
+        repl = _FakeLeanRepl(raise_with=LeanReplError("closed stdout"))
+        fake = _attach_fake_resources(repl)
+        result = _run(handle_lean_verify(snippet="theorem t : True := trivial"))
+        assert result["status"] == "unavailable"
+        assert result["lean_status"] == "crashed"
+        assert result["compilation_success"] is None
+        assert "closed stdout" in result["messages"][0]["text"]
+        assert fake.lean_repl is repl
+
+    def test_failed_restart_reports_unavailable_not_disabled(self):
+        repl = _FakeLeanRepl(raise_with=LeanUnavailableError("lake missing"))
+        _attach_fake_resources(repl)
+        result = _run(handle_lean_verify(snippet="theorem t : True := trivial"))
+        assert result["status"] == "unavailable"
+        assert result["lean_status"] == "unavailable"
+        assert "lake missing" in result["messages"][0]["text"]
+
+    def test_restart_before_send_runs_a_fresh_command_on_the_new_process(self):
+        """A concurrent call restarted the REPL after this one read its
+        generation. The command names no REPL ids, so it runs on the new
+        process, and the env it returns is minted for that process."""
+
+        class _RestartsOnce(_FakeLeanRepl):
+            async def query(self, command, *, generation=None):
+                if self.generation == "genA":
+                    self.generation = "genB"
+                return await super().query(command, generation=generation)
+
+        repl = _RestartsOnce(responses=[{"env": 4}], generation="genA")
+        _attach_fake_resources(repl)
+        result = _run(
+            handle_lean_verify(snippet="theorem t : True := trivial", mode="syntax_only")
+        )
+        assert result["status"] == "elaborated_no_errors"
+        assert result["env"] == "genB:4"
+        assert len(repl.commands) == 1
+
+    def test_restart_before_send_expires_a_resumed_token(self):
+        """The same race with an env token: the id belongs to the old
+        process, so the command must not be sent to the new one."""
+
+        class _RestartsOnce(_FakeLeanRepl):
+            async def query(self, command, *, generation=None):
+                self.generation = "genB"
+                return await super().query(command, generation=generation)
+
+        repl = _RestartsOnce(responses=[{"env": 5}], generation="genA")
+        _attach_fake_resources(repl)
+        result = _run(
+            handle_lean_verify(snippet="theorem u : True := trivial", env="genA:3")
+        )
+        assert result["status"] == "invalid-input"
+        assert result["continuation_status"] == "expired"
+        assert repl.commands == []
 
 
 class TestHandlerInputValidation:
@@ -1203,25 +1260,14 @@ class TestLeanVerifyResultSchema:
         out = _run(handle_lean_verify(snippet="theorem t : True := trivial"))
         schema_validator.validate(out)
 
-    def test_timeout_envelope_conforms(self, monkeypatch, schema_validator):
+    def test_timeout_envelope_conforms(self, schema_validator):
         """m3 critique F6: the timeout envelope must conform."""
-        from server.lean_repl import LeanReplTimeoutError
-
         timed_out = _FakeLeanRepl(
             raise_with=LeanReplTimeoutError(
                 "Lean REPL query exceeded the 30s timeout."
             )
         )
         _attach_fake_resources(timed_out)
-
-        async def _fake_spawn(config):
-            return _FakeLeanRepl()
-
-        import server.lean_repl as lean_mod
-
-        monkeypatch.setattr(
-            lean_mod.LeanRepl, "spawn_from_config", _fake_spawn
-        )
         try:
             out = _run(handle_lean_verify(snippet="theorem t : True := trivial"))
             schema_validator.validate(out)
@@ -1239,6 +1285,14 @@ class TestLeanVerifyResultSchema:
         repl._raise_with = LeanReplError(
             "Lean REPL closed stdout before returning a response"
         )
+        out = _run(handle_lean_verify(snippet="theorem t : True := trivial"))
+        schema_validator.validate(out)
+
+    def test_unavailable_envelope_conforms(
+        self, fake_resources_with_repl, schema_validator
+    ):
+        _fake, repl = fake_resources_with_repl
+        repl._raise_with = LeanUnavailableError("lake binary not found")
         out = _run(handle_lean_verify(snippet="theorem t : True := trivial"))
         schema_validator.validate(out)
 
@@ -1268,48 +1322,10 @@ class TestTimeoutDiscriminatorIsTypeNotSubstring:
             "timeout window expired upstream"
         )
         result = _run(handle_lean_verify(snippet="theorem t : True := trivial"))
-        assert result["status"] == "error", result
-        # status="error" + lean_status="available" is the generic-error
-        # branch; "timeout"/"timeout" would be the respawn branch.
-        assert result["lean_status"] == "available"
-        # CRITICAL — the REPL was NOT closed (the handler must not kill
-        # a still-functional REPL just because its error message
-        # happened to contain the string "timeout").
-        assert repl.closed is False
-
-
-class TestRespawnFailureNarrowExcept:
-    """m3 critique F4: respawn-failure path must NOT swallow
-    CancelledError or other non-IO exceptions."""
-
-    def test_cancelled_error_during_respawn_propagates(self, monkeypatch):
-        """asyncio.CancelledError must propagate, never be swallowed —
-        cancellation is the task-cancellation primitive; swallowing it
-        breaks every higher-level cancellation contract."""
-        from server.lean_repl import LeanReplTimeoutError
-
-        timed_out = _FakeLeanRepl(
-            raise_with=LeanReplTimeoutError("Lean REPL query exceeded timeout.")
-        )
-        _attach_fake_resources(timed_out)
-
-        async def _cancelled_respawn(config):
-            raise asyncio.CancelledError("cancelled during respawn")
-
-        import server.lean_repl as lean_mod
-
-        monkeypatch.setattr(
-            lean_mod.LeanRepl, "spawn_from_config", _cancelled_respawn
-        )
-        try:
-            with pytest.raises(asyncio.CancelledError):
-                _run(
-                    handle_lean_verify(
-                        snippet="theorem t : True := trivial"
-                    )
-                )
-        finally:
-            reset_resources_for_tests()
+        # "crashed" is the generic-error branch; "timeout" would be the
+        # timeout branch.
+        assert result["lean_status"] == "crashed", result
+        assert result["status"] == "unavailable"
 
 
 class TestPositionClampsNegatives:
@@ -1781,7 +1797,9 @@ class _SlowFakeLeanRepl(_FakeLeanRepl):
         super().__init__(responses=responses, raise_with=raise_with)
         self._delay_s = delay_s
 
-    async def query(self, command: dict[str, Any]) -> dict[str, Any]:
+    async def query(
+        self, command: dict[str, Any], *, generation: str | None = None
+    ) -> dict[str, Any]:
         self.commands.append(command)
         if self._delay_s > 0:
             await asyncio.sleep(self._delay_s)
@@ -1959,29 +1977,17 @@ class TestProgressHeartbeat:
         finally:
             reset_resources_for_tests()
 
-    def test_ac5a_heartbeat_cancelled_on_lean_repl_timeout(self, monkeypatch):
+    def test_ac5a_heartbeat_cancelled_on_lean_repl_timeout(self):
         """AC-5 / FM-7: ``LeanReplTimeoutError`` mid-await must cancel
         the heartbeat task in ``finally`` — no emissions leak after the
-        exception. Also asserts the m3 timeout-kill-respawn path runs
-        unchanged (the heartbeat wrapping must NOT regress it)."""
+        exception, and the timeout envelope is still returned."""
         from server.lean_repl import LeanReplTimeoutError
 
         slow_timeout_repl = _SlowFakeLeanRepl(
             raise_with=LeanReplTimeoutError("simulated 30s timeout"),
             delay_s=0.15,
         )
-        fake = _attach_fake_resources(slow_timeout_repl)
-
-        respawned = _FakeLeanRepl()
-
-        async def _fake_spawn_from_config(config):
-            return respawned
-
-        import server.lean_repl as lean_mod
-
-        monkeypatch.setattr(
-            lean_mod.LeanRepl, "spawn_from_config", _fake_spawn_from_config
-        )
+        _attach_fake_resources(slow_timeout_repl)
 
         ctx = _RecordingCtx()
 
@@ -2004,10 +2010,7 @@ class TestProgressHeartbeat:
 
         try:
             result = _run(_go())
-            # m3 contract preserved: timeout envelope, respawn happened.
             assert result["status"] == "timeout"
-            assert slow_timeout_repl.closed is True
-            assert fake.lean_repl is respawned
         finally:
             reset_resources_for_tests()
 
@@ -2043,9 +2046,9 @@ class TestProgressHeartbeat:
 
         try:
             result = _run(_go())
-            # m3 contract: status=error envelope (not "timeout").
-            assert result["status"] == "error"
-            assert result["lean_status"] == "available"
+            # The crash envelope, not the timeout one.
+            assert result["status"] == "unavailable"
+            assert result["lean_status"] == "crashed"
             assert "REPL crashed" in result["messages"][0]["text"]
         finally:
             reset_resources_for_tests()
@@ -3442,7 +3445,7 @@ class TestAxiomAuditFailureIsolation:
 
     def test_repl_error_during_audit_degrades_to_unknown(self):
         class _FailOnAudit(_FakeLeanRepl):
-            async def query(self, command):
+            async def query(self, command, *, generation=None):
                 self.commands.append(command)
                 if "#print axioms" in command.get("cmd", ""):
                     raise LeanReplError("boom")
@@ -3458,15 +3461,13 @@ class TestAxiomAuditFailureIsolation:
         assert result["axiom_audit"]["outcome"] == "unknown"
         assert "boom" in result["axiom_audit"]["reason"]
 
-    def test_audit_timeout_respawns_and_invalidates_dead_tokens(self):
-        """A wedged audit round-trip carries the same stale-stdout hazard as
-        the primary query, so it triggers the same kill+respawn. The
+    def test_audit_timeout_invalidates_dead_tokens(self):
+        """A timed-out audit round-trip restarts the REPL, so the
         continuation tokens the primary response minted address a process
-        that no longer exists, so they must not be emitted as live."""
-        import server.handlers.lean_verify as lv
+        that no longer exists and must not be emitted as live."""
 
         class _TimeoutOnAudit(_FakeLeanRepl):
-            async def query(self, command):
+            async def query(self, command, *, generation=None):
                 self.commands.append(command)
                 if "#print axioms" in command.get("cmd", ""):
                     raise LeanReplTimeoutError("audit timed out")
@@ -3477,24 +3478,9 @@ class TestAxiomAuditFailureIsolation:
                 {"env": 7, "sorries": [{"goal": "g", "proofState": 3}]}
             ]
         )
-        fake = _attach_fake_resources(repl)
+        _attach_fake_resources(repl)
+        result = _run(handle_lean_verify(snippet="theorem t : g := by sorry"))
 
-        respawned = _FakeLeanRepl(generation="genB")
-
-        async def _fake_spawn(_config):
-            return respawned
-
-        original = lv.LeanRepl.spawn_from_config
-        lv.LeanRepl.spawn_from_config = staticmethod(_fake_spawn)
-        try:
-            result = _run(
-                handle_lean_verify(snippet="theorem t : g := by sorry")
-            )
-        finally:
-            lv.LeanRepl.spawn_from_config = original
-
-        assert repl.closed is True
-        assert fake.lean_repl is respawned
         # Primary axes intact.
         assert result["status"] == "sorry"
         # Axiom axis unknown, not clean.

@@ -90,13 +90,22 @@ class LeanReplError(RuntimeError):
 
 class LeanReplTimeoutError(LeanReplError):
     """The per-:meth:`LeanRepl.query` wall-clock timeout fired —
-    a runaway elaboration. The subprocess is NOT killed by the raise;
-    callers (the lean_verify handler) MUST close + respawn so the
-    next query does not read stale stdout from the wedged elaboration.
+    a runaway elaboration. :meth:`LeanRepl.query` has already killed and
+    restarted the subprocess before raising, so the next query cannot read
+    stale stdout from the wedged elaboration.
 
     A distinct subclass so handlers can ``except LeanReplTimeoutError``
     without resorting to substring-matching on the error message (m3
     critique F3).
+    """
+
+
+class LeanReplRestartedError(LeanReplError):
+    """The caller pinned a generation and the REPL has restarted since.
+
+    Env and proofState ids are integers scoped to one subprocess, so a
+    command that names them must not reach a different process, where the
+    same integer can address something else. The command was not sent.
     """
 
 
@@ -107,6 +116,12 @@ class LeanRepl:
     via :meth:`close`. :meth:`query` performs one JSON command/response
     round-trip; concurrent ``query`` calls are serialised internally
     (the process has one stdin/stdout stream).
+
+    The instance owns its subprocess for its whole life: a query that
+    fails in any way kills the process and starts a new one under the
+    same lock that serialises round-trips, so callers never replace the
+    handle and never see a dead one. Each restart mints a new
+    :attr:`generation`.
     """
 
     def __init__(
@@ -115,10 +130,16 @@ class LeanRepl:
         lake_path: Path,
         repl_dir: Path,
         generation: str | None = None,
+        *,
+        rlimit_as_bytes: int | None = None,
     ) -> None:
         self._proc = proc
         self._lake_path = lake_path
         self._repl_dir = repl_dir
+        self._rlimit_as_bytes = rlimit_as_bytes
+        # Set by close(); a closed REPL is never restarted, so a query that
+        # fails while the server shuts down cannot leave a new process behind.
+        self._closed = False
         # Per-spawn generation token (lean-verify-continuation-m1). The
         # leanprover-community/repl env / proofState ids are integers
         # scoped to THIS subprocess: on a per-query-timeout kill+respawn
@@ -141,9 +162,8 @@ class LeanRepl:
         # lean-repl-observability-m1 — read-only telemetry state, mirroring
         # the per-instance ``_generation`` idiom above. Initialised HERE (not
         # in ``spawn``) so the direct-construction path used by the fake-proc
-        # tests gets them too. A kill+respawn mints a brand-new LeanRepl, so
-        # both reset to their initial values for free — the "gauge drops
-        # toward 0 on respawn" behaviour surfaced at ``/metrics``.
+        # tests gets them too. A restart resets both, which is the "gauge
+        # drops toward 0 on respawn" behaviour surfaced at ``/metrics``.
         self._spawn_monotonic = time.monotonic()
         self._env_snapshot_count = 0
 
@@ -181,6 +201,15 @@ class LeanRepl:
         """
         lake = Path(lake_path)
         rd = Path(repl_dir)
+        proc = await cls._start_process(lake, rd, rlimit_as_bytes)
+        return cls(proc, lake, rd, rlimit_as_bytes=rlimit_as_bytes)
+
+    @staticmethod
+    async def _start_process(
+        lake: Path, rd: Path, rlimit_as_bytes: int | None
+    ) -> asyncio.subprocess.Process:
+        """Start one ``lake exe repl`` subprocess; :meth:`spawn` and the
+        in-place restart both go through here."""
         if not lake.is_file():
             raise LeanUnavailableError(
                 f"lake binary not found at {lake!s}; set ARXMCP_LAKE_PATH "
@@ -257,7 +286,7 @@ class LeanRepl:
                 else "disabled"
             ),
         )
-        return cls(proc, lake, rd)
+        return proc
 
     @classmethod
     async def spawn_from_config(cls, config: Config) -> LeanRepl:
@@ -293,11 +322,12 @@ class LeanRepl:
     def generation(self) -> str:
         """Opaque per-spawn token identifying THIS subprocess instance.
 
-        Minted once at construction. The ``lean_verify`` handler uses it to
-        namespace the ``env`` / ``proof_state`` continuation tokens it
-        emits, so a token minted before a kill+respawn is rejected rather
-        than misbound onto a colliding env id in the new process
-        (lean-verify-continuation-m1).
+        Minted at construction and again at every restart. The
+        ``lean_verify`` handler uses it to namespace the ``env`` /
+        ``proof_state`` continuation tokens it emits, and to pin each
+        command to one process, so a token minted before a restart is
+        rejected rather than misbound onto a colliding env id in the new
+        process (lean-verify-continuation-m1).
         """
         return self._generation
 
@@ -309,8 +339,7 @@ class LeanRepl:
         command; see ``.claude/docs/lean-sandbox-design.md`` §
         "Environment-snapshot accumulation (F7)"). Surfaced at ``/metrics``
         scrape time as ``arxmcp_lean_repl_env_snapshots``; resets to 0 on a
-        kill+respawn because that mints a fresh instance
-        (lean-repl-observability-m1).
+        restart (lean-repl-observability-m1).
         """
         return self._env_snapshot_count
 
@@ -320,7 +349,7 @@ class LeanRepl:
         :attr:`is_running`). Surfaced at ``/metrics`` scrape time as
         ``arxmcp_lean_repl_age_seconds`` so an operator can see how long a
         REPL — and its accumulating snapshot tree — has been resident; resets
-        on a kill+respawn (lean-repl-observability-m1).
+        on a restart (lean-repl-observability-m1).
         """
         return time.monotonic() - self._spawn_monotonic
 
@@ -329,6 +358,7 @@ class LeanRepl:
         command: dict[str, Any],
         *,
         timeout: float = DEFAULT_QUERY_TIMEOUT_S,
+        generation: str | None = None,
     ) -> dict[str, Any]:
         """Send one JSON ``command`` to the REPL, return the parsed JSON
         response.
@@ -337,20 +367,39 @@ class LeanRepl:
         sandbox per-query guard against a runaway elaboration — and
         serialised against other ``query`` calls.
 
-        Raises :class:`LeanReplError` if the process has exited, the
-        timeout fires, or the response is not valid JSON.
+        A process that has exited is restarted before anything is sent.
+        ``generation`` pins the command to one process: if the REPL has
+        restarted since the caller read :attr:`generation`, nothing is sent.
+        A round-trip that fails in any way kills the process and starts a new
+        one before raising, because whatever the old process writes next
+        would be read as the answer to the next command.
+
+        Raises :class:`LeanReplTimeoutError` on timeout,
+        :class:`LeanReplRestartedError` on a stale pin,
+        :class:`LeanReplError` for any other runtime failure or after
+        :meth:`close`, and :class:`LeanUnavailableError` when the process
+        must be restarted and cannot be.
         """
         async with self._io_lock:
+            if self._closed:
+                raise LeanReplError("Lean REPL is closed; cannot query.")
             if self._proc.returncode is not None:
-                raise LeanReplError(
-                    f"Lean REPL process has exited "
-                    f"(returncode={self._proc.returncode}); cannot query."
+                logger.warning(
+                    "LeanRepl: process has exited (returncode=%s); restarting",
+                    self._proc.returncode,
+                )
+                await self._start_new_process()
+            if generation is not None and generation != self._generation:
+                raise LeanReplRestartedError(
+                    "Lean REPL restarted since this command's ids were "
+                    "issued; the command was not sent."
                 )
             try:
                 resp = await asyncio.wait_for(
                     self._round_trip(command), timeout=timeout
                 )
             except TimeoutError as exc:
+                await self._restart_after_failure()
                 # LeanReplTimeoutError subclasses LeanReplError so existing
                 # ``except LeanReplError`` handlers still catch it; the
                 # subclass exists so the lean_verify handler can route the
@@ -359,6 +408,11 @@ class LeanRepl:
                 raise LeanReplTimeoutError(
                     f"Lean REPL query exceeded the {timeout}s timeout."
                 ) from exc
+            except (LeanReplError, OSError) as exc:
+                # OSError covers a pipe broken by a child that died between
+                # the liveness check and the write.
+                await self._restart_after_failure()
+                raise LeanReplError(f"Lean REPL failed mid-query: {exc}") from exc
             # lean-repl-observability-m1 — a successful round-trip means the
             # REPL recorded one more immutable env snapshot in-process (it
             # appends one per command). Count it here, still under _io_lock
@@ -369,6 +423,41 @@ class LeanRepl:
             # failed round-trip is never counted.
             self._env_snapshot_count += 1
             return resp
+
+    async def _start_new_process(self) -> None:
+        """Replace the subprocess with a fresh one. Caller holds ``_io_lock``.
+
+        Raises :class:`LeanUnavailableError` if it cannot be started; the
+        dead process is kept, so the next :meth:`query` tries again.
+        """
+        self._proc = await self._start_process(
+            self._lake_path, self._repl_dir, self._rlimit_as_bytes
+        )
+        self._generation = secrets.token_hex(8)
+        self._spawn_monotonic = time.monotonic()
+        self._env_snapshot_count = 0
+        if self._closed:
+            # close() ran while this process was starting and could not see it.
+            await self._terminate()
+            raise LeanReplError("Lean REPL is closed; cannot query.")
+
+    async def _restart_after_failure(self) -> None:
+        """Kill the subprocess and start a new one. Caller holds ``_io_lock``.
+
+        Never raises for a failed start: the caller is already reporting a
+        failure, and the next :meth:`query` retries the start.
+        """
+        await self._terminate()
+        if self._closed:
+            return
+        try:
+            await self._start_new_process()
+        except LeanUnavailableError:
+            logger.exception(
+                "LeanRepl: restart failed; the next query will try again"
+            )
+        except LeanReplError:
+            pass  # closed during the start; the new process is already gone.
 
     async def _round_trip(self, command: dict[str, Any]) -> dict[str, Any]:
         """Write one command, read one JSON-block response.
@@ -437,6 +526,10 @@ class LeanRepl:
         (Windows). Idempotent and exception-safe; safe to call from a
         lifespan ``finally`` block.
         """
+        self._closed = True
+        await self._terminate()
+
+    async def _terminate(self) -> None:
         if self._proc.returncode is not None:
             return  # already exited and reaped.
         try:
@@ -478,6 +571,7 @@ __all__ = [
     "DEFAULT_QUERY_TIMEOUT_S",
     "LeanRepl",
     "LeanReplError",
+    "LeanReplRestartedError",
     "LeanReplTimeoutError",
     "LeanUnavailableError",
 ]

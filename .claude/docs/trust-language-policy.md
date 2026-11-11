@@ -159,8 +159,8 @@ Every tool must be able to return, and every consumer must handle, these as **su
 ### 5b. Separate lane — operational status (NOT abstention)
 
 Service and input-validity facts are **not** epistemic abstention and must not share its enum:
-`available | disabled | timeout | unavailable | invalid-input`. This is where `lean_verify`'s
-`timeout`/`unavailable`, `cite_neighbors.graph_status="unavailable"` (a corrupt/half-ingested
+`available | disabled | timeout | crashed | unavailable | invalid-input`. This is where `lean_verify`'s
+`timeout`/`crashed`/`unavailable`, `cite_neighbors.graph_status="unavailable"` (a corrupt/half-ingested
 Kùzu DB), and `find_lemma_by_name`'s `empty_after_normalization` (a degenerate query) belong.
 Scoping abstention as epistemic-only here **pre-empts R3's five-operation redesign** hitting
 the same gap when it must classify axiom-audit failures and isolation kills.

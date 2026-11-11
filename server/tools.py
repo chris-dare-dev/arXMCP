@@ -257,7 +257,16 @@ logger = logging.getLogger(__name__)
 #: two shipped separately (#184, #186) and this one turns out not to need one.
 #: lean_verify_result.json and search_papers_result.json bump 23 -> 24 in
 #: lockstep, as they always have.
-TOOL_SCHEMA_VERSION: int = 24
+#:
+#: 24 -> 25: lean_verify's ``lean_status`` enum gains ``crashed`` and
+#: ``unavailable``. A REPL that died mid-call used to report ``available``
+#: and one that could not be restarted reported ``disabled``; both now name
+#: what happened, with ``status="unavailable"``. The advertised
+#: ``outputSchema`` moves, so EXPECTED_TOOL_SCHEMA_SHA256 re-pins via
+#: ``pytest --update-tool-schema-hash --allow-version-bump``. No tool
+#: description is edited, so BP1 does not move. Both result schemas bump
+#: 24 -> 25 in lockstep.
+TOOL_SCHEMA_VERSION: int = 25
 
 #: URI scheme for chunk resource_links per the design note. Used by
 #: handlers that switch to resource_link mode when payloads exceed

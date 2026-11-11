@@ -24,6 +24,8 @@ from server.config import Config
 from server.lean_repl import (
     LeanRepl,
     LeanReplError,
+    LeanReplRestartedError,
+    LeanReplTimeoutError,
     LeanUnavailableError,
 )
 from server.resources import ResourceStartupError
@@ -109,16 +111,20 @@ class TestFailLoudContract:
 
 
 class _FakeStdin:
-    """Stand-in for ``proc.stdin``: captures bytes; ``drain`` is a no-op."""
+    """Stand-in for ``proc.stdin``: captures bytes; ``drain`` is a no-op,
+    or raises ``BrokenPipeError`` with ``broken=True`` (a child that died
+    after the liveness check)."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, broken: bool = False) -> None:
         self.buffer = b""
+        self._broken = broken
 
     def write(self, data: bytes) -> None:
         self.buffer += data
 
     async def drain(self) -> None:
-        return None
+        if self._broken:
+            raise BrokenPipeError(32, "Broken pipe")
 
 
 class _FakeStdout:
@@ -151,8 +157,9 @@ class _FakeProc:
         stdout_hang: bool = False,
         returncode: int | None = None,
         wait_hangs: bool = False,
+        stdin_broken: bool = False,
     ) -> None:
-        self.stdin = _FakeStdin()
+        self.stdin = _FakeStdin(broken=stdin_broken)
         self.stdout = _FakeStdout(stdout_lines or [], hang=stdout_hang)
         self.returncode = returncode
         self._wait_hangs = wait_hangs
@@ -221,11 +228,6 @@ class TestFakeProcRoundTrips:
         with pytest.raises(LeanReplError, match="non-JSON"):
             _run(_repl(proc).query({"cmd": "x"}))
 
-    def test_query_after_exit_raises(self):
-        proc = _FakeProc(returncode=0)
-        with pytest.raises(LeanReplError, match="has exited"):
-            _run(_repl(proc).query({"cmd": "x"}))
-
     def test_close_terminates_and_reaps(self):
         proc = _FakeProc(returncode=None)
         repl = _repl(proc)
@@ -292,25 +294,12 @@ class TestObservabilityTelemetry:
         assert repl.env_snapshot_count == 0
 
     def test_count_not_incremented_after_exit(self):
+        # The fake paths cannot start a replacement process.
         proc = _FakeProc(returncode=0)
         repl = _repl(proc)
-        with pytest.raises(LeanReplError, match="has exited"):
+        with pytest.raises(LeanUnavailableError, match="lake binary not found"):
             _run(repl.query({"cmd": "x"}))
         assert repl.env_snapshot_count == 0
-
-    def test_new_instance_resets_count_and_age(self):
-        """AC2 at harness level: a kill+respawn mints a BRAND-NEW LeanRepl,
-        so the observability state (read from the current instance) drops
-        back toward 0 — no reset logic on the old instance is needed."""
-        proc_a = _FakeProc(stdout_lines=[b'{"env": 0}\n', b'{"env": 1}\n'])
-        repl_a = _repl(proc_a)
-        _run(repl_a.query({"cmd": "x"}))
-        _run(repl_a.query({"cmd": "y"}))
-        assert repl_a.env_snapshot_count == 2
-        # The respawn: a fresh instance over a new fake proc.
-        repl_b = _repl(_FakeProc(stdout_lines=[b'{"env": 0}\n']))
-        assert repl_b.env_snapshot_count == 0
-        assert repl_b.age_seconds <= repl_a.age_seconds
 
     def test_age_seconds_nonnegative_and_nondecreasing(self):
         repl = _repl(_FakeProc())
@@ -318,6 +307,169 @@ class TestObservabilityTelemetry:
         assert first >= 0.0
         time.sleep(0.01)
         assert repl.age_seconds >= first
+
+
+def _queue_starts(monkeypatch, *items):
+    """Make restarts hand out ``items`` in order (a fake process, or an
+    exception to raise). Returns the list of processes actually started."""
+    queue = list(items)
+    started: list[_FakeProc] = []
+
+    async def _start(lake, rd, rlimit_as_bytes):
+        item = queue.pop(0)
+        if isinstance(item, BaseException):
+            raise item
+        started.append(item)
+        return item
+
+    monkeypatch.setattr(LeanRepl, "_start_process", staticmethod(_start))
+    return started
+
+
+class TestRestart:
+    """A failed round-trip restarts the subprocess in place, under the
+    lock that serialises queries, so the handle callers hold stays live."""
+
+    @pytest.mark.parametrize(
+        ("proc_kwargs", "error", "match"),
+        [
+            ({"stdout_hang": True}, LeanReplTimeoutError, "timeout"),
+            ({"stdout_lines": []}, LeanReplError, "closed stdout"),
+            ({"stdout_lines": [b"not json\n", b"\n"]}, LeanReplError, "non-JSON"),
+            ({"stdin_broken": True}, LeanReplError, "Broken pipe"),
+        ],
+    )
+    def test_failed_round_trip_restarts_the_process(
+        self, monkeypatch, proc_kwargs, error, match
+    ):
+        fresh = _FakeProc(stdout_lines=[b'{"env": 0}\n'])
+        _queue_starts(monkeypatch, fresh)
+        failing = _FakeProc(**proc_kwargs)
+        repl = _repl(failing)
+        old_generation = repl.generation
+
+        async def go():
+            with pytest.raises(error, match=match):
+                await repl.query({"cmd": "x"}, timeout=0.1)
+            return await repl.query({"cmd": "y"})
+
+        assert _run(go()) == {"env": 0}
+        assert failing.terminate_called is True
+        assert fresh.stdin.buffer == b'{"cmd": "y"}\n\n'
+        assert repl.generation != old_generation
+
+    def test_restart_resets_telemetry(self, monkeypatch):
+        _queue_starts(monkeypatch, _FakeProc())
+        repl = _repl(_FakeProc(stdout_lines=[b'{"env": 0}\n']))
+        _run(repl.query({"cmd": "x"}))
+        assert repl.env_snapshot_count == 1
+        time.sleep(0.01)
+        age_before = repl.age_seconds
+        with pytest.raises(LeanReplError, match="closed stdout"):
+            _run(repl.query({"cmd": "y"}))
+        assert repl.env_snapshot_count == 0
+        assert repl.age_seconds < age_before
+
+    def test_exited_process_is_restarted_before_sending(self, monkeypatch):
+        fresh = _FakeProc(stdout_lines=[b'{"env": 0}\n'])
+        _queue_starts(monkeypatch, fresh)
+        repl = _repl(_FakeProc(returncode=-9))
+        assert _run(repl.query({"cmd": "x"})) == {"env": 0}
+        assert fresh.stdin.buffer == b'{"cmd": "x"}\n\n'
+
+    def test_failed_restart_is_retried_by_the_next_query(self, monkeypatch):
+        fresh = _FakeProc(stdout_lines=[b'{"env": 0}\n'])
+        gone = LeanUnavailableError("lake binary not found")
+        _queue_starts(monkeypatch, gone, gone, fresh)
+        repl = _repl(_FakeProc(stdout_lines=[]))
+
+        async def go():
+            # The restart after the crash fails and is only logged...
+            with pytest.raises(LeanReplError, match="closed stdout"):
+                await repl.query({"cmd": "x"})
+            assert repl.is_running is False
+            # ...the next query tries again and reports the failure...
+            with pytest.raises(LeanUnavailableError, match="lake binary"):
+                await repl.query({"cmd": "y"})
+            # ...and the one after that succeeds.
+            return await repl.query({"cmd": "z"})
+
+        assert _run(go()) == {"env": 0}
+
+    def test_stale_generation_pin_sends_nothing(self):
+        proc = _FakeProc(stdout_lines=[b'{"env": 0}\n'])
+        with pytest.raises(LeanReplRestartedError):
+            _run(_repl(proc).query({"cmd": "x"}, generation="other"))
+        assert proc.stdin.buffer == b""
+
+    def test_queued_queries_share_one_restart(self, monkeypatch):
+        """Three calls queue on one REPL and the first times out. Exactly
+        one replacement starts; the unpinned call runs on it, and the call
+        pinned to the old process is refused."""
+        fresh = _FakeProc(stdout_lines=[b'{"env": 0}\n'])
+        started = _queue_starts(monkeypatch, fresh)
+        repl = _repl(_FakeProc(stdout_hang=True))
+        old_generation = repl.generation
+
+        async def go():
+            calls = [
+                repl.query({"cmd": "slow"}, timeout=0.1),
+                repl.query({"cmd": "next"}),
+                repl.query({"cmd": "pinned"}, generation=old_generation),
+            ]
+            return await asyncio.gather(*calls, return_exceptions=True)
+
+        slow, unpinned, pinned = _run(go())
+        assert isinstance(slow, LeanReplTimeoutError)
+        assert unpinned == {"env": 0}
+        assert isinstance(pinned, LeanReplRestartedError)
+        assert started == [fresh]
+
+    def test_closed_repl_is_never_restarted(self, monkeypatch):
+        started = _queue_starts(monkeypatch)
+        repl = _repl(_FakeProc(stdout_hang=True))
+
+        async def go():
+            in_flight = asyncio.create_task(repl.query({"cmd": "x"}, timeout=0.2))
+            await asyncio.sleep(0)
+            await repl.close()
+            with pytest.raises(LeanReplTimeoutError):
+                await in_flight
+            with pytest.raises(LeanReplError, match="closed"):
+                await repl.query({"cmd": "y"})
+
+        _run(go())
+        assert started == []
+
+    def test_close_during_a_start_terminates_the_new_process(self, monkeypatch):
+        fresh = _FakeProc()
+        repl = _repl(_FakeProc(returncode=-9))
+        starting = asyncio.Event()
+        release = asyncio.Event()
+
+        async def _slow_start(lake, rd, rlimit_as_bytes):
+            starting.set()
+            await release.wait()
+            return fresh
+
+        monkeypatch.setattr(LeanRepl, "_start_process", staticmethod(_slow_start))
+
+        async def go():
+            in_flight = asyncio.create_task(repl.query({"cmd": "x"}))
+            await starting.wait()
+            await repl.close()
+            release.set()
+            with pytest.raises(LeanReplError, match="closed"):
+                await in_flight
+
+        _run(go())
+        assert fresh.terminate_called is True
+
+    def test_cancellation_during_restart_propagates(self, monkeypatch):
+        _queue_starts(monkeypatch, asyncio.CancelledError())
+        repl = _repl(_FakeProc(stdout_lines=[]))
+        with pytest.raises(asyncio.CancelledError):
+            _run(repl.query({"cmd": "x"}))
 
 
 # ===========================================================================
