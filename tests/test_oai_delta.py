@@ -917,11 +917,6 @@ class TestSetAwareTokenRecovery:
             side_effect=lambda pid, **kw: _ok_paper_outcome(pid),
         ):
             run_delta(
-                # Pin until=today so the same-day resume window is
-                # valid (state.last_harvest_date==today drives
-                # effective_from=today; until defaults to yesterday
-                # which would invert the window).
-                until_date=today,
                 lancedb_staging_path=tmp_path / "lancedb-staging",
                 state_path=state_path,
                 log_path=tmp_path / "delta.log",
@@ -940,6 +935,71 @@ class TestSetAwareTokenRecovery:
         assert second == {
             "verb": "ListRecords", "resumptionToken": "tok-NT",
         }
+
+
+class TestSameDayRerun:
+    """A second run on the same UTC day must harvest, not raise."""
+
+    def _run(self, tmp_path, fetcher):
+        return run_delta(
+            lancedb_staging_path=tmp_path / "lancedb-staging",
+            state_path=tmp_path / "state.json",
+            log_path=tmp_path / "delta.log",
+            failures_path=tmp_path / "delta.jsonl",
+            timeout_flag_path=tmp_path / "timeout.flag",
+            ops_dir=tmp_path / "ops",
+            fetch_page=fetcher,
+            sleep_between_pages=lambda _t: None,
+        )
+
+    def test_rerun_after_a_successful_run(self, tmp_path):
+        today = datetime.now(UTC).date().isoformat()
+        with patch(
+            "ingest.oai_delta.ingest_one_paper",
+            side_effect=lambda pid, **kw: _ok_paper_outcome(pid),
+        ):
+            self._run(tmp_path, _MockFetcher([_final_page([])] * 4))
+            second = _MockFetcher([_final_page(["2401.00001"])] * 4)
+            summary = self._run(tmp_path, second)
+        assert summary.records_ingested == 4
+        assert {(c["from"], c["until"]) for c in second.calls} == {(today, today)}
+
+    def test_rerun_after_a_crash_resumes_the_crashed_window(self, tmp_path):
+        """The run dies on the second set after the first handed back a
+        token. The re-run must restart the same window, not today's, so
+        nothing the dead run harvested and never ingested is skipped."""
+        yesterday = (datetime.now(UTC).date() - timedelta(days=1)).isoformat()
+
+        class _ResetAfterFirstPage(_MockFetcher):
+            def __call__(self, endpoint, params, **kwargs):
+                if self.calls:
+                    raise urllib.error.URLError("connection reset")
+                return super().__call__(endpoint, params, **kwargs)
+
+        first = _ResetAfterFirstPage(
+            [_continuation_page(["2401.00001"], "tok-AG")]
+        )
+        with pytest.raises(urllib.error.URLError):
+            self._run(tmp_path, first)
+
+        second = _MockFetcher(
+            [_final_page(["2401.00001", "2401.00002"])]
+            + [_final_page([])] * 3
+        )
+        with patch(
+            "ingest.oai_delta.ingest_one_paper",
+            side_effect=lambda pid, **kw: _ok_paper_outcome(pid),
+        ):
+            summary = self._run(tmp_path, second)
+        assert second.calls[0] == {
+            "verb": "ListRecords", "resumptionToken": "tok-AG",
+        }
+        assert {(c["from"], c["until"]) for c in second.calls[1:]} == {
+            (yesterday, yesterday)
+        }
+        assert summary.records_ingested == 2
+        state = json.loads((tmp_path / "state.json").read_text())
+        assert "harvest_from" not in state
 
 
 class TestFromUntilValidation:
