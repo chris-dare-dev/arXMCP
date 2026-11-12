@@ -93,7 +93,7 @@ class TestIngestSentinel:
 
 
 class TestDiskFullSentinelLogic:
-    """E14_S05 D4 — the scrape-time refresh hook in
+    """The scrape-time refresh hook in
     ``server.health.refresh_disk_free_metric`` is what wires
     ``shutil.disk_usage`` into the gauge + sentinel."""
 
@@ -124,6 +124,46 @@ class TestDiskFullSentinelLogic:
         assert record["reason"] == "disk_low"
         assert record["free_bytes"] == 5 * 1024**3
         assert record["threshold_bytes"] == DISK_PAUSE_THRESHOLD_BYTES
+
+    @staticmethod
+    def _scrape_with_free(monkeypatch, data_dir, free_bytes):
+        from server.health import refresh_disk_free_metric  # noqa: PLC0415
+
+        fake_usage = SimpleNamespace(
+            total=100 * 1024**3, used=100 * 1024**3 - free_bytes, free=free_bytes
+        )
+        monkeypatch.setattr("shutil.disk_usage", lambda _: fake_usage)
+        refresh_disk_free_metric(data_dir)
+
+    def test_repeat_scrapes_keep_the_first_pause_record(
+        self, tmp_path, monkeypatch
+    ):
+        """The record says when ingest paused, so later scrapes while
+        disk stays low must not rewrite it."""
+        data_dir = tmp_path / "data"
+        (data_dir / "ops").mkdir(parents=True)
+        sentinel = data_dir / "ops" / "ingest-paused"
+
+        self._scrape_with_free(monkeypatch, data_dir, 5 * 1024**3)
+        first = sentinel.read_bytes()
+        self._scrape_with_free(monkeypatch, data_dir, 4 * 1024**3)
+        self._scrape_with_free(monkeypatch, data_dir, 3 * 1024**3)
+
+        assert sentinel.read_bytes() == first
+
+    def test_low_disk_keeps_an_operator_pause(self, tmp_path, monkeypatch):
+        from tools.ingest_sentinel import is_paused, write_pause  # noqa: PLC0415
+
+        data_dir = tmp_path / "data"
+        (data_dir / "ops").mkdir(parents=True)
+        sentinel = data_dir / "ops" / "ingest-paused"
+        write_pause(reason="maintenance", path=sentinel)
+
+        self._scrape_with_free(monkeypatch, data_dir, 5 * 1024**3)
+
+        record = is_paused(path=sentinel)
+        assert record is not None
+        assert record["reason"] == "maintenance"
 
     def test_clears_sentinel_when_free_above_hysteresis_band(
         self, tmp_path, monkeypatch

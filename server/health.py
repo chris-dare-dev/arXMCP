@@ -1154,7 +1154,7 @@ def _refresh_eval_ndcg5(reports_dir: Path) -> None:
 
 
 #: Disk-free hysteresis: write the ingest-paused sentinel when free
-#: bytes drop below this threshold (10 GB). Closes E14_S05 D4.
+#: bytes drop below this threshold (10 GB).
 DISK_PAUSE_THRESHOLD_BYTES: int = 10 * 1024**3
 
 #: Clear the ingest-paused sentinel only after free climbs back
@@ -1172,15 +1172,11 @@ DISK_PAUSE_REASON: str = "disk_low"
 def refresh_disk_free_metric(data_dir: Path) -> None:
     """Refresh :data:`server.observability.metrics.DISK_FREE_BYTES`
     from ``shutil.disk_usage(data_dir)`` and update the
-    ``ingest-paused`` sentinel state with hysteresis. E14_S05 D4.
+    ``ingest-paused`` sentinel state with hysteresis: block ingestion,
+    allow reads to continue, page the operator.
 
-    Failure mode 7 (Disk full) from
-    :doc:`.claude/notes/08-security-observability-ops.md`:
-    "Block ingestion, allow reads to continue, page operator."
-
-    Idempotent — calling repeatedly with stable disk state is
-    cheap (one ``statvfs`` syscall) and does not toggle the
-    sentinel.
+    Idempotent — with stable disk state a call costs one ``statvfs``
+    syscall and never rewrites the sentinel.
     """
     import shutil  # noqa: PLC0415
 
@@ -1205,22 +1201,22 @@ def refresh_disk_free_metric(data_dir: Path) -> None:
 
     sentinel_path = Path(data_dir) / "ops" / "ingest-paused"
     if usage.free < DISK_PAUSE_THRESHOLD_BYTES:
-        if not sentinel_path.is_file():
-            logger.warning(
-                "disk_free below threshold (%d < %d bytes); "
-                "writing ingest-paused sentinel at %s",
-                usage.free,
-                DISK_PAUSE_THRESHOLD_BYTES,
-                sentinel_path,
-            )
-        # Issue #208: fail SOFT. This mitigation exists to react to a sick
-        # filesystem, and a read-only mount is one of the ways a filesystem
-        # gets sick — so the write raising OSError (EROFS/ENOSPC/EACCES) is
-        # a foreseeable state, not an impossible one. It used to propagate
-        # out through the /metrics scrape hook and the startup path, taking
-        # both down at exactly the moment the operator needed them. The
-        # gauge above is already set, so the disk-full ALERT still fires;
-        # only the automatic pause is lost, and the WARNING says so.
+        # Write once and leave it: the record's written_at is when ingest
+        # paused, and an existing file may be an operator's own pause,
+        # whose reason must survive.
+        if sentinel_path.is_file():
+            return
+        logger.warning(
+            "disk_free below threshold (%d < %d bytes); "
+            "writing ingest-paused sentinel at %s",
+            usage.free,
+            DISK_PAUSE_THRESHOLD_BYTES,
+            sentinel_path,
+        )
+        # A read-only or full filesystem is one of the states this reacts
+        # to, so the write failing is expected, not impossible. Raising
+        # would take /metrics and startup down with it; the gauge is
+        # already set, so the disk-full alert still fires.
         try:
             ingest_sentinel.write_pause(
                 reason=DISK_PAUSE_REASON,
@@ -1253,7 +1249,7 @@ def refresh_disk_free_metric(data_dir: Path) -> None:
                 )
                 ingest_sentinel.clear_pause(path=sentinel_path)
         except OSError as exc:
-            # Same fail-soft rule as the write path (#208). Leaving a stale
+            # Same fail-soft rule as the write path. Leaving a stale
             # pause sentinel in place is the safe direction: ingestion stays
             # paused until an operator looks, which is what they would want
             # on a filesystem that cannot service an unlink.
