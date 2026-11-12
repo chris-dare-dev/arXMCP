@@ -9,6 +9,8 @@ import shutil
 import subprocess
 from pathlib import Path
 
+import pytest
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
@@ -249,3 +251,96 @@ class TestGitignoreDiscipline:
     def test_restic_env_sh_is_gitignored(self):
         text = (REPO_ROOT / ".gitignore").read_text(encoding="utf-8")
         assert "ops/restic-env.sh" in text
+
+
+@pytest.mark.requires_restic
+class TestRetentionIgnoresPartialSnapshots:
+    """The real wrapper against a throwaway repository. A partial run must
+    not prune, and the next clean run must drop the partial snapshot
+    without letting it occupy a retention slot. Opt-in like the other
+    restic test: `pytest -m requires_restic` AND ARXMCP_RUN_RESTIC_TESTS=1."""
+
+    def _root(self, tmp_path: Path) -> Path:
+        import sqlite3
+
+        root = tmp_path / "root"
+        (root / "ops" / "cron").mkdir(parents=True)
+        for rel in (
+            "ops/cron/arxmcp-backup.sh",
+            "ops/cron/backup-status-lib.sh",
+            "ops/checkpoint_notebooks_db.py",
+        ):
+            shutil.copy2(REPO_ROOT / rel, root / rel)
+        (root / "ops" / "restic-env.sh").write_text(
+            f'export RESTIC_REPOSITORY="{tmp_path / "repo"}"\n'
+            'export RESTIC_PASSWORD="test"\n',
+            encoding="utf-8",
+        )
+        var = root / "var" / "arxmcp"
+        for rel in ("index/lancedb", "index/kuzu", "corpus/chunks", "notebooks/demo"):
+            (var / rel).mkdir(parents=True)
+            (var / rel / "data.bin").write_bytes(os.urandom(64))
+        (var / "cache").mkdir()
+        sqlite3.connect(str(var / "cache" / "notebooks.db")).close()
+        return root
+
+    def _backup(self, root: Path) -> dict:
+        import json
+
+        subprocess.run(
+            ["bash", str(root / "ops" / "cron" / "arxmcp-backup.sh")],
+            env={**os.environ, "ARXMCP_UV": "/bin/true"},
+            capture_output=True,
+            text=True,
+        )
+        status = root / "var" / "arxmcp" / "ops" / "backup-status.json"
+        return json.loads(status.read_text(encoding="utf-8"))
+
+    def _snapshots(self, tmp_path: Path) -> list[tuple[str, list[str]]]:
+        import json
+
+        out = subprocess.run(
+            ["restic", "snapshots", "--json"],
+            env={**os.environ, "RESTIC_REPOSITORY": str(tmp_path / "repo"),
+                 "RESTIC_PASSWORD": "test"},
+            capture_output=True, text=True, check=True,
+        ).stdout
+        return [(s["short_id"], s.get("tags", [])) for s in json.loads(out)]
+
+    def test_partial_run_keeps_clean_snapshots(self, tmp_path):
+        if os.environ.get("ARXMCP_RUN_RESTIC_TESTS") != "1":
+            pytest.skip("set ARXMCP_RUN_RESTIC_TESTS=1 to run restic tests")
+        if shutil.which("restic") is None:
+            pytest.skip("restic not installed")
+        root = self._root(tmp_path)
+        subprocess.run(
+            ["restic", "init"],
+            env={**os.environ, "RESTIC_REPOSITORY": str(tmp_path / "repo"),
+                 "RESTIC_PASSWORD": "test"},
+            capture_output=True, check=True,
+        )
+
+        clean = [self._backup(root), self._backup(root)]
+        assert [run["status"] for run in clean] == ["ok", "ok"]
+
+        unreadable = root / "var" / "arxmcp" / "notebooks" / "demo" / "data.bin"
+        unreadable.chmod(0)
+        try:
+            partial = self._backup(root)
+        finally:
+            unreadable.chmod(0o644)
+        assert partial["status"] == "partial"
+        assert partial["forget_status"] is None
+        # A same-day forget over all three would keep the partial snapshot
+        # (newest of the day) plus the oldest, and prune the newer clean one.
+        assert self._snapshots(tmp_path) == [
+            (clean[0]["snapshot_id"], ["arxmcp-clean"]),
+            (clean[1]["snapshot_id"], ["arxmcp-clean"]),
+            (partial["snapshot_id"], ["arxmcp-partial"]),
+        ]
+
+        after = self._backup(root)
+        assert after["status"] == "ok"
+        remaining = self._snapshots(tmp_path)
+        assert (after["snapshot_id"], ["arxmcp-clean"]) in remaining
+        assert all(tags == ["arxmcp-clean"] for _, tags in remaining)

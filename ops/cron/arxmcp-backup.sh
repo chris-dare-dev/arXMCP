@@ -160,6 +160,15 @@ case "${CHECKPOINT_STATUS}" in
         ;;
 esac
 
+# Every snapshot carries arxmcp-clean or arxmcp-partial. Retention below
+# counts only clean (and pre-tag, untagged) snapshots, because restic keeps
+# by recency, not quality: a run of partial nights would otherwise fill
+# every daily slot and evict the last good snapshots.
+SNAPSHOT_TAG="arxmcp-clean"
+if [ "${CHECKPOINT_DEGRADED}" -eq 1 ]; then
+    SNAPSHOT_TAG="arxmcp-partial"
+fi
+
 # Run the backup. The include-list is a --files-from-verbatim -
 # manifest (one literal path per line on stdin via printf) per the
 # notebook-ops-hardening-m1 AC. --files-from-verbatim is include-only;
@@ -174,6 +183,7 @@ esac
 set +e
 SNAPSHOT_JSON="$(printf "%s\n" "${BACKUP_PATHS[@]}" | restic backup \
     --files-from-verbatim - \
+    --tag "${SNAPSHOT_TAG}" \
     --exclude "*.lock" \
     --exclude "*.tmp" \
     --exclude "lancedb-staging-tmp" \
@@ -230,6 +240,17 @@ fi
 if [ "${CHECKPOINT_DEGRADED}" -eq 1 ]; then
     BACKUP_STATUS="${ARXMCP_BACKUP_STATE_PARTIAL}"
 fi
+# restic exit 3 is only known after the snapshot exists, so retag it.
+# Retagging rewrites the snapshot under a new id; read that id back.
+if [ "${BACKUP_STATUS}" != "${ARXMCP_BACKUP_STATE_OK}" ] &&
+    [ "${SNAPSHOT_TAG}" = "arxmcp-clean" ]; then
+    if restic tag --remove arxmcp-clean --add arxmcp-partial "${SNAPSHOT_ID}"; then
+        SNAPSHOT_ID="$(restic snapshots --json --tag arxmcp-partial | python3 -c \
+            "import json,sys; print(max(json.load(sys.stdin), key=lambda s: s[\"time\"])[\"short_id\"])")"
+    else
+        echo "WARN: could not retag partial snapshot ${SNAPSHOT_ID}; it still counts toward retention as clean" >&2
+    fi
+fi
 cat > "${TMP_STATUS}" <<EOF
 {
   "last_success_at": ${PRIOR_LAST_SUCCESS_JSON},
@@ -253,29 +274,52 @@ mv "${TMP_STATUS}" "${STATUS_FILE}"
 # Apply retention policy AFTER the backup, not before. If
 # forget fails, the partial sentinel above remains as the
 # durable record of the backups success.
-set +e
-# notebook-ops-hardening-m1: --group-by host (not the default
-# host,paths). When the include-list changes, the default groups
-# pre-change and post-change snapshots into separate paths-groups, each
-# getting its own 7/4/12 window. --group-by host keeps a single unified
-# retention window as the manifest evolves.
-restic forget --prune \
-    --group-by host \
-    --keep-daily 7 \
-    --keep-weekly 4 \
-    --keep-monthly 12
-RESTIC_FORGET_EXIT=$?
-set -e
+#
+# A partial run prunes nothing: its snapshot is not trusted to stand in
+# for the clean ones forget would remove. A clean run first drops the
+# partial snapshots it supersedes, then applies the policy to clean and
+# untagged snapshots only.
+FORGET_STATUS="skipped"
+FORGET_STATUS_JSON="null"
+RESTIC_FORGET_EXIT_JSON="null"
+if [ "${BACKUP_STATUS}" = "${ARXMCP_BACKUP_STATE_OK}" ]; then
+    set +e
+    PARTIAL_IDS="$(restic snapshots --json --tag arxmcp-partial | python3 -c \
+        "import json,sys; print(\" \".join(s[\"short_id\"] for s in json.load(sys.stdin)))")"
+    RESTIC_FORGET_EXIT=$?
+    if [ "${RESTIC_FORGET_EXIT}" -eq 0 ] && [ -n "${PARTIAL_IDS}" ]; then
+        # shellcheck disable=SC2086  # one argument per snapshot id
+        restic forget ${PARTIAL_IDS}
+        RESTIC_FORGET_EXIT=$?
+    fi
+    if [ "${RESTIC_FORGET_EXIT}" -eq 0 ]; then
+        # notebook-ops-hardening-m1: --group-by host (not the default
+        # host,paths). When the include-list changes, the default groups
+        # pre-change and post-change snapshots into separate paths-groups,
+        # each getting its own 7/4/12 window. --group-by host keeps a single
+        # unified retention window as the manifest evolves. --tag "" matches
+        # snapshots taken before tagging began.
+        restic forget --prune \
+            --group-by host \
+            --tag "" --tag arxmcp-clean \
+            --keep-daily 7 \
+            --keep-weekly 4 \
+            --keep-monthly 12
+        RESTIC_FORGET_EXIT=$?
+    fi
+    set -e
+    FORGET_STATUS="${ARXMCP_BACKUP_STATE_OK}"
+    if [ "${RESTIC_FORGET_EXIT}" -ne 0 ]; then
+        FORGET_STATUS="${ARXMCP_BACKUP_STATE_FAILED}"
+    fi
+    FORGET_STATUS_JSON="\"${FORGET_STATUS}\""
+    RESTIC_FORGET_EXIT_JSON="${RESTIC_FORGET_EXIT}"
+fi
 
 # Closes infra-safety IS6: capture FINISHED_AT after the
 # forget step so the sentinel reflects the actual end of
 # the operation, not just the backup phase.
 FINISHED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-
-FORGET_STATUS="${ARXMCP_BACKUP_STATE_OK}"
-if [ "${RESTIC_FORGET_EXIT}" -ne 0 ]; then
-    FORGET_STATUS="${ARXMCP_BACKUP_STATE_FAILED}"
-fi
 
 # Overwrite with the final status. backup_status and forget_status are
 # preserved as separate fields so a partial backup, and which phase caused
@@ -303,7 +347,7 @@ cat > "${TMP_STATUS}" <<EOF
 {
   "backup_status": "${BACKUP_STATUS}",
   "finished_at": "${FINISHED_AT}",
-  "forget_status": "${FORGET_STATUS}",
+  "forget_status": ${FORGET_STATUS_JSON},
   "last_success_at": ${LAST_SUCCESS_JSON},
   "paths_backed_up": [
     "'"${REPO_ROOT}"'/var/arxmcp/index/lancedb",
@@ -314,7 +358,7 @@ cat > "${TMP_STATUS}" <<EOF
   ],
   "repository": "${RESTIC_REPOSITORY}",
   "restic_backup_exit": ${RESTIC_BACKUP_EXIT},
-  "restic_forget_exit": ${RESTIC_FORGET_EXIT},
+  "restic_forget_exit": ${RESTIC_FORGET_EXIT_JSON},
   "snapshot_id": "${SNAPSHOT_ID}",
   "started_at": "${STARTED_AT}",
   "status": "${FINAL_STATUS}"
