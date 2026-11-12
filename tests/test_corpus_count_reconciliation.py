@@ -280,31 +280,46 @@ class TestStartupReconciliation:
 # ===========================================================================
 
 
-class TestReadyzChunkCountDivergedBody:
-    def test_readyz_reports_chunk_count_diverged(self):
-        """The existing degraded /readyz path serializes the new reason
-        without any handler change."""
+class TestReadyzDegradedReasons:
+    """A count that is wrong leaves every answer right, so /readyz stays
+    200 and names the reason; a reason that puts answers at risk, or one
+    nobody has classified, takes the server out of rotation."""
+
+    @pytest.mark.parametrize(
+        ("reason", "ready"),
+        [
+            ("chunk_count_diverged", True),
+            ("paper_count_diverged", True),
+            ("embedder_version_mismatch", False),
+            ("corpus_corruption", False),
+            ("a_reason_nobody_classified", False),
+        ],
+    )
+    def test_readyz_status_by_reason(self, reason, ready):
         from server.health import readyz  # noqa: PLC0415
 
         resources = SimpleNamespace(
             warm=True,
             degraded=DegradedState(
-                reason="chunk_count_diverged",
-                fallback_version=7,
-                original_version=7,
+                reason=reason, fallback_version=7, original_version=7,
             ),
             is_resource_warm=lambda name: True,
+            startup_chunk_count=30,
+            corpus_info=SimpleNamespace(chunk_count=10),
         )
         scope = SimpleNamespace(
             app=SimpleNamespace(state=SimpleNamespace(resources=resources))
         )
         response = asyncio.run(readyz(scope))
-        assert response.status_code == 503
         body = json.loads(response.body)
-        assert body["status"] == "degraded"
-        assert body["reason"] == "chunk_count_diverged"
-        assert body["fallback_version"] == 7
-        assert body["original_version"] == 7
+        if ready:
+            assert response.status_code == 200
+            assert body["status"] == "ready"
+            assert body["degraded"] == {"reason": reason}
+        else:
+            assert response.status_code == 503
+            assert body["status"] == "degraded"
+            assert body["reason"] == reason
 
 
 # ===========================================================================

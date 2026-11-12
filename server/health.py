@@ -319,12 +319,14 @@ async def readyz(request: Request) -> Response:
             content={"status": "not_ready", "warm": warm_map},
         )
 
-    # E14_S05 D2: degraded body. When the LanceDB N-1 fallback was
-    # activated at startup, /readyz returns 503 with the degraded
-    # body — load-balancers see "not healthy" and operators see the
-    # exact reason. The server still serves requests because the
-    # chunks_table is open at the fallback version.
-    if resources.degraded is not None:
+    # E14_S05 D2: degraded body. When the answers themselves are at
+    # risk (the LanceDB N-1 fallback, an embedder mismatch), /readyz
+    # returns 503 with the degraded body — load-balancers see "not
+    # healthy" and operators see the exact reason. A count-only
+    # divergence leaves every answer correct, so it falls through to
+    # the 200 below and is named there.
+    degraded = resources.degraded
+    if degraded is not None and not degraded.serves_correctly:
         return JSONResponse(
             status_code=503,
             content={
@@ -348,19 +350,19 @@ async def readyz(request: Request) -> Response:
     # startup_chunk_count (count_rows() failed at startup — m2 FM-2) renders as
     # null, never a bogus negative count.
     startup_count = resources.startup_chunk_count
-    return JSONResponse(
-        status_code=200,
-        content={
-            "status": "ready",
-            "chunk_count": None if startup_count < 0 else startup_count,
-            "marker_chunk_count": resources.corpus_info.chunk_count,
-            "warm": {
-                "embedder": resources.is_resource_warm("embedder"),
-                "lancedb": resources.is_resource_warm("lancedb"),
-                "reranker": resources.is_resource_warm("reranker"),
-            },
+    content: dict[str, object] = {
+        "status": "ready",
+        "chunk_count": None if startup_count < 0 else startup_count,
+        "marker_chunk_count": resources.corpus_info.chunk_count,
+        "warm": {
+            "embedder": resources.is_resource_warm("embedder"),
+            "lancedb": resources.is_resource_warm("lancedb"),
+            "reranker": resources.is_resource_warm("reranker"),
         },
-    )
+    }
+    if degraded is not None:
+        content["degraded"] = {"reason": degraded.reason}
+    return JSONResponse(status_code=200, content=content)
 
 
 # ---------------------------------------------------------------------------
@@ -394,8 +396,8 @@ async def compute_health_status(
     - **not warm / pre-startup → ``"fail"`` (503)** — matches ``/readyz``'s
       503-before-warm semantics. (AC4: ``/readyz`` itself is untouched.)
     - **warm + degraded / disk-low / backup-stale → ``"warn"`` (200)** — the
-      server still serves; ``/readyz`` returns 503 for the degraded case but
-      ``/status`` reports a serving-but-degraded 2xx.
+      server still serves; ``/readyz`` returns 503 when the answers are at
+      risk but ``/status`` reports a serving-but-degraded 2xx.
     - **warm + healthy → ``"pass"`` (200)``.
 
     Every component probe degrades to ``warn`` rather than raising — a status

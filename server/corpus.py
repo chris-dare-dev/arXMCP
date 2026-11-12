@@ -172,6 +172,20 @@ class DegradedState:
     fallback_version: int
     original_version: int
 
+    @property
+    def serves_correctly(self) -> bool:
+        """True when only a count the server reports is wrong and retrieval
+        answers are unaffected, so ``/readyz`` stays 200. An unknown reason
+        is False: a new cause keeps the server out of rotation until it is
+        classified."""
+        return self.reason in _COUNT_ONLY_DEGRADED_REASONS
+
+
+#: Degraded reasons that mean a reported NUMBER is wrong, never an answer.
+_COUNT_ONLY_DEGRADED_REASONS: frozenset[str] = frozenset(
+    {"chunk_count_diverged", "paper_count_diverged"}
+)
+
 
 def _trim_vendored_paths(message: str) -> str:
     """Drop the crates.io build-machine path from a LanceDB error (issue #476).
