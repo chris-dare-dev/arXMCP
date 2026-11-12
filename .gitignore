@@ -86,9 +86,11 @@ AGENTS.md
 
 # Pipeline output and agent memory (CREDO.md §1). The milestone,
 # capability-scout and frontend-uplift pipelines write their state, briefs,
-# critiques and summaries here, and `memory: project` agents write their memory.
-# All of it is machine-local; the record of a change is its issue.
+# critiques and summaries here, `memory: project` agents write their memory, and
+# pipeline-outcome-log.py appends its outcome log. All of it is machine-local;
+# the record of a change is its issue.
 /.claude/notes/milestones/
+/.claude/notes/pipeline-outcomes/
 /.claude/notes/capability-scouts/
 /.claude/notes/frontend-uplifts/
 /.claude/agent-memory/

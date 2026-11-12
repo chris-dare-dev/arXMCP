@@ -136,7 +136,7 @@ items:
     rice: { r: 3, i: 1, c: 0.5, e: 3, score: 0.5, rank: 6 }
     links:
       issue: ["https://github.com/chris-dare-dev/arXMCP/issues/35"]
-      code: ["ingest/embedder.py:371-388", "server/retrieval/rerank.py:128-133", "server/retrieval/rrf.py:53", ".claude/notes/deferred-work-tracker.md:53-55"]
+      code: ["ingest/embedder.py:371-388", "server/retrieval/rerank.py:128-133", "server/retrieval/rrf.py:53"]
 
   - id: retrieval-unlocks-m1
     kind: milestone
@@ -504,7 +504,6 @@ items:
     tags: [D1-R13]
     links:
       issue: ["https://github.com/chris-dare-dev/arXMCP/issues/45"]
-      code: [".claude/notes/deferred-work-tracker.md:40-56"]
 
   - id: retrieval-unlocks-m11
     kind: milestone

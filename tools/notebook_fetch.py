@@ -23,8 +23,7 @@ Honors the 3-second-per-IP politeness contract (see
 ``ingest/ar5iv_fetch.py`` module docstring and
 ``tools/arxiv_fetch.py:29``) by sleeping between non-first fetches.
 The raw-tex fetch adds its OWN 3-second sleep before each call — the
-ar5iv and ``export.arxiv.org`` budgets are separate per the scan brief
-(``.claude/notes/scans/preamble-without-raw-tex-2026-05-27.md``).
+ar5iv and ``export.arxiv.org`` budgets are separate.
 
 Summary line at end:
 

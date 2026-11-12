@@ -52,7 +52,6 @@ items:
     links:
       issue: ["https://github.com/chris-dare-dev/arXMCP/issues/249"]
       code: ["tools/_arxiv_api.py", "server/notebooks_store.py"]
-      note: [".claude/notes/HANDOFF.md"]
 
   - id: paper-metadata-e2
     kind: epic

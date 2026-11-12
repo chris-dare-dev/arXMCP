@@ -205,7 +205,6 @@ items:
       code:
         - "ingest/embedder.py"
         - "ingest/re_embed.py"
-        - ".claude/roadmap/E11-scale-cutover.md"
         - "pyproject.toml"
 
   - id: scale-ops-hardening-e5
@@ -714,7 +713,7 @@ items:
     tags: [D5-R05, D1-R09, D1-R12]
     links:
       issue: ["https://github.com/chris-dare-dev/arXMCP/issues/106"]
-      code: ["ingest/embedder.py", "ingest/re_embed.py", ".claude/roadmap/E11-scale-cutover.md"]
+      code: ["ingest/embedder.py", "ingest/re_embed.py"]
 
   # ── e5: Content-security hardening ──────────────────────────────
 

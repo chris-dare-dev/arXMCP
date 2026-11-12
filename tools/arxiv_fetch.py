@@ -205,7 +205,7 @@ def validate_paper_id(paper_id: str) -> None:
 
     The seed corpus is post-2010 math.AG — old-style `subject/NNNNNNN`
     IDs do not appear there and pre-2007 OCR-only papers are an explicit
-    non-goal per .claude/notes/09-feature-priorities.md.
+    non-goal.
     """
     if not PAPER_ID_RE.match(paper_id):
         raise ValueError(

@@ -365,9 +365,7 @@ def extract_preamble(paper_id: str) -> PreambleDoc:
         # WARNING with the message at the call site; emitting an ERROR
         # + full traceback here doubles the noise for an expected
         # branch. WARNING-with-no-traceback is the right severity.
-        # The proper remediation is the preamble-without-raw-tex-m1
-        # milestone (see .claude/notes/scans/preamble-without-raw-tex-
-        # 2026-05-27.md) — fetch raw .tex via tools/arxiv_fetch.
+        # The remedy is to fetch raw .tex via tools/arxiv_fetch.
         # All other PER_PAPER_FAILURE_EXCEPTIONS (real disk OSError,
         # unicode errors, malformed .tex) keep the ERROR + traceback.
         if isinstance(exc, FileNotFoundError):

@@ -624,12 +624,8 @@ refresh-arxiv-ca:
 # ============================================================================
 #
 # Each target is a thin shell over an existing `tools/notebook_*.py` module
-# or a `/ui/api/notebooks/*` REST endpoint. See proposal at
-# .claude/notes/uplift/startup-ux/streamlined-flow-proposal.md §9 + decisions
-# at .claude/notes/uplift/startup-ux/decisions.md (D2: corpus-level ingest,
-# D4: operator settings in SQLite). The synthesis at
-# .claude/notes/milestones/onboarding-uplift-m2/research-synthesis.md is
-# the locked design.
+# or a `/ui/api/notebooks/*` REST endpoint. Ingest is corpus-level and
+# operator settings live in SQLite.
 #
 # Pattern: `make <verb> NOTEBOOK=<slug> [EMAIL=<addr>] [PAPER=<id>]`.
 

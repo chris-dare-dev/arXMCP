@@ -839,16 +839,13 @@ arXMCP/
     │   ├── proof-chain-workflow.md
     │   ├── retrieval-quality-report.md
     │   └── snippet-contract.md
-    ├── notes/               design constitution (10 numbered notes + HANDOFF + milestones/)
+    ├── notes/               design constitution (numbered notes + spikes/)
     │   ├── README.md         reading-order index
     │   ├── 01..10-*.md       numbered design notes
     │   ├── prompts-bp-discipline.md   E08_S02 prompt-cache breakpoint doc
-    │   ├── HANDOFF.md        in-session handoff snapshot
-    │   ├── scans/            repo-wide research scans (history)
     │   └── milestones/       per-milestone pipeline output (gitignored, machine-local)
-    ├── roadmap/             14 per-epic plans (E01–E14) + authoritative index
-    │   ├── README.md         authoritative epic index (NOT the root)
-    │   └── E<NN>-*.md        per-epic specs
+    ├── roadmap/             roadmap index + per-track plans
+    │   └── README.md         authoritative roadmap index (NOT the root)
     ├── agents/              bespoke sub-agent definitions
     │   ├── milestone-{researcher,implementer,adversary-critic,oss-scout}.md   (synced)
     │   ├── milestone-{rectifier,frontend-ux}.md                               (synced)
@@ -1213,9 +1210,6 @@ are frozen and moving to the wiki: read them, never edit or add to them.
 - [`.claude/docs/chunker-fixtures.md`](.claude/docs/chunker-fixtures.md) — Chunker fixture regeneration runbook
 - [`.claude/docs/eval-curation.md`](.claude/docs/eval-curation.md) — Eval-fixture hand-labeling runbook
 - [`.claude/docs/retrieval-quality-report.md`](.claude/docs/retrieval-quality-report.md) — nDCG@5 report (PRELIMINARY)
-
-Note: `.claude/notes/09-feature-priorities.md` is **SUPERSEDED** by
-[`.claude/roadmap/README.md`](.claude/roadmap/README.md).
 
 ---
 
