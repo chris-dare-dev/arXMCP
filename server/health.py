@@ -31,6 +31,7 @@ additions don't collide.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import time
@@ -1143,14 +1144,21 @@ def _refresh_eval_ndcg5(reports_dir: Path) -> None:
         return
     sorted_versions = sorted(by_version.keys(), reverse=True)
     kept = set(sorted_versions[:_EVAL_NDCG5_LABEL_CAP])
-    # Rebuild the label set from scratch rather than diffing against the
-    # gauge's current children: prometheus_client exposes no public way to
-    # list them. This function never awaits, so no scrape can observe the
-    # gauge between the clear and the re-set.
-    EVAL_NDCG5_GAUGE.clear()
+    existing = {
+        sample.labels["corpus_version"]
+        for family in EVAL_NDCG5_GAUGE.collect()
+        for sample in family.samples
+    }
+    # Set before evicting: this runs on a worker thread while scrapes run
+    # on the event loop, so a kept series must never be absent, even
+    # briefly.
     for v in kept:
         _, ndcg5 = by_version[v]
         EVAL_NDCG5_GAUGE.labels(corpus_version=str(v)).set(ndcg5)
+    for stale in existing - {str(v) for v in kept}:
+        # Removed concurrently or never present → ignore.
+        with contextlib.suppress(KeyError):
+            EVAL_NDCG5_GAUGE.remove(stale)
 
 
 #: Disk-free hysteresis: write the ingest-paused sentinel when free
