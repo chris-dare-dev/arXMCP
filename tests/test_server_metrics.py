@@ -850,23 +850,45 @@ class TestF5UnserializableStructuredContent:
         assert _counter_value(REQUEST_COUNTER, tool="bad_tool", status="ok") == 1.0
 
 
+def _exported_ndcg5_versions() -> set[str]:
+    """The corpus_version labels a scrape would export."""
+    return {
+        sample.labels["corpus_version"]
+        for family in EVAL_NDCG5_GAUGE.collect()
+        for sample in family.samples
+    }
+
+
 class TestEvalNdcg5LabelCap:
+    @staticmethod
+    def _write_reports(tmp_path: Path, versions: range) -> None:
+        reports_dir = tmp_path / "eval-reports"
+        reports_dir.mkdir(exist_ok=True)
+        for v in versions:
+            (reports_dir / f"corpus_v{v}-stamp.json").write_text(
+                json.dumps({"ndcg5_mean": 0.1 * v}), encoding="utf-8"
+            )
+
     def test_only_five_most_recent_versions_kept(
         self, tmp_path: Path, reset_all_metrics
     ):
-        reports_dir = tmp_path / "eval-reports"
-        reports_dir.mkdir()
-        # Seven distinct versions; only the five highest must survive.
-        for v in range(1, 8):
-            (reports_dir / f"corpus_v{v}-stamp.json").write_text(
-                json.dumps({"ndcg5_mean": 0.1 * v})
-            )
+        self._write_reports(tmp_path, range(1, 8))
 
         refresh_sentinel_metrics(tmp_path)
 
-        # Expect labels for versions 3..7 (five most-recent by integer).
-        present = {labelvalues[0] for labelvalues in EVAL_NDCG5_GAUGE._metrics}
-        assert present == {"3", "4", "5", "6", "7"}
+        assert _exported_ndcg5_versions() == {"3", "4", "5", "6", "7"}
+
+    def test_label_pushed_out_by_a_newer_report_is_evicted(
+        self, tmp_path: Path, reset_all_metrics
+    ):
+        self._write_reports(tmp_path, range(1, 6))
+        refresh_sentinel_metrics(tmp_path)
+        assert "1" in _exported_ndcg5_versions()
+
+        self._write_reports(tmp_path, range(6, 7))
+        refresh_sentinel_metrics(tmp_path)
+
+        assert _exported_ndcg5_versions() == {"2", "3", "4", "5", "6"}
 
 
 # ===========================================================================

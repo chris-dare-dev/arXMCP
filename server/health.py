@@ -31,7 +31,6 @@ additions don't collide.
 
 from __future__ import annotations
 
-import contextlib
 import json
 import logging
 import time
@@ -1089,8 +1088,8 @@ def _refresh_eval_ndcg5(reports_dir: Path) -> None:
     corpus_version with one or more reports, we use the MOST RECENT
     report (highest mtime). After computing the per-version map, only
     the :data:`_EVAL_NDCG5_LABEL_CAP` highest corpus_versions are kept
-    on the gauge; older labels are evicted via ``Gauge.remove(...)``
-    so the registry doesn't accumulate labels indefinitely.
+    on the gauge; older labels are evicted so the registry doesn't
+    accumulate labels indefinitely.
     """
     from server.metrics import EVAL_NDCG5_GAUGE
 
@@ -1144,18 +1143,11 @@ def _refresh_eval_ndcg5(reports_dir: Path) -> None:
         return
     sorted_versions = sorted(by_version.keys(), reverse=True)
     kept = set(sorted_versions[:_EVAL_NDCG5_LABEL_CAP])
-    # Evict labels for versions outside the cap so the gauge doesn't
-    # accumulate stale time series across restarts that pick up older
-    # report files in the directory.
-    existing = {
-        labelvalues[0]
-        for labelvalues in list(EVAL_NDCG5_GAUGE._metrics.keys())
-    }
-    for stale in existing - {str(v) for v in kept}:
-        # Removed concurrently or never present → ignore.
-        with contextlib.suppress(KeyError):
-            EVAL_NDCG5_GAUGE.remove(stale)
-    # Set kept versions to their latest measurement.
+    # Rebuild the label set from scratch rather than diffing against the
+    # gauge's current children: prometheus_client exposes no public way to
+    # list them. This function never awaits, so no scrape can observe the
+    # gauge between the clear and the re-set.
+    EVAL_NDCG5_GAUGE.clear()
     for v in kept:
         _, ndcg5 = by_version[v]
         EVAL_NDCG5_GAUGE.labels(corpus_version=str(v)).set(ndcg5)
