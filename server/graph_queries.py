@@ -125,6 +125,31 @@ def _build_query(direction: Direction, depth: int) -> str:
     )
 
 
+def _read_traversal(
+    kuzudb_path: str | Path, paper_id: str, direction: Direction, depth: int
+) -> list[tuple[str, int, list[dict[str, Any]]]]:
+    """Open the graph read-only, run the traversal, close it.
+
+    Read-only because the served process never writes the graph: a
+    read-write open takes Kùzu's exclusive file lock, which shuts out
+    readers in other processes, and checkpoints any WAL a crashed writer
+    left behind. One worker thread does the open too, which can block.
+    """
+    db = kuzu.Database(str(Path(kuzudb_path)), read_only=True)
+    conn = None
+    try:
+        conn = kuzu.Connection(db)
+        return _execute_traversal(conn, paper_id, direction, depth)
+    finally:
+        # Explicit close releases kuzu's file lock deterministically (conn
+        # before db, nested so db.close() runs even if conn.close() raises).
+        try:
+            if conn is not None:
+                conn.close()
+        finally:
+            db.close()
+
+
 def _execute_traversal(
     conn: kuzu.Connection, paper_id: str, direction: Direction, depth: int
 ) -> list[tuple[str, int, list[dict[str, Any]]]]:
@@ -369,21 +394,9 @@ async def cite_neighbors(
         )
     paper_id = paper_id_from_chunk_id(chunk_id)
 
-    db = kuzu.Database(str(Path(kuzudb_path)))
-    conn = None
-    try:
-        conn = kuzu.Connection(db)
-        rows = await asyncio.to_thread(
-            _execute_traversal, conn, paper_id, direction, depth
-        )
-    finally:
-        # Explicit close releases kuzu's file lock deterministically (conn
-        # before db, nested so db.close() runs even if conn.close() raises).
-        try:
-            if conn is not None:
-                conn.close()
-        finally:
-            db.close()
+    rows = await asyncio.to_thread(
+        _read_traversal, kuzudb_path, paper_id, direction, depth
+    )
 
     # Dedupe by paper_id, keeping the smallest hop_distance.
     # Each entry is (hop_distance, source, confidence, edge_kind).
