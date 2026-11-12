@@ -149,26 +149,21 @@ class Singleflight:
     """Per-key in-flight-future deduplication.
 
     Generic version of the embedder-specific singleflight in
-    :mod:`server.query_encoder`. The reranker (E07) will be the
-    first non-test consumer; for E06_S01 this class ships
-    instantiated under :attr:`Resources.rerank_singleflight` but
-    unused (no tools registered yet).
+    :mod:`server.query_encoder`, held for the reranker under
+    :attr:`Resources.rerank_singleflight`.
 
     Contract: concurrent calls to :meth:`run` with the same ``key``
-    share a single in-flight ``asyncio.Future`` — only one
-    ``coro_factory()`` call actually executes. Cancellation on one
-    waiter does NOT cancel the shared future (closes F1 from the
-    E03_S03 critique — same discipline as the embedder
-    singleflight).
+    share a single in-flight task — only one ``coro_factory()`` call
+    actually executes. Calls with different keys never wait on each
+    other. Cancelling one waiter does NOT cancel the shared task.
 
-    Eviction: the future is removed from the in-flight map ONCE the
-    first waiter observes its result. A cache layer atop this is
-    out-of-scope (singleflight is dedup, not memoization).
+    Eviction: the task leaves the in-flight map once it finishes. A
+    cache layer atop this is out of scope (singleflight is dedup, not
+    memoization).
     """
 
     def __init__(self) -> None:
-        self._inflight: dict[str, asyncio.Future] = {}
-        self._lock = asyncio.Lock()
+        self._inflight: dict[str, asyncio.Task] = {}
         self._dedup_count = 0
 
     async def run(self, key: str, coro_factory) -> Any:
@@ -179,44 +174,22 @@ class Singleflight:
         (NOT a coroutine itself). The factory is invoked at most
         once per in-flight key.
 
-        **Cancellation safety (closes F3 from the E06_S01 critique).**
-        We submit the factory's coroutine as a separate
-        :class:`asyncio.Task` and have BOTH the slow-path runner
-        AND every fast-path waiter await it via
-        :func:`asyncio.shield`. Cancelling any individual caller
-        only unwinds that caller's await; the shared task keeps
-        running, sets its result, and remaining waiters receive it.
-        This mirrors the ``loop.run_in_executor``-based discipline
-        in :func:`server.query_encoder.encode_query` — both isolate
-        the underlying work from caller-driven cancellation.
+        No lock: nothing between the lookup and the registration
+        awaits, so on one event loop no other caller can interleave
+        there. A lock held across the await would serialize every key
+        behind any duplicate waiter.
+
+        Every caller awaits the shared task through
+        :func:`asyncio.shield`, so cancelling one caller unwinds only
+        its own await; the task runs on and the others get its result.
         """
-        # Fast path: a future is already in flight for this key.
-        async with self._lock:
-            inflight_task = self._inflight.get(key)
-            if inflight_task is not None:
-                self._dedup_count += 1
-                # Shield protects THIS caller's cancellation from
-                # propagating to the shared task; the shared task
-                # keeps running.
-                return await asyncio.shield(inflight_task)
-            # Slow path: WE schedule the task. Create the task
-            # FIRST, then register it under the key so concurrent
-            # fast-path lookups see it.
+        task = self._inflight.get(key)
+        if task is not None:
+            self._dedup_count += 1
+        else:
             task = asyncio.get_running_loop().create_task(coro_factory())
             self._inflight[key] = task
-
-        # Eviction is best-effort: schedule it via the task's done
-        # callback so it fires once even if the slow-path caller is
-        # cancelled (the task itself runs to completion under the
-        # shield).
-        def _evict(_t: asyncio.Task) -> None:
-            self._inflight.pop(key, None)
-
-        task.add_done_callback(_evict)
-        # The slow-path caller awaits the same shielded task as fast-
-        # path waiters. ``asyncio.shield`` here lets the slow caller
-        # be cancelled without killing the underlying task — other
-        # waiters still get their result.
+            task.add_done_callback(lambda _t: self._inflight.pop(key, None))
         return await asyncio.shield(task)
 
     @property

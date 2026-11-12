@@ -1069,6 +1069,34 @@ class TestSingleflight:
         assert sorted(invocations) == ["a", "b"]
         assert sf.dedup_count == 0
 
+    def test_waiter_on_one_key_does_not_block_another_key(self):
+        """A caller joining an in-flight key must not stop a different
+        key from running. Key "a" here finishes only after "b" does."""
+        sf = Singleflight()
+
+        async def go():
+            b_done = asyncio.Event()
+
+            async def factory_a():
+                await b_done.wait()
+                return "A"
+
+            async def factory_b():
+                return "B"
+
+            first_a = asyncio.create_task(sf.run("a", factory_a))
+            await asyncio.sleep(0)
+            joined_a = asyncio.create_task(sf.run("a", factory_a))
+            await asyncio.sleep(0)
+            try:
+                result_b = await asyncio.wait_for(sf.run("b", factory_b), 1.0)
+            finally:
+                b_done.set()
+            assert result_b == "B"
+            assert await first_a == await joined_a == "A"
+
+        asyncio.run(go())
+
     def test_eviction_after_completion(self):
         """A successful run evicts the future, so a subsequent call
         with the same key invokes the factory again."""

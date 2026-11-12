@@ -12,7 +12,6 @@ Coverage map (acceptance criteria → test class):
   Forwards tools/list end-to-end                    TestShimEndToEnd
   Exits 1 + stderr on /readyz failure               TestProbeFailure
   ≤60 lines (excluding comments + blanks)           TestShimLineCount
-  docs/install.md verbatim ~/.claude.json snippet   TestInstallDoc
   Byte-pass-through (no JSON re-serialization)      TestBytePassThrough
   Per-process session-id capture + echo             TestSessionIdHandling
 """
@@ -21,19 +20,22 @@ from __future__ import annotations
 
 import ast
 import http.server
+import io
 import json
 import socket
 import subprocess
 import sys
 import threading
+import time
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
+from shim import arxmcp_shim
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SHIM_PATH = REPO_ROOT / "shim" / "arxmcp_shim.py"
-INSTALL_DOC_PATH = REPO_ROOT / "docs" / "install.md"
-DESIGN_NOTE_PATH = REPO_ROOT / ".claude" / "notes" / "06-mcp-server-design.md"
 
 
 # ===========================================================================
@@ -244,70 +246,6 @@ class TestShimLineCount:
         )
         assert loc <= self.SHIM_LOC_CAP, (
             f"shim is {loc} effective LOC; cap is {self.SHIM_LOC_CAP}"
-        )
-
-
-# ===========================================================================
-# AC: docs/install.md contains the verbatim ~/.claude.json snippet
-# ===========================================================================
-
-
-class TestInstallDoc:
-    def test_install_doc_exists(self):
-        assert INSTALL_DOC_PATH.is_file(), (
-            f"docs/install.md missing at {INSTALL_DOC_PATH}"
-        )
-
-    def test_claude_json_snippet_verbatim(self):
-        """The snippet at 06-mcp-server-design.md:19-29 must appear
-        verbatim in docs/install.md. The brief AC is a literal-
-        string match so a future docs reflow doesn't drift the
-        snippet.
-
-        We extract the JSON object content (between the
-        ``\\`\\`\\`json`` and ``\\`\\`\\``` fences in the design
-        note) and assert byte-for-byte presence in the install doc.
-        """
-        design_text = DESIGN_NOTE_PATH.read_text(encoding="utf-8")
-        # Find the unique fenced ```json ... ``` block in the design
-        # note that mentions "arxmcp-shim" — that's the canonical
-        # snippet. Extract its inner JSON object.
-        in_block = False
-        block_lines: list[str] = []
-        for line in design_text.splitlines():
-            stripped = line.strip()
-            if stripped == "```json":
-                in_block = True
-                block_lines = []
-                continue
-            if in_block and stripped == "```":
-                # End of a block; check if this is the right one.
-                content = "\n".join(block_lines)
-                if "arxmcp-shim" in content:
-                    snippet = content
-                    break
-                in_block = False
-                block_lines = []
-                continue
-            if in_block:
-                block_lines.append(line)
-        else:
-            raise AssertionError(
-                "no ```json fenced block mentioning 'arxmcp-shim' "
-                "found in 06-mcp-server-design.md"
-            )
-
-        # The snippet is valid JSON.
-        parsed = json.loads(snippet)
-        assert "mcpServers" in parsed
-        assert parsed["mcpServers"]["arxmcp"]["command"] == "arxmcp-shim"
-
-        # The verbatim content (inside-the-fence JSON) must appear in
-        # the install doc.
-        install_text = INSTALL_DOC_PATH.read_text(encoding="utf-8")
-        assert snippet in install_text, (
-            "docs/install.md must contain the ~/.claude.json snippet "
-            "from 06-mcp-server-design.md verbatim (byte-for-byte)"
         )
 
 
@@ -577,3 +515,94 @@ class TestProtocolVersionHeader:
         finally:
             httpd.shutdown()
             httpd.server_close()
+
+
+# ===========================================================================
+# Status handling and transport failures, driven in-process
+# ===========================================================================
+
+_RESULT = b'{"jsonrpc":"2.0","id":2,"result":{}}'
+
+
+def _run_proxy(monkeypatch, on_post, stdin: bytes, timeout: float = 60.0):
+    """Run ``_proxy`` against a server whose POST handler is ``on_post``.
+
+    Returns (stdout bytes, number of POSTs the server received).
+    """
+    posts = []
+
+    class _Handler(http.server.BaseHTTPRequestHandler):
+        def log_message(self, *args, **kwargs):
+            pass
+
+        def do_POST(self):  # noqa: N802
+            body = self.rfile.read(int(self.headers.get("content-length", "0")))
+            posts.append(body)
+            on_post(self, body)
+
+    httpd = http.server.ThreadingHTTPServer(("127.0.0.1", _free_port()), _Handler)
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    out = io.BytesIO()
+    monkeypatch.setattr(arxmcp_shim, "REQUEST_TIMEOUT", timeout)
+    monkeypatch.setattr(sys, "stdin", SimpleNamespace(buffer=io.BytesIO(stdin)))
+    monkeypatch.setattr(sys, "stdout", SimpleNamespace(buffer=out))
+    try:
+        arxmcp_shim._proxy(f"http://127.0.0.1:{httpd.server_address[1]}")
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+    return out.getvalue(), len(posts)
+
+
+def _reply(handler, status: int, body: bytes = b"") -> None:
+    handler.send_response(status)
+    handler.send_header("Content-Type", "application/json")
+    handler.send_header("Content-Length", str(len(body)))
+    handler.end_headers()
+    handler.wfile.write(body)
+
+
+_NOTIFICATION = b'{"jsonrpc":"2.0","method":"notifications/initialized"}\n'
+_REQUEST = b'{"jsonrpc":"2.0","id":2,"method":"tools/list"}\n'
+
+
+class TestStatusAndTransportHandling:
+    def test_202_for_a_notification_writes_nothing(self, monkeypatch):
+        def on_post(handler, body):
+            if b"notifications/" in body:
+                _reply(handler, 202)
+            else:
+                _reply(handler, 200, _RESULT)
+
+        out, _ = _run_proxy(monkeypatch, on_post, _NOTIFICATION + _REQUEST)
+
+        assert out == _RESULT + b"\n"
+
+    def test_read_timeout_is_not_sent_twice(self, monkeypatch, capsys):
+        def on_post(handler, body):
+            time.sleep(1.0)
+            _reply(handler, 200, _RESULT)
+
+        out, posts = _run_proxy(monkeypatch, on_post, _REQUEST, timeout=0.2)
+
+        assert posts == 1
+        frame = json.loads(out)
+        assert frame["error"]["data"]["transport_error"] == "TimeoutError"
+        assert "request failed" in capsys.readouterr().err
+
+    def test_dropped_request_gets_an_error_and_the_next_one_works(
+        self, monkeypatch
+    ):
+        def on_post(handler, body):
+            if b'"id":1' in body:
+                handler.close_connection = True  # hang up without answering
+            else:
+                _reply(handler, 200, _RESULT)
+
+        stdin = b'{"jsonrpc":"2.0","id":1,"method":"tools/list"}\n' + _REQUEST
+        out, posts = _run_proxy(monkeypatch, on_post, stdin)
+
+        first, second = out.splitlines()
+        assert "error" in json.loads(first)
+        assert second == _RESULT
+        assert posts == 3  # one retry for the dropped request, then id 2

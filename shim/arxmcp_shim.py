@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
-"""arxmcp-shim: stdio<->HTTP MCP proxy (E06_S02).
+"""arxmcp-shim: stdio<->HTTP MCP proxy.
 
 Stateless one-process-per-sub-agent bridge. Claude Code spawns this
 binary as a stdio MCP server (per ``~/.claude.json``); we forward
 JSON-RPC frames over Streamable HTTP to ``--server`` (default
 ``http://127.0.0.1:7733``).
 
-**Loopback-only** (Threat 4 egress side, closes F1 from the
-E06_S02 critique). The ``--server`` URL host MUST be one of
+**Loopback-only** (Threat 4, egress side). The ``--server`` URL host MUST be one of
 ``127.0.0.1``, ``::1``, or ``localhost``. The server-side
 :class:`server.config.Config` enforces the symmetric LISTEN-side
 guard; the shim closes the EGRESS-side gap. A misconfigured or
@@ -21,13 +20,16 @@ We never call ``json.loads`` on the request or response body. One
 stdin line in -> POST bytes verbatim -> response body bytes + LF
 to stdout. Tool schemas and result payloads transit untouched.
 
-**Non-200 HTTP responses get a JSON-RPC error envelope** (F3
-fix). Without this, server-emitted 503 / 413 / 400 bodies would
-be written to stdout as if they were JSON-RPC responses; Claude
-Code's stdio client would fail to parse them as ``result`` frames
-and surface a confusing client-side error. Instead we synthesize
-``{"jsonrpc":"2.0","id":null,"error":{"code":-32603,...}}\\n`` so
-the client sees a well-formed JSON-RPC error.
+**Only 2xx passes through.** A 2xx body is written verbatim; an
+empty one (the spec's 202 for a notification) writes nothing, since
+the client expects no answer. Any other status, or a transport
+failure, becomes ``{"jsonrpc":"2.0","id":null,"error":{...}}\\n``
+so Claude Code's stdio client gets a well-formed JSON-RPC error
+instead of an unparseable body or a dead process.
+
+**Retry only what cannot have run.** A dropped keep-alive is retried
+once on a fresh connection. A read timeout is not: the server may
+still be executing the call, and re-sending would run it twice.
 
 **Per-process session-id** (header-only). The MCP 2025-06-18 spec
 requires the client echo ``Mcp-Session-Id`` after ``initialize``.
@@ -37,7 +39,7 @@ session-id in module-level memory -- spec-mandated CONNECTION
 state, not persistent state.
 
 **Mcp-Protocol-Version** is pinned at ``2025-06-18`` on every
-request (F8 fix). Without an explicit pin the mcp library's
+request. Without an explicit pin the mcp library's
 server defaults to ``2025-03-26`` which would silently downgrade
 the negotiated protocol.
 
@@ -69,6 +71,7 @@ HEADERS = {
     "Mcp-Protocol-Version": "2025-06-18",
 }
 JSONRPC_INTERNAL_ERROR = -32603
+REQUEST_TIMEOUT = 60.0
 
 
 def _connect(url: str, timeout: float) -> http.client.HTTPConnection:
@@ -101,30 +104,20 @@ def _probe(url: str) -> None:
         conn.close()
 
 
-def _error_frame(status: int, body: bytes) -> bytes:
-    """Build a JSON-RPC error frame for a non-200 HTTP response.
-
-    Closes F3: without this, the server's error body would be
-    written to stdout as if it were a JSON-RPC ``result`` frame
-    and confuse Claude Code's stdio client. The synthesized frame
-    has ``id=null`` because the shim does not parse the request
-    body to extract the JSON-RPC id (would violate byte-pass-through).
-    """
+def _error_frame(message: str, data: dict) -> bytes:
+    """Build a JSON-RPC error frame. ``id`` is null because the shim
+    never parses the request body (byte pass-through)."""
     payload = {
         "jsonrpc": "2.0",
         "id": None,
-        "error": {
-            "code": JSONRPC_INTERNAL_ERROR,
-            "message": f"arxmcp-server returned HTTP {status}",
-            "data": {"http_status": status, "body": body.decode("utf-8", "replace")},
-        },
+        "error": {"code": JSONRPC_INTERNAL_ERROR, "message": message, "data": data},
     }
     return json.dumps(payload).encode("utf-8") + b"\n"
 
 
 def _proxy(url: str) -> None:
     sid: str | None = None
-    conn = _connect(url, 60.0)
+    conn = _connect(url, REQUEST_TIMEOUT)
     try:
         while line := sys.stdin.buffer.readline():
             body = line.rstrip(b"\n")
@@ -133,28 +126,36 @@ def _proxy(url: str) -> None:
             h = {**HEADERS, "Content-Length": str(len(body))}
             if sid is not None:
                 h["mcp-session-id"] = sid
-            # F5 fix: include resp.read() in the retry block — a
-            # mid-response connection drop is the second-most-common
-            # transient after keep-alive timeouts.
-            for attempt in (0, 1):
+            resp, failure = None, None
+            for _ in range(2):
                 try:
                     conn.request("POST", "/mcp/", body=body, headers=h)
-                    resp = conn.getresponse()
-                    response_body = resp.read()
+                    r = conn.getresponse()
+                    resp, response_body = r, r.read()
                     break
-                except (OSError, http.client.HTTPException):
-                    if attempt:
-                        raise
+                except (OSError, http.client.HTTPException) as exc:
+                    failure = exc
                     conn.close()
-                    conn = _connect(url, 60.0)
-            sid = resp.getheader("mcp-session-id") or sid
-            # F3 fix: synthesize a JSON-RPC error envelope on non-200.
-            if resp.status != 200:
-                out = _error_frame(resp.status, response_body)
+                    conn = _connect(url, REQUEST_TIMEOUT)
+                    if isinstance(exc, TimeoutError):
+                        break
+            if resp is None:
+                msg = f"arxmcp-server request failed: {failure!r}"
+                print(f"arxmcp-shim: {msg}", file=sys.stderr)
+                out = _error_frame(msg, {"transport_error": type(failure).__name__})
             else:
-                out = response_body + b"\n"
-            sys.stdout.buffer.write(out)
-            sys.stdout.buffer.flush()
+                sid = resp.getheader("mcp-session-id") or sid
+                if 200 <= resp.status < 300:
+                    out = response_body + b"\n" if response_body.strip() else b""
+                else:
+                    text = response_body.decode("utf-8", "replace")
+                    out = _error_frame(
+                        f"arxmcp-server returned HTTP {resp.status}",
+                        {"http_status": resp.status, "body": text},
+                    )
+            if out:
+                sys.stdout.buffer.write(out)
+                sys.stdout.buffer.flush()
     finally:
         conn.close()
 
