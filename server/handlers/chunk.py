@@ -36,6 +36,7 @@ from ingest.identifiers import is_valid_chunk_id
 from server.observability.sanitize import sanitize_retrieved_text
 from server.proof_linkage import resolve_referenced
 from server.tools import (
+    cap_result_list,
     enforce_byte_cap,
     envelope,
     get_resources,
@@ -78,6 +79,9 @@ async def handle_get_chunk(
     ids returns ``{chunks: [<the same per-chunk object>, ...]}`` in
     request order — one entry per id, each carrying its own ``found``,
     byte-cap, and linkage — so N ids cost one round-trip instead of N.
+    If the assembled batch is still over the byte cap, trailing entries
+    are dropped and ``body_truncated`` is set at the top level; the ids
+    past the last entry can be fetched again.
 
     A malformed id raises a JSON-RPC error; a well-formed id absent from
     the corpus yields a per-chunk ``found: false`` (batch elements stay
@@ -113,21 +117,26 @@ async def handle_get_chunk(
         return envelope(
             _build_chunk_result(ids[0], row_map.get(ids[0]), include_referenced, r)
         )
-    # Per-element byte budget so the whole chunks[] array is bounded by
-    # the per-response cap, not n independent copies of it. Each element
-    # gets result_byte_cap // n; a chunk over its share is truncated to a
-    # resource_link exactly as a scalar over-cap chunk is, so every
-    # requested id is still returned.
+    # Per-element byte budget: each element gets result_byte_cap // n,
+    # and a primary body over its share is truncated to a resource_link
+    # exactly as a scalar over-cap chunk is. That share bounds only the
+    # primary body: referenced counterparts (up to MAX_REFERENCED bodies
+    # each) are never trimmed by it, so the assembled array is capped
+    # again as a whole, dropping trailing entries until it fits.
     per_elem_cap = getattr(r.config, "result_byte_cap", 256 * 1024) // len(ids)
-    return envelope({
-        "chunks": [
-            _build_chunk_result(
-                cid, row_map.get(cid), include_referenced, r,
-                byte_cap=per_elem_cap,
-            )
-            for cid in ids
-        ]
-    })
+    structured, _ = cap_result_list(
+        {
+            "chunks": [
+                _build_chunk_result(
+                    cid, row_map.get(cid), include_referenced, r,
+                    byte_cap=per_elem_cap,
+                )
+                for cid in ids
+            ]
+        },
+        list_key="chunks",
+    )
+    return envelope(structured)
 
 
 def _fetch_chunk_rows(r, ids: list[str]) -> dict[str, Any]:  # noqa: ANN001
