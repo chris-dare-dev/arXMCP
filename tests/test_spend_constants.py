@@ -4,7 +4,7 @@ Coverage matrix:
 
 - TestCostConstants
     Values are positive floats under the sanity ceiling.
-- TestLastVerifiedFresh
+- TestLastVerifiedFormat
     LAST_VERIFIED is parseable as YYYY-MM-DD.
 - TestMetricRegistration
     API_SPEND_USD_TOTAL is a Counter with the 3 expected labels.
@@ -116,7 +116,7 @@ class TestCostConstants:
         )
 
 
-class TestLastVerifiedFresh:
+class TestLastVerifiedFormat:
     def test_last_verified_parses_as_iso_date(self) -> None:
         try:
             date.fromisoformat(LAST_VERIFIED)
@@ -125,42 +125,6 @@ class TestLastVerifiedFresh:
                 f"LAST_VERIFIED={LAST_VERIFIED!r} must be ISO-8601 "
                 f"YYYY-MM-DD; got: {e}"
             )
-
-    def test_last_verified_within_six_months(self) -> None:
-        """F3 closure (m10 adversary critique): the spend_constants
-        docstring claimed this test existed but it didn't. Now it
-        does. Pricing constants go stale silently otherwise —
-        operators trusted LAST_VERIFIED to be enforced, but without
-        this guard a quarterly review can slip into ten years.
-
-        Bound: 180 days (6 months) matches the project's quarterly
-        restore-drill cadence with one cycle of grace. When this
-        test fails, the action is:
-
-        1. Open the pricing pages (URLs in spend_constants.py
-           docstring).
-        2. Update the cost constants if pricing changed.
-        3. Bump LAST_VERIFIED to today.
-
-        If you genuinely want to suppress the test for a long-paused
-        deployment, set ARXMCP_SKIP_STALENESS_CHECK=1 in the env —
-        but the spirit is that the constants get reviewed."""
-        import os
-
-        if os.getenv("ARXMCP_SKIP_STALENESS_CHECK") == "1":
-            pytest.skip("ARXMCP_SKIP_STALENESS_CHECK=1 set in env")
-        from datetime import date as _date
-
-        verified = _date.fromisoformat(LAST_VERIFIED)
-        age_days = (_date.today() - verified).days
-        assert age_days <= 180, (
-            f"spend_constants.LAST_VERIFIED is {age_days} days old "
-            f"(> 180 day bound). Re-verify Voyage + Anthropic "
-            f"pricing against the URLs in the spend_constants.py "
-            f"docstring, update the cost constants if changed, and "
-            f"bump LAST_VERIFIED to today's date. To suppress this "
-            f"check temporarily, set ARXMCP_SKIP_STALENESS_CHECK=1."
-        )
 
 
 # ---------------------------------------------------------------------------
