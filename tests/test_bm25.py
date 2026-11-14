@@ -443,6 +443,89 @@ class TestEmptyCorpus:
 
 
 # ===========================================================================
+# TestScanProjection — the build reads three columns, not the vectors
+# ===========================================================================
+
+
+class _ScanRecorder:
+    """Delegates to a LanceDB table or query; records each scan's columns."""
+
+    def __init__(self, inner, scans: list[list[str]], extra_rows: int = 0):
+        self._inner = inner
+        self._scans = scans
+        self._extra_rows = extra_rows
+
+    def count_rows(self, *args, **kwargs) -> int:
+        return self._inner.count_rows(*args, **kwargs) + self._extra_rows
+
+    def __getattr__(self, name):
+        method = getattr(self._inner, name)
+
+        def call(*args, **kwargs):
+            result = method(*args, **kwargs)
+            if name == "to_arrow":
+                self._scans.append(result.column_names)
+                return result
+            return _ScanRecorder(result, self._scans)
+
+        return call
+
+
+class TestScanProjection:
+    def _recorded_build(self, tmp_path, monkeypatch, *, extra_rows: int = 0):
+        import ingest.bm25_indexer as bm25_mod
+
+        chunks = _curated_corpus()
+        version = write_chunks(
+            chunks, _embeddings_for(chunks, seed=4),
+            lancedb_path=tmp_path / "lancedb",
+        )
+        scans: list[list[str]] = []
+        real_open = bm25_mod.open_chunks_table
+        monkeypatch.setattr(
+            bm25_mod,
+            "open_chunks_table",
+            lambda *a, **kw: _ScanRecorder(real_open(*a, **kw), scans, extra_rows),
+        )
+        root = tmp_path / "bm25"
+
+        def build():
+            build_bm25_index(
+                tmp_path / "lancedb", corpus_version=version, index_root=root
+            )
+
+        return build, scans, root / f"v{version}", chunks
+
+    def test_build_scans_only_the_columns_it_indexes(self, tmp_path, monkeypatch):
+        build, scans, version_dir, chunks = self._recorded_build(
+            tmp_path, monkeypatch
+        )
+        build()
+
+        assert scans, "the build read no rows"
+        for columns in scans:
+            assert sorted(columns) == ["body_tokens", "chunk_id", "paper_id"], (
+                f"a scan returned {columns}"
+            )
+        chunk_ids = json.loads(
+            (version_dir / BM25_CHUNK_IDS_NAME).read_text(encoding="utf-8")
+        )
+        assert sorted(chunk_ids) == sorted(c.chunk_id for c in chunks)
+
+    def test_short_scan_builds_no_index(self, tmp_path, monkeypatch):
+        """The table is pinned to a version, so fewer rows than it holds
+        means the read failed. An index from it would silently miss
+        chunks, so nothing is written."""
+        build, _, version_dir, _ = self._recorded_build(
+            tmp_path, monkeypatch, extra_rows=1
+        )
+        with pytest.raises(RuntimeError, match="came back short"):
+            build()
+        assert not (version_dir / BM25_INDEX_NAME).exists()
+        assert not (version_dir / BM25_CHUNK_IDS_NAME).exists()
+
+
+# ===========================================================================
 # TestStatsLogging — bm25-stats.jsonl per call
 # ===========================================================================
 

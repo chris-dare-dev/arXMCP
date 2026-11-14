@@ -84,7 +84,7 @@ from pathlib import Path
 
 from rank_bm25 import BM25Okapi
 
-from server.corpus import open_chunks_table
+from server.corpus import open_chunks_table, project_columns
 
 logger = logging.getLogger(__name__)
 
@@ -303,6 +303,9 @@ def build_bm25_index(
     FileNotFoundError
         ``lancedb_path`` does not exist on disk (re-raised from
         :func:`open_chunks_table`).
+    RuntimeError
+        The projected scan returned fewer rows than the pinned version
+        holds.
     """
     # Closes L3 from the E04_S04 critique: defense-in-depth validation
     # of the version integer. ``_bm25_version_dir(-1)`` would produce
@@ -352,7 +355,21 @@ def build_bm25_index(
     # validates the path, performs ``tbl.checkout(version)`` for MVCC
     # isolation, and re-raises bad-version errors as ``ValueError``.
     tbl = open_chunks_table(lancedb_path, version=corpus_version)
-    arrow = tbl.to_arrow()
+    # Project at the scanner: `tbl.to_arrow()` would materialize both
+    # 1024-float vector columns for every row to read three string
+    # columns. The table is checked out at `corpus_version`, so a short
+    # read is a failed read, and an index built from it would silently
+    # omit chunks; refuse instead.
+    arrow = project_columns(
+        tbl,
+        ["chunk_id", "body_tokens", "paper_id"],
+        expected_rows=tbl.count_rows(),
+    )
+    if arrow is None:
+        raise RuntimeError(
+            f"chunks scan came back short at corpus_version={corpus_version}; "
+            "refusing to build a BM25 index from a partial read"
+        )
     raw_chunk_ids = arrow.column("chunk_id").to_pylist()
     raw_body_tokens = arrow.column("body_tokens").to_pylist()
     raw_paper_ids = arrow.column("paper_id").to_pylist()
