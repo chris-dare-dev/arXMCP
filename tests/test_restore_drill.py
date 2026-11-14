@@ -21,6 +21,7 @@ from ops.restore_drill_check import (
     smoke_check_notebooks,
     write_pass_sentinel,
 )
+from tests._graph_helpers import build_synthetic_kuzu_graph
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -213,6 +214,13 @@ class TestSmokeCheckKuzu:
     def test_returns_none_when_kuzu_dir_absent(self, tmp_path):
         # No kuzu directory at all.
         assert smoke_check_kuzu(tmp_path) is None
+
+    def test_counts_papers_in_a_restored_graph(self, tmp_path):
+        # A real graph, written where ingest writes it, under a restic-style
+        # absolute-path prefix.
+        db_path = tmp_path / "home/op/arXMCP/var/arxmcp/index/kuzu"
+        build_synthetic_kuzu_graph(db_path, n_papers=7)
+        assert smoke_check_kuzu(tmp_path) == 7
 
 
 # ---------------------------------------------------------------------------
