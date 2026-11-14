@@ -60,18 +60,14 @@ def _locate_lancedb_root(restore_path: Path) -> Path | None:
 def _locate_kuzu_root(restore_path: Path) -> Path | None:
     """Find the restored Kùzu graph by searching for the
     canonical ``var/arxmcp/index/kuzu`` segment under
-    ``restore_path``. Returns ``None`` if no Kùzu directory
-    was captured.
-
-    Closes adversary F1 (Kùzu half).
+    ``restore_path``. Returns ``None`` if no graph was captured.
     """
-    # Kùzu doesn't have a single canonical marker file, so we
-    # look for the directory name. Filter to directories whose
-    # immediate parent is the expected ``index/`` so we don't
-    # match arbitrary "kuzu" directories the operator may have
-    # added under the snapshot.
+    # The pinned Kùzu stores a database as a single FILE at that path;
+    # older releases used a directory. Accept either, but only directly
+    # under ``index/``, so an unrelated "kuzu" entry elsewhere in the
+    # snapshot is not mistaken for the graph.
     for entry in restore_path.rglob("kuzu"):
-        if entry.is_dir() and entry.parent.name == "index":
+        if entry.parent.name == "index" and (entry.is_file() or entry.is_dir()):
             return entry
     return None
 
@@ -118,12 +114,9 @@ def smoke_check_lancedb(restore_path: Path) -> int:
 def smoke_check_kuzu(restore_path: Path) -> int | None:
     """Open the restored Kùzu graph and return paper count.
 
-    Returns ``None`` if the Kùzu directory is absent (acceptable
-    — some restore paths may exclude the citation graph). Raises
-    ``RuntimeError`` if the directory exists but is unreadable.
-
-    Closes adversary F1 (Kùzu half): finds the Kùzu directory
-    via rglob rather than hardcoding the path prefix.
+    Returns ``None`` if the graph is absent (acceptable — some
+    restore paths may exclude the citation graph). Raises
+    ``RuntimeError`` if it exists but is unreadable.
     """
     kuzu_path = _locate_kuzu_root(restore_path)
     if kuzu_path is None:
@@ -145,7 +138,8 @@ def smoke_check_kuzu(restore_path: Path) -> int | None:
         db = kuzu.Database(str(kuzu_path), read_only=True)
         conn = kuzu.Connection(db)
         # Restored DB may be empty; we only require it to open.
-        result = conn.execute("MATCH (p:Paper) RETURN count(p) AS c")
+        # ``papers`` is the node table ingest.kuzudb_schema creates.
+        result = conn.execute("MATCH (p:papers) RETURN count(p) AS c")
         paper_count = 0
         while result.has_next():
             row = result.get_next()

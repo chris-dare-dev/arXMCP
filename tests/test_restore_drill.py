@@ -214,6 +214,28 @@ class TestSmokeCheckKuzu:
         # No kuzu directory at all.
         assert smoke_check_kuzu(tmp_path) is None
 
+    def test_counts_papers_in_a_real_restored_graph(self, tmp_path):
+        """A graph built by the production schema, at the path ingest
+        writes it, must be found and counted."""
+        kuzu = pytest.importorskip("kuzu")
+        from ingest.kuzudb_schema import apply_schema
+
+        graph = tmp_path / "var" / "arxmcp" / "index" / "kuzu"
+        graph.parent.mkdir(parents=True)
+        apply_schema(graph)
+        db = kuzu.Database(str(graph))
+        conn = kuzu.Connection(db)
+        try:
+            for paper_id in ("2401.00001", "2401.00002"):
+                conn.execute(
+                    "CREATE (:papers {paper_id: $id})", {"id": paper_id}
+                )
+        finally:
+            conn.close()
+            db.close()
+
+        assert smoke_check_kuzu(tmp_path) == 2
+
 
 # ---------------------------------------------------------------------------
 # run_check end-to-end
