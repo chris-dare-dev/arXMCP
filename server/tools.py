@@ -872,7 +872,7 @@ def cap_result_list(
     list_key: str,
     chunk_id: str | None = None,
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-    """E13_S04b — cap the byte size of a multi-result tool envelope.
+    """Cap the byte size of a multi-result tool envelope.
 
     The companion to :func:`enforce_byte_cap` for handlers whose
     over-cap surface is the aggregate response (a list of rows in
@@ -882,14 +882,10 @@ def cap_result_list(
     :func:`enforce_byte_cap` signature so callers can treat both
     helpers uniformly.
 
-    Closes the F1 finding from the E13_S04b adversary critique:
-    multi-result tools previously called ``enforce_byte_cap(payload)``
-    with the default ``body_text_path=("body_text",)``, which silently
-    no-ops on payloads with no top-level ``body_text`` key.
-    ``body_truncated=True`` was set but the payload bytes were
-    unchanged — a 500 KB response stayed 500 KB on the wire.
+    :func:`enforce_byte_cap` cannot do this job: it trims a top-level
+    ``body_text`` and silently no-ops on payloads without one.
 
-    This helper iteratively pops the trailing row from
+    This helper drops trailing rows from
     ``structured_content[list_key]`` until the serialized payload
     (with the :data:`_WIRE_OVERHEAD_FACTOR` wire-overhead
     correction) fits under
@@ -920,20 +916,29 @@ def cap_result_list(
     """
     cap = get_resources().config.result_byte_cap
 
-    def _measure(d: dict[str, Any]) -> int:
+    def _nbytes(value: Any) -> int:
         return len(
-            json.dumps(d, ensure_ascii=False, sort_keys=True).encode("utf-8")
-        ) * _WIRE_OVERHEAD_FACTOR
+            json.dumps(value, ensure_ascii=False, sort_keys=True).encode("utf-8")
+        )
 
-    if _measure(structured_content) <= cap:
+    size = _nbytes(structured_content)
+    if size * _WIRE_OVERHEAD_FACTOR <= cap:
         return structured_content, []
 
     # Over cap — deep-copy so we never mutate the caller's payload.
     truncated = json.loads(json.dumps(structured_content))
     rows = truncated.get(list_key)
     if isinstance(rows, list):
-        while rows and _measure(truncated) > cap:
+        # Serialize each row once and subtract as rows go, rather than
+        # re-serializing the whole payload per dropped row. With the
+        # default separators a nested value serializes to the same bytes
+        # it occupies inside its parent, so the arithmetic is exact: a
+        # row costs its own bytes plus the ", " before it, and the last
+        # remaining row has no separator.
+        row_sizes = [_nbytes(row) for row in rows]
+        while rows and size * _WIRE_OVERHEAD_FACTOR > cap:
             rows.pop()
+            size -= row_sizes.pop() + (2 if rows else 0)
     truncated["body_truncated"] = True
     blocks: list[dict[str, Any]] = []
     if chunk_id is not None:
