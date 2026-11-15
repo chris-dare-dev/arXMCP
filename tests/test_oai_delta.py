@@ -406,6 +406,41 @@ class TestRunDelta:
         assert state["last_resumption_token"] is None
         assert state["last_run_paper_count"] == 2
 
+    def test_rebuilds_the_staged_indexes_before_advancing_state(
+        self, tmp_path, monkeypatch
+    ):
+        staging = tmp_path / "lancedb-staging"
+        staging.mkdir()
+        (staging / "corpus-version.json").write_text("{}")
+        state_path = tmp_path / "state.json"
+        builds: list = []
+        monkeypatch.setattr(
+            "ingest.oai_delta.build_derived_indexes",
+            lambda path: builds.append(
+                (path, _read_state(state_path).get("last_successful_run_utc"))
+            ),
+        )
+        fetcher = _MockFetcher([_final_page(["2401.00001"])])
+        with patch(
+            "ingest.oai_delta.ingest_one_paper",
+            side_effect=lambda pid, **kw: _ok_paper_outcome(pid),
+        ):
+            run_delta(
+                sets=("math:math:AG",),
+                from_date="2026-05-14",
+                until_date="2026-05-14",
+                lancedb_staging_path=staging,
+                state_path=state_path,
+                log_path=tmp_path / "delta.log",
+                failures_path=tmp_path / "delta.jsonl",
+                timeout_flag_path=tmp_path / "timeout.flag",
+                ops_dir=tmp_path,
+                fetch_page=fetcher,
+                sleep_between_pages=lambda _t: None,
+            )
+        assert builds == [(staging, None)]
+        assert _read_state(state_path)["last_successful_run_utc"]
+
     def test_writes_ingest_summary_sentinel(self, tmp_path):
         """corpus-integrity-observability-e3 F3: run_delta writes the
         ingest-summary.json sentinel at end-of-run (AC2)."""

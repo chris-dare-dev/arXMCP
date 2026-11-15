@@ -49,6 +49,7 @@ import numpy as np
 from ingest.bulk_ingest import DEFAULT_LANCEDB_STAGING_PATH
 from ingest.chunker import chunk_paper
 from ingest.chunker_types import CHUNKER_VERSION, ChunkRecord
+from ingest.derived_indexes import build_derived_indexes
 from ingest.embedder import EMBEDDER_VERSION, embed_paper
 from ingest.identifiers import is_valid_arxiv_paper_id, paper_id_from_chunk_id
 from ingest.schema import (
@@ -791,6 +792,11 @@ def run_re_embed(
                 "last_checkpoint_utc": _utc_iso(),
             },
         )
+
+    # Before the terminal sentinel, so a staging dataset marked complete
+    # always carries the indexes built from its own chunks.
+    if not dry_run and (staging_lancedb_path / CORPUS_VERSION_MARKER_NAME).is_file():
+        build_derived_indexes(staging_lancedb_path)
 
     summary.elapsed_seconds = time.monotonic() - started
 

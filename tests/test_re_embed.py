@@ -900,6 +900,53 @@ class TestStagingSentinel:
         assert final["target_embedder_version"] == EMBEDDER_VERSION
         assert "chunks_re_embedded" in final
 
+    def test_indexes_are_built_before_the_run_is_marked_complete(
+        self, tmp_path
+    ):
+        active = tmp_path / "lancedb"
+        staging = tmp_path / "lancedb-staging"
+        _write_active_marker(active)
+        sentinel_path = staging / "re-embed-progress.json"
+        builds: list[tuple] = []
+
+        def _write(chunks, embeddings, lancedb_path=None):
+            (lancedb_path / "corpus-version.json").write_text("{}")
+            return 1
+
+        def _build(path):
+            builds.append((path, json.loads(sentinel_path.read_text())["status"]))
+
+        paper_id = "2401.00001"
+        new_chunks = [_make_chunk(paper_id, f"arxiv:{paper_id}:{0:016x}")]
+        with (
+            patch("ingest.re_embed.chunk_paper", lambda _pid: new_chunks),
+            patch(
+                "ingest.re_embed._index_old_chunk_ids_by_paper",
+                lambda _p: {paper_id: set()},
+            ),
+            patch("ingest.re_embed._build_old_rows_index", lambda _p: {}),
+            patch(
+                "ingest.re_embed._check_staging_embedder_versions",
+                lambda _p, _v: None,
+            ),
+            patch("ingest.re_embed.embed_paper", lambda _pid: _ok_embed_stats()),
+            patch(
+                "ingest.re_embed.load_embed_record",
+                lambda pid: _ok_full_record(pid, [c.chunk_id for c in new_chunks]),
+            ),
+            patch("ingest.re_embed.write_chunks", _write),
+            patch("ingest.re_embed.build_derived_indexes", _build),
+        ):
+            run_re_embed(
+                active_lancedb_path=active,
+                staging_lancedb_path=staging,
+                state_path=tmp_path / "state.json",
+                failures_path=tmp_path / "failures.jsonl",
+            )
+
+        assert builds == [(staging, "in_progress")]
+        assert json.loads(sentinel_path.read_text())["status"] == "complete"
+
     def test_sentinel_not_written_on_dry_run(self, tmp_path):
         active = tmp_path / "lancedb"
         staging = tmp_path / "lancedb-staging"

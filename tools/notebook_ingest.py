@@ -1,4 +1,4 @@
-"""Run bulk_ingest against a notebook's papers.txt, then build BM25.
+"""Run bulk_ingest against a notebook's papers.txt.
 
 Thin wrapper that:
 
@@ -6,9 +6,9 @@ Thin wrapper that:
    ``lancedb_staging_path=var/arxmcp/notebooks/<slug>/lancedb``.
 2. Reads the resulting ``corpus-version.json`` to find the per-notebook
    corpus version.
-3. Builds the BM25, definitions and theorem-name indexes for that
-   version inside the dataset, under ``lancedb/derived/``, so a cutover
-   or rollback moves them with the chunks.
+3. ``run_bulk_ingest`` has already built the dataset's BM25, definitions
+   and theorem-name indexes inside it, so a cutover or rollback moves
+   them with the chunks.
 
 The brief's ``ARXMCP_LANCEDB_PATH=...`` wording was wrong — that's the
 SERVER's env var, not a bulk_ingest one. ``bulk_ingest`` uses the
@@ -20,8 +20,8 @@ Usage:
     uv run python tools/notebook_ingest.py <slug>
 
 Exit codes:
-    0 — ingest succeeded AND BM25 index was built (or both skipped idempotently)
-    1 — slug validation failed, ingest had any paper failure, or BM25 build raised
+    0 — every paper ingested and the dataset's indexes were built
+    1 — slug validation failed, or any paper failed
 """
 
 from __future__ import annotations
@@ -31,10 +31,8 @@ import json
 import logging
 import sys
 
-from ingest.bm25_indexer import build_bm25_index, resolve_bm25_root
+from ingest.bm25_indexer import resolve_bm25_root
 from ingest.bulk_ingest import run_bulk_ingest
-from ingest.index_definitions import index_definitions_for_corpus
-from ingest.index_theorem_names import build_theorem_names_index
 from tools._notebook_common import (
     NotebookError,
     notebook_dir,
@@ -142,39 +140,16 @@ def run(slug: str) -> int:
             f"see {failures_path}",
             file=sys.stderr,
         )
-        # We still try to build BM25 on the partial corpus; the index
-        # reflects whatever did land. Exit non-zero so the operator
-        # notices.
+        # The indexes cover whatever did land. Exit non-zero so the
+        # operator notices.
     if summary.papers_succeeded == 0:
-        print("no papers succeeded — skipping BM25 build", file=sys.stderr)
+        print("no papers succeeded — no indexes built", file=sys.stderr)
         return 1
 
+    # run_bulk_ingest built the dataset's indexes inside it.
     corpus_version = _read_corpus_version(lancedb_path)
-    # The BM25 root sits inside the dataset, where the server reads it.
     bm25_root = resolve_bm25_root(lancedb_path)
-    bm25_v_dir = bm25_root / f"v{corpus_version}"
-    logger.info(
-        "building BM25 for slug=%s lancedb=%s corpus_version=%d root=%s",
-        slug, lancedb_path, corpus_version, bm25_root,
-    )
-    build_bm25_index(
-        str(lancedb_path), corpus_version=corpus_version, index_root=bm25_root,
-    )
-    print(
-        f"BM25 built for corpus_version={corpus_version} "
-        f"(at {bm25_v_dir}/)"
-    )
-
-    # get_definitions reads this notebook's own dataset, so build its
-    # definitions table here too; without it the tool answers
-    # index_status="absent" for every freshly ingested notebook.
-    rows, papers = index_definitions_for_corpus(lancedb_path)
-    print(f"definitions indexed: {rows} across {papers} paper(s)")
-    # find_lemma_by_name reads the theorem-name index inside the same dataset.
-    names = build_theorem_names_index(lancedb_path)
-    print(
-        f"theorem names indexed: {sum(names.values())} across {len(names)} paper(s)"
-    )
+    print(f"indexes built for corpus_version={corpus_version} (in {lancedb_path})")
 
     # Warn if multiple v<N>/ directories exist under the per-notebook
     # BM25 root. Helps operators prune stale indices after a

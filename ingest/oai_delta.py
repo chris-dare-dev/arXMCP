@@ -73,7 +73,9 @@ from ingest.bulk_ingest import (
     _log_parser_failure,
     ingest_one_paper,
 )
+from ingest.derived_indexes import build_derived_indexes
 from ingest.identifiers import is_valid_arxiv_paper_id
+from ingest.store import CORPUS_VERSION_MARKER_NAME
 
 logger = logging.getLogger(__name__)
 
@@ -815,6 +817,12 @@ def run_delta(
             summary.records_ingested += 1
         else:
             summary.records_failed += 1
+
+    # The staged dataset changed: rebuild its indexes before the run counts
+    # as done, so a cutover never promotes chunks without them.
+    changed = summary.records_ingested or summary.records_deleted
+    if changed and (lancedb_staging_path / CORPUS_VERSION_MARKER_NAME).is_file():
+        build_derived_indexes(lancedb_staging_path)
 
     summary.elapsed_seconds = time.monotonic() - started
     summary.budget_breached = summary.elapsed_seconds > budget_seconds
