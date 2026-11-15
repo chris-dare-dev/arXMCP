@@ -21,6 +21,7 @@ from ops.restore_drill_check import (
     smoke_check_notebooks,
     write_pass_sentinel,
 )
+from tests._graph_helpers import build_synthetic_kuzu_graph
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -214,27 +215,12 @@ class TestSmokeCheckKuzu:
         # No kuzu directory at all.
         assert smoke_check_kuzu(tmp_path) is None
 
-    def test_counts_papers_in_a_real_restored_graph(self, tmp_path):
-        """A graph built by the production schema, at the path ingest
-        writes it, must be found and counted."""
-        kuzu = pytest.importorskip("kuzu")
-        from ingest.kuzudb_schema import apply_schema
-
-        graph = tmp_path / "var" / "arxmcp" / "index" / "kuzu"
-        graph.parent.mkdir(parents=True)
-        apply_schema(graph)
-        db = kuzu.Database(str(graph))
-        conn = kuzu.Connection(db)
-        try:
-            for paper_id in ("2401.00001", "2401.00002"):
-                conn.execute(
-                    "CREATE (:papers {paper_id: $id})", {"id": paper_id}
-                )
-        finally:
-            conn.close()
-            db.close()
-
-        assert smoke_check_kuzu(tmp_path) == 2
+    def test_counts_papers_in_a_restored_graph(self, tmp_path):
+        # A real graph, written where ingest writes it, under a restic-style
+        # absolute-path prefix.
+        db_path = tmp_path / "home/op/arXMCP/var/arxmcp/index/kuzu"
+        build_synthetic_kuzu_graph(db_path, n_papers=7)
+        assert smoke_check_kuzu(tmp_path) == 7
 
 
 # ---------------------------------------------------------------------------

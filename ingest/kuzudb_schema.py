@@ -99,19 +99,23 @@ SCHEMA_STATEMENTS: tuple[str, ...] = (
 
 
 def apply_schema(db_path: Path) -> None:
-    """Apply the citation-graph schema to a Kùzu database directory.
+    """Apply the citation-graph schema to a Kùzu database file.
 
-    Creates the parent directory if missing (the Kùzu DB itself is a
-    directory, not a single file). Runs every statement in
-    ``SCHEMA_STATEMENTS`` in order; each uses ``IF NOT EXISTS`` so the
-    function is idempotent (AC#2).
+    Creates the parent directory if missing. Kùzu stores the database as
+    a single file and refuses a directory at ``db_path``; an empty
+    directory there (what older bootstraps created) is removed first,
+    while a non-empty one is left for Kùzu to reject. Runs every
+    statement in ``SCHEMA_STATEMENTS`` in order; each uses
+    ``IF NOT EXISTS`` so the function is idempotent (AC#2).
 
     Args:
-        db_path: directory the Kùzu ``Database`` will own. The
-            production default is ``var/arxmcp/index/kuzu/``; tests
-            pass ``tmp_path`` per the conftest discipline.
+        db_path: file the Kùzu ``Database`` will own. The production
+            default is ``var/arxmcp/index/kuzu``; tests pass
+            ``tmp_path`` per the conftest discipline.
     """
     db_path.parent.mkdir(parents=True, exist_ok=True)
+    if db_path.is_dir() and not any(db_path.iterdir()):
+        db_path.rmdir()
     db = kuzu.Database(str(db_path))
     conn = None
     try:
@@ -205,10 +209,7 @@ def main() -> int:
         "--kuzudb",
         type=Path,
         default=Path("var/arxmcp/index/kuzu"),
-        help=(
-            "directory the Kùzu database will own "
-            "(default: var/arxmcp/index/kuzu — matches Makefile bootstrap)"
-        ),
+        help="file the Kùzu database will own (default: var/arxmcp/index/kuzu)",
     )
     args = parser.parse_args()
     apply_schema(args.kuzudb)

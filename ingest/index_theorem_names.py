@@ -196,6 +196,52 @@ def default_db_path(lancedb_path: str | Path) -> Path:
     )
 
 
+
+def _cli(argv: list[str]) -> int:
+    import argparse
+    import asyncio
+
+    import lancedb
+
+    from ingest.store import DEFAULT_LANCEDB_PATH
+
+    parser = argparse.ArgumentParser(
+        prog="python -m ingest.index_theorem_names",
+        description="Rebuild the theorem-name index from the chunks table.",
+    )
+    parser.add_argument(
+        "--lancedb-path", default=str(DEFAULT_LANCEDB_PATH),
+        help="LanceDB dataset holding the chunks table",
+    )
+    parser.add_argument(
+        "--db-path", default=None,
+        help="SQLite index to write (default: sqlite/theorem_names.db "
+        "beside the LanceDB root, where the server reads it)",
+    )
+    args = parser.parse_args(argv)
+    db_path = Path(args.db_path) if args.db_path else default_db_path(args.lancedb_path)
+    chunks = lancedb.connect(args.lancedb_path).open_table("chunks")
+
+    async def run() -> dict[str, int]:
+        store = await TheoremNamesStore.open(db_path)
+        try:
+            return await index_theorem_names_all_papers(chunks, store)
+        finally:
+            await store.close()
+
+    counts = asyncio.run(run())
+    print(
+        f"indexed {sum(counts.values())} theorem name(s) across "
+        f"{len(counts)} paper(s) into {db_path}"
+    )
+    return 0
+
+
+if __name__ == "__main__":  # pragma: no cover
+    import sys
+
+    sys.exit(_cli(sys.argv[1:]))
+
 __all__ = [
     "DEFAULT_CONFIDENCE",
     "build_rows_from_chunks_for_paper",

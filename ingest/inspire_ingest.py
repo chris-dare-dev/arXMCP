@@ -760,10 +760,7 @@ def main(argv: list[str] | None = None) -> int:
         "--kuzudb",
         type=Path,
         default=Path("var/arxmcp/index/kuzu"),
-        help=(
-            "Kùzu DB directory (default: var/arxmcp/index/kuzu — "
-            "matches Makefile bootstrap and 05-storage-and-indexing.md)"
-        ),
+        help="Kùzu database file (default: var/arxmcp/index/kuzu)",
     )
     parser.add_argument(
         "--include-back-refs",

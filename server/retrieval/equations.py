@@ -83,7 +83,7 @@ def looks_like_mathml(text: str) -> bool:
 #: Bumped whenever the normalization below changes the tree a given
 #: MathML string produces. Stored ``equations.mathml_tree_json`` built
 #: under an older version is NOT comparable to a freshly-parsed query
-#: tree and must be re-indexed (``python -m ingest.index_equations``).
+#: tree and must be re-indexed (``python -m ingest.index_equations --rebuild``).
 #:
 #: v1 → v2 (retrieval-unlocks-m4): parallel-markup reduction, invisible
 #: operators dropped, redundant single-child ``mrow`` collapsed, text

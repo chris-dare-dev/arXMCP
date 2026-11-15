@@ -276,9 +276,11 @@ class TestRetentionIgnoresPartialSnapshots:
             encoding="utf-8",
         )
         var = root / "var" / "arxmcp"
-        for rel in ("index/lancedb", "index/kuzu", "corpus/chunks", "notebooks/demo"):
+        for rel in ("index/lancedb", "corpus/chunks", "notebooks/demo"):
             (var / rel).mkdir(parents=True)
             (var / rel / "data.bin").write_bytes(os.urandom(64))
+        # Kùzu stores the citation graph as a single file.
+        (var / "index" / "kuzu").write_bytes(os.urandom(64))
         (var / "cache").mkdir()
         sqlite3.connect(str(var / "cache" / "notebooks.db")).close()
         return root

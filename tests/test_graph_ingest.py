@@ -10,6 +10,9 @@ requires this discipline.
 from __future__ import annotations
 
 import json
+import os
+import shutil
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -17,6 +20,8 @@ import kuzu
 import pytest
 
 from ingest import graph_ingest, kuzudb_schema
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
 
 # ---------------------------------------------------------------------------
 # Fixtures: 5-paper corpus per the brief deliverable list
@@ -221,6 +226,42 @@ class TestSchemaMigration:
 
     def test_read_schema_version_none_when_db_absent(self, tmp_path: Path):
         assert kuzudb_schema.read_schema_version(tmp_path / "missing") is None
+
+    def test_replaces_empty_directory_at_db_path(self, db_path: Path):
+        """Older bootstraps left an empty directory at the graph path,
+        which Kùzu refuses to open; the first schema run still succeeds."""
+        db_path.mkdir()
+        kuzudb_schema.apply_schema(db_path)
+        assert (
+            kuzudb_schema.read_schema_version(db_path)
+            == kuzudb_schema.KUZU_SCHEMA_VERSION
+        )
+
+    def test_leaves_non_empty_directory_for_kuzu_to_refuse(self, db_path: Path):
+        db_path.mkdir()
+        kept = db_path / "operator-file"
+        kept.write_text("keep", encoding="utf-8")
+        with pytest.raises(RuntimeError, match="directory"):
+            kuzudb_schema.apply_schema(db_path)
+        assert kept.read_text(encoding="utf-8") == "keep"
+
+
+@pytest.mark.skipif(shutil.which("make") is None, reason="make is not installed")
+def test_bootstrapped_tree_opens_the_citation_graph(tmp_path: Path):
+    """``make bootstrap`` leaves the graph path free for Kùzu to create.
+
+    ``PYTHON=true`` skips the interpreter check and the editable install,
+    so only the tree-creating steps run, inside ``tmp_path``.
+    """
+    subprocess.run(
+        ["make", "-s", "-f", str(REPO_ROOT / "Makefile"), "bootstrap", "PYTHON=true"],
+        cwd=tmp_path,
+        env={**os.environ, "VIRTUAL_ENV": str(tmp_path)},
+        check=True,
+        capture_output=True,
+    )
+    db = kuzu.Database(str(tmp_path / "var" / "arxmcp" / "index" / "kuzu"))
+    db.close()
 
 
 # ---------------------------------------------------------------------------

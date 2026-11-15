@@ -459,7 +459,7 @@ def main(argv: list[str] | None = None) -> int:
         "--kuzudb",
         type=Path,
         default=DEFAULT_KUZUDB_PATH,
-        help=f"Kùzu DB directory (default: {DEFAULT_KUZUDB_PATH})",
+        help=f"Kùzu database file (default: {DEFAULT_KUZUDB_PATH})",
     )
     parser.add_argument(
         "--lancedb",

@@ -60,14 +60,16 @@ def _locate_lancedb_root(restore_path: Path) -> Path | None:
 def _locate_kuzu_root(restore_path: Path) -> Path | None:
     """Find the restored Kùzu graph by searching for the
     canonical ``var/arxmcp/index/kuzu`` segment under
-    ``restore_path``. Returns ``None`` if no graph was captured.
+    ``restore_path``. Returns ``None`` if no Kùzu graph
+    was captured.
     """
-    # The pinned Kùzu stores a database as a single FILE at that path;
-    # older releases used a directory. Accept either, but only directly
-    # under ``index/``, so an unrelated "kuzu" entry elsewhere in the
-    # snapshot is not mistaken for the graph.
+    # Kùzu 0.11 stores the database as a single file at this path, so
+    # match the name whether it is a file or a directory. Filter to
+    # entries whose immediate parent is the expected ``index/`` so we
+    # don't match arbitrary "kuzu" paths the operator may have added
+    # under the snapshot.
     for entry in restore_path.rglob("kuzu"):
-        if entry.parent.name == "index" and (entry.is_file() or entry.is_dir()):
+        if entry.parent.name == "index":
             return entry
     return None
 
@@ -114,14 +116,17 @@ def smoke_check_lancedb(restore_path: Path) -> int:
 def smoke_check_kuzu(restore_path: Path) -> int | None:
     """Open the restored Kùzu graph and return paper count.
 
-    Returns ``None`` if the graph is absent (acceptable — some
-    restore paths may exclude the citation graph). Raises
-    ``RuntimeError`` if it exists but is unreadable.
+    Returns ``None`` if the Kùzu graph is absent (acceptable
+    — some restore paths may exclude the citation graph). Raises
+    ``RuntimeError`` if the graph exists but is unreadable.
+
+    Finds the graph via rglob rather than hardcoding the path
+    prefix, because restic restores under the absolute source path.
     """
     kuzu_path = _locate_kuzu_root(restore_path)
     if kuzu_path is None:
         logger.info(
-            "restore_drill: Kùzu directory absent under %s — skipping",
+            "restore_drill: Kùzu graph absent under %s — skipping",
             restore_path,
         )
         return None
@@ -138,7 +143,6 @@ def smoke_check_kuzu(restore_path: Path) -> int | None:
         db = kuzu.Database(str(kuzu_path), read_only=True)
         conn = kuzu.Connection(db)
         # Restored DB may be empty; we only require it to open.
-        # ``papers`` is the node table ingest.kuzudb_schema creates.
         result = conn.execute("MATCH (p:papers) RETURN count(p) AS c")
         paper_count = 0
         while result.has_next():

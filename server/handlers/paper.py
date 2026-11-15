@@ -57,6 +57,9 @@ from server.tools import (
 
 logger = logging.getLogger(__name__)
 
+#: The only chunk columns ``get_paper`` reads; the row count comes free.
+_PAPER_CHUNK_COLUMNS = ["section_path", "chunker_version", "embedder_version"]
+
 
 def hydrated_paper_fields(record: Any) -> dict[str, Any] | None:
     """Map a ``PaperMetadataRecord`` to the ``get_paper`` identity
@@ -119,14 +122,6 @@ def _cap(payload: dict[str, Any]) -> dict[str, Any]:
 SUPPORTED_SOURCE_KINDS: frozenset[str] = ALL_SOURCE_KINDS
 
 
-#: The chunk-row columns ``get_paper`` summarizes.
-_SUMMARY_COLUMNS: tuple[str, ...] = (
-    "section_path",
-    "chunker_version",
-    "embedder_version",
-)
-
-
 def _unsupported_envelope(
     paper_id: str, exc: UnsupportedSourceKind
 ) -> dict[str, Any]:
@@ -168,7 +163,7 @@ async def handle_get_paper(
     arrow = (
         r.chunks_table.search()
         .where(f"paper_id = '{_escape(paper_id)}'", prefilter=True)
-        .select(list(_SUMMARY_COLUMNS))
+        .select(_PAPER_CHUNK_COLUMNS)
         .limit(10000)
         .to_arrow()
     )

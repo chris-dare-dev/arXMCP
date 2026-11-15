@@ -122,7 +122,9 @@ bootstrap:
 	fi
 	$(PYTHON) -m pip install --require-virtualenv -e ".[dev]"
 	mkdir -p var/arxmcp/corpus/raw var/arxmcp/corpus/parsed var/arxmcp/corpus/chunks
-	mkdir -p var/arxmcp/index/lancedb var/arxmcp/index/kuzu
+	# Kùzu stores the citation graph as a single file at index/kuzu and
+	# refuses a directory there, so only its parent index/ is created.
+	mkdir -p var/arxmcp/index/lancedb
 	mkdir -p var/arxmcp/cache/ar5iv
 	mkdir -p var/arxmcp/ops/parser-failures
 	# E14_S03: Phoenix's SQLite trace store under PHOENIX_WORKING_DIR.
