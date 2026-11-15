@@ -80,9 +80,17 @@ def open_or_create_equations_table(lancedb_path: str | Path) -> Any:
         )
 
 
-def index_equation_trees(lancedb_path: str | Path) -> dict[str, int]:
+def index_equation_trees(
+    lancedb_path: str | Path, *, rebuild: bool = False,
+) -> dict[str, int]:
     """Populate ``mathml_tree_json`` on every row that has a
     ``mathml`` payload and a NULL ``mathml_tree_json``.
+
+    With ``rebuild=True``, recompute the tree of every row with a
+    ``mathml`` payload, including ones that already have a tree. That is
+    the fix after :data:`MATHML_TREE_NORMALIZER_VERSION` changes, since a
+    stored tree is only comparable to a query tree built by the same
+    normalizer.
 
     Returns a counts dict ``{processed, updated, skipped, failed}``
     so the caller (ops tooling or tests) can verify what landed.
@@ -116,7 +124,7 @@ def index_equation_trees(lancedb_path: str | Path) -> dict[str, int]:
         if not mathml:
             counts["skipped"] += 1
             continue
-        if row.get("mathml_tree_json"):
+        if row.get("mathml_tree_json") and not rebuild:
             counts["skipped"] += 1
             continue
         try:
@@ -163,6 +171,36 @@ def index_equation_trees(lancedb_path: str | Path) -> dict[str, int]:
     )
     return counts
 
+
+
+def _cli(argv: list[str]) -> int:
+    import argparse
+
+    from ingest.store import DEFAULT_LANCEDB_PATH
+
+    parser = argparse.ArgumentParser(
+        prog="python -m ingest.index_equations",
+        description="Build MathML trees for the equations table.",
+    )
+    parser.add_argument(
+        "--lancedb-path", default=str(DEFAULT_LANCEDB_PATH),
+        help="LanceDB dataset holding the equations table",
+    )
+    parser.add_argument(
+        "--rebuild", action="store_true",
+        help="recompute every tree, not only missing ones (needed after "
+        "the tree normalizer changes)",
+    )
+    args = parser.parse_args(argv)
+    counts = index_equation_trees(args.lancedb_path, rebuild=args.rebuild)
+    print(" ".join(f"{k}={v}" for k, v in counts.items()))
+    return 0
+
+
+if __name__ == "__main__":  # pragma: no cover
+    import sys
+
+    sys.exit(_cli(sys.argv[1:]))
 
 __all__ = [
     "index_equation_trees",

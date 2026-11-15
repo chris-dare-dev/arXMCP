@@ -440,6 +440,45 @@ def index_definitions_for_paper(
     return len(rows)
 
 
+
+def _cli(argv: list[str]) -> int:
+    import argparse
+
+    import lancedb
+
+    from ingest.store import DEFAULT_LANCEDB_PATH
+
+    parser = argparse.ArgumentParser(
+        prog="python -m ingest.index_definitions",
+        description="Rebuild the definitions index from each paper's preamble.",
+    )
+    parser.add_argument(
+        "--lancedb-path", default=str(DEFAULT_LANCEDB_PATH),
+        help="LanceDB dataset holding the chunks table",
+    )
+    parser.add_argument(
+        "paper_ids", nargs="*",
+        help="papers to index (default: every paper in the chunks table)",
+    )
+    args = parser.parse_args(argv)
+    paper_ids = args.paper_ids
+    if not paper_ids:
+        chunks = lancedb.connect(args.lancedb_path).open_table("chunks")
+        column = (
+            chunks.search().select(["paper_id"]).limit(chunks.count_rows())
+            .to_arrow().column("paper_id")
+        )
+        paper_ids = sorted(set(column.to_pylist()))
+    total = sum(index_definitions_for_paper(pid, args.lancedb_path) for pid in paper_ids)
+    print(f"indexed {total} definition(s) across {len(paper_ids)} paper(s)")
+    return 0
+
+
+if __name__ == "__main__":  # pragma: no cover
+    import sys
+
+    sys.exit(_cli(sys.argv[1:]))
+
 __all__ = [
     "build_definitions_for_paper",
     "index_definitions_for_paper",
