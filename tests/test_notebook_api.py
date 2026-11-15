@@ -1468,17 +1468,11 @@ class TestV4ToV5Migration:
         assert "description" in c2
 
 
-class TestV5ToV6Migration:
-    """contract-v1 (derived-alg-geo-lean #174) — ``formal_releases``.
+class TestV6ToV7Migration:
+    """v7 drops ``formal_releases`` (the release pin was removed). That is the
+    one migration that drops a table; it must take only that table."""
 
-    ADDITIVE, like every block since v1->v2: a schema bump on notebook
-    METADATA must never lose a row. The v0->v1 block is the only destructive
-    one and it is guarded by ``current_version < 1``, which is precisely why a
-    writer that leaves ``user_version`` at 0 is a data-loss hazard rather than
-    an untidiness.
-    """
-
-    def test_v5_to_v6_adds_the_table_without_touching_existing_rows(
+    def test_v6_to_v7_drops_the_pin_table_and_keeps_notebooks(
         self, tmp_path: Path,
     ) -> None:
         import asyncio
@@ -1486,22 +1480,27 @@ class TestV5ToV6Migration:
 
         db_path = tmp_path / "notebooks.db"
 
-        async def _seed_v5_then_open() -> tuple[int, list[str], list[str]]:
-            # A real v5 file, built by the store itself rather than by a
-            # hand-written CREATE that could drift from it.
+        async def _seed_v6_then_open() -> tuple[int, list[str], list[str]]:
             store = await NotebooksStore.open(db_path)
             try:
                 await store.create_notebook(
-                    slug="legacy-v5", display_name="Legacy v5",
+                    slug="legacy-v6", display_name="Legacy v6",
                     lancedb_path="/tmp/legacy/lancedb",
                     created_at="2026-01-01T00:00:00+00:00",
                 )
             finally:
                 await store.close()
+            # Rewind to v6 with a pinned row, as a file written before the
+            # pin was removed would be.
             conn = sqlite3.connect(str(db_path))
             try:
-                conn.execute("PRAGMA user_version = 5")
-                conn.execute("DROP TABLE IF EXISTS formal_releases")
+                conn.execute(
+                    "CREATE TABLE formal_releases (slug TEXT, repo TEXT, tag TEXT)"
+                )
+                conn.execute(
+                    "INSERT INTO formal_releases VALUES ('legacy-v6', 'r', 'v1')"
+                )
+                conn.execute("PRAGMA user_version = 6")
                 conn.commit()
             finally:
                 conn.close()
@@ -1515,44 +1514,16 @@ class TestV5ToV6Migration:
             conn = sqlite3.connect(str(db_path))
             try:
                 version = int(conn.execute("PRAGMA user_version").fetchone()[0])
-                cols = [r[1] for r in conn.execute(
-                    "PRAGMA table_info(formal_releases)").fetchall()]
+                tables = [r[0] for r in conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type = 'table'")]
             finally:
                 conn.close()
-            return version, cols, slugs
+            return version, tables, slugs
 
-        version, cols, slugs = asyncio.run(_seed_v5_then_open())
-        assert version == SCHEMA_VERSION
-        assert slugs == ["legacy-v5"], "the v5 row must survive the bump"
-        assert "digest_provenance" in cols
-        assert "tag_object_sha" in cols
-
-    def test_a_pin_requires_the_notebook_it_is_served_under(
-        self, tmp_path: Path,
-    ) -> None:
-        """The FK is load-bearing: a pin for a notebook that does not exist is
-        a record nothing can serve, and the resources reach it by slug."""
-        import asyncio
-        import sqlite3
-
-        async def _run() -> None:
-            store = await NotebooksStore.open(tmp_path / "notebooks.db")
-            try:
-                with pytest.raises(sqlite3.IntegrityError):
-                    await store.upsert_formal_release({
-                        "slug": "no-such-notebook", "repo": "r", "tag": "v1",
-                        "tag_object_sha": "a", "commit_sha": "b",
-                        "registry_id": "c", "registry_sha256": "d",
-                        "env_digest": "e", "digest_provenance": "git_rooted",
-                        "asset_dir": "", "bundle_json": "{}",
-                        "registry_json": "{}", "resolution_json": None,
-                        "review_json": None, "withdrawals_json": None,
-                        "withdrawals_tag": None, "pinned_at": "2026-09-03",
-                    })
-            finally:
-                await store.close()
-
-        asyncio.run(_run())
+        version, tables, slugs = asyncio.run(_seed_v6_then_open())
+        assert version == SCHEMA_VERSION == 7
+        assert "formal_releases" not in tables
+        assert slugs == ["legacy-v6"], "the notebook row must survive the bump"
 
 
 class TestNotebookTopicMetadata:
