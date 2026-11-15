@@ -183,9 +183,13 @@ class ApplicationPaths:
         )
 
     def prepare(self) -> None:
-        """Create the tree and prove temporary state is writable using EAFP."""
+        """Create the tree and prove temporary state is writable using EAFP.
+
+        The Kùzu graph is a single file that Kùzu refuses to open as a
+        directory, so only its parent is created.
+        """
         directories = (self.root, self.corpus, self.index, self.lancedb,
-                       self.kuzu, self.bm25, self.sqlite, self.notebooks,
+                       self.kuzu.parent, self.bm25, self.sqlite, self.notebooks,
                        self.cache, self.ops, self.logs, self.backups, self.tmp)
         for path in directories:
             path.mkdir(parents=True, exist_ok=True)
