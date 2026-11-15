@@ -1318,3 +1318,31 @@ class TestBm25SourceKindBranch:
             {"paper_id": "2401.00001", "source_kind": "textbook"},
         )
         assert out == []
+
+
+class TestResourceLinksFollowTheCap:
+    def test_links_only_for_rows_the_cap_kept(self, fake_resources) -> None:
+        """Each result row gets one resource_link. When the byte cap drops
+        trailing rows, their links must go too, or the client is pointed at
+        chunks that are not in the payload it was handed."""
+        from mcp.types import ResourceLink
+
+        from server.handlers.search import handle_search_papers
+
+        resources = fake_resources["resources"]
+        # The full payload is ~3.8 KB, ~7.7 KB with the wire factor of 2,
+        # so this keeps roughly half the rows.
+        resources.config.result_byte_cap = 4096
+        resources.chunks_table.set_rows([
+            {"chunk_id": f"arxiv:2604.{n:05d}:abc", "paper_id": f"2604.{n:05d}",
+             "body_text": "x" * 4000, "_distance": 0.1 + n / 100}
+            for n in range(10)
+        ])
+
+        result = _run(handle_search_papers(query="Bridgeland stability", k=10))
+
+        kept = [r["chunk_id"] for r in result.structuredContent["results"]]
+        links = [b.name for b in result.content if isinstance(b, ResourceLink)]
+        assert result.structuredContent.get("body_truncated") is True
+        assert 0 < len(kept) < 10
+        assert links == kept

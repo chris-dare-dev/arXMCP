@@ -716,7 +716,7 @@ async def handle_search_papers(
                 getattr(r, "paper_metadata_store", None), rows
             )
             structured = _cap(structured)
-            content = _build_content_blocks(structured, rows)
+            content = _build_content_blocks(structured)
             return CallToolResult(content=content, structuredContent=structured)
 
     # Encode query (singleflight + semaphore — two-tier concurrency).
@@ -781,7 +781,7 @@ async def handle_search_papers(
                 getattr(r, "paper_metadata_store", None), rows
             )
             structured = _cap(structured)
-            content = _build_content_blocks(structured, rows)
+            content = _build_content_blocks(structured)
             return CallToolResult(content=content, structuredContent=structured)
 
     # Dense ANN over embedding_stmt only. embedding_proof is for
@@ -955,7 +955,7 @@ async def handle_search_papers(
     # one ResourceLink per result row. E13_S04b: cap the structured
     # payload (defensive; closes Threat 4 partial-coverage gap G1).
     structured = _cap(structured)
-    content = _build_content_blocks(structured, rows)
+    content = _build_content_blocks(structured)
     return CallToolResult(content=content, structuredContent=structured)
 
 
@@ -1071,9 +1071,7 @@ def _cap(structured: dict[str, Any]) -> dict[str, Any]:
     return structured
 
 
-def _build_content_blocks(
-    structured: dict[str, Any], rows: list[dict[str, Any]]
-) -> list[Any]:
+def _build_content_blocks(structured: dict[str, Any]) -> list[Any]:
     """Build the ``content`` array per the E06_S04 contract.
 
     Block 0 is a TextContent carrying ``json.dumps(structured,
@@ -1081,17 +1079,16 @@ def _build_content_blocks(
     dict-handler emits, so clients that only read
     ``content[0].text`` see the full payload.
 
-    Blocks 1..N are ResourceLink blocks in the same order as
-    ``rows`` (which is already sorted ``(score_desc,
-    chunk_id_asc)``). Each link's URI is
-    ``arxmcp://chunks/<chunk_id>`` per the design note's resource
-    URI scheme.
+    Blocks 1..N are ResourceLink blocks, one per row of
+    ``structured["results"]`` in the same order (already sorted
+    ``(score_desc, chunk_id_asc)``). Each link's URI is
+    ``arxmcp://chunks/<chunk_id>``, served by the chunk resource in
+    :mod:`server.mcp_resources`.
 
-    Note: ``search_papers`` does NOT call ``enforce_byte_cap``
-    (only ``get_chunk`` does at v1). When a future milestone
-    wires cap enforcement here, the per-row ResourceLink overhead
-    must be added to the wire-overhead factor calibration in
-    ``server/tools.py``.
+    The links are built from ``structured`` AFTER the byte cap, so a
+    row the cap dropped gets no link. The links themselves are not in
+    the cap's measurement: about 200 bytes each as JSON, so ~10 KB for
+    the 50-row maximum against a 256 KB cap.
     """
     # agent-platform-t-compact-wire-format (#85): compact separators
     # rather than indent=2. content[0].text is a byte-for-byte duplicate
@@ -1110,7 +1107,7 @@ def _build_content_blocks(
             ),
         )
     ]
-    for row in rows:
+    for row in structured.get("results", []):
         cid = row["chunk_id"]
         blocks.append(
             ResourceLink(
