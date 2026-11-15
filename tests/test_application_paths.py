@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import kuzu
 import pytest
 
 import server.application_paths as paths_module
@@ -185,3 +186,12 @@ def test_prepare_propagates_read_only_failure(
     monkeypatch.setattr(paths_module.tempfile, "mkstemp", denied)
     with pytest.raises(PermissionError, match="read-only"):
         paths.prepare()
+
+
+def test_prepared_tree_opens_the_citation_graph(tmp_path: Path) -> None:
+    paths = ApplicationPaths.resolve(
+        environ={}, mode="installed", root=tmp_path / "data"
+    )
+    paths.prepare()
+    db = kuzu.Database(str(paths.kuzu))
+    db.close()
