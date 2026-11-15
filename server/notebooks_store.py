@@ -64,7 +64,7 @@ logger = logging.getLogger(__name__)
 #: data loss). When adding a new version: append a new
 #: ``if current_version < N:`` block in ``_open_sync`` using
 #: ``CREATE TABLE IF NOT EXISTS`` / ``ALTER TABLE`` and bump
-#: SCHEMA_VERSION; do NOT drop existing tables.
+#: SCHEMA_VERSION; do NOT drop a table that holds user-authored state.
 #:
 #: v3→v4 is the textbook-ingest-m6 ADDITIVE migration adding three
 #: parse-tracking columns to ``notebooks``: ``parse_status``,
@@ -86,7 +86,11 @@ logger = logging.getLogger(__name__)
 #: arXMCP holds no registry, only a pin to one, and re-serves its
 #: records verbatim). Written by ``tools/formal_release_pin.py``, read
 #: by the ``arxmcp://formal/*`` resources. derived-alg-geo-lean #174.
-SCHEMA_VERSION: int = 6
+#:
+#: v6→v7 drops ``formal_releases`` again: the release pin and the formal
+#: resources were removed. Its rows were never user-authored state, since
+#: each was re-derived from a sibling repo's git tag.
+SCHEMA_VERSION: int = 7
 
 
 def _migrate(conn: sqlite3.Connection, version: int, *statements: str) -> None:
@@ -118,11 +122,10 @@ def _migrate(conn: sqlite3.Connection, version: int, *statements: str) -> None:
 #: Module-level so a SYNC CLI can reach the migration ladder.
 #:
 #: It used to be a closure inside ``NotebooksStore.open``, which meant the
-#: only way to migrate this file was to construct an async store. Two CLIs
-#: could not, and wrote the ``notebooks`` table by raw ``sqlite3`` instead:
-#: ``tools/notebook_restore.py`` (:227, :302, :320) and, once contract-v1
-#: landed, the release pinner. Neither touched ``user_version``, so rows they
-#: wrote sat in a file the v0->v1 block below would DROP on the next server
+#: only way to migrate this file was to construct an async store. A sync CLI
+#: could not, and wrote the ``notebooks`` table by raw ``sqlite3`` instead
+#: (``tools/notebook_restore.py``). It never touched ``user_version``, so rows
+#: it wrote sat in a file the v0->v1 block below would DROP on the next server
 #: start -- the migration is guarded by ``current_version < 1`` and a
 #: raw-sqlite writer leaves that at 0 forever. ``tools/notebook_list_offline.py``
 #: already carries the read-side half of this lesson (its m2 critique F2).
@@ -335,6 +338,9 @@ def open_sync(db_path: Path) -> sqlite3.Connection:
             "    ON DELETE CASCADE"
             ")",
         )
+    # v6 -> v7: the release pin was removed, and nothing reads this table.
+    if current_version < 7:
+        _migrate(conn, 7, "DROP TABLE IF EXISTS formal_releases")
     return conn
 
 
@@ -901,88 +907,6 @@ class NotebooksStore:
                 )
                 return cur.rowcount
             return await asyncio.to_thread(_update)
-
-
-    # ------------------------------------------------------------------
-    # Formal releases (contract-v1; derived-alg-geo-lean #174)
-    # ------------------------------------------------------------------
-
-    async def upsert_formal_release(self, row: dict[str, str | None]) -> None:
-        """Write (or replace) the pin for ``(slug, repo)``.
-
-        ``INSERT OR REPLACE``: one pin per notebook per topic repo, and
-        re-pinning to a newer tag REPLACES rather than accumulates. Keeping
-        both would leave two answers to "what does this notebook serve", and
-        the resource would have to choose -- which is the operator's decision,
-        expressed by which tag they pinned.
-
-        The caller (``tools/formal_release_pin.py``) owns every verification;
-        this method owns none. That split is deliberate: a store method that
-        re-checked digests would be a second, weaker gate that a future caller
-        might rely on instead of the real one.
-        """
-        async with self._lock:
-            def _write() -> None:
-                self._conn.execute(
-                    "INSERT OR REPLACE INTO formal_releases ("
-                    "  slug, repo, tag, tag_object_sha, commit_sha,"
-                    "  registry_id, registry_sha256, env_digest,"
-                    "  digest_provenance, asset_dir, bundle_json,"
-                    "  registry_json, resolution_json, review_json,"
-                    "  withdrawals_json, withdrawals_tag, pinned_at"
-                    ") VALUES ("
-                    "  :slug, :repo, :tag, :tag_object_sha, :commit_sha,"
-                    "  :registry_id, :registry_sha256, :env_digest,"
-                    "  :digest_provenance, :asset_dir, :bundle_json,"
-                    "  :registry_json, :resolution_json, :review_json,"
-                    "  :withdrawals_json, :withdrawals_tag, :pinned_at"
-                    ")",
-                    row,
-                )
-            await asyncio.to_thread(_write)
-
-    async def get_formal_release(self, slug: str) -> dict[str, str | None] | None:
-        """The pin for ``slug``, or ``None`` when this notebook pins nothing.
-
-        ``None`` is the ordinary case and not an error: most notebooks have no
-        formalization, and the ``arxmcp://formal/{notebook}`` resource says so
-        rather than 404-ing, because "this corpus has no formalization" is an
-        answer.
-        """
-        async with self._lock:
-            def _query() -> dict[str, str | None] | None:
-                cur = self._conn.execute(
-                    f"SELECT {_FORMAL_COLUMNS} FROM formal_releases "
-                    "WHERE slug = ? ORDER BY repo LIMIT 1",
-                    (slug,),
-                )
-                row = cur.fetchone()
-                if row is None:
-                    return None
-                return dict(zip(_FORMAL_COLUMNS.split(", "), row, strict=True))
-            return await asyncio.to_thread(_query)
-
-    async def list_formal_releases(self) -> list[dict[str, str | None]]:
-        """Every pin, ordered by ``(slug, repo)``."""
-        async with self._lock:
-            def _query() -> list[dict[str, str | None]]:
-                cur = self._conn.execute(
-                    f"SELECT {_FORMAL_COLUMNS} FROM formal_releases "
-                    "ORDER BY slug, repo"
-                )
-                names = _FORMAL_COLUMNS.split(", ")
-                return [dict(zip(names, row, strict=True)) for row in cur.fetchall()]
-            return await asyncio.to_thread(_query)
-
-
-#: Selected explicitly rather than with ``*`` so a future ALTER cannot silently
-#: change the shape every reader unpacks.
-_FORMAL_COLUMNS = (
-    "slug, repo, tag, tag_object_sha, commit_sha, registry_id, "
-    "registry_sha256, env_digest, digest_provenance, asset_dir, bundle_json, "
-    "registry_json, resolution_json, review_json, withdrawals_json, "
-    "withdrawals_tag, pinned_at"
-)
 
 
 __all__ = [

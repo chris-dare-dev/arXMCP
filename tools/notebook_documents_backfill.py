@@ -564,12 +564,11 @@ def _print_summary(
         f"unique={unique} "
         f"total={total}"
     )
-    # derived-alg-geo-lean #171. Every row this driver writes carries
-    # `arxiv_version=''` unless the papers.txt line said `<id>@vN`, and no
-    # seed line in either live notebook does. Nothing was wrong with that
-    # until something started reading the column: `statement_resolve.py`
-    # withholds `current` from a versioned registry entry while the corpus
-    # cannot say which revision it holds. The version is recoverable -- the
+    # Every row this driver writes carries `arxiv_version=''` unless the
+    # papers.txt line said `<id>@vN`, and no seed line in either live notebook
+    # does, so the corpus cannot say which revision it holds. The column is
+    # half the documents key and the corpus manifest hashes it. The version
+    # is recoverable -- the
     # OAI-PMH arXivRaw history windowed by `fetched_at` -- but only by a
     # SECOND request per work, which is why it is a separate CLI rather than
     # a step here doubling this run's politeness budget. Printed because the
