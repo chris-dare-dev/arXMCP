@@ -44,6 +44,7 @@ import sys
 from ingest.bm25_indexer import build_bm25_index
 from ingest.bulk_ingest import run_bulk_ingest
 from ingest.index_definitions import index_definitions_for_corpus
+from ingest.index_theorem_names import build_theorem_names_index
 from tools._notebook_common import (
     NotebookError,
     notebook_dir,
@@ -187,6 +188,11 @@ def run(slug: str) -> int:
     # index_status="absent" for every freshly ingested notebook.
     rows, papers = index_definitions_for_corpus(lancedb_path)
     print(f"definitions indexed: {rows} across {papers} paper(s)")
+    # find_lemma_by_name reads the theorem-name index inside the same dataset.
+    names = build_theorem_names_index(lancedb_path)
+    print(
+        f"theorem names indexed: {sum(names.values())} across {len(names)} paper(s)"
+    )
 
     # Warn if multiple v<N>/ directories exist under the per-notebook
     # BM25 root. Helps operators prune stale indices after a

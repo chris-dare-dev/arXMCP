@@ -162,7 +162,9 @@ class TestBackupSet:
         var = tmp_path / "var" / "arxmcp"
         backed_up = [
             var / "cache" / "notebooks.db",
+            var / "index" / "lancedb" / "derived" / "theorem_names.db",
             var / "notebooks" / "demo" / "documents.db",
+            var / "notebooks" / "demo" / "lancedb" / "derived" / "theorem_names.db",
             var / "notebooks" / "demo" / "paper_metadata.db",
         ]
         query_cache = var / "notebooks" / "demo" / "cache" / "retrieval.db"

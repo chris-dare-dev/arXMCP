@@ -119,13 +119,18 @@ def checkpoint(
 def backup_set_databases(var_root: Path) -> list[Path]:
     """Every SQLite database the backup copies, under ``var_root``.
 
-    That is ``cache/notebooks.db`` plus each notebook's stores under
-    ``notebooks/`` (``documents.db``, ``paper_metadata.db``). Each runs in
+    That is ``cache/notebooks.db``, the shared dataset's derived indexes
+    under ``index/lancedb/derived/``, and each notebook's stores under
+    ``notebooks/`` (``documents.db``, ``paper_metadata.db``, and its
+    dataset's ``lancedb/derived/theorem_names.db``). Each runs in
     WAL mode, so each needs the same checkpoint. A notebook's
     ``cache/retrieval.db`` is a regenerable query cache that the backup
     excludes, so it is skipped here too.
     """
     databases = [var_root / "cache" / "notebooks.db"]
+    # The shared dataset's derived indexes (the theorem-name index) sit
+    # inside index/lancedb, which the backup copies.
+    databases += sorted((var_root / "index" / "lancedb" / "derived").glob("*.db"))
     notebooks = var_root / "notebooks"
     if notebooks.is_dir():
         databases += sorted(

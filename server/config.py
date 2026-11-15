@@ -42,6 +42,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from server.application_paths import (
     COMPATIBILITY_ALIAS_FIELDS,
     ApplicationPaths,
+    derived_index_path,
     legacy_source_path,
 )
 from server.corpus_freshness import DEFAULT_FRESHNESS_INTERVAL_SECONDS
@@ -716,6 +717,25 @@ class Config(BaseSettings):
             lancedb=self.lancedb_path,
             retrieval_cache_db=self.cache_db_path,
             bm25=self.bm25_index_root or self._application_paths.bm25,
+        )
+        return self
+
+    @model_validator(mode="after")
+    def derive_dataset_index_paths(self) -> Config:
+        """Place the theorem-name index inside the dataset being served.
+
+        Runs after notebook routing has settled :attr:`lancedb_path`, so a
+        notebook-routed server reads its own notebook's index, and the index
+        moves with the dataset when cutover or rollback renames it. An
+        explicit ``ARXMCP_THEOREM_NAMES_DB_PATH`` still wins.
+        """
+        if "theorem_names_db_path" in self._supplied_path_fields:
+            return self
+        self.theorem_names_db_path = derived_index_path(
+            self.lancedb_path, "theorem_names.db"
+        )
+        self._application_paths = replace(
+            self._application_paths, theorem_names_db=self.theorem_names_db_path
         )
         return self
 

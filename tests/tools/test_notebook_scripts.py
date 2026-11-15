@@ -409,6 +409,9 @@ def test_ingest_creates_missing_dirs(
     monkeypatch.setattr(
         notebook_ingest, "index_definitions_for_corpus", lambda *a, **kw: (0, 0)
     )
+    monkeypatch.setattr(
+        notebook_ingest, "build_theorem_names_index", lambda *a, **kw: {}
+    )
 
     rc = notebook_ingest.run("demo")
     assert rc == 0
@@ -689,6 +692,9 @@ def test_ingest_builds_bm25_under_per_notebook_root(
     monkeypatch.setattr(
         notebook_ingest, "index_definitions_for_corpus", lambda *a, **kw: (0, 0)
     )
+    monkeypatch.setattr(
+        notebook_ingest, "build_theorem_names_index", lambda *a, **kw: {}
+    )
 
     rc = notebook_ingest.run("myslug")
     assert rc == 0
@@ -746,6 +752,9 @@ def test_ingest_per_notebook_bm25_root_no_collision(
     monkeypatch.setattr(
         notebook_ingest, "index_definitions_for_corpus", lambda *a, **kw: (0, 0)
     )
+    monkeypatch.setattr(
+        notebook_ingest, "build_theorem_names_index", lambda *a, **kw: {}
+    )
     monkeypatch.setattr(notebook_ingest, "run_bulk_ingest", _fake_ingest_alpha)
     notebook_ingest.run("alpha")
 
@@ -801,6 +810,9 @@ def test_ingest_warns_about_stale_bm25_versions(
     monkeypatch.setattr(
         notebook_ingest, "index_definitions_for_corpus", lambda *a, **kw: (0, 0)
     )
+    monkeypatch.setattr(
+        notebook_ingest, "build_theorem_names_index", lambda *a, **kw: {}
+    )
     notebook_ingest.run("demo")
     nb_bm25_root = actual_root_holder[0]
     assert nb_bm25_root is not None
@@ -814,6 +826,9 @@ def test_ingest_warns_about_stale_bm25_versions(
     monkeypatch.setattr(notebook_ingest, "build_bm25_index", _fake_build)
     monkeypatch.setattr(
         notebook_ingest, "index_definitions_for_corpus", lambda *a, **kw: (0, 0)
+    )
+    monkeypatch.setattr(
+        notebook_ingest, "build_theorem_names_index", lambda *a, **kw: {}
     )
     rc = notebook_ingest.run("demo")
     assert rc == 0

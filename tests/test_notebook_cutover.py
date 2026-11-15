@@ -170,6 +170,22 @@ def test_rollback_is_lossless_roundtrip(nb_base) -> None:
     assert (nb / "lancedb-staging" / "_sentinel.txt").read_text() == "v645"
 
 
+def test_derived_indexes_travel_with_their_dataset(nb_base) -> None:
+    """An index built inside a dataset is promoted and rolled back with it."""
+    nb = nb_base / "demo-nb"
+    for name, version in (("lancedb", 369), ("lancedb-staging", 645)):
+        _write_lancedb(nb / name, version=version)
+        (nb / name / "derived").mkdir()
+        (nb / name / "derived" / "theorem_names.db").write_text(f"v{version}")
+    index = nb / "lancedb" / "derived" / "theorem_names.db"
+
+    nc.perform_cutover("demo-nb", base=nb_base)
+    assert index.read_text() == "v645"
+
+    nc.perform_rollback("demo-nb", base=nb_base)
+    assert index.read_text() == "v369"
+
+
 def test_rollback_without_backup_refused(nb_base) -> None:
     """FM-6: rollback with no lancedb-prev-* backup refuses, no mutation."""
     nb = nb_base / "demo-nb"

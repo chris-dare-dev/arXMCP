@@ -476,6 +476,34 @@ class TestNotebookConfig:
         cfg = Config(notebook="demo-nb")
         assert cfg.lancedb_path == (notebooks_base / "demo-nb" / "lancedb").resolve()
 
+    def test_shared_theorem_names_live_in_the_shared_dataset(self, monkeypatch):
+        monkeypatch.delenv("ARXMCP_NOTEBOOK", raising=False)
+        monkeypatch.delenv("ARXMCP_THEOREM_NAMES_DB_PATH", raising=False)
+        cfg = Config()
+        assert cfg.theorem_names_db_path == Path(
+            "var/arxmcp/index/lancedb/derived/theorem_names.db"
+        )
+
+    def test_notebook_reads_its_own_theorem_names(self, notebooks_base, monkeypatch):
+        monkeypatch.delenv("ARXMCP_THEOREM_NAMES_DB_PATH", raising=False)
+        _seed_notebook_marker(notebooks_base / "demo-nb" / "lancedb")
+        cfg = Config(notebook="demo-nb")
+        assert cfg.theorem_names_db_path == (
+            notebooks_base / "demo-nb" / "lancedb" / "derived" / "theorem_names.db"
+        ).resolve()
+
+    def test_explicit_dataset_carries_its_theorem_names(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("ARXMCP_THEOREM_NAMES_DB_PATH", raising=False)
+        cfg = Config(lancedb_path=tmp_path / "lancedb")
+        assert cfg.theorem_names_db_path == (
+            tmp_path / "lancedb" / "derived" / "theorem_names.db"
+        )
+
+    def test_explicit_theorem_names_path_wins(self, notebooks_base, tmp_path):
+        _seed_notebook_marker(notebooks_base / "demo-nb" / "lancedb")
+        cfg = Config(notebook="demo-nb", theorem_names_db_path=tmp_path / "t.db")
+        assert cfg.theorem_names_db_path == tmp_path / "t.db"
+
     def test_notebook_set_via_env(self, notebooks_base, monkeypatch):
         """The slug arrives via ARXMCP_NOTEBOOK env, not just kwargs."""
         _seed_notebook_marker(notebooks_base / "demo-nb" / "lancedb")
