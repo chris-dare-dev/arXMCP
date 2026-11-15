@@ -18,7 +18,7 @@ central ``notebooks.db``:
   durability tier of :mod:`server.cache_sqlite` /
   :mod:`server.theorem_names_store`.
 - Per-notebook files match the fork-C isolation precedent
-  (``lancedb/``, ``index/bm25/``, ``cache/retrieval.db``) and keep
+  (``lancedb/``, ``cache/retrieval.db``) and keep
   the CLI-writer / server-reader split off the daemon's live
   central DB.
 - m1 stays fully additive: no ``NotebooksStore`` schema bump, no

@@ -665,27 +665,21 @@ class TestNotebookConfig:
     # notebook-bm25-isolation-m1 — AC-2 + config field tests
     # ------------------------------------------------------------------
 
-    def test_shared_config_has_none_bm25_index_root(self, monkeypatch):
-        """AC-2 / FM-4: when ARXMCP_NOTEBOOK is unset, bm25_index_root
-        stays None so the global BM25_INDEX_ROOT is resolved at call
-        time (preserving the conftest monkeypatch for ~40 tests)."""
+    def test_shared_bm25_index_root_lives_in_the_shared_dataset(self, monkeypatch):
         monkeypatch.delenv("ARXMCP_NOTEBOOK", raising=False)
+        monkeypatch.delenv("ARXMCP_BM25_INDEX_ROOT", raising=False)
         cfg = Config()
-        assert cfg.bm25_index_root is None, (
-            "Non-notebook config must have bm25_index_root=None "
-            f"(got {cfg.bm25_index_root!r})"
-        )
+        assert cfg.bm25_index_root == Path("var/arxmcp/index/lancedb/derived/bm25")
 
     def test_notebook_derives_per_notebook_bm25_index_root(
         self, notebooks_base, monkeypatch
     ):
-        """AC-1 / notebook-bm25-isolation-m1: fork-C config derives
-        bm25_index_root = var/arxmcp/notebooks/<slug>/index/bm25,
-        mirroring the cache_db_path isolation pattern."""
+        """A notebook-routed config reads the BM25 index inside its own
+        dataset."""
         monkeypatch.delenv("ARXMCP_BM25_INDEX_ROOT", raising=False)
         _seed_notebook_marker(notebooks_base / "demo-nb" / "lancedb")
         cfg = Config(notebook="demo-nb")
-        expected = (notebooks_base / "demo-nb" / "index" / "bm25").resolve()
+        expected = (notebooks_base / "demo-nb" / "lancedb" / "derived" / "bm25").resolve()
         assert cfg.bm25_index_root == expected, (
             f"Fork-C bm25_index_root should be {expected}; "
             f"got {cfg.bm25_index_root!r}"
@@ -737,32 +731,16 @@ class TestNotebookConfig:
             assert resources.config.lancedb_path == nb_lancedb.resolve()
             assert resources.chunks_table.count_rows() == 2
 
-            # notebook-bm25-isolation-m1 F2: pin that fork-C STARTUP built the
-            # BM25 index under the PER-NOTEBOOK root (config → resources →
-            # BM25Phase.startup auto-build), NOT the global root. Without this
-            # assertion a future refactor that drops the bm25_index_root kwarg
-            # would auto-build into the global root and every other test would
-            # still pass (/readyz would still be 200) — the e3-class
-            # "verified by reading, not pinned" gap.
+            # Startup auto-builds the missing index inside the served dataset.
             import ingest.bm25_indexer as bm25_mod  # noqa: PLC0415
 
             nb_bm25_pkl = (
-                notebooks_base
-                / "demo-nb"
-                / "index"
-                / "bm25"
-                / f"v{nb_version}"
-                / bm25_mod.BM25_INDEX_NAME
+                notebooks_base / "demo-nb" / "lancedb" / "derived" / "bm25"
+                / f"v{nb_version}" / bm25_mod.BM25_INDEX_NAME
             )
             assert nb_bm25_pkl.is_file(), (
-                f"fork-C startup must build BM25 under the notebook root; "
+                f"startup must build BM25 inside the notebook dataset; "
                 f"missing {nb_bm25_pkl}"
-            )
-            # The global (conftest-patched) BM25 root must NOT carry this
-            # notebook's version dir — proves the per-notebook isolation.
-            assert not (bm25_mod.BM25_INDEX_ROOT / f"v{nb_version}").exists(), (
-                "fork-C must NOT build into the global BM25 root "
-                f"({bm25_mod.BM25_INDEX_ROOT})"
             )
 
 

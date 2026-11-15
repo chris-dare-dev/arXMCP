@@ -32,20 +32,9 @@ Atomic-swap contract (per notebook): ``lancedb → lancedb-prev-<UTC-ts>`` then
 filesystem). The most recent ``N=2`` ``lancedb-prev-*`` backups are retained;
 older ones are pruned (prune failure is non-fatal — the swap already committed).
 
-**BM25 is NOT built here (F1 rectification).** An earlier draft built the BM25
-index for the staging version pre-swap, but the BM25 index root
-(``var/arxmcp/index/bm25/v<N>/``) is GLOBAL and keyed only on the per-dataset
-MVCC ``corpus_version`` — which is NOT globally unique across notebooks + the
-shared corpus (collision confirmed live: shared-corpus ``v49`` and
-shimura-varieties active are both v49). Building into that namespace from the
-cutover participates in a fork-C-startup collision. The fork-A
-(``filters.notebook``) retrieval path is dense-only (no BM25); the fork-C
-(``ARXMCP_NOTEBOOK``) startup path AUTO-BUILDS the BM25 index for the active
-version if missing (E04_S04 H1), so the cutover does not need to. The proper
-fix — a per-notebook BM25 root coordinated with fork-C startup
-(``server/resources.py``) — is the BM25 analog of m1's ``cache_db_path``
-isolation and is tracked as a separate follow-up (see notebook-cutover-m1
-critique F1).
+The dataset carries its derived indexes (BM25, theorem names) under
+``derived/``, so the two renames move them with the chunks and a rollback
+restores the ones built for the restored version.
 """
 
 from __future__ import annotations
@@ -175,8 +164,7 @@ def perform_cutover(
 
     Then perform the two-rename swap with an EXDEV guard +
     rollback-on-step-2-failure, and prune backups to ``N=2`` (prune failure is
-    non-fatal — the swap already committed). BM25 is intentionally NOT built
-    here — see the module docstring F1 note.
+    non-fatal — the swap already committed).
     """
     validate_slug(slug)  # Threat-1 boundary, before any path construction.
     nb = notebook_dir(slug, base=base)

@@ -36,6 +36,7 @@ from ingest.bm25_indexer import (
     _atomic_write_bytes,
     _bm25_version_dir,
     build_bm25_index,
+    resolve_bm25_root,
 )
 from ingest.chunker_types import CHUNKER_VERSION, ChunkRecord
 from ingest.embedder import EMBEDDER_VERSION, EMBEDDING_DIM
@@ -166,17 +167,6 @@ def _embeddings_for(chunks: list[ChunkRecord], *, seed: int = 0) -> EmbedRecord:
 
 
 @pytest.fixture
-def _bm25_root(tmp_path, monkeypatch) -> Path:
-    """Redirect ``BM25_INDEX_ROOT`` into tmp_path so the test does
-    not pollute the developer's checkout-local ``var/arxmcp/``."""
-    import ingest.bm25_indexer as bm25_mod
-
-    root = tmp_path / "bm25_root"
-    monkeypatch.setattr(bm25_mod, "BM25_INDEX_ROOT", root)
-    return root
-
-
-@pytest.fixture
 def _seeded_lancedb(tmp_path) -> tuple[Path, int]:
     """Write the curated corpus to a fresh LanceDB and return
     ``(lancedb_path, corpus_version)``."""
@@ -188,7 +178,7 @@ def _seeded_lancedb(tmp_path) -> tuple[Path, int]:
 
 
 @pytest.fixture
-def _bm25_phase(_seeded_lancedb, _bm25_root) -> BM25Phase:
+def _bm25_phase(_seeded_lancedb) -> BM25Phase:
     """Build the BM25 artifact + return a loaded ``BM25Phase``.
 
     Synchronous helper — calls ``BM25Phase._sync_startup`` directly so
@@ -471,12 +461,12 @@ class TestAutoBuild:
     """``BM25Phase.startup`` auto-builds the artifact if missing."""
 
     def test_auto_build_when_artifact_missing(
-        self, _seeded_lancedb, _bm25_root
+        self, _seeded_lancedb
     ):
         """Fresh LanceDB + no pre-existing BM25 artifact: startup
         builds it and returns a working BM25Phase."""
         lancedb_path, version = _seeded_lancedb
-        version_dir = _bm25_version_dir(version)
+        version_dir = _bm25_version_dir(version, resolve_bm25_root(lancedb_path))
         # Sanity: artifact does NOT exist yet.
         assert not (version_dir / BM25_INDEX_NAME).is_file()
 
@@ -487,14 +477,14 @@ class TestAutoBuild:
         assert (version_dir / BM25_CHUNK_IDS_NAME).is_file()
 
     def test_warm_start_uses_existing_artifact(
-        self, _seeded_lancedb, _bm25_root
+        self, _seeded_lancedb
     ):
         """Pre-build the artifact, then call startup. The build is
         idempotent-skip; startup loads the existing pickle."""
         lancedb_path, version = _seeded_lancedb
         # Pre-build.
         build_bm25_index(lancedb_path, corpus_version=version)
-        version_dir = _bm25_version_dir(version)
+        version_dir = _bm25_version_dir(version, resolve_bm25_root(lancedb_path))
         pkl_mtime_before = (version_dir / BM25_INDEX_NAME).stat().st_mtime
 
         phase = BM25Phase._sync_startup(lancedb_path, version)
@@ -503,7 +493,7 @@ class TestAutoBuild:
         pkl_mtime_after = (version_dir / BM25_INDEX_NAME).stat().st_mtime
         assert pkl_mtime_before == pkl_mtime_after
 
-    def test_build_failure_raises_unavailable(self, tmp_path, _bm25_root):
+    def test_build_failure_raises_unavailable(self, tmp_path):
         """If LanceDB is missing entirely, build raises ValueError /
         FileNotFoundError, which startup wraps as
         ``BM25IndexUnavailableError``."""
@@ -556,13 +546,13 @@ class TestArtifactIntegrity:
     A misaligned pair would silently return wrong chunk_ids."""
 
     def test_misaligned_corpus_size_rejected(
-        self, _seeded_lancedb, _bm25_root
+        self, _seeded_lancedb
     ):
         """Build a normal index, then truncate chunk_ids.json so it
         has fewer entries than the pickle. Startup must raise."""
         lancedb_path, version = _seeded_lancedb
         build_bm25_index(lancedb_path, corpus_version=version)
-        version_dir = _bm25_version_dir(version)
+        version_dir = _bm25_version_dir(version, resolve_bm25_root(lancedb_path))
         ids_path = version_dir / BM25_CHUNK_IDS_NAME
 
         # Truncate chunk_ids to half its size.
@@ -649,7 +639,7 @@ class TestAsyncStartup:
     """``BM25Phase.startup`` is the production async entry point."""
 
     def test_async_startup_returns_phase(
-        self, _seeded_lancedb, _bm25_root
+        self, _seeded_lancedb
     ):
         lancedb_path, version = _seeded_lancedb
         phase = asyncio.run(BM25Phase.startup(lancedb_path, version))
@@ -664,13 +654,13 @@ class TestAsyncStartup:
 
 
 class TestCorruptPickleHandling:
-    def test_corrupt_pickle_raises(self, _seeded_lancedb, _bm25_root):
+    def test_corrupt_pickle_raises(self, _seeded_lancedb):
         """F8 fix: narrowed pytest.raises tuple. A corrupted bm25.pkl
         must raise one of the typed pickle/io errors — NOT a bare
         Exception that would mask any unrelated bug as 'success'."""
         lancedb_path, version = _seeded_lancedb
         build_bm25_index(lancedb_path, corpus_version=version)
-        version_dir = _bm25_version_dir(version)
+        version_dir = _bm25_version_dir(version, resolve_bm25_root(lancedb_path))
         pkl_path = version_dir / BM25_INDEX_NAME
         # Have to rewrite via _atomic_write_bytes so the F3 chmod
         # 0o600 is applied (otherwise the file-safety check would
@@ -697,13 +687,13 @@ class TestParentDirectorySafety:
     write to the dir can swap files regardless of file mode."""
 
     def test_world_writable_parent_dir_rejected(
-        self, _seeded_lancedb, _bm25_root
+        self, _seeded_lancedb
     ):
         from server.retrieval.bm25 import _assert_dir_safe
 
         lancedb_path, version = _seeded_lancedb
         build_bm25_index(lancedb_path, corpus_version=version)
-        version_dir = _bm25_version_dir(version)
+        version_dir = _bm25_version_dir(version, resolve_bm25_root(lancedb_path))
 
         original_mode = version_dir.stat().st_mode
         try:
@@ -732,11 +722,11 @@ class TestChunkIdsLiveCrossCheck:
     must trigger BM25IndexUnavailableError at startup, not produce
     phantom candidates."""
 
-    def test_phantom_chunk_id_rejected(self, _seeded_lancedb, _bm25_root):
+    def test_phantom_chunk_id_rejected(self, _seeded_lancedb):
         lancedb_path, version = _seeded_lancedb
         # Build, then tamper chunk_ids.json to include a phantom id.
         build_bm25_index(lancedb_path, corpus_version=version)
-        version_dir = _bm25_version_dir(version)
+        version_dir = _bm25_version_dir(version, resolve_bm25_root(lancedb_path))
         ids_path = version_dir / BM25_CHUNK_IDS_NAME
         original = json.loads(ids_path.read_text())
         # Replace one id with a non-existent phantom (same length so
@@ -763,7 +753,7 @@ class TestChunkIdsLiveCrossCheck:
             )
 
     def test_no_cross_check_when_live_chunk_ids_none(
-        self, _seeded_lancedb, _bm25_root
+        self, _seeded_lancedb
     ):
         """When live_chunk_ids is None (the test-friendly default),
         no cross-check fires — preserves the existing test surface."""
@@ -820,11 +810,11 @@ class TestAtomicWriteMode:
 class TestArtifactIntegrityExtended:
     """F7 fix: cover both directions of length mismatch + duplicates."""
 
-    def test_extra_chunk_ids_rejected(self, _seeded_lancedb, _bm25_root):
+    def test_extra_chunk_ids_rejected(self, _seeded_lancedb):
         """chunk_ids.json longer than corpus_size must also raise."""
         lancedb_path, version = _seeded_lancedb
         build_bm25_index(lancedb_path, corpus_version=version)
-        version_dir = _bm25_version_dir(version)
+        version_dir = _bm25_version_dir(version, resolve_bm25_root(lancedb_path))
         ids_path = version_dir / BM25_CHUNK_IDS_NAME
 
         from ingest.bm25_indexer import _atomic_write_text
@@ -848,7 +838,7 @@ class TestEmptyCorpusFailure:
     """F9 fix: a corpus with zero non-empty body_tokens fails the
     auto-build path, which must surface as BM25IndexUnavailableError."""
 
-    def test_empty_body_tokens_corpus_raises(self, tmp_path, _bm25_root):
+    def test_empty_body_tokens_corpus_raises(self, tmp_path):
         """Build a LanceDB corpus where every chunk has empty
         body_tokens. ``build_bm25_index`` raises ValueError; the
         startup wrapper translates to BM25IndexUnavailableError."""
@@ -931,7 +921,7 @@ class TestResourcesIntegration:
     a test. This class probes the integration end-to-end."""
 
     def test_resources_startup_populates_bm25_phase(
-        self, _seeded_lancedb, _bm25_root
+        self, _seeded_lancedb
     ):
         """``Resources.startup(cfg)`` MUST populate
         ``r.bm25_phase`` with a working ``BM25Phase`` instance."""

@@ -664,9 +664,8 @@ def test_ingest_builds_bm25_under_per_notebook_root(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """notebook-bm25-isolation-m1 regression: build_bm25_index is called
-    with index_root=<nb_dir>/index/bm25, NOT the global BM25_INDEX_ROOT.
-    Two notebooks at the same version N get separate roots with no collision."""
+    """build_bm25_index writes into derived/bm25 inside the notebook's
+    dataset, where the server reads it and cutover moves it."""
     nb = _seed_notebook(notebooks_base, "myslug", ["2303.07061"])
 
     class _FakeSummary:
@@ -709,8 +708,8 @@ def test_ingest_builds_bm25_under_per_notebook_root(
     assert "myslug" in index_root_parts, (
         f"index_root should be under the notebook dir; got {index_root}"
     )
-    assert index_root_parts[-2:] == ("index", "bm25"), (
-        f"index_root should be <nb_dir>/index/bm25; got {index_root}"
+    assert Path(index_root) == nb / "lancedb" / "derived" / "bm25", (
+        f"index_root should be <nb_dir>/lancedb/derived/bm25; got {index_root}"
     )
     # Confirm no .notebook_slug sentinel is written (FM-7: sentinel removed)
     assert not (index_root / "v5" / ".notebook_slug").exists()

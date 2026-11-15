@@ -7,7 +7,7 @@ Builds a per-corpus-version BM25 index by reading every chunk's
 ``body_tokens`` from the pinned LanceDB dataset version (E04_S02
 :func:`server.corpus.open_chunks_table`) and feeding the
 whitespace-split token streams to :class:`rank_bm25.BM25Okapi`. The
-fitted index is pickled to ``var/arxmcp/index/bm25/v<N>/bm25.pkl`` and
+fitted index is pickled to ``<lancedb>/derived/bm25/v<N>/bm25.pkl`` and
 the row-aligned chunk_id list is written as ``chunk_ids.json`` next to
 it. The MCP server (E07, Sonnet B) loads the pair on first lexical
 query; it never enters the in-memory ingestion path.
@@ -54,7 +54,7 @@ same filesystem (the tmp file is co-located with the destination).
 **Pickle security.** ``bm25.pkl`` is produced locally from trusted
 LanceDB data by this module. ``pickle.load`` on an untrusted file is
 remote-code-execution; the path
-``var/arxmcp/index/bm25/`` MUST be treated as trusted-local. Threat 6
+the BM25 root MUST be treated as trusted-local. Threat 6
 (``08-security-observability-ops.md``) covers model-weight pickles
 (deny); the BM25 pickle is application data with the analogous-
 narrower attack surface (trust local, deny remote).
@@ -63,7 +63,7 @@ TODO(E07): the loader (in :mod:`server` for query-time BM25) MUST
 verify file ownership matches process UID and refuse world-writable
 paths before calling ``pickle.load``. The defense-in-depth concern
 (M1 from the E04_S04 critique) is that documentation alone is not
-enforcement. Rationale: when ``var/arxmcp/index/bm25/`` lives on a
+enforcement. Rationale: when the BM25 root lives on a
 shared filesystem (NFS, Docker bind mount, multi-tenant container)
 an attacker who can write to that path achieves RCE in the server
 process. The mitigation is a simple stat-based check at load time;
@@ -95,39 +95,40 @@ logger = logging.getLogger(__name__)
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
-# The directory layout convention: ``var/arxmcp/index/bm25/v<N>/``.
+# The directory layout convention: ``<lancedb>/derived/bm25/v<N>/``.
 # Confine the ``f"v{N}"`` literal to ``_bm25_version_dir`` below — every
 # other reference goes through that helper.
 BM25_DIR_NAME = "bm25"
 BM25_INDEX_NAME = "bm25.pkl"
 BM25_CHUNK_IDS_NAME = "chunk_ids.json"
-BM25_INDEX_ROOT = REPO_ROOT / "var" / "arxmcp" / "index" / BM25_DIR_NAME
 BM25_STATS_PATH = REPO_ROOT / "var" / "arxmcp" / "ops" / "bm25-stats.jsonl"
 
 
-def _bm25_version_dir(
-    corpus_version: int,
-    index_root: Path | None = None,
+def resolve_bm25_root(
+    lancedb_path: str | Path, index_root: str | Path | None = None,
 ) -> Path:
-    """Return the per-version BM25 index directory.
+    """The BM25 root for the dataset at ``lancedb_path``.
+
+    ``index_root`` when given, else ``derived/bm25`` inside the dataset.
+    A ``corpus_version`` is unique only within its dataset, so keeping the
+    ``v<N>`` directories there means two datasets at the same version
+    never share an index, and cutover or rollback moves the index with
+    the chunks it was built from.
+    """
+    if index_root is not None:
+        return Path(index_root)
+    from server.application_paths import derived_index_path
+
+    return derived_index_path(lancedb_path, BM25_DIR_NAME)
+
+
+def _bm25_version_dir(corpus_version: int, index_root: Path) -> Path:
+    """Return the per-version BM25 index directory under ``index_root``.
 
     Confines the ``f"v{N}"`` literal to a single function so a future
     rename (e.g. zero-padding to ``v00007``) is a one-line change.
-
-    Parameters
-    ----------
-    corpus_version:
-        MVCC version integer, e.g. 1.
-    index_root:
-        Optional override for the BM25 artifact root. When ``None``
-        (the default), resolves :data:`BM25_INDEX_ROOT` **at call time**
-        so ``monkeypatch.setattr(bm25_mod, "BM25_INDEX_ROOT", ...)``
-        continues to intercept the path in tests (notebook-bm25-isolation-m1).
-        When provided (fork-C notebook mode), uses that path as the root
-        so the per-notebook index is isolated from the shared corpus.
     """
-    root = index_root if index_root is not None else BM25_INDEX_ROOT
-    return root / f"v{corpus_version}"
+    return Path(index_root) / f"v{corpus_version}"
 
 
 # ---------------------------------------------------------------------------
@@ -270,7 +271,7 @@ def build_bm25_index(
     fits a :class:`rank_bm25.BM25Okapi` over the whitespace-split token
     streams, and writes ``bm25.pkl`` + ``chunk_ids.json`` to
     ``<index_root>/v<corpus_version>/`` atomically (where ``index_root``
-    defaults to :data:`BM25_INDEX_ROOT` when ``None``).
+    defaults to ``derived/bm25`` inside the dataset when ``None``).
 
     .. warning::
 
@@ -324,7 +325,9 @@ def build_bm25_index(
         )
 
     start = time.monotonic()
-    version_dir = _bm25_version_dir(corpus_version, index_root=index_root)
+    version_dir = _bm25_version_dir(
+        corpus_version, resolve_bm25_root(lancedb_path, index_root)
+    )
     pkl_path = version_dir / BM25_INDEX_NAME
     ids_path = version_dir / BM25_CHUNK_IDS_NAME
 
@@ -452,8 +455,8 @@ __all__ = [
     "BM25_CHUNK_IDS_NAME",
     "BM25_DIR_NAME",
     "BM25_INDEX_NAME",
-    "BM25_INDEX_ROOT",
     "BM25_STATS_PATH",
     "BM25Stats",
     "build_bm25_index",
+    "resolve_bm25_root",
 ]

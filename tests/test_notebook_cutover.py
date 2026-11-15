@@ -91,27 +91,6 @@ def test_cutover_swaps_and_backs_up(nb_base) -> None:
     assert (backups[0] / "_sentinel.txt").read_text() == "v369"
 
 
-def test_cutover_builds_no_global_bm25(nb_base, monkeypatch, tmp_path) -> None:
-    """F1 rectification: the cutover must NOT write into the GLOBAL BM25
-    namespace (var/arxmcp/index/bm25/v<N>/) — that root collides across
-    notebooks + the shared corpus on per-dataset MVCC versions. Point the BM25
-    root at a fresh tmp dir and assert the cutover leaves it empty (the build
-    was removed; fork-C startup auto-builds, fork-A is dense-only)."""
-    import ingest.bm25_indexer as bm25_mod
-
-    bm25_root = tmp_path / "bm25_root"
-    monkeypatch.setattr(bm25_mod, "BM25_INDEX_ROOT", bm25_root)
-    nb = nb_base / "demo-nb"
-    _write_lancedb(nb / "lancedb", version=369)
-    _write_lancedb(nb / "lancedb-staging", version=645)
-
-    nc.perform_cutover("demo-nb", base=nb_base)
-
-    # Swap happened, but no BM25 dir was created anywhere.
-    assert (nb / "lancedb" / "_sentinel.txt").read_text() == "v645"
-    assert not bm25_root.exists() or not any(bm25_root.iterdir())
-
-
 def test_backup_retention_prunes_to_two(nb_base) -> None:
     """AC6: after repeated cutovers, at most N=2 lancedb-prev-* remain."""
     nb = nb_base / "demo-nb"
@@ -175,15 +154,17 @@ def test_derived_indexes_travel_with_their_dataset(nb_base) -> None:
     nb = nb_base / "demo-nb"
     for name, version in (("lancedb", 369), ("lancedb-staging", 645)):
         _write_lancedb(nb / name, version=version)
-        (nb / name / "derived").mkdir()
+        (nb / name / "derived" / "bm25" / f"v{version}").mkdir(parents=True)
         (nb / name / "derived" / "theorem_names.db").write_text(f"v{version}")
-    index = nb / "lancedb" / "derived" / "theorem_names.db"
+    derived = nb / "lancedb" / "derived"
 
     nc.perform_cutover("demo-nb", base=nb_base)
-    assert index.read_text() == "v645"
+    assert (derived / "theorem_names.db").read_text() == "v645"
+    assert [p.name for p in (derived / "bm25").iterdir()] == ["v645"]
 
     nc.perform_rollback("demo-nb", base=nb_base)
-    assert index.read_text() == "v369"
+    assert (derived / "theorem_names.db").read_text() == "v369"
+    assert [p.name for p in (derived / "bm25").iterdir()] == ["v369"]
 
 
 def test_rollback_without_backup_refused(nb_base) -> None:
