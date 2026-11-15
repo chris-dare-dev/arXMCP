@@ -1,8 +1,7 @@
 """The version backfill, and the one thing it must never do: guess.
 
-derived-alg-geo-lean **#171**. The column it fills is load-bearing across a
-repo boundary — `statement_resolve.py` reads it to decide whether a `current`
-verdict is honest — so the interesting assertions here are the ABSTENTIONS.
+The column it fills is half the documents key and is hashed into the corpus
+manifest, so the interesting assertions here are the ABSTENTIONS.
 A backfill that filled every row would satisfy a naive "did it run" test and
 would be the exact failure #171 was filed about, one layer down: a version
 number that nothing establishes.
