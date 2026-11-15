@@ -245,6 +245,11 @@ dependencies = [
     #   >=0.0.18 to close CVE-2024-53981 (DoS via crafted multipart).
     #   License: Apache-2.0.
     "python-multipart>=0.0.18",
+    # jsonschema: validates lean_verify's result against the schema it
+    #   advertises (``server/tools.py``), at import time of the server.
+    #   Already a transitive dep via mcp, at the same >=4.20 floor;
+    #   declared explicitly. License: MIT.
+    "jsonschema>=4.20",
     # faiss-cpu: in-process flat ANN index for the Tier-2 semantic-
     #   query cache (E08_S03). ``IndexFlatIP`` over L2-normalized
     #   BGE-M3 vectors yields cosine via inner product. ~1000-entry
