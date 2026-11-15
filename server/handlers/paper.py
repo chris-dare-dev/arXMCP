@@ -119,6 +119,14 @@ def _cap(payload: dict[str, Any]) -> dict[str, Any]:
 SUPPORTED_SOURCE_KINDS: frozenset[str] = ALL_SOURCE_KINDS
 
 
+#: The chunk-row columns ``get_paper`` summarizes.
+_SUMMARY_COLUMNS: tuple[str, ...] = (
+    "section_path",
+    "chunker_version",
+    "embedder_version",
+)
+
+
 def _unsupported_envelope(
     paper_id: str, exc: UnsupportedSourceKind
 ) -> dict[str, Any]:
@@ -142,32 +150,25 @@ def _unsupported_envelope(
 async def handle_get_paper(
     paper_id: Annotated[str, Field(min_length=1, description="arXiv paper id")],
 ) -> dict[str, Any]:
-    # agent-platform-t-inert-args-cleanup (#82): the former ``version``
-    # arg was accepted-and-ignored (never referenced) over a corpus that
-    # stores no per-version rows. Removed rather than left as a lie; an
-    # agent that needs a specific version parses the ``vN`` suffix it
-    # already carries on ``paper_id``.
-    # F3 fix from the E06_S03 critique: validate before using
-    # paper_id in a SQL-style WHERE clause.
-    # arXMCP#209: admit the full identifier domain that ``search_papers``
-    # emits. This gated on the arXiv-only validator and raised "does not
-    # match the arXiv id format" at a ``textbook:`` id the server had just
-    # handed the caller. The rows are in the same chunks table under the
-    # same ``paper_id`` column, reached by the same escaped predicate
-    # below, so there was never a data reason to refuse them.
+    # There is no ``version`` argument: the corpus stores no per-version
+    # rows, and an agent that needs one already carries the ``vN`` suffix
+    # on ``paper_id``.
+    # Validate before paper_id reaches the WHERE clause. Every id kind
+    # search_papers can return is admitted: textbook rows live in the same
+    # chunks table under the same column.
     try:
         admit_paper_id(paper_id, SUPPORTED_SOURCE_KINDS)
     except UnsupportedSourceKind as exc:
         return _cap(_unsupported_envelope(paper_id, exc))
     r = get_resources()
 
-    # Filter to rows matching paper_id. LanceDB doesn't expose a
-    # native group-by; pull the matching rows in Arrow and aggregate
-    # in Python. For the 50-paper corpus the worst case is ~100s of
-    # rows per paper — fast enough.
+    # LanceDB has no group-by, so pull the paper's rows and aggregate
+    # here. Only the columns read below: without a select, every row
+    # carries both 1024-float embedding columns and the full body text.
     arrow = (
         r.chunks_table.search()
         .where(f"paper_id = '{_escape(paper_id)}'", prefilter=True)
+        .select(list(_SUMMARY_COLUMNS))
         .limit(10000)
         .to_arrow()
     )
