@@ -206,6 +206,18 @@ class TheoremRow:
 # ---------------------------------------------------------------------------
 
 
+class TheoremNamesSchemaStale(Exception):
+    """The file predates :data:`SCHEMA_VERSION` and was not migrated."""
+
+    def __init__(self, db_path: Path, found: int) -> None:
+        super().__init__(
+            f"theorem_names store at {db_path} has schema {found}; this "
+            f"server reads {SCHEMA_VERSION}. Rebuild it with "
+            "`python -m ingest.index_theorem_names`."
+        )
+        self.found = found
+
+
 class TheoremNamesStore:
     """SQLite-backed store for the theorem-names index.
 
@@ -221,8 +233,15 @@ class TheoremNamesStore:
         self._lock = asyncio.Lock()
 
     @classmethod
-    async def open(cls, db_path: Path) -> TheoremNamesStore:
-        """Open (or create) the SQLite file at ``db_path``."""
+    async def open(cls, db_path: Path, *, migrate: bool = True) -> TheoremNamesStore:
+        """Open (or create) the SQLite file at ``db_path``.
+
+        A file whose schema is older than :data:`SCHEMA_VERSION` is rebuilt
+        empty, which only the offline indexer should do. The served process
+        passes ``migrate=False``: it gets :class:`TheoremNamesSchemaStale`
+        instead, leaves the file untouched, and falls back to scanning the
+        chunks table until the indexer has rebuilt it.
+        """
         db_path.parent.mkdir(parents=True, exist_ok=True)
 
         def _open_sync() -> sqlite3.Connection:
@@ -235,6 +254,9 @@ class TheoremNamesStore:
             conn.execute("PRAGMA synchronous=NORMAL")
 
             current = conn.execute("PRAGMA user_version").fetchone()[0]
+            if current < SCHEMA_VERSION and not migrate:
+                conn.close()
+                raise TheoremNamesSchemaStale(db_path, current)
             if current < SCHEMA_VERSION:
                 # F5 (E10_S02 critique) — schema bump silently drops
                 # the entire table. Log at WARNING so the operator
@@ -575,6 +597,7 @@ def _row_from_sql(row: tuple) -> TheoremRow:
 __all__ = [
     "DEFAULT_JACCARD_THRESHOLD",
     "SCHEMA_VERSION",
+    "TheoremNamesSchemaStale",
     "TheoremNamesStore",
     "TheoremRow",
     "dedup_key",
