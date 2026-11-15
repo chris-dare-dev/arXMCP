@@ -358,34 +358,6 @@ def _patched_bm25_stats_path(tmp_path, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
-def _patched_bm25_index_root(tmp_path, monkeypatch):
-    """Redirect ``ingest.bm25_indexer.BM25_INDEX_ROOT`` into ``tmp_path``.
-
-    Without this, the BM25 artifact directory is global at
-    ``var/arxmcp/index/bm25/v<N>/`` and stale artifacts from a
-    previous test run poison subsequent tests — the cross-check
-    introduced by E07_S01 F4 (``BM25Phase`` cross-checks
-    ``chunk_ids.json`` against the live LanceDB table) trips on a
-    stale artifact whose ids point to a different test's corpus.
-
-    Autouse so every test gets a fresh per-tmp_path artifact root,
-    matching the discipline of ``_patched_store_stats_path`` and
-    ``_patched_bm25_stats_path``.
-    """
-    try:
-        import ingest.bm25_indexer as bm25_mod
-    except ImportError:
-        yield
-        return
-    monkeypatch.setattr(
-        bm25_mod,
-        "BM25_INDEX_ROOT",
-        tmp_path / "bm25_index_root",
-    )
-    yield
-
-
-@pytest.fixture(autouse=True)
 def _reset_session_state_for_tests():
     """Drop the per-MCP-session retrieval-cap registry before+after
     each test (E08_S04).

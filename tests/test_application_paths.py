@@ -80,7 +80,7 @@ def test_installed_config_uses_one_canonical_root(
     assert config.data_dir == root.resolve()
     assert config.lancedb_path == root / "index/lancedb"
     assert config.kuzu_path == root / "index/kuzu"
-    assert config.bm25_index_root == root / "index/bm25"
+    assert config.bm25_index_root == root / "index/lancedb/derived/bm25"
     assert config.notebooks_db_path == root / "cache/notebooks.db"
 
 
@@ -100,7 +100,7 @@ def test_installed_notebook_uses_derived_paths(
     config = Config()
     assert config.lancedb_path == notebook / "lancedb"
     assert config.cache_db_path == notebook / "cache/retrieval.db"
-    assert config.bm25_index_root == notebook / "index/bm25"
+    assert config.bm25_index_root == notebook / "lancedb/derived/bm25"
     assert config.application_paths.lancedb == config.lancedb_path
     assert config.application_paths.retrieval_cache_db == config.cache_db_path
     assert config.application_paths.bm25 == config.bm25_index_root

@@ -149,18 +149,11 @@ class Config(BaseSettings):
     #: directory is created at ``Resources.startup()`` time.
     cache_db_path: Path = legacy_source_path("retrieval_cache_db")
 
-    #: Per-notebook BM25 index root (notebook-bm25-isolation-m1).
-    #: Default ``None`` means "resolve :data:`ingest.bm25_indexer.BM25_INDEX_ROOT`
-    #: at call time" — preserving the conftest autouse
-    #: ``monkeypatch.setattr(bm25_mod, "BM25_INDEX_ROOT", ...)`` used by
-    #: ~40 tests. When :attr:`notebook` is set, the
-    #: :meth:`derive_notebook_lancedb_path` validator rewrites this to
-    #: ``var/arxmcp/notebooks/<slug>/index/bm25`` (mirroring the
-    #: ``cache_db_path`` isolation) unless ``ARXMCP_BM25_INDEX_ROOT``
-    #: was set explicitly. The shared (non-notebook) path stays ``None``
-    #: so the global root remains in effect (FM-4 — shared default MUST
-    #: stay global).
-    bm25_index_root: Path | None = None
+    #: BM25 index root, holding one ``v<N>`` directory per corpus version.
+    #: Unless ``ARXMCP_BM25_INDEX_ROOT`` is set, :meth:`derive_dataset_index_paths`
+    #: places it in ``derived/bm25`` inside the dataset being served, where
+    #: a version number cannot collide with another dataset's.
+    bm25_index_root: Path = legacy_source_path("bm25")
 
     #: SQLite file path for the theorem-names FTS5 index (E10_S02).
     #: Sibling to the LanceDB indices under ``var/arxmcp/index/``;
@@ -703,39 +696,33 @@ class Config(BaseSettings):
         # and avoids the slug-in-key refactor deferred to m2.
         if "cache_db_path" not in self._supplied_path_fields:
             self.cache_db_path = derived.parent / "cache" / "retrieval.db"
-        # notebook-bm25-isolation-m1: redirect the BM25 index root to a
-        # per-notebook directory unless ARXMCP_BM25_INDEX_ROOT was set
-        # explicitly. Mirrors the ``cache_db_path`` isolation above.
-        # ``derived.parent`` = ``var/arxmcp/notebooks/<slug>/`` so the
-        # BM25 root becomes ``var/arxmcp/notebooks/<slug>/index/bm25``.
-        # The shared (non-notebook) path stays ``None`` via the
-        # ``if self.notebook is None: return self`` guard above (FM-4).
-        if "bm25_index_root" not in self._supplied_path_fields:
-            self.bm25_index_root = derived.parent / "index" / "bm25"
         self._application_paths = replace(
             self._application_paths,
             lancedb=self.lancedb_path,
             retrieval_cache_db=self.cache_db_path,
-            bm25=self.bm25_index_root or self._application_paths.bm25,
         )
         return self
 
     @model_validator(mode="after")
     def derive_dataset_index_paths(self) -> Config:
-        """Place the theorem-name index inside the dataset being served.
+        """Place the BM25 and theorem-name indexes inside the dataset served.
 
         Runs after notebook routing has settled :attr:`lancedb_path`, so a
-        notebook-routed server reads its own notebook's index, and the index
-        moves with the dataset when cutover or rollback renames it. An
-        explicit ``ARXMCP_THEOREM_NAMES_DB_PATH`` still wins.
+        notebook-routed server reads its own notebook's indexes, and they
+        move with the dataset when cutover or rollback renames it. An
+        explicit ``ARXMCP_BM25_INDEX_ROOT`` or
+        ``ARXMCP_THEOREM_NAMES_DB_PATH`` still wins.
         """
-        if "theorem_names_db_path" in self._supplied_path_fields:
-            return self
-        self.theorem_names_db_path = derived_index_path(
-            self.lancedb_path, "theorem_names.db"
-        )
+        if "bm25_index_root" not in self._supplied_path_fields:
+            self.bm25_index_root = derived_index_path(self.lancedb_path, "bm25")
+        if "theorem_names_db_path" not in self._supplied_path_fields:
+            self.theorem_names_db_path = derived_index_path(
+                self.lancedb_path, "theorem_names.db"
+            )
         self._application_paths = replace(
-            self._application_paths, theorem_names_db=self.theorem_names_db_path
+            self._application_paths,
+            bm25=self.bm25_index_root,
+            theorem_names_db=self.theorem_names_db_path,
         )
         return self
 

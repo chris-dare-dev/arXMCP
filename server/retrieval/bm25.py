@@ -8,7 +8,7 @@ candidate list; E07_S03 (reranker) further narrows it.
 
 **Architecture: in-memory pickle, NOT LanceDB FTS.** E04_S04 shipped
 ``bm25.pkl`` + ``chunk_ids.json`` sidecars under
-``var/arxmcp/index/bm25/v<N>/``. ``rank_bm25.BM25Okapi.get_scores``
+``<lancedb>/derived/bm25/v<N>/``. ``rank_bm25.BM25Okapi.get_scores``
 is read-only after construction (pure NumPy ops on indexed
 ``idf``/``doc_freqs``/``doc_len`` arrays), so no locking is needed
 for concurrent reads. The brief's "LanceDB scalar + FTS predicates"
@@ -17,7 +17,7 @@ the codebase. See research-synthesis.md D1.
 
 **Pickle loader hardening (E04_S04 TODO(E07)).** The original
 ``ingest/bm25_indexer.py:62-71`` docstring carries a documented-but-
-unenforced threat-model: when ``var/arxmcp/index/bm25/`` lives on a
+unenforced threat-model: when the BM25 root lives on a
 shared filesystem (NFS, Docker bind mount, multi-tenant container),
 an attacker who can write to that path achieves RCE in the server
 process via ``pickle.load``. This module enforces the mitigation:
@@ -84,6 +84,7 @@ from ingest.bm25_indexer import (
     BM25_INDEX_NAME,
     _bm25_version_dir,
     build_bm25_index,
+    resolve_bm25_root,
 )
 from ingest.tokenizer import tokenize_body
 
@@ -144,7 +145,7 @@ class BM25IndexUnsafeError(BM25IndexUnavailableError):
     Closes E04_S04 TODO(E07): the loader refuses to ``pickle.load`` a
     file that is (a) not owned by the running process's effective
     UID, OR (b) world-writable (mode bit ``0o002``). When
-    ``var/arxmcp/index/bm25/`` lives on a shared filesystem an
+    the BM25 root lives on a shared filesystem an
     attacker who can write there achieves RCE in the server process
     via crafted pickle data — the stat-check is the
     defense-in-depth backstop.
@@ -400,11 +401,9 @@ class BM25Phase:
             the chunks table); optional in tests that don't have a
             chunks table to cross-check against.
         bm25_index_root: Path | None
-            notebook-bm25-isolation-m1: optional override for the BM25
-            artifact root. When ``None`` (default), resolves
-            :data:`ingest.bm25_indexer.BM25_INDEX_ROOT` at call time
-            (preserves monkeypatch semantics). Fork-C notebook mode
-            passes ``config.bm25_index_root`` here.
+            Optional override for the BM25 artifact root. When ``None``
+            (default), the index lives in ``derived/bm25`` inside the
+            dataset at ``lancedb_path``.
 
         Raises
         ------
@@ -442,13 +441,13 @@ class BM25Phase:
         Parameters
         ----------
         bm25_index_root: Path | None
-            notebook-bm25-isolation-m1: optional override for the BM25
-            artifact root. When ``None`` (default), resolves
-            :data:`ingest.bm25_indexer.BM25_INDEX_ROOT` at call time
-            (preserves monkeypatch semantics). Fork-C notebook mode
-            passes ``config.bm25_index_root`` here.
+            Optional override for the BM25 artifact root. When ``None``
+            (default), the index lives in ``derived/bm25`` inside the
+            dataset at ``lancedb_path``.
         """
-        version_dir = _bm25_version_dir(corpus_version, index_root=bm25_index_root)
+        version_dir = _bm25_version_dir(
+            corpus_version, resolve_bm25_root(lancedb_path, bm25_index_root)
+        )
         pkl_path = version_dir / BM25_INDEX_NAME
         ids_path = version_dir / BM25_CHUNK_IDS_NAME
 

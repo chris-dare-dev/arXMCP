@@ -6,24 +6,14 @@ Thin wrapper that:
    ``lancedb_staging_path=var/arxmcp/notebooks/<slug>/lancedb``.
 2. Reads the resulting ``corpus-version.json`` to find the per-notebook
    corpus version.
-3. Calls :func:`ingest.bm25_indexer.build_bm25_index` with that version,
-   writing the artifact under ``var/arxmcp/notebooks/<slug>/index/bm25/``
-   (the per-notebook BM25 root).
+3. Builds the BM25, definitions and theorem-name indexes for that
+   version inside the dataset, under ``lancedb/derived/``, so a cutover
+   or rollback moves them with the chunks.
 
 The brief's ``ARXMCP_LANCEDB_PATH=...`` wording was wrong — that's the
 SERVER's env var, not a bulk_ingest one. ``bulk_ingest`` uses the
 ``--lancedb-staging-path`` CLI argument / ``lancedb_staging_path``
 Python keyword. See synthesis "Disagreement 4" resolution.
-
-BM25 output path: notebook-bm25-isolation-m1 isolates the BM25 index
-under ``var/arxmcp/notebooks/<slug>/index/bm25/v<N>/``, NOT the global
-``var/arxmcp/index/bm25/``. The per-notebook root mirrors the existing
-``lancedb_path`` / ``cache_db_path`` fork-C isolation in
-:class:`server.config.Config`. The global BM25 root is unchanged for
-the shared (non-notebook) server. A fork-C server's first startup after
-this milestone rebuilds BM25 from scratch under the new per-notebook
-root if the artifacts were only built pre-fix (FM-1: first-boot auto-build
-via :meth:`server.retrieval.bm25.BM25Phase._sync_startup` is the safety net).
 
 Usage:
 
@@ -41,7 +31,7 @@ import json
 import logging
 import sys
 
-from ingest.bm25_indexer import build_bm25_index
+from ingest.bm25_indexer import build_bm25_index, resolve_bm25_root
 from ingest.bulk_ingest import run_bulk_ingest
 from ingest.index_definitions import index_definitions_for_corpus
 from ingest.index_theorem_names import build_theorem_names_index
@@ -160,23 +150,15 @@ def run(slug: str) -> int:
         return 1
 
     corpus_version = _read_corpus_version(lancedb_path)
-    # Per-notebook BM25 root: isolated under the notebook directory so
-    # two notebooks at the same corpus_version N do NOT collide
-    # (notebook-bm25-isolation-m1). The global BM25 root
-    # (var/arxmcp/index/bm25/) is untouched — the shared server still
-    # finds its own artifacts there. The sentinel workaround
-    # (.notebook_slug file) is removed because the directory namespaces
-    # are now 1:1 by construction (FM-7 resolution).
-    bm25_root = nb_dir / "index" / "bm25"
+    # The BM25 root sits inside the dataset, where the server reads it.
+    bm25_root = resolve_bm25_root(lancedb_path)
     bm25_v_dir = bm25_root / f"v{corpus_version}"
     logger.info(
         "building BM25 for slug=%s lancedb=%s corpus_version=%d root=%s",
         slug, lancedb_path, corpus_version, bm25_root,
     )
     build_bm25_index(
-        str(lancedb_path),
-        corpus_version=corpus_version,
-        index_root=bm25_root,
+        str(lancedb_path), corpus_version=corpus_version, index_root=bm25_root,
     )
     print(
         f"BM25 built for corpus_version={corpus_version} "

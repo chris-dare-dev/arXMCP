@@ -187,14 +187,9 @@ class TestModuleContract:
 class TestBuildIndex:
     def test_writes_pkl_and_chunk_ids(self, tmp_path, monkeypatch):
         """AC: bm25.pkl + chunk_ids.json are written under
-        ``var/arxmcp/index/bm25/v<N>/``."""
-        # Redirect BM25_INDEX_ROOT into tmp_path so we don't pollute
-        # the developer's var/ tree.
+        ``derived/bm25/v<N>/`` inside the dataset."""
         import ingest.bm25_indexer as bm25_mod
 
-        monkeypatch.setattr(
-            bm25_mod, "BM25_INDEX_ROOT", tmp_path / "bm25"
-        )
 
         chunks = _curated_corpus()
         embeddings = _embeddings_for(chunks, seed=1)
@@ -203,7 +198,9 @@ class TestBuildIndex:
         )
         build_bm25_index(tmp_path / "lancedb", corpus_version=version)
 
-        version_dir = bm25_mod._bm25_version_dir(version)
+        version_dir = bm25_mod._bm25_version_dir(
+            version, bm25_mod.resolve_bm25_root(tmp_path / "lancedb")
+        )
         assert (version_dir / BM25_INDEX_NAME).is_file()
         assert (version_dir / BM25_CHUNK_IDS_NAME).is_file()
 
@@ -215,9 +212,6 @@ class TestBuildIndex:
         equal-length sequences."""
         import ingest.bm25_indexer as bm25_mod
 
-        monkeypatch.setattr(
-            bm25_mod, "BM25_INDEX_ROOT", tmp_path / "bm25"
-        )
 
         chunks = _curated_corpus()
         embeddings = _embeddings_for(chunks, seed=2)
@@ -226,7 +220,9 @@ class TestBuildIndex:
         )
         build_bm25_index(tmp_path / "lancedb", corpus_version=version)
 
-        version_dir = bm25_mod._bm25_version_dir(version)
+        version_dir = bm25_mod._bm25_version_dir(
+            version, bm25_mod.resolve_bm25_root(tmp_path / "lancedb")
+        )
         with (version_dir / BM25_INDEX_NAME).open("rb") as fh:
             bm25 = pickle.load(fh)
         chunk_ids = json.loads(
@@ -250,9 +246,6 @@ class TestQueryAccuracy:
         containing those tokens with the highest score."""
         import ingest.bm25_indexer as bm25_mod
 
-        monkeypatch.setattr(
-            bm25_mod, "BM25_INDEX_ROOT", tmp_path / "bm25"
-        )
 
         chunks = _curated_corpus()
         embeddings = _embeddings_for(chunks, seed=3)
@@ -262,7 +255,9 @@ class TestQueryAccuracy:
         )
         build_bm25_index(tmp_path / "lancedb", corpus_version=version)
 
-        version_dir = bm25_mod._bm25_version_dir(version)
+        version_dir = bm25_mod._bm25_version_dir(
+            version, bm25_mod.resolve_bm25_root(tmp_path / "lancedb")
+        )
         with (version_dir / BM25_INDEX_NAME).open("rb") as fh:
             bm25 = pickle.load(fh)
         chunk_ids = json.loads(
@@ -300,9 +295,6 @@ class TestQueryAccuracy:
         """
         import ingest.bm25_indexer as bm25_mod
 
-        monkeypatch.setattr(
-            bm25_mod, "BM25_INDEX_ROOT", tmp_path / "bm25"
-        )
 
         chunks = _curated_corpus()
         embeddings = _embeddings_for(chunks, seed=4)
@@ -313,7 +305,9 @@ class TestQueryAccuracy:
         )
         build_bm25_index(tmp_path / "lancedb", corpus_version=version)
 
-        version_dir = bm25_mod._bm25_version_dir(version)
+        version_dir = bm25_mod._bm25_version_dir(
+            version, bm25_mod.resolve_bm25_root(tmp_path / "lancedb")
+        )
         with (version_dir / BM25_INDEX_NAME).open("rb") as fh:
             bm25 = pickle.load(fh)
         chunk_ids = json.loads(
@@ -341,9 +335,6 @@ class TestIdempotency:
     def test_rerun_is_skipped_when_files_exist(self, tmp_path, monkeypatch):
         import ingest.bm25_indexer as bm25_mod
 
-        monkeypatch.setattr(
-            bm25_mod, "BM25_INDEX_ROOT", tmp_path / "bm25"
-        )
 
         chunks = _curated_corpus()
         embeddings = _embeddings_for(chunks, seed=5)
@@ -352,7 +343,9 @@ class TestIdempotency:
         )
         build_bm25_index(tmp_path / "lancedb", corpus_version=version)
 
-        version_dir = bm25_mod._bm25_version_dir(version)
+        version_dir = bm25_mod._bm25_version_dir(
+            version, bm25_mod.resolve_bm25_root(tmp_path / "lancedb")
+        )
         pkl_path = version_dir / BM25_INDEX_NAME
         ids_path = version_dir / BM25_CHUNK_IDS_NAME
         # Capture mtimes; a no-op re-run leaves them untouched.
@@ -380,9 +373,6 @@ class TestIdempotency:
         """
         import ingest.bm25_indexer as bm25_mod
 
-        monkeypatch.setattr(
-            bm25_mod, "BM25_INDEX_ROOT", tmp_path / "bm25"
-        )
 
         chunks = _curated_corpus()
         embeddings = _embeddings_for(chunks, seed=6)
@@ -391,7 +381,9 @@ class TestIdempotency:
         )
         build_bm25_index(tmp_path / "lancedb", corpus_version=version)
 
-        version_dir = bm25_mod._bm25_version_dir(version)
+        version_dir = bm25_mod._bm25_version_dir(
+            version, bm25_mod.resolve_bm25_root(tmp_path / "lancedb")
+        )
         pkl_path = version_dir / BM25_INDEX_NAME
         ids_path = version_dir / BM25_CHUNK_IDS_NAME
 
@@ -419,12 +411,6 @@ class TestEmptyCorpus:
         """An empty BM25 corpus produces NaN IDFs (rank_bm25). Surface
         explicitly as a ValueError rather than writing a useless
         index."""
-        import ingest.bm25_indexer as bm25_mod
-
-        monkeypatch.setattr(
-            bm25_mod, "BM25_INDEX_ROOT", tmp_path / "bm25"
-        )
-
         # Build an empty LanceDB table by writing zero chunks.
         embeddings = EmbedRecord(
             chunk_ids_stmt=[],
@@ -534,9 +520,6 @@ class TestStatsLogging:
     def test_stats_line_appended_on_build(self, tmp_path, monkeypatch):
         import ingest.bm25_indexer as bm25_mod
 
-        monkeypatch.setattr(
-            bm25_mod, "BM25_INDEX_ROOT", tmp_path / "bm25"
-        )
 
         chunks = _curated_corpus()
         embeddings = _embeddings_for(chunks, seed=7)
@@ -565,9 +548,6 @@ class TestStatsLogging:
     ):
         import ingest.bm25_indexer as bm25_mod
 
-        monkeypatch.setattr(
-            bm25_mod, "BM25_INDEX_ROOT", tmp_path / "bm25"
-        )
 
         chunks = _curated_corpus()
         embeddings = _embeddings_for(chunks, seed=8)
@@ -678,10 +658,7 @@ class TestBM25StatsDataclass:
 class TestBM25IndexRootIsolation:
     """Regression: per-notebook BM25 index root isolation.
 
-    These tests MUST FAIL on the pre-fix code (before
-    ``notebook-bm25-isolation-m1``) where ``_bm25_version_dir`` always
-    used the global ``BM25_INDEX_ROOT`` and ``build_bm25_index`` had no
-    ``index_root`` parameter.
+    These tests pin that an index lives under the root it was built for.
 
     Post-fix they pass because the ``index_root`` parameter makes each
     call use a different directory tree.
@@ -779,25 +756,27 @@ class TestBM25IndexRootIsolation:
             f"root_b chunk_ids should contain notebook-B chunks; got {ids_list_b}"
         )
 
-    def test_none_index_root_uses_monkeypatched_global(self, tmp_path, monkeypatch):
-        """FM-6: when ``index_root=None`` (the default), ``_bm25_version_dir``
-        reads ``BM25_INDEX_ROOT`` at call time, so the conftest autouse
-        monkeypatch continues to intercept the path in tests.
+    def test_datasets_at_the_same_version_keep_separate_indexes(self, tmp_path):
+        """With no explicit root, each dataset holds its own index, so two
+        datasets that both reach version N never read each other's."""
+        import json as _json
 
-        This asserts the lazy-resolution semantic that keeps ~40 existing
-        tests green after the fix.
-        """
         import ingest.bm25_indexer as bm25_mod
 
-        patched_root = tmp_path / "patched_root"
-        monkeypatch.setattr(bm25_mod, "BM25_INDEX_ROOT", patched_root)
+        ids = {}
+        for name, paper_id, chunk_hash in (
+            ("lancedb_a", "2301.00001", "aaaa0001"),
+            ("lancedb_b", "2302.00002", "bbbb0002"),
+        ):
+            chunks = [_curated_chunk(paper_id, chunk_hash, body_tokens="alpha lemma")]
+            version = write_chunks(chunks, _embeddings_for(chunks, seed=1), tmp_path / name)
+            bm25_mod.build_bm25_index(tmp_path / name, corpus_version=version)
+            version_dir = tmp_path / name / "derived" / "bm25" / f"v{version}"
+            ids[name] = (version, _json.loads((version_dir / "chunk_ids.json").read_text()))
 
-        version = 3
-        result = bm25_mod._bm25_version_dir(version, index_root=None)
-        assert result == patched_root / f"v{version}", (
-            f"index_root=None must resolve to the (patchable) "
-            f"BM25_INDEX_ROOT at call time; got {result}"
-        )
+        assert ids["lancedb_a"][0] == ids["lancedb_b"][0]
+        assert all("2301" in cid for cid in ids["lancedb_a"][1])
+        assert all("2302" in cid for cid in ids["lancedb_b"][1])
 
     def test_idempotent_skip_is_scoped_per_root(self, tmp_path, monkeypatch):
         """F3: the idempotent rebuild-skip keys on the PER-NOTEBOOK

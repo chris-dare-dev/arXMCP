@@ -24,7 +24,7 @@ COMPATIBILITY_ALIAS_FIELDS = (
 _LAYOUT = (
     ("corpus", "corpus"), ("index", "index"),
     ("lancedb", "index/lancedb"), ("kuzu", "index/kuzu"),
-    ("bm25", "index/bm25"), ("sqlite", "index/sqlite"),
+    ("bm25", "index/lancedb/derived/bm25"), ("sqlite", "index/sqlite"),
     ("theorem_names_db", "index/lancedb/derived/theorem_names.db"),
     ("notebooks", "notebooks"), ("cache", "cache"),
     ("retrieval_cache_db", "cache/retrieval.db"),
@@ -187,11 +187,10 @@ class ApplicationPaths:
                 values[field] = resolved
             else:
                 values[field] = _inside(canonical_root, path, field)
-        if not supplied.get(alias_by_field["theorem_names_db"]):
-            # Follows the dataset, including a dataset moved by its own alias.
-            values["theorem_names_db"] = derived_index_path(
-                values["lancedb"], "theorem_names.db"
-            )
+        # Derived indexes follow the dataset, including one moved by its alias.
+        for field, name in (("bm25", "bm25"), ("theorem_names_db", "theorem_names.db")):
+            if not supplied.get(alias_by_field[field]):
+                values[field] = derived_index_path(values["lancedb"], name)
         return cls(
             selected,
             canonical_root,
