@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 import os
+import sqlite3
 import subprocess
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
@@ -286,6 +287,75 @@ class TestParseTaskTrackerSurface:
 # ---------------------------------------------------------------------------
 # Issue #500 — shutdown terminates the subprocess, not just the wrapper
 # ---------------------------------------------------------------------------
+
+
+class TestSuccessPathStatusWrite:
+    """A finished parse must never leave its row ``running``."""
+
+    @staticmethod
+    def _run_successful_parse(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch, store: MagicMock,
+    ) -> None:
+        from ingest import textbook_parser, textbook_renderer
+        from server import parse_tracker
+
+        mineru_result = _make_mineru_result(tmp_path)
+        render_result = _make_render_result(tmp_path)
+        monkeypatch.setattr(
+            textbook_parser, "run_mineru_sandboxed",
+            lambda pdf_path, output_dir: mineru_result,
+        )
+        monkeypatch.setattr(
+            textbook_renderer, "render_mineru_to_html",
+            lambda r, p, pid: render_result,
+        )
+        monkeypatch.setattr(
+            parse_tracker, "_COMPLETE_WRITE_RETRY_DELAYS_S", (0, 0), raising=False,
+        )
+
+        async def _run() -> None:
+            tracker = ParseTaskTracker()
+            await tracker.start_parse(
+                slug="test-slug",
+                pdf_path=tmp_path / "x.pdf",
+                paper_id="textbook:x",
+                output_dir=tmp_path / "out",
+                parsed_dir=tmp_path / "parsed",
+                store=store,
+            )
+
+        asyncio.run(_run())
+
+    def test_transient_write_failure_still_records_complete(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        store = _make_store_mock()
+        store.update_parse_status = AsyncMock(
+            side_effect=[sqlite3.OperationalError("database is locked"), True],
+        )
+
+        self._run_successful_parse(tmp_path, monkeypatch, store)
+
+        statuses = [c.args[1] for c in store.update_parse_status.call_args_list]
+        assert statuses == ["complete", "complete"]
+
+    def test_persistent_write_failure_ends_failed_not_running(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        store = _make_store_mock()
+
+        async def update(slug, status, **kwargs):
+            if status == "complete":
+                raise sqlite3.OperationalError("database is locked")
+            return True
+
+        store.update_parse_status = AsyncMock(side_effect=update)
+
+        self._run_successful_parse(tmp_path, monkeypatch, store)
+
+        last = store.update_parse_status.call_args
+        assert last.args[1] == "failed"
+        assert "recording it failed" in last.kwargs["parse_error"]
 
 
 def _pid_alive(pid: int) -> bool:

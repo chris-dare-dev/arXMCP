@@ -1,6 +1,6 @@
-"""retrieval-unlocks-m4 — the equations-fixture parity gate.
+"""The equations-fixture parity gate.
 
-m4's acceptance is conditional: the TED route is reported for a LaTeX
+The LaTeX route's acceptance is conditional: the TED route is reported for a LaTeX
 query *"when the equations-fixture parity check has passed"*. This is
 that check, kept as a regression guard so a future ``latex2mathml`` bump
 (or a change to ``parse_mathml_to_tree``) cannot silently degrade the
@@ -60,7 +60,9 @@ from server.retrieval.equations import normalized_ted, parse_mathml_to_tree
 
 pytestmark = pytest.mark.eval
 
-_CORPUS = Path("var/arxmcp/corpus/parsed")
+# Anchored to the repo root, not the working directory, so the gate runs
+# (or skips) the same way whichever directory pytest is started from.
+_CORPUS = Path(__file__).resolve().parents[2] / "var" / "arxmcp" / "corpus" / "parsed"
 
 #: Gate. Below this, the LaTeX route is not safe to leave enabled and
 #: ``Config.eq_latex_route`` should default False (or the pooled
@@ -108,8 +110,7 @@ def corpus_pairs():
     if len(pairs) < _POOL:
         pytest.skip(
             f"parsed corpus absent or too small ({len(pairs)} equations; "
-            f"need {_POOL}). Populate var/arxmcp/corpus/parsed/ to run "
-            f"the m4 parity gate."
+            f"need {_POOL}). Populate {_CORPUS} to run the parity gate."
         )
     random.Random(7).shuffle(pairs)
     return pairs
@@ -210,8 +211,8 @@ class TestEquationsParity:
 
         Without this, every stored tree carries a Content-MathML
         annotation subtree the query side never has, and parity is
-        impossible regardless of converter quality — this was the m4
-        blocker, and it also silently degraded the already-shipped
+        impossible regardless of converter quality — this was the LaTeX
+        route's blocker, and it also silently degraded the already-shipped
         MathML-input route.
         """
         latexml = (
@@ -247,13 +248,13 @@ class TestEquationsParity:
         are indistinguishable. This is a DELIBERATE, documented loss, not
         a regression: the stored corpus already collapses them, because
         LaTeXML encodes the variant in a ``mathvariant`` attribute that
-        parse_mathml_to_tree has dropped since E10_S03. NFKC only makes
+        parse_mathml_to_tree has always dropped. NFKC only makes
         the query side match that pre-existing collapse. This test PINS
         the known behaviour so a future change that (accidentally or
         deliberately) starts distinguishing variants is a conscious
         decision with a failing test, not a silent surprise. See
         ``_fold_text`` for the full rationale and the path to fixing it
-        (preserve mathvariant on both sides — an E10_S03-scope re-index)."""
+        (preserve mathvariant on both sides — a full re-index)."""
         blackboard = "<math><mi>&#x2102;</mi></math>"       # ℂ (U+2102)
         script = "<math><mi>&#x1D49E;</mi></math>"          # 𝒞 (U+1D49E)
         plain = "<math><mi>C</mi></math>"

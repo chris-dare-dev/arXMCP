@@ -131,34 +131,35 @@ BACKUP_PATHS=(
     "'"${REPO_ROOT}"'/var/arxmcp/cache/notebooks.db"
 )
 
-# notebook-ops-hardening-m1 (CRITICAL): TRUNCATE-checkpoint the
-# notebooks.db WAL before the snapshot so the file-level copy is
-# self-consistent without -wal/-shm sidecars. The helper retries on a
-# busy checkpoint. Only a CLEAN status (ok/absent/no-wal) means the main
-# file alone is safe to back up. A residual busy/locked status (a reader
-# held an open transaction through all retries) means committed frames
-# remain ONLY in the un-backed-up -wal: a main-file-only copy taken then
-# is stale OR malformed-on-restore (live-verified: "database disk image
-# is malformed"). So on a degraded status we (a) ALSO back up the
-# -wal/-shm sidecars for this run so the captured set can recover, and
-# (b) force backup_status=partial so the sentinel flags it and `forget`
-# retains the prior good snapshot. stderr is NOT discarded — the helper
-# diagnostics must reach the cron/journal log.
+# TRUNCATE-checkpoint the WAL of every SQLite database in the backup set
+# (notebooks.db plus the documents.db and paper_metadata.db of every notebook)
+# before the snapshot, so each file-level copy is self-consistent without
+# its -wal/-shm sidecars. The helper retries a busy checkpoint and prints
+# one "<status> <path>" line per database. Only a CLEAN status
+# (ok/absent/no-wal) means the main file alone is safe to back up. A
+# residual busy/locked status means committed frames remain ONLY in the
+# -wal, so a main-file-only copy is stale OR malformed-on-restore
+# ("database disk image is malformed"). On a degraded status we (a) ALSO
+# back up the -wal/-shm sidecars of that database so the captured set can
+# recover, and (b) force backup_status=partial. stderr is NOT discarded:
+# the diagnostics of the helper must reach the cron/journal log.
 NOTEBOOKS_DB="'"${REPO_ROOT}"'/var/arxmcp/cache/notebooks.db"
-CHECKPOINT_STATUS="$(python3 "'"${REPO_ROOT}"'/ops/checkpoint_notebooks_db.py" "${NOTEBOOKS_DB}" || echo error)"
+CHECKPOINT_REPORT="$(python3 "'"${REPO_ROOT}"'/ops/checkpoint_notebooks_db.py" --backup-set "'"${REPO_ROOT}"'/var/arxmcp" || echo "error ${NOTEBOOKS_DB}")"
 CHECKPOINT_DEGRADED=0
-case "${CHECKPOINT_STATUS}" in
-    ok|absent|no-wal) ;;
-    *)
-        CHECKPOINT_DEGRADED=1
-        echo "WARN: notebooks.db WAL checkpoint status=${CHECKPOINT_STATUS}; committed frames may remain only in the un-backed-up -wal, so the captured notebooks.db alone may be stale OR corrupt-on-restore. Backing up the -wal/-shm sidecars too and marking this backup partial." >&2
-        for SIDECAR in "${NOTEBOOKS_DB}-wal" "${NOTEBOOKS_DB}-shm"; do
-            if [ -f "${SIDECAR}" ]; then
-                BACKUP_PATHS+=("${SIDECAR}")
-            fi
-        done
-        ;;
-esac
+while read -r CHECKPOINT_STATUS DB; do
+    case "${CHECKPOINT_STATUS}" in
+        ok|absent|no-wal) ;;
+        *)
+            CHECKPOINT_DEGRADED=1
+            echo "WARN: ${DB} WAL checkpoint status=${CHECKPOINT_STATUS}; committed frames may remain only in the -wal, so the captured file alone may be stale OR corrupt-on-restore. Backing up its -wal/-shm sidecars too and marking this backup partial." >&2
+            for SIDECAR in "${DB}-wal" "${DB}-shm"; do
+                if [ -f "${SIDECAR}" ]; then
+                    BACKUP_PATHS+=("${SIDECAR}")
+                fi
+            done
+            ;;
+    esac
+done <<< "${CHECKPOINT_REPORT}"
 
 # Every snapshot carries arxmcp-clean or arxmcp-partial. Retention below
 # counts only clean (and pre-tag, untagged) snapshots, because restic keeps

@@ -320,6 +320,7 @@ def test_a_cacheless_boot_says_cacheless_and_not_warm(
     import pyarrow as pa
 
     import server.cache as cache_mod
+    import server.query_encoder as qe_mod
     import server.resources as res_mod
     from ingest.embedder import EMBEDDER_VERSION
     from ingest.schema import CHUNKS_SCHEMA_V1
@@ -382,6 +383,8 @@ def test_a_cacheless_boot_says_cacheless_and_not_warm(
 
         monkey.setattr(BM25Phase, "startup", staticmethod(_bm25))
         monkey.setattr(cache_mod, "set_cache", lambda _c: None)
+        monkey.setattr(qe_mod, "_get_model", lambda: object())
+        monkey.setattr(qe_mod, "_get_tokenizer", lambda: object())
 
         cfg = Config(
             lancedb_path=lance,

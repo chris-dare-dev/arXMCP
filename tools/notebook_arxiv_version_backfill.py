@@ -8,18 +8,13 @@ version; nothing has ever *put one there*. The seed line is the column's only
 writer (``tools/notebook_documents_backfill.py`` reads ``<id>@vN`` off
 ``papers.txt``) and none of the 79 seed lines carries an ``@vN``.
 
-Three things break, and they are the reason this is not cosmetic:
+Two things break, and they are the reason this is not cosmetic:
 
-1. ``notebook_fetch`` pulls ar5iv for the **bare id** — arXiv latest. After a
-   re-ingest, ``statement_resolve.py`` would match a quote against whatever is
-   latest and write ``current`` for an entry declaring ``version: v2``. That
-   record then asserts a v2 pin confirmed by bytes of unknown version. (The
-   resolver refuses to today: it emits ``not_applicable``. That guard is what
-   this tool exists to let it stop needing.)
+1. ``notebook_fetch`` pulls ar5iv for the **bare id**, which is arXiv latest.
+   After a re-ingest the corpus holds whatever revision was latest, and with
+   the version empty nothing records which one that was.
 2. ``corpus_manifest_content_hash`` hashes ``(work_id, arxiv_version, …)``. With
-   the version empty it cannot distinguish revisions either, so the
-   ``mint_resolution`` stamp is not the guard it looks like.
-3. Nothing downstream can honestly say ``current`` about a versioned entry.
+   the version empty it cannot distinguish revisions either.
 
 ## Where the version comes from, and why not from the obvious place
 

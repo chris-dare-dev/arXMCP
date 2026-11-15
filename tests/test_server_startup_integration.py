@@ -52,13 +52,7 @@ Design decisions (resolved at synthesis time):
     ``seed_corpus_multi_paper`` is the load-bearing multi-call fixture
     that exercises the bug class. The single-call ``seed_corpus`` is
     NOT used here — see rect F1.
-  - Dual-module BGE-M3 mock via ``patch_bge_m3_model``. The simple
-    single-module ``mocked_bge_m3`` fixture in
-    ``test_server_startup.py`` is INSUFFICIENT because
-    ``server/resources.py:78-82`` binds ``_get_model`` /
-    ``_get_tokenizer`` by name at module load time. This is the FM-1
-    top-risk per the research and the ``notebook-retrieval-m2``
-    lesson encoded in the shared helper's docstring.
+  - BGE-M3 is mocked via ``patch_bge_m3_model``.
   - Monkeypatch target for the mutation test:
     ``ingest.store.write_corpus_version_marker`` — the module's own
     namespace (since ``write_chunks`` calls it by bare name at module

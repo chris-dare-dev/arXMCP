@@ -93,7 +93,9 @@ def validate_model_revision(revision: str, *, model_name: str) -> None:
 #: refuses values other than the literal string ``"1"`` so the
 #: operator must opt in explicitly (no fuzzy truthiness like
 #: ``True`` / ``yes`` / ``on``).
-_TRUST_REMOTE_CODE_ENV = "ARXMCP_TRUST_REMOTE_CODE"
+#: The server process reads it here, not through ``Config``, so
+#: ``server.main``'s unknown-variable scan imports this name to accept it.
+TRUST_REMOTE_CODE_ENV = "ARXMCP_TRUST_REMOTE_CODE"
 
 
 def resolve_trust_remote_code() -> bool:
@@ -107,14 +109,14 @@ def resolve_trust_remote_code() -> bool:
     "``trust_remote_code=False`` is the default; enabling it requires
     ``ARXMCP_TRUST_REMOTE_CODE=1`` and logs a WARN."
     """
-    raw = os.environ.get(_TRUST_REMOTE_CODE_ENV, "")
+    raw = os.environ.get(TRUST_REMOTE_CODE_ENV, "")
     if raw == "1":
         logger.warning(
             "%s=1: model loaders will pass trust_remote_code=True. "
             "This re-enables the modeling-script RCE vector from "
             "Threat 6 (.claude/notes/08-security-observability-ops.md). "
             "Production deployments must leave this unset.",
-            _TRUST_REMOTE_CODE_ENV,
+            TRUST_REMOTE_CODE_ENV,
         )
         return True
     return False
@@ -194,6 +196,7 @@ def assert_no_bin_in_snapshot(model_name: str, revision: str) -> None:
 __all__ = [
     "ModelPinningError",
     "assert_no_bin_in_snapshot",
+    "TRUST_REMOTE_CODE_ENV",
     "resolve_trust_remote_code",
     "validate_model_revision",
 ]

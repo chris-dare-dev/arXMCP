@@ -91,6 +91,7 @@ from server.health import (
 from server.health import (
     router as health_router,
 )
+from server.model_loader import TRUST_REMOTE_CODE_ENV
 from server.resources import Resources
 
 logger = logging.getLogger(__name__)
@@ -408,33 +409,28 @@ def _format_unknown_arxmcp_env_var(
     )
 
 
+#: ``ARXMCP_*`` variables the server process reads straight from the
+#: environment rather than through ``Config``. Each name is imported from
+#: the module that reads it, so the two cannot drift apart.
+_DIRECT_SERVER_ENV_VARS: frozenset[str] = frozenset({TRUST_REMOTE_CODE_ENV})
+
+
 def _scan_unknown_arxmcp_env_vars(config: Config) -> None:
-    """Reject any ``ARXMCP_*`` env var not declared on :class:`Config`.
+    """Reject any ``ARXMCP_*`` env var the server does not read.
 
-    Closes F4 from the E06_S01 critique. ``pydantic-settings``'s
-    ``extra="forbid"`` only fires for direct ``__init__`` kwargs —
-    NOT for env-var input. So a typo like ``ARXMCP_BIND_HOST_TYPO``
-    is silently ignored at the Pydantic layer. This scan walks
-    ``os.environ`` for every ``ARXMCP_*`` key and asserts it maps to
-    a declared field. (The original docstring also cited
-    ``ARXMCP_OTEL_ENDPOINT`` as an example of the "documented-but-
-    unimplemented" class — m1 critique F2: ``ARXMCP_OTEL_ENDPOINT``
-    is now declared on ``Config`` (E14 observability landed) and
-    would be accepted, so the example was retired.)
-
-    ``onboarding-uplift-m1`` replaces the prior 30-line declared-var
-    dump with per-var hints: an ingest-tool carve-out for
-    ``ARXMCP_CONTACT_EMAIL`` (the documented footgun the m1 doc sweep
-    removed from CLAUDE.md / README.md / Makefile), a
-    ``difflib.get_close_matches`` (``n=1, cutoff=0.7``) suggestion for
-    typos like ``ARXMCP_BIND_HOTS``, and a short-form "nearest 3"
-    fallback otherwise. The dynamic ``Config.model_fields`` source is
-    preserved — adding a new ``Config`` field automatically extends
-    ``declared`` (m1 synthesis FM-5 mitigation).
+    ``pydantic-settings``'s ``extra="forbid"`` only fires for direct
+    ``__init__`` kwargs, not for env-var input, so a typo like
+    ``ARXMCP_BIND_HOST_TYPO`` would otherwise be silently ignored. This
+    scan walks ``os.environ`` and accepts a name only if it is a
+    ``Config`` field (derived from ``Config.model_fields``, so a new
+    field extends it automatically) or one of
+    :data:`_DIRECT_SERVER_ENV_VARS`. Rejected names get a hint: a
+    tailored one for known ingest-tool vars, a close-match suggestion
+    for typos, or the three nearest declared names.
     """
     declared = frozenset(
         f"ARXMCP_{name.upper()}" for name in Config.model_fields
-    )
+    ) | _DIRECT_SERVER_ENV_VARS
     unknown = sorted(
         env_name
         for env_name in os.environ

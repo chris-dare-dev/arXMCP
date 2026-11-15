@@ -4,9 +4,8 @@ Mirrors `tests/test_chunker.py`'s patched-NOTEBOOKS_BASE approach: copy
 a synthetic LaTeXML-shaped HTML5 fixture into a tmp notebook layout,
 patch `ingest.textbook_chunker.NOTEBOOKS_BASE`, run `chunk_textbook`.
 
-The tokenizer (BGE-M3 vocab, ~5 MB cached) is loaded by the reused
-`_count_tokens` primitive — same as the arXiv chunker tests, which run
-without a `requires_model` marker.
+Token counting runs on the stand-in tokenizer ``tests/conftest.py``
+installs, as in the arXiv chunker tests.
 """
 
 from __future__ import annotations

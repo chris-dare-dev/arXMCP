@@ -290,6 +290,24 @@ def rerank(request: pytest.FixtureRequest) -> bool:
 
 
 @pytest.fixture(autouse=True)
+def _stand_in_chunker_tokenizer(request, monkeypatch):
+    """Give the chunker a deterministic tokenizer instead of BGE-M3's.
+
+    Without this, every test that runs the chunker needs the BGE-M3
+    tokenizer in the local Hugging Face cache or network access to fetch
+    it, and fails otherwise. ``requires_model`` tests are left alone so
+    they exercise the real tokenizer.
+    """
+    if request.node.get_closest_marker("requires_model") is not None:
+        yield
+        return
+    from tests._stand_in_tokenizer import StandInTokenizer
+
+    monkeypatch.setattr("ingest.chunker._tokenizer", StandInTokenizer())
+    yield
+
+
+@pytest.fixture(autouse=True)
 def _patched_store_stats_path(tmp_path, monkeypatch):
     """Redirect ``ingest.store.STORE_STATS_PATH`` into ``tmp_path``.
 

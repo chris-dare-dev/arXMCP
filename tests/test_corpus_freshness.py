@@ -683,14 +683,7 @@ def _search(client: TestClient, sid: str, query: str, k: int = 20) -> dict:
 
 @pytest.fixture
 def deterministic_embedder(monkeypatch):
-    """Mock BGE-M3 in BOTH modules and make ``encode_query`` deterministic.
-
-    Dual-module patching is load-bearing: ``server/resources.py`` binds
-    ``_get_model`` / ``_get_tokenizer`` by name at import time, so
-    patching only ``query_encoder`` leaves ``Resources.startup`` loading
-    real 1.5 GB weights (the notebook-retrieval-m2 lesson, encoded in
-    ``tests/_corpus_helpers.patch_bge_m3_model``).
-    """
+    """Mock the BGE-M3 load and make ``encode_query`` deterministic."""
     patch_bge_m3_model(monkeypatch)
 
     async def _fake_encode_query(text):
