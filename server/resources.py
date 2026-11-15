@@ -76,6 +76,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, TypeVar
 
+from server import query_encoder
 from server.config import Config
 from server.corpus import (
     CorpusVersionInfo,
@@ -89,11 +90,7 @@ from server.corpus_freshness import (
     FreshnessGate,
     read_marker_off_loop,
 )
-from server.query_encoder import (
-    _get_model,
-    _get_tokenizer,
-    shutdown_executor,
-)
+from server.query_encoder import shutdown_executor
 
 logger = logging.getLogger(__name__)
 
@@ -904,8 +901,8 @@ class Resources:
 
         # 3. Eager BGE-M3 load (forces query_encoder's singletons to
         #    populate; subsequent calls hit cached model + tokenizer).
-        await loop.run_in_executor(None, _get_tokenizer)
-        await loop.run_in_executor(None, _get_model)
+        await loop.run_in_executor(None, query_encoder._get_tokenizer)
+        await loop.run_in_executor(None, query_encoder._get_model)
         logger.info("Resources.startup: BGE-M3 embedder warm")
 
         # 4. Reranker — only when enabled (synthesis D6: refuse on

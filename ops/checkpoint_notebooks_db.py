@@ -1,6 +1,8 @@
-"""TRUNCATE-checkpoint notebooks.db WAL before a restic backup.
+"""TRUNCATE-checkpoint SQLite WAL files before a restic backup.
 
-notebook-ops-hardening-m1.
+Every SQLite database in the backup set runs in WAL mode (see
+:func:`backup_set_databases`). The rest of this note uses
+``notebooks.db`` as the example.
 
 ``notebooks.db`` runs in WAL mode (``journal_mode=WAL`` +
 ``synchronous=FULL`` + ``fullfsync=ON`` from notebook-ops-hardening-m2),
@@ -114,10 +116,36 @@ def checkpoint(
     return last
 
 
+def backup_set_databases(var_root: Path) -> list[Path]:
+    """Every SQLite database the backup copies, under ``var_root``.
+
+    That is ``cache/notebooks.db`` plus each notebook's stores under
+    ``notebooks/`` (``documents.db``, ``paper_metadata.db``). Each runs in
+    WAL mode, so each needs the same checkpoint. A notebook's
+    ``cache/retrieval.db`` is a regenerable query cache that the backup
+    excludes, so it is skipped here too.
+    """
+    databases = [var_root / "cache" / "notebooks.db"]
+    notebooks = var_root / "notebooks"
+    if notebooks.is_dir():
+        databases += sorted(
+            db
+            for db in notebooks.rglob("*.db")
+            if not (db.name == "retrieval.db" and db.parent.name == "cache")
+        )
+    return databases
+
+
 def main(argv: list[str]) -> int:
+    if len(argv) == 3 and argv[1] == "--backup-set":
+        # One "<status> <path>" line per database, for the backup wrapper.
+        for db in backup_set_databases(Path(argv[2])):
+            print(f"{checkpoint(db)} {db}")
+        return 0
     if len(argv) != 2:
         print(
-            "usage: checkpoint_notebooks_db.py <path-to-notebooks.db>",
+            "usage: checkpoint_notebooks_db.py <path-to-db>\n"
+            "       checkpoint_notebooks_db.py --backup-set <var/arxmcp>",
             file=sys.stderr,
         )
         return 64

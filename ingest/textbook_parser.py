@@ -101,6 +101,9 @@ _ENV_WHITELIST: frozenset[str] = _ENV_WHITELIST_POSIX | (
 #: cdm_eval.py::_run_subprocess_with_pgkill.
 _DRAIN_TIMEOUT_S: int = 5
 
+#: Coarsest mtime resolution a scratch directory might sit on (FAT: 2 s).
+_MTIME_GRANULARITY_S: float = 2.0
+
 #: Platform on which RLIMIT_AS is enforceable. Verified live test on
 #: Darwin 25.4.0 / Apple M4 Max: setrlimit(RLIMIT_AS, (4GB, 4GB)) raises
 #: ValueError because the macOS kernel keeps the hard limit at
@@ -331,47 +334,65 @@ def _tail(s: str, n: int = _OUTPUT_TAIL_BYTES) -> str:
     return encoded[-n:].decode("utf-8", errors="replace")
 
 
-def _locate_outputs(output_dir: Path, pdf_stem: str) -> tuple[Path, Path]:
+def _locate_outputs(
+    output_dir: Path,
+    pdf_stem: str,
+    *,
+    written_after: float | None = None,
+) -> tuple[Path, Path]:
     """Find the markdown + content_list.json that MinerU produced.
 
     MinerU 3.2.0 with ``-b pipeline -m auto`` produces:
         output_dir/<pdf_stem>/auto/<pdf_stem>.md
         output_dir/<pdf_stem>/auto/<pdf_stem>_content_list.json
 
-    Per research-synthesis §D3: probe the documented path first,
-    fall back to a glob, raise RuntimeError if no markdown found
-    (FM-4 mitigation).
+    Probe the documented path first, fall back to a glob, and raise
+    RuntimeError if no markdown is found. The fallback only accepts an
+    md + content_list pair that shares a parent directory, never files
+    from different parse subdirectories.
 
-    The fallback ONLY accepts md+content_list pairs that share a
-    parent directory — never pairs files from different parse
-    subdirectories. Closes m5 adversary F4.
+    ``written_after`` is a wall-clock time: files modified before it are
+    ignored. The scratch directory is reused for every parse of the same
+    paper, so without it a run that exits 0 but writes nothing would
+    hand back the previous run's output as its own.
     """
+
+    def fresh(*paths: Path) -> bool:
+        return written_after is None or all(
+            path.stat().st_mtime >= written_after for path in paths
+        )
+
     direct_md = output_dir / pdf_stem / "auto" / f"{pdf_stem}.md"
     direct_cl = (
         output_dir / pdf_stem / "auto" / f"{pdf_stem}_content_list.json"
     )
-    if direct_md.is_file() and direct_cl.is_file():
+    if direct_md.is_file() and direct_cl.is_file() and fresh(direct_md, direct_cl):
         return direct_md, direct_cl
 
-    md_candidates = sorted(output_dir.rglob("*.md"))
+    all_md = sorted(output_dir.rglob("*.md"))
+    md_candidates = [md for md in all_md if fresh(md)]
     if not md_candidates:
+        if all_md:
+            raise RuntimeError(
+                f"MinerU exited 0 but wrote no new markdown under "
+                f"{output_dir!s}; the {len(all_md)} .md file(s) there are "
+                f"left over from an earlier parse and were not used."
+            )
         listing = sorted(p.relative_to(output_dir) for p in output_dir.rglob("*"))
         raise RuntimeError(
             f"MinerU exited 0 but no .md file found under "
             f"{output_dir!s}. Directory contents: {listing!r}. The "
-            f"MinerU output-tree convention may have changed; see "
-            f"research-synthesis §D3 (FM-4)."
+            f"MinerU output-tree convention may have changed."
         )
-    # Closes m5 F4: pair-match in same parent dir, do not cross-pair.
     for md in md_candidates:
         cl = md.with_name(f"{md.stem}_content_list.json")
-        if cl.is_file():
+        if cl.is_file() and fresh(cl):
             return md, cl
     raise RuntimeError(
         f"MinerU exited 0 and produced markdown candidates "
         f"({[str(p.relative_to(output_dir)) for p in md_candidates]!r}) "
         f"but no paired _content_list.json in the same parent dir for "
-        f"any of them. Output tree partial — m6 cannot consume."
+        f"any of them. Output tree partial — the renderer cannot consume it."
     )
 
 
@@ -542,6 +563,9 @@ def run_mineru_sandboxed(
     )
 
     started = time.monotonic()
+    # Wall clock, for comparing against output mtimes; less a margin for
+    # filesystems that store mtimes coarsely (FAT keeps 2 s).
+    written_after = time.time() - _MTIME_GRANULARITY_S
     proc = subprocess.Popen(
         cmd,
         cwd=str(output_dir),
@@ -594,7 +618,7 @@ def run_mineru_sandboxed(
         )
 
     markdown_path, content_list_path = _locate_outputs(
-        output_dir, pdf_path.stem,
+        output_dir, pdf_path.stem, written_after=written_after,
     )
 
     logger.info(

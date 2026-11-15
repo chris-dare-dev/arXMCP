@@ -26,7 +26,9 @@ Architectural choices (from research-synthesis §D1 + §3):
   see ``pending`` indefinitely.
 - **``done_callback`` removes the tracker entry** but the DB row
   update is INSIDE the worker function so terminal-state writes
-  happen even if the callback is delayed.
+  happen even if the callback is delayed. Every path out of the
+  worker attempts a terminal write: a row left ``running`` blocks
+  every later upload to that notebook until a restart.
 - **Lifespan shutdown cancels in-flight tasks** then a startup-time
   ``mark_orphaned_parses_failed()`` sweep cleans up any leftover
   ``running`` rows from a hard crash (synthesis FM-4).
@@ -96,6 +98,11 @@ def _redact_path_prefix(text: str) -> str:
 #: an absolute-path prefix (leading ``/`` or ``\``) up to and
 #: including ``var/arxmcp/`` and replaces it with the bare relative
 #: form. Non-greedy so only the prefix is consumed.
+#: Seconds to wait before each retry of the success-path status write.
+#: A failure there is most likely SQLite ``database is locked`` under a
+#: concurrent status poll, which clears within moments.
+_COMPLETE_WRITE_RETRY_DELAYS_S: tuple[float, ...] = (0.25, 1.0)
+
 _ABS_PATH_PREFIX_RE = re.compile(r"[/\\][\w /\\.\-]*?var[/\\]arxmcp[/\\]")
 
 
@@ -206,6 +213,29 @@ class ParseTaskTracker:
                     "parse task for slug=%s raised: %s", slug, exc,
                 )
 
+    @staticmethod
+    async def _record_complete(
+        store: NotebooksStore, slug: str, html_path_str: str,
+    ) -> None:
+        """Write ``complete``, retrying a transient failure."""
+        for delay in (*_COMPLETE_WRITE_RETRY_DELAYS_S, None):
+            try:
+                await store.update_parse_status(
+                    slug,
+                    store.PARSE_STATUS_COMPLETE,
+                    parse_error="",
+                    parsed_html_path=html_path_str,
+                )
+                return
+            except Exception:
+                if delay is None:
+                    raise
+                logger.warning(
+                    "recording parse complete for slug=%s failed; "
+                    "retrying in %.2fs", slug, delay, exc_info=True,
+                )
+                await asyncio.sleep(delay)
+
     async def _run_parse(
         self,
         *,
@@ -279,17 +309,30 @@ class ParseTaskTracker:
                 return
 
             # Success: record the parsed_html_path scrubbed to its
-            # ``var/arxmcp/``-relative form (m6 F1). Storing the
-            # absolute path would leak the operator's home dir
-            # through the /parse-status JSON — the m9 redact_paths
-            # discipline applies here too.
-            html_path_str = redact_html_path(render_result.output_html_path)
-            await store.update_parse_status(
-                slug,
-                store.PARSE_STATUS_COMPLETE,
-                parse_error="",
-                parsed_html_path=html_path_str,
-            )
+            # ``var/arxmcp/``-relative form. Storing the absolute path
+            # would leak the operator's home dir through the
+            # /parse-status JSON.
+            try:
+                html_path_str = redact_html_path(render_result.output_html_path)
+                await self._record_complete(store, slug, html_path_str)
+            except Exception as e:  # noqa: BLE001
+                # The HTML is on disk, but a row left ``running`` would
+                # block every later upload to this notebook, so settle
+                # for a terminal ``failed`` that says what happened.
+                logger.exception(
+                    "parse for slug=%s finished but its status could not "
+                    "be recorded", slug,
+                )
+                with contextlib.suppress(Exception):
+                    await store.update_parse_status(
+                        slug,
+                        store.PARSE_STATUS_FAILED,
+                        parse_error=_format_parse_error(
+                            "parse finished but recording it failed: "
+                            f"{type(e).__name__}: {e}"
+                        ),
+                    )
+                return
             logger.info(
                 "parse complete: slug=%s html=%s errors=%d "
                 "mineru_wall=%.1fs render_wall=%.2fs",

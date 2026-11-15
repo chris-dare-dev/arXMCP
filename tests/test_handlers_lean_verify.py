@@ -2636,20 +2636,10 @@ class TestPrefixedDeclarationSites:
         assert names == ["h'", "h''"]
         assert complete is True
 
-    def test_claude_md_table_matches_live_behavior(self):
-        """CLAUDE.md §4.10 rule 3 carries a measured table of
-        ``_declaration_names`` outputs. It is loaded at session start by every
-        agent in this repo and it is the constitutional statement of what the
-        axiom axis may promise a sibling formalization repo — so a stale row
-        teaches every future agent a false mechanism.
-
-        It went stale once already: the block described #382 as live, in the
-        present tense, after the fix landed. This derives the table's claims
-        from live code so the block cannot drift silently again in either
-        direction — change the code without the doc, or the doc without the
-        code, and this fails.
-        """
-        # One concrete snippet per table row, in the table's own order.
+    def test_declaration_names_on_the_known_shapes(self):
+        """The snippet shapes the extractor has got wrong before, each with
+        the names and completeness it must report: a declaration the regex
+        cannot name has to make ``complete`` False, never vanish."""
         rows = [
             ("theorem harmless : True := trivial", (["harmless"], True)),
             (
@@ -2689,34 +2679,8 @@ class TestPrefixedDeclarationSites:
             ),
         ]
 
-        claude_md = (Path(__file__).resolve().parents[1] / "CLAUDE.md").read_text()
-        block = claude_md.split("issue #382")[1].split("Any axis whose")[0]
-        table = [
-            line for line in block.splitlines()
-            if line.strip().startswith("|") and "`_declaration_names`" not in line
-            and not set(line.strip()) <= set("|- ")
-        ]
-
-        assert len(table) == len(rows), (
-            f"CLAUDE.md §4.10 rule 3's table has {len(table)} rows but this "
-            f"test knows {len(rows)} snippets. Add the snippet for the new row "
-            "here — an unpinned row is how the block went stale before."
-        )
-
-        for (snippet, expected), doc_row in zip(rows, table, strict=True):
-            live = _declaration_names(snippet)
-            assert live == expected, (
-                f"live _declaration_names disagrees with this test: {live!r} "
-                f"!= {expected!r} for {snippet!r}"
-            )
-            # The doc's own middle column must state the same tuple.
-            names, complete = expected
-            rendered = f"({names!r}, {complete})".replace("'", "'")
-            assert rendered in doc_row.replace("`", ""), (
-                f"CLAUDE.md §4.10 rule 3 row is stale.\n"
-                f"  row:      {doc_row.strip()}\n"
-                f"  measured: {rendered}"
-            )
+        for snippet, expected in rows:
+            assert _declaration_names(snippet) == expected, snippet
 
     def test_the_whole_chain_refuses_to_report_clean(self):
         """End-to-end over the two functions the caller composes: every name

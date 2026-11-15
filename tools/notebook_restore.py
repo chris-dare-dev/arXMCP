@@ -247,9 +247,6 @@ def _open_db_with_retry(db_path: Path) -> sqlite3.Connection:
     read-side half of this at its m2 critique F2 (a `list` command that
     migrated the operator's only copy); this is the write-side half.
 
-    Contract-v1's ``formal_releases`` migration is what made it urgent: a
-    second sync writer would have doubled the exposure.
-
     The retry loop stays here because it is this CLI's concern -- the server
     opens once at startup and has nothing to race.
     """

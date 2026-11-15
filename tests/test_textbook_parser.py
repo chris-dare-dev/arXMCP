@@ -24,6 +24,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import time
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -811,6 +812,52 @@ class TestRunMineruSandboxedSurface:
         _, comm_kwargs = proc.communicate.call_args
         # If the driver had hard-coded 1800, this would fail with 173 != 1800.
         assert comm_kwargs["timeout"] == sentinel_timeout
+
+
+class TestReparseIgnoresEarlierOutput:
+    """The scratch directory is reused for every parse of a paper, so a
+    run must only accept output it wrote itself."""
+
+    @staticmethod
+    def _earlier_parse(tmp_path: Path, stem: str = "book") -> tuple[Path, Path]:
+        pdf = tmp_path / f"{stem}.pdf"
+        pdf.write_bytes(b"%PDF-1.4\n%fake\n")
+        out_dir = tmp_path / "out"
+        auto = out_dir / stem / "auto"
+        auto.mkdir(parents=True)
+        an_hour_ago = time.time() - 3600
+        for name, text in ((f"{stem}.md", "# Old book\n"), (f"{stem}_content_list.json", "[]")):
+            (auto / name).write_text(text)
+            os.utime(auto / name, (an_hour_ago, an_hour_ago))
+        return pdf, out_dir
+
+    def test_run_that_writes_nothing_fails(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        pdf, out_dir = self._earlier_parse(tmp_path)
+        monkeypatch.setenv("ARXMCP_MINERU_BIN", _create_fake_bin(tmp_path))
+        with patch.object(subprocess, "Popen", return_value=_fake_proc()), \
+                pytest.raises(RuntimeError, match="earlier parse"):
+            run_mineru_sandboxed(pdf, out_dir, timeout_s=60)
+
+    def test_run_that_rewrites_the_output_returns_it(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        pdf, out_dir = self._earlier_parse(tmp_path)
+        monkeypatch.setenv("ARXMCP_MINERU_BIN", _create_fake_bin(tmp_path))
+        proc = _fake_proc()
+
+        def mineru_writes(*args, **kwargs):
+            auto = out_dir / "book" / "auto"
+            (auto / "book.md").write_text("# New book\n")
+            (auto / "book_content_list.json").write_text("[]")
+            return ("", "")
+
+        proc.communicate.side_effect = mineru_writes
+        with patch.object(subprocess, "Popen", return_value=proc):
+            result = run_mineru_sandboxed(pdf, out_dir, timeout_s=60)
+
+        assert result.markdown_path.read_text() == "# New book\n"
 
 
 def _create_fake_bin(tmp_path: Path) -> str:

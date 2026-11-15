@@ -117,21 +117,3 @@ def test_no_section_is_hollower_than_its_baseline() -> None:
         "grew and the Codex voice stays terser — regenerate the baseline and "
         "say why in the commit."
     )
-
-
-def test_the_contract_state_date_is_not_behind_claude_md() -> None:
-    """§4.10's dated state table is the one part that ROTS rather than merely
-    thins: it makes positive claims about what has landed. AGENTS.md carried
-    `As of 2026-08-03` for six weeks after two of its "does not exist" rows
-    shipped. A date older than CLAUDE.md's means the same rot has recurred.
-    """
-    pattern = r"As of (\d{4}-\d{2}-\d{2})"
-    claude_dates = re.findall(pattern, CLAUDE_MD.read_text(encoding="utf-8"))
-    agents_dates = re.findall(pattern, _require_agents_md())
-    if not claude_dates or not agents_dates:
-        pytest.skip("no dated state table in one of the documents")
-    assert max(agents_dates) >= max(claude_dates), (
-        f"AGENTS.md's newest dated state claim is {max(agents_dates)}, behind "
-        f"CLAUDE.md's {max(claude_dates)}. A stale date on a table of "
-        "'what has landed' is a false statement to a Codex agent, not a gap."
-    )

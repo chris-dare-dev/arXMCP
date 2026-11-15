@@ -828,13 +828,14 @@ class TestBootstrapEnvelopeBind:
 def _patch_startup_heavy_io(monkeypatch, lancedb_path: Path) -> None:
     """Patch the expensive startup steps (BGE-M3, LanceDB, BM25, cache)
     so Resources.startup can run in a fast offline test."""
+    import server.query_encoder as qe_mod
     import server.resources as res_mod
 
     # BGE-M3 model + tokenizer.
     fake_model = object()
     fake_tokenizer = object()
-    monkeypatch.setattr(res_mod, "_get_model", lambda: fake_model)
-    monkeypatch.setattr(res_mod, "_get_tokenizer", lambda: fake_tokenizer)
+    monkeypatch.setattr(qe_mod, "_get_model", lambda: fake_model)
+    monkeypatch.setattr(qe_mod, "_get_tokenizer", lambda: fake_tokenizer)
 
     # LanceDB open — return a fake table + no degraded state.
     fake_table = _make_fake_table()

@@ -150,3 +150,50 @@ class TestCheckpointLockedReturnsStatus:
         status = checkpoint(fake, attempts=2, delay_s=0.0)
         assert status == "locked"
         assert status not in CLEAN_STATUSES
+
+
+class TestBackupSet:
+    """``--backup-set`` checkpoints every SQLite database the backup copies,
+    not only notebooks.db."""
+
+    def test_checkpoints_every_backed_up_database(self, tmp_path, capsys):
+        from ops.checkpoint_notebooks_db import main
+
+        var = tmp_path / "var" / "arxmcp"
+        backed_up = [
+            var / "cache" / "notebooks.db",
+            var / "notebooks" / "demo" / "documents.db",
+            var / "notebooks" / "demo" / "paper_metadata.db",
+        ]
+        query_cache = var / "notebooks" / "demo" / "cache" / "retrieval.db"
+        writers = []
+        for db in [*backed_up, query_cache]:
+            db.parent.mkdir(parents=True, exist_ok=True)
+            _wal_db_with_frames(db)
+            # An open, idle connection keeps committed frames in the WAL
+            # without blocking a checkpoint.
+            conn = sqlite3.connect(str(db))
+            conn.execute("INSERT INTO t VALUES (2)")
+            conn.commit()
+            writers.append(conn)
+        try:
+            assert main(["checkpoint", "--backup-set", str(var)]) == 0
+            report = dict(
+                reversed(line.split(" ", 1))
+                for line in capsys.readouterr().out.splitlines()
+            )
+
+            assert report == {str(db): "ok" for db in backed_up}
+            for db in backed_up:
+                assert Path(f"{db}-wal").stat().st_size == 0
+            assert Path(f"{query_cache}-wal").stat().st_size > 0
+        finally:
+            for conn in writers:
+                conn.close()
+
+    def test_missing_notebooks_db_reports_absent(self, tmp_path, capsys):
+        from ops.checkpoint_notebooks_db import main
+
+        var = tmp_path / "var" / "arxmcp"
+        assert main(["checkpoint", "--backup-set", str(var)]) == 0
+        assert capsys.readouterr().out == f"absent {var / 'cache' / 'notebooks.db'}\n"
