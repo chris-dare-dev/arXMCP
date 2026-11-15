@@ -43,6 +43,7 @@ import sys
 
 from ingest.bm25_indexer import build_bm25_index
 from ingest.bulk_ingest import run_bulk_ingest
+from ingest.index_definitions import index_definitions_for_corpus
 from tools._notebook_common import (
     NotebookError,
     notebook_dir,
@@ -180,6 +181,12 @@ def run(slug: str) -> int:
         f"BM25 built for corpus_version={corpus_version} "
         f"(at {bm25_v_dir}/)"
     )
+
+    # get_definitions reads this notebook's own dataset, so build its
+    # definitions table here too; without it the tool answers
+    # index_status="absent" for every freshly ingested notebook.
+    rows, papers = index_definitions_for_corpus(lancedb_path)
+    print(f"definitions indexed: {rows} across {papers} paper(s)")
 
     # Warn if multiple v<N>/ directories exist under the per-notebook
     # BM25 root. Helps operators prune stale indices after a

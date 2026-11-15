@@ -441,10 +441,29 @@ def index_definitions_for_paper(
 
 
 
+def index_definitions_for_corpus(
+    lancedb_path: str | Path, paper_ids: list[str] | None = None,
+) -> tuple[int, int]:
+    """Index ``paper_ids``, or every paper in the chunks table when None.
+
+    Returns ``(rows written, papers indexed)``. A paper with no preamble
+    contributes zero rows and is not an error.
+    """
+    if paper_ids is None:
+        import lancedb
+
+        chunks = lancedb.connect(str(lancedb_path)).open_table("chunks")
+        column = (
+            chunks.search().select(["paper_id"]).limit(chunks.count_rows())
+            .to_arrow().column("paper_id")
+        )
+        paper_ids = sorted(set(column.to_pylist()))
+    total = sum(index_definitions_for_paper(pid, lancedb_path) for pid in paper_ids)
+    return total, len(paper_ids)
+
+
 def _cli(argv: list[str]) -> int:
     import argparse
-
-    import lancedb
 
     from ingest.store import DEFAULT_LANCEDB_PATH
 
@@ -461,16 +480,10 @@ def _cli(argv: list[str]) -> int:
         help="papers to index (default: every paper in the chunks table)",
     )
     args = parser.parse_args(argv)
-    paper_ids = args.paper_ids
-    if not paper_ids:
-        chunks = lancedb.connect(args.lancedb_path).open_table("chunks")
-        column = (
-            chunks.search().select(["paper_id"]).limit(chunks.count_rows())
-            .to_arrow().column("paper_id")
-        )
-        paper_ids = sorted(set(column.to_pylist()))
-    total = sum(index_definitions_for_paper(pid, args.lancedb_path) for pid in paper_ids)
-    print(f"indexed {total} definition(s) across {len(paper_ids)} paper(s)")
+    total, papers = index_definitions_for_corpus(
+        args.lancedb_path, args.paper_ids or None
+    )
+    print(f"indexed {total} definition(s) across {papers} paper(s)")
     return 0
 
 
@@ -481,6 +494,7 @@ if __name__ == "__main__":  # pragma: no cover
 
 __all__ = [
     "build_definitions_for_paper",
+    "index_definitions_for_corpus",
     "index_definitions_for_paper",
     "open_or_create_definitions_table",
     "parse_macro_line",
