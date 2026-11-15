@@ -227,8 +227,7 @@ class TestNotebookBackupScope:
         assert "CHECKPOINT_DEGRADED=1" in text
         # The degraded path forces partial and appends the WAL sidecars.
         assert 'BACKUP_PATHS+=("${SIDECAR}")' in text
-        assert "${NOTEBOOKS_DB}-wal" in text
-        assert "${NOTEBOOKS_DB}-shm" in text
+        assert '"${DB}-wal" "${DB}-shm"' in text
         # And the final status is forced partial when degraded. The token
         # comes from the shared vocabulary (arXMCP#202), not a literal —
         # see ops/cron/backup-status-lib.sh and tests/
