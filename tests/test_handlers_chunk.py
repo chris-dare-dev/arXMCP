@@ -339,6 +339,56 @@ class TestBatchFetch:
         assert size <= 256 * 1024, f"aggregate {size} exceeds the 256 KB cap"
         assert all(c.get("body_truncated") for c in body["chunks"])
 
+    def test_referenced_bodies_count_toward_the_batch_cap(self, res, monkeypatch):
+        """Each element's share of the cap trims only its primary body, so
+        20 elements each carrying a full set of counterparts must still be
+        bounded as a whole: trailing entries go, the rest stay in request
+        order, and the reply says it was cut."""
+        import json
+
+        import server.handlers.chunk as chunk_mod
+        from server.proof_linkage import MAX_REFERENCED, REF_BODY_MAX_CHARS
+
+        def _full_counterparts(table, row):
+            return {
+                "referenced_chunks": [
+                    {
+                        "chunk_id": f"{row['chunk_id'][:-1]}{k}",
+                        "kind": "proof",
+                        "theorem_label": None,
+                        "theorem_name": None,
+                        "section_path": ["Chapter 1"],
+                        "body_text": "p" * REF_BODY_MAX_CHARS,
+                    }
+                    for k in range(MAX_REFERENCED)
+                ],
+                "linkage": {
+                    "direction": "statement_to_proof",
+                    "match_basis": "theorem_label",
+                    "outcome": "resolved",
+                },
+            }
+
+        monkeypatch.setattr(chunk_mod, "resolve_referenced", _full_counterparts)
+        ids = [f"arxiv:2401.{i:05d}:0123456789abcdef" for i in range(20)]
+        arrow = _chunk_arrow_multi(ids)
+        cols = {n: arrow.column(n).to_pylist() for n in arrow.column_names}
+        cols["body_text"] = ["s" * 4000] * 20
+        res["holder"]["arrow"] = pa.table(cols)
+
+        out = _run(handle_get_chunk(chunk_id=ids, include_referenced=True))
+        body = out.get("structuredContent", out)
+
+        size = len(json.dumps(body).encode())
+        assert size <= 256 * 1024, f"aggregate {size} exceeds the 256 KB cap"
+        assert body["body_truncated"] is True
+        kept = [c["chunk"]["chunk_id"] for c in body["chunks"]]
+        assert 0 < len(kept) < len(ids)
+        assert kept == ids[: len(kept)]
+        assert all(
+            len(c["referenced_chunks"]) == MAX_REFERENCED for c in body["chunks"]
+        )
+
     def test_batch_is_one_query(self, res, monkeypatch):
         """N ids => ONE LanceDB search, not N."""
         calls = {"n": 0}

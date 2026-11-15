@@ -89,6 +89,32 @@ logger = logging.getLogger(__name__)
 SCHEMA_VERSION: int = 6
 
 
+def _migrate(conn: sqlite3.Connection, version: int, *statements: str) -> None:
+    """Run one migration step and stamp ``user_version`` atomically.
+
+    The connection is ``isolation_level=None`` (autocommit), so without an
+    explicit BEGIN every statement commits on its own. A crash or error
+    between two of a step's statements would leave the DB half-migrated
+    (``user_version`` still the old value, some columns already present),
+    so the next open re-runs the step and its first ALTER raises
+    ``sqlite3.OperationalError: duplicate column name``, crash-looping the
+    daemon at startup. SQLite DDL and the ``user_version`` write are
+    transactional, so BEGIN/COMMIT makes the whole step all-or-nothing.
+    """
+    conn.execute("BEGIN")
+    try:
+        for statement in statements:
+            conn.execute(statement)
+        conn.execute(f"PRAGMA user_version = {int(version)}")
+        conn.execute("COMMIT")
+    except BaseException:
+        # SQLite rolls some errors back on its own (SQLITE_FULL, for one);
+        # a second ROLLBACK would raise and hide the original error.
+        if conn.in_transaction:
+            conn.execute("ROLLBACK")
+        raise
+
+
 #: Module-level so a SYNC CLI can reach the migration ladder.
 #:
 #: It used to be a closure inside ``NotebooksStore.open``, which meant the
@@ -154,17 +180,17 @@ def open_sync(db_path: Path) -> sqlite3.Connection:
     # EXISTS) plus the preceding DROP IF EXISTS preserves
     # the original safety on empty DBs.
     if current_version < 1:
-        conn.execute("DROP TABLE IF EXISTS notebook_papers")
-        conn.execute("DROP TABLE IF EXISTS notebooks")
-        conn.execute(
+        _migrate(
+            conn,
+            1,
+            "DROP TABLE IF EXISTS notebook_papers",
+            "DROP TABLE IF EXISTS notebooks",
             "CREATE TABLE notebooks ("
             "  slug          TEXT PRIMARY KEY,"
             "  display_name  TEXT NOT NULL DEFAULT '',"
             "  lancedb_path  TEXT NOT NULL,"
             "  created_at    TEXT NOT NULL"
-            ")"
-        )
-        conn.execute(
+            ")",
             "CREATE TABLE notebook_papers ("
             "  slug      TEXT NOT NULL,"
             "  paper_id  TEXT NOT NULL,"
@@ -172,13 +198,10 @@ def open_sync(db_path: Path) -> sqlite3.Connection:
             "  PRIMARY KEY (slug, paper_id),"
             "  FOREIGN KEY (slug) REFERENCES notebooks(slug) "
             "    ON DELETE CASCADE"
-            ")"
-        )
-        conn.execute(
+            ")",
             "CREATE INDEX idx_notebook_papers_slug "
-            "ON notebook_papers(slug)"
+            "ON notebook_papers(slug)",
         )
-        conn.execute("PRAGMA user_version = 1")
     # v1 -> v2: m9 ADDITIVE migration. notebook_ingest_runs
     # stores per-ingest-trigger run state. CREATE TABLE IF
     # NOT EXISTS (NOT a destructive recreate) preserves all
@@ -187,7 +210,9 @@ def open_sync(db_path: Path) -> sqlite3.Connection:
     # pattern is acceptable for caches (miss, not data
     # loss) but NOT for notebook metadata.
     if current_version < 2:
-        conn.execute(
+        _migrate(
+            conn,
+            2,
             "CREATE TABLE IF NOT EXISTS notebook_ingest_runs ("
             "  id           INTEGER PRIMARY KEY AUTOINCREMENT,"
             "  slug         TEXT NOT NULL,"
@@ -198,13 +223,10 @@ def open_sync(db_path: Path) -> sqlite3.Connection:
             "  stderr_tail  TEXT,"
             "  FOREIGN KEY (slug) REFERENCES notebooks(slug) "
             "    ON DELETE CASCADE"
-            ")"
-        )
-        conn.execute(
+            ")",
             "CREATE INDEX IF NOT EXISTS idx_runs_slug "
-            "ON notebook_ingest_runs(slug, id DESC)"
+            "ON notebook_ingest_runs(slug, id DESC)",
         )
-        conn.execute("PRAGMA user_version = 2")
     # v2 -> v3: textbook-ingest-m3 ADDITIVE migration.
     # ``notebook_kind`` distinguishes arXiv-corpus notebooks
     # (the historical default) from textbook-corpus notebooks
@@ -217,11 +239,12 @@ def open_sync(db_path: Path) -> sqlite3.Connection:
     # ``NotebookCreate.notebook_kind`` field enforces the
     # ``{arxiv, textbook}`` enum domain at the write path.
     if current_version < 3:
-        conn.execute(
+        _migrate(
+            conn,
+            3,
             "ALTER TABLE notebooks ADD COLUMN notebook_kind "
-            "TEXT NOT NULL DEFAULT 'arxiv'"
+            "TEXT NOT NULL DEFAULT 'arxiv'",
         )
-        conn.execute("PRAGMA user_version = 3")
     # v3 -> v4: textbook-ingest-m6 ADDITIVE migration. Three
     # parse-tracking columns on the ``notebooks`` table:
     #
@@ -238,19 +261,16 @@ def open_sync(db_path: Path) -> sqlite3.Connection:
     #   rendered ``index.html``. Empty until the parse task
     #   reports complete.
     if current_version < 4:
-        conn.execute(
+        _migrate(
+            conn,
+            4,
             "ALTER TABLE notebooks ADD COLUMN parse_status "
-            "TEXT NOT NULL DEFAULT 'skipped'"
-        )
-        conn.execute(
+            "TEXT NOT NULL DEFAULT 'skipped'",
             "ALTER TABLE notebooks ADD COLUMN parse_error "
-            "TEXT NOT NULL DEFAULT ''"
-        )
-        conn.execute(
+            "TEXT NOT NULL DEFAULT ''",
             "ALTER TABLE notebooks ADD COLUMN parsed_html_path "
-            "TEXT NOT NULL DEFAULT ''"
+            "TEXT NOT NULL DEFAULT ''",
         )
-        conn.execute("PRAGMA user_version = 4")
     # v4 -> v5: notebook-paper-discovery-m1 ADDITIVE migration.
     # Two columns on ``notebooks`` give a notebook a machine-
     # readable research interest for topic-driven paper discovery
@@ -259,34 +279,15 @@ def open_sync(db_path: Path) -> sqlite3.Connection:
     # {math.AG, math.NT, math-ph, hep-th}) and free-text
     # ``description``. Column-level DEFAULT '' backfills every
     # existing row in O(1) (no row-rewrite).
-    #
-    # Unlike the v1->v4 blocks (each a single ALTER), v4->v5 adds
-    # TWO columns. A crash BETWEEN the two ALTERs would leave the
-    # DB half-migrated (``user_version`` still 4 but
-    # ``discovery_category`` already present), so the next open
-    # re-runs the block and the first ALTER raises
-    # ``sqlite3.OperationalError: duplicate column name``,
-    # crash-looping the daemon at startup. Wrap the two ALTERs +
-    # the version bump in an explicit BEGIN/COMMIT so the whole
-    # step is atomic and re-runnable. The connection is
-    # ``isolation_level=None`` (autocommit), so the transaction
-    # MUST be opened explicitly.
     if current_version < 5:
-        conn.execute("BEGIN")
-        try:
-            conn.execute(
-                "ALTER TABLE notebooks ADD COLUMN "
-                "discovery_category TEXT NOT NULL DEFAULT ''"
-            )
-            conn.execute(
-                "ALTER TABLE notebooks ADD COLUMN "
-                "description TEXT NOT NULL DEFAULT ''"
-            )
-            conn.execute("PRAGMA user_version = 5")
-            conn.execute("COMMIT")
-        except Exception:
-            conn.execute("ROLLBACK")
-            raise
+        _migrate(
+            conn,
+            5,
+            "ALTER TABLE notebooks ADD COLUMN "
+            "discovery_category TEXT NOT NULL DEFAULT ''",
+            "ALTER TABLE notebooks ADD COLUMN "
+            "description TEXT NOT NULL DEFAULT ''",
+        )
     # v5 -> v6: contract-v1 ADDITIVE migration.
     # ``formal_releases`` is arXMCP's PIN to a topic repo's
     # released formalization. ADR-0004: arXMCP hosts no
@@ -308,37 +309,32 @@ def open_sync(db_path: Path) -> sqlite3.Connection:
     # and 4.9 rule 1 forbids collapsing that into a pass/fail
     # token. See ``tools/formal_release_pin.py``.
     if current_version < 6:
-        conn.execute("BEGIN")
-        try:
-            conn.execute(
-                "CREATE TABLE IF NOT EXISTS formal_releases ("
-                "  slug              TEXT NOT NULL,"
-                "  repo              TEXT NOT NULL,"
-                "  tag               TEXT NOT NULL,"
-                "  tag_object_sha    TEXT NOT NULL,"
-                "  commit_sha        TEXT NOT NULL,"
-                "  registry_id       TEXT NOT NULL,"
-                "  registry_sha256   TEXT NOT NULL,"
-                "  env_digest        TEXT NOT NULL,"
-                "  digest_provenance TEXT NOT NULL,"
-                "  asset_dir         TEXT NOT NULL DEFAULT '',"
-                "  bundle_json       TEXT NOT NULL,"
-                "  registry_json     TEXT NOT NULL,"
-                "  resolution_json   TEXT,"
-                "  review_json       TEXT,"
-                "  withdrawals_json  TEXT,"
-                "  withdrawals_tag   TEXT,"
-                "  pinned_at         TEXT NOT NULL,"
-                "  PRIMARY KEY (slug, repo),"
-                "  FOREIGN KEY (slug) REFERENCES notebooks(slug) "
-                "    ON DELETE CASCADE"
-                ")"
-            )
-            conn.execute("PRAGMA user_version = 6")
-            conn.execute("COMMIT")
-        except Exception:
-            conn.execute("ROLLBACK")
-            raise
+        _migrate(
+            conn,
+            6,
+            "CREATE TABLE IF NOT EXISTS formal_releases ("
+            "  slug              TEXT NOT NULL,"
+            "  repo              TEXT NOT NULL,"
+            "  tag               TEXT NOT NULL,"
+            "  tag_object_sha    TEXT NOT NULL,"
+            "  commit_sha        TEXT NOT NULL,"
+            "  registry_id       TEXT NOT NULL,"
+            "  registry_sha256   TEXT NOT NULL,"
+            "  env_digest        TEXT NOT NULL,"
+            "  digest_provenance TEXT NOT NULL,"
+            "  asset_dir         TEXT NOT NULL DEFAULT '',"
+            "  bundle_json       TEXT NOT NULL,"
+            "  registry_json     TEXT NOT NULL,"
+            "  resolution_json   TEXT,"
+            "  review_json       TEXT,"
+            "  withdrawals_json  TEXT,"
+            "  withdrawals_tag   TEXT,"
+            "  pinned_at         TEXT NOT NULL,"
+            "  PRIMARY KEY (slug, repo),"
+            "  FOREIGN KEY (slug) REFERENCES notebooks(slug) "
+            "    ON DELETE CASCADE"
+            ")",
+        )
     return conn
 
 

@@ -57,6 +57,9 @@ from server.tools import (
 
 logger = logging.getLogger(__name__)
 
+#: The only chunk columns ``get_paper`` reads; the row count comes free.
+_PAPER_CHUNK_COLUMNS = ["section_path", "chunker_version", "embedder_version"]
+
 
 def hydrated_paper_fields(record: Any) -> dict[str, Any] | None:
     """Map a ``PaperMetadataRecord`` to the ``get_paper`` identity
@@ -164,10 +167,13 @@ async def handle_get_paper(
     # Filter to rows matching paper_id. LanceDB doesn't expose a
     # native group-by; pull the matching rows in Arrow and aggregate
     # in Python. For the 50-paper corpus the worst case is ~100s of
-    # rows per paper — fast enough.
+    # rows per paper — fast enough. Project at the scanner: an
+    # unprojected read pulls both 1024-float vector columns (~14 KB/row)
+    # for every row only to count them and read two version strings.
     arrow = (
         r.chunks_table.search()
         .where(f"paper_id = '{_escape(paper_id)}'", prefilter=True)
+        .select(_PAPER_CHUNK_COLUMNS)
         .limit(10000)
         .to_arrow()
     )
