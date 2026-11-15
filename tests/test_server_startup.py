@@ -1318,6 +1318,16 @@ class TestEnvVarScan:
         with pytest.raises(ValueError, match="unknown ARXMCP_"):
             create_app(cfg)
 
+    def test_create_app_accepts_the_trust_remote_code_escape_hatch(
+        self, monkeypatch, seeded_lancedb
+    ):
+        """ARXMCP_TRUST_REMOTE_CODE is read by server.model_loader, not
+        Config. Setting it must not stop the server from being built."""
+        monkeypatch.setenv("ARXMCP_TRUST_REMOTE_CODE", "1")
+        cfg = Config(lancedb_path=seeded_lancedb)
+
+        create_app(cfg)
+
     # --- onboarding-uplift-m1 (AC2 + AC9): close-match + carve-out -----
 
     def test_close_match_suggestion_for_typo(self, monkeypatch):
