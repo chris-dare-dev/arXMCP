@@ -851,3 +851,80 @@ class TestHandler:
                 assert result["retrieval_mode"] == "empty_after_normalization"
         finally:
             _run(store.close())
+
+
+class TestServedProcessNeverRebuildsTheStore:
+    """The served process must not migrate an out-of-date store (that
+    rebuild wipes it), and must not serve an empty store as if it were a
+    real "no matches"; both fall back to scanning the chunks table."""
+
+    @staticmethod
+    def _open(path: Path):
+        from types import SimpleNamespace
+
+        from server.resources import _open_theorem_names_store
+
+        return _run(_open_theorem_names_store(
+            SimpleNamespace(theorem_names_db_path=path), caller="test"
+        ))
+
+    def test_stale_store_is_left_alone_and_not_served(self, tmp_path):
+        path = tmp_path / "theorem_names.db"
+        conn = sqlite3.connect(str(path))
+        conn.execute("CREATE TABLE theorem_names (display_name TEXT)")
+        conn.execute("INSERT INTO theorem_names VALUES ('Yoneda Lemma')")
+        conn.commit()
+        conn.close()
+
+        assert self._open(path) is None
+
+        conn = sqlite3.connect(str(path))
+        try:
+            assert conn.execute("PRAGMA user_version").fetchone()[0] == 0
+            rows = conn.execute("SELECT display_name FROM theorem_names").fetchall()
+        finally:
+            conn.close()
+        assert rows == [("Yoneda Lemma",)]
+
+    def test_empty_store_is_not_served(self, tmp_path):
+        path = tmp_path / "theorem_names.db"
+        _run(_run(TheoremNamesStore.open(path)).close())
+
+        assert self._open(path) is None
+
+    def test_populated_store_is_served(self, tmp_path):
+        path = tmp_path / "theorem_names.db"
+
+        async def _seed():
+            store = await TheoremNamesStore.open(path)
+            await store.upsert_rows([TheoremRow(
+                dedup_key="k", paper_id="2401.00001",
+                chunk_id="arxiv:2401.00001:0000000000000001",
+                theorem_name="Yoneda Lemma", display_name="Yoneda Lemma",
+                section_path=["1"], confidence=1.0,
+            )])
+            await store.close()
+
+        _run(_seed())
+        store = self._open(path)
+        try:
+            assert store is not None
+        finally:
+            _run(store.close())
+
+    def test_lookup_over_a_stale_store_still_finds_the_lemma(self, tmp_path):
+        path = tmp_path / "theorem_names.db"
+        sqlite3.connect(str(path)).close()  # schema 0: stale
+        ct = _chunks_table_from_records(tmp_path, [{
+            "chunk_id": "arxiv:2401.00001:0000000000000001",
+            "paper_id": "2401.00001",
+            "theorem_name": "Yoneda Lemma",
+        }])
+        _install_resources(ct, theorem_names_db=self._open(path), tmp_path=tmp_path)
+        try:
+            result = _run(lemma_handler_mod.handle_find_lemma_by_name(name="Yoneda"))
+        finally:
+            server_tools._RESOURCES = None
+
+        assert result["retrieval_mode"] == "in_memory_scan_fallback"
+        assert len(result["matches"]) == 1

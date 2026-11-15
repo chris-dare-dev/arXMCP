@@ -2129,7 +2129,10 @@ async def _open_theorem_names_store(config: Config, *, caller: str) -> Any | Non
     #207; see that function's docstring for why.
     """
     try:
-        from server.theorem_names_store import TheoremNamesStore  # noqa: PLC0415
+        from server.theorem_names_store import (  # noqa: PLC0415
+            TheoremNamesSchemaStale,
+            TheoremNamesStore,
+        )
 
         tdb_path = Path(config.theorem_names_db_path)
         if not tdb_path.exists():
@@ -2140,12 +2143,17 @@ async def _open_theorem_names_store(config: Config, *, caller: str) -> Any | Non
                 tdb_path,
             )
             return None
-        store = await TheoremNamesStore.open(tdb_path)
-        # F5 (E10_S02 critique) — log the row count so an empty store
-        # (a recent schema bump, or a never-completed first ingest) is
-        # distinguishable from a populated one. An empty store + cold
-        # corpus would otherwise be indistinguishable from "no named
-        # theorems anywhere in the corpus."
+        # Never migrate here: rebuilding an out-of-date file would wipe it
+        # from the served process, which writes no corpus state.
+        try:
+            store = await TheoremNamesStore.open(tdb_path, migrate=False)
+        except TheoremNamesSchemaStale as exc:
+            logger.warning(
+                "%s: %s Until then find_lemma_by_name scans the chunks table.",
+                caller,
+                exc,
+            )
+            return None
         row_count = await store.row_count()
         logger.info(
             "%s: opened theorem_names SQLite store at %s (rows=%d)",
@@ -2154,12 +2162,17 @@ async def _open_theorem_names_store(config: Config, *, caller: str) -> Any | Non
             row_count,
         )
         if row_count == 0:
+            # An empty store would answer every lookup with no matches
+            # under a normal-looking retrieval_mode, indistinguishable from
+            # "no such lemma". The scan fallback says what it is.
             logger.warning(
                 "%s: theorem_names store is EMPTY. Re-run "
                 "`python -m ingest.index_theorem_names` to populate it; "
-                "until then find_lemma_by_name returns zero matches.",
+                "until then find_lemma_by_name scans the chunks table.",
                 caller,
             )
+            await store.close()
+            return None
         return store
     except Exception as exc:  # noqa: BLE001 — non-critical enrichment
         logger.warning("%s: could not open theorem_names store: %s", caller, exc)

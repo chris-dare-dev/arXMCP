@@ -28,6 +28,7 @@ has no accepted-and-ignored argument left.
 
 from __future__ import annotations
 
+import sys
 from typing import Annotated, Any
 
 from pydantic import Field
@@ -137,6 +138,27 @@ async def handle_get_chunk(
         list_key="chunks",
     )
     return envelope(structured)
+
+
+async def read_chunk_in_full(chunk_id: str) -> dict[str, Any]:
+    """One chunk with its whole body, for the ``arxmcp://chunks/{id}``
+    resource that ``get_chunk``'s over-cap ``resource_link`` points at.
+
+    Same shape and trust treatment as a scalar ``get_chunk`` (sanitized,
+    delimiter-wrapped body), but without the per-response byte cap: that
+    cap is what produced the link, so applying it again would make the
+    link useless. Ingest bounds a chunk body to a few thousand tokens, so
+    the uncapped read stays small.
+    """
+    if not is_valid_chunk_id(chunk_id):
+        raise ValueError(
+            f"chunk_id {chunk_id!r} does not match arxiv:<paper_id>:<16-hex> format"
+        )
+    r = get_resources()
+    row = _fetch_chunk_rows(r, [chunk_id]).get(chunk_id)
+    return envelope(
+        _build_chunk_result(chunk_id, row, False, r, byte_cap=sys.maxsize)
+    )
 
 
 def _fetch_chunk_rows(r, ids: list[str]) -> dict[str, Any]:  # noqa: ANN001
