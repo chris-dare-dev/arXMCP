@@ -25,6 +25,7 @@ Real `git`, synthetic repos, no network.
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import json
 import os
 import shutil
@@ -192,6 +193,16 @@ def _notebook_db(tmp_path: Path, slug: str = "bridgeland-stability") -> Path:
     return db
 
 
+#: A pin that gets as far as validation checks the release against the
+#: schemas the contract package ships, so those tests need it installed
+#: (the ``contract`` extra; ``make bootstrap`` installs only ``dev``).
+#: Tests refused before that point run without it.
+needs_mfc = pytest.mark.skipif(
+    importlib.util.find_spec("mfc") is None,
+    reason="needs the contract package: pip install -e '.[contract]'",
+)
+
+
 def _verify(topic, **kw):
     defaults = dict(
         tag_name="v0.1.0", slug="bridgeland-stability",
@@ -203,6 +214,7 @@ def _verify(topic, **kw):
 
 # --- the tamper, both ways -----------------------------------------------------
 
+@needs_mfc
 def test_a_tamper_that_recomputes_the_bundle_is_refused_when_the_tag_names_digests(
     topic,
 ) -> None:
@@ -232,6 +244,7 @@ def test_a_tamper_that_recomputes_the_bundle_is_refused_when_the_tag_names_diges
         _verify(topic)
 
 
+@needs_mfc
 def test_the_same_tamper_is_NOT_caught_without_a_digest_block(topic) -> None:
     """And the pin says `self_attested_only` rather than pretending.
 
@@ -261,6 +274,7 @@ def test_the_same_tamper_is_NOT_caught_without_a_digest_block(topic) -> None:
     assert any("no git-rooted digest" in f for f in pin.findings)
 
 
+@needs_mfc
 def test_an_uncoordinated_tamper_is_caught_either_way(topic) -> None:
     """Flipping the file WITHOUT recomputing the bundle is caught with no tag
     block at all — internal consistency does that much. It is the coordinated
@@ -283,6 +297,7 @@ def test_the_pin_names_the_tag_object_not_only_the_commit(topic) -> None:
     assert tag.object_sha != tag.commit_sha == topic["commit"]
 
 
+@needs_mfc
 def test_a_bundle_describing_another_commit_is_refused(topic) -> None:
     _tag(topic["repo"], "v0.1.0", "release")
     bundle = json.loads((topic["assets"] / "bundle.json").read_text())
@@ -292,6 +307,7 @@ def test_a_bundle_describing_another_commit_is_refused(topic) -> None:
         _verify(topic)
 
 
+@needs_mfc
 def test_a_bundle_built_before_its_tag_is_refused(topic) -> None:
     """`gitTag: null` is what an artifact set produced before the tag existed
     says — a valid artifact and an invalid release."""
@@ -303,6 +319,7 @@ def test_a_bundle_built_before_its_tag_is_refused(topic) -> None:
         _verify(topic)
 
 
+@needs_mfc
 def test_a_registry_that_moved_since_the_tag_is_refused(topic) -> None:
     """The registry IS tracked, so this axis is git-rooted regardless of the
     tag message — and it is the artifact arXMCP actually re-serves."""
@@ -314,6 +331,7 @@ def test_a_registry_that_moved_since_the_tag_is_refused(topic) -> None:
         _verify(topic)
 
 
+@needs_mfc
 def test_the_registry_is_read_from_git_not_from_the_worktree(topic) -> None:
     """A pin describes a tag. Reading the file off disk would let an
     uncommitted edit — or a later commit — into a record that claims to be
@@ -376,6 +394,7 @@ def test_an_empty_digest_block_is_raised(topic) -> None:
             "-----BEGIN MFC DIGESTS-----\n\n-----END MFC DIGESTS-----")
 
 
+@needs_mfc
 def test_a_block_that_omits_the_bundle_roots_nothing(topic) -> None:
     """Every other digest in the set is READ OUT OF the bundle, so a block that
     names the leaves and not the root is a root of trust in name only."""
@@ -389,6 +408,7 @@ def test_a_block_that_omits_the_bundle_roots_nothing(topic) -> None:
         _verify(topic)
 
 
+@needs_mfc
 def test_a_predicate_the_block_omits_downgrades_rather_than_passing(topic) -> None:
     """Partial rooting is not rooting. The bundle's own digest agreeing with
     the file proves only that both were written together."""
@@ -429,6 +449,7 @@ def _add_withdrawals(repo: Path, tag: str, *, registry_id: str = REGISTRY_ID) ->
     )
 
 
+@needs_mfc
 def test_withdrawals_are_read_from_the_newest_tag_not_the_pinned_one(topic) -> None:
     """The single channel permitted to travel forward in time, and safe for
     exactly one reason: it can only REMOVE trust, never grant it.
@@ -446,6 +467,7 @@ def test_withdrawals_are_read_from_the_newest_tag_not_the_pinned_one(topic) -> N
     assert pin.withdrawals_doc["withdrawals"][0]["key"].endswith("lem-8.2")
 
 
+@needs_mfc
 def test_withdrawals_for_another_registry_are_refused(topic) -> None:
     """Applying them would remove trust from keys they were never about, and
     a revocation channel that fires on the wrong keys is worse than none."""
@@ -456,6 +478,7 @@ def test_withdrawals_for_another_registry_are_refused(topic) -> None:
         _verify(topic)
 
 
+@needs_mfc
 def test_no_withdrawals_file_is_a_legitimate_state(topic) -> None:
     """Most repositories have never withdrawn anything."""
     _tag(topic["repo"], "v0.1.0", "release")
@@ -475,6 +498,7 @@ def test_the_newest_tag_is_by_creation_date_not_by_name(topic) -> None:
 
 # --- the row, and the write ------------------------------------------------------
 
+@needs_mfc
 def test_the_stored_registry_is_the_bytes_from_git(topic) -> None:
     """Not a re-serialization. `registry_sha256` is computed over these bytes
     and the topic repo compares it against its own `shasum`, so a
@@ -485,6 +509,7 @@ def test_the_stored_registry_is_the_bytes_from_git(topic) -> None:
     assert _sha(row["registry_json"].encode()) == row["registry_sha256"]
 
 
+@needs_mfc
 def test_the_row_records_which_root_of_trust_the_pin_rests_on(topic) -> None:
     _tag(topic["repo"], "v0.1.0", "release")
     row = to_row(_verify(topic))
@@ -494,6 +519,7 @@ def test_the_row_records_which_root_of_trust_the_pin_rests_on(topic) -> None:
     assert row["env_digest"] == ENV_DIGEST
 
 
+@needs_mfc
 def test_writing_a_pin_migrates_the_db_rather_than_arming_the_drop(
     topic, tmp_path: Path,
 ) -> None:
@@ -523,6 +549,7 @@ def test_writing_a_pin_migrates_the_db_rather_than_arming_the_drop(
     assert rows == [("bridgeland-stability", "v0.1.0", SELF_ATTESTED_ONLY)]
 
 
+@needs_mfc
 def test_re_pinning_replaces_rather_than_accumulates(topic, tmp_path: Path) -> None:
     """Two pins for one (slug, repo) would be two answers to "what does this
     notebook serve", and the resource would have to choose — which is the
