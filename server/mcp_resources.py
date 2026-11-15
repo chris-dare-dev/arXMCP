@@ -6,7 +6,7 @@ surface — at ZERO BP1 cost, because resources are a SEPARATE JSON-RPC method f
 ``tools/list`` and never enter the frozen tool-schema / BP1 prompt-cache prefix
 (proven byte-identical by ``notebook-surface-expansion-spike-1``).
 
-Five resources are registered (see :func:`register_resources`):
+Six resources are registered (see :func:`register_resources`):
 
 - ``arxmcp://notebooks`` — a **concrete** index resource; ``resources/read``
   returns ``{count, notebooks: [{slug, display_name, uri}, …]}`` (enumeration).
@@ -14,6 +14,8 @@ Five resources are registered (see :func:`register_resources`):
   notebook's METADATA (NO chunk content, NO LanceDB query).
 - ``arxmcp://corpus-manifest`` — a **concrete** resource, generated on-read
   (source-truth-m3); the content-addressed corpus provenance manifest.
+- ``arxmcp://chunks/{chunk_id}`` — a **template**; one chunk in full, the
+  target of the tool handlers' ``resource_link`` blocks.
 - ``arxmcp://formal/{notebook}`` and ``arxmcp://formal/{notebook}/{key}`` —
   **templates** over the pinned formalization a notebook serves (contract-v1).
 
@@ -49,7 +51,13 @@ from typing import TYPE_CHECKING, Any
 
 from server import corpus_manifest
 from server.corpus import read_corpus_version
-from server.tools import ResourcesNotReadyError, get_resources, wrap_retrieved_text
+from server.handlers.chunk import read_chunk_in_full
+from server.tools import (
+    CHUNK_RESOURCE_URI_SCHEME,
+    ResourcesNotReadyError,
+    get_resources,
+    wrap_retrieved_text,
+)
 from tools._notebook_common import (
     NotebookError,
     notebook_dir,
@@ -71,6 +79,9 @@ NOTEBOOK_TEMPLATE_URI = "arxmcp://notebooks/{slug}"
 #: source-truth-m3: a THIRD concrete resource (not a template) — the
 #: content-addressed corpus provenance manifest, generated on-read.
 CORPUS_MANIFEST_URI = "arxmcp://corpus-manifest"
+#: One chunk, in full. The tool handlers emit links to it: one per
+#: search_papers result, and one for any get_chunk body over the byte cap.
+CHUNK_TEMPLATE_URI = f"{CHUNK_RESOURCE_URI_SCHEME}{{chunk_id}}"
 #: contract-v1 (derived-alg-geo-lean #175): the pinned formalization a notebook
 #: serves, and one record out of it. TEMPLATES on ``{notebook}``, which is what
 #: makes a SECOND topic repo cost zero arXMCP code.
@@ -622,6 +633,25 @@ def register_resources(mcp_server: FastMCP) -> None:
         return _wrap_json(payload, kind="manifest")
 
     @mcp_server.resource(
+        CHUNK_TEMPLATE_URI,
+        name="chunk",
+        description=(
+            "One chunk by chunk_id, with its whole body: the same object a "
+            "scalar get_chunk returns, without get_chunk's per-response byte "
+            "cap. This is what the resource_link blocks from search_papers "
+            "and an over-cap get_chunk point at. A well-formed id that is not "
+            "in the corpus returns found:false; a malformed one is an error."
+        ),
+        mime_type="text/plain",
+    )
+    async def _chunk(chunk_id: str) -> str:
+        # The body inside is already sanitized and delimiter-wrapped by the
+        # get_chunk builder, so the payload is serialized as is.
+        return json.dumps(
+            await read_chunk_in_full(chunk_id), sort_keys=True, ensure_ascii=False
+        )
+
+    @mcp_server.resource(
         FORMAL_INDEX_TEMPLATE_URI,
         name="formal",
         description=(
@@ -665,6 +695,7 @@ def register_resources(mcp_server: FastMCP) -> None:
 
 
 __all__ = [
+    "CHUNK_TEMPLATE_URI",
     "CORPUS_MANIFEST_URI",
     "FORMAL_INDEX_TEMPLATE_URI",
     "FORMAL_RECORD_TEMPLATE_URI",
