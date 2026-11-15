@@ -63,6 +63,7 @@ from ingest.ar5iv_fetch import (
     try_cache,
 )
 from ingest.chunker import STRUCTURE_SIGNAL_CLASSES, chunk_paper
+from ingest.derived_indexes import build_derived_indexes
 from ingest.embedder import embed_paper
 from ingest.identifiers import is_valid_arxiv_paper_id
 from ingest.store import (
@@ -440,6 +441,10 @@ def run_bulk_ingest(
             _log_parser_failure(outcome, failures_path)
         if n % progress_interval == 0 or n == len(work):
             _log_progress(log_path, summary, paper_id)
+
+    # The dataset is not ready to promote until it carries its indexes.
+    if summary.papers_succeeded:
+        build_derived_indexes(lancedb_staging_path)
 
     summary.elapsed_seconds = time.monotonic() - started
 

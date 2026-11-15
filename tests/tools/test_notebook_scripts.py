@@ -405,13 +405,6 @@ def test_ingest_creates_missing_dirs(
         marker.write_text(json.dumps({"version": 5}))
         return _FakeSummary()
     monkeypatch.setattr(notebook_ingest, "run_bulk_ingest", _fake_ingest)
-    monkeypatch.setattr(notebook_ingest, "build_bm25_index", lambda *a, **kw: None)
-    monkeypatch.setattr(
-        notebook_ingest, "index_definitions_for_corpus", lambda *a, **kw: (0, 0)
-    )
-    monkeypatch.setattr(
-        notebook_ingest, "build_theorem_names_index", lambda *a, **kw: {}
-    )
 
     rc = notebook_ingest.run("demo")
     assert rc == 0
@@ -659,124 +652,12 @@ def test_purge_aborts_cleanly_on_eof(
     assert nb.exists()  # NOT purged
 
 
-def test_ingest_builds_bm25_under_per_notebook_root(
-    notebooks_base: Path,
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """build_bm25_index writes into derived/bm25 inside the notebook's
-    dataset, where the server reads it and cutover moves it."""
-    nb = _seed_notebook(notebooks_base, "myslug", ["2303.07061"])
-
-    class _FakeSummary:
-        papers_total = 1
-        papers_succeeded = 1
-        papers_failed = 0
-        @property
-        def ar5iv_hit_rate(self): return 1.0
-
-    def _fake_ingest(paper_ids, **kw):
-        marker = nb / "lancedb" / "corpus-version.json"
-        marker.write_text(json.dumps({"version": 5}))
-        return _FakeSummary()
-
-    monkeypatch.setattr(notebook_ingest, "run_bulk_ingest", _fake_ingest)
-
-    captured_calls: list[dict] = []
-
-    def _capture_build(*args, **kwargs):
-        captured_calls.append({"args": args, "kwargs": kwargs})
-
-    monkeypatch.setattr(notebook_ingest, "build_bm25_index", _capture_build)
-    monkeypatch.setattr(
-        notebook_ingest, "index_definitions_for_corpus", lambda *a, **kw: (0, 0)
-    )
-    monkeypatch.setattr(
-        notebook_ingest, "build_theorem_names_index", lambda *a, **kw: {}
-    )
-
-    rc = notebook_ingest.run("myslug")
-    assert rc == 0
-    assert len(captured_calls) == 1
-    # index_root must be the per-notebook path, not the global root
-    call = captured_calls[0]
-    index_root = call["kwargs"].get("index_root")
-    assert index_root is not None, "index_root must be passed explicitly"
-    # F4: assert structurally on Path.parts (separator-agnostic — a str
-    # substring check with a hard-coded "/" fails on Windows).
-    index_root_parts = Path(index_root).parts
-    assert "myslug" in index_root_parts, (
-        f"index_root should be under the notebook dir; got {index_root}"
-    )
-    assert Path(index_root) == nb / "lancedb" / "derived" / "bm25", (
-        f"index_root should be <nb_dir>/lancedb/derived/bm25; got {index_root}"
-    )
-    # Confirm no .notebook_slug sentinel is written (FM-7: sentinel removed)
-    assert not (index_root / "v5" / ".notebook_slug").exists()
-
-
-def test_ingest_per_notebook_bm25_root_no_collision(
-    notebooks_base: Path,
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """notebook-bm25-isolation-m1: two notebooks at version 1 get
-    different index_root values — no collision by construction."""
-    nb_a = _seed_notebook(notebooks_base, "alpha", ["2303.07061"])
-    nb_b = _seed_notebook(notebooks_base, "beta", ["2303.07062"])
-
-    class _FakeSummary:
-        papers_total = 1
-        papers_succeeded = 1
-        papers_failed = 0
-        @property
-        def ar5iv_hit_rate(self): return 1.0
-
-    def _fake_ingest_alpha(paper_ids, lancedb_staging_path, **kw):
-        marker = nb_a / "lancedb" / "corpus-version.json"
-        marker.write_text(json.dumps({"version": 1}))
-        return _FakeSummary()
-
-    def _fake_ingest_beta(paper_ids, lancedb_staging_path, **kw):
-        marker = nb_b / "lancedb" / "corpus-version.json"
-        marker.write_text(json.dumps({"version": 1}))
-        return _FakeSummary()
-
-    roots_seen: list[str] = []
-
-    def _capture_root(*args, **kwargs):
-        roots_seen.append(str(kwargs.get("index_root", "")))
-
-    monkeypatch.setattr(notebook_ingest, "build_bm25_index", _capture_root)
-    monkeypatch.setattr(
-        notebook_ingest, "index_definitions_for_corpus", lambda *a, **kw: (0, 0)
-    )
-    monkeypatch.setattr(
-        notebook_ingest, "build_theorem_names_index", lambda *a, **kw: {}
-    )
-    monkeypatch.setattr(notebook_ingest, "run_bulk_ingest", _fake_ingest_alpha)
-    notebook_ingest.run("alpha")
-
-    monkeypatch.setattr(notebook_ingest, "run_bulk_ingest", _fake_ingest_beta)
-    notebook_ingest.run("beta")
-
-    assert len(roots_seen) == 2
-    assert roots_seen[0] != roots_seen[1], (
-        f"Two notebooks at version 1 produced the SAME index_root: "
-        f"{roots_seen[0]!r} — collision not prevented!"
-    )
-    assert "alpha" in roots_seen[0]
-    assert "beta" in roots_seen[1]
-
-
 def test_ingest_warns_about_stale_bm25_versions(
     notebooks_base: Path,
-    tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture,
 ) -> None:
-    """notebook-bm25-isolation-m1: when multiple v<N>/ dirs exist under
-    the per-notebook BM25 root after build, print a WARN message."""
+    """Older BM25 version directories left in the dataset draw a warning."""
     nb = _seed_notebook(notebooks_base, "demo", ["2303.07061"])
 
     class _FakeSummary:
@@ -787,53 +668,18 @@ def test_ingest_warns_about_stale_bm25_versions(
         def ar5iv_hit_rate(self): return 1.0
 
     def _fake_ingest(paper_ids, **kw):
-        marker = nb / "lancedb" / "corpus-version.json"
-        marker.write_text(json.dumps({"version": 7}))
+        (nb / "lancedb" / "corpus-version.json").write_text(json.dumps({"version": 7}))
+        for version in (1, 2, 7):
+            (nb / "lancedb" / "derived" / "bm25" / f"v{version}").mkdir(
+                parents=True, exist_ok=True
+            )
         return _FakeSummary()
 
     monkeypatch.setattr(notebook_ingest, "run_bulk_ingest", _fake_ingest)
 
-    # Pre-seed stale version dirs under the per-notebook BM25 root so the
-    # warning fires. We must capture the index_root to know where to seed.
-    actual_root_holder: list = []
-
-    def _fake_build(*args, **kwargs):
-        actual_root_holder.append(kwargs.get("index_root"))
-        # Mimic the indexer: create the v7 dir so glob finds it
-        root = kwargs.get("index_root")
-        if root is not None:
-            (root / "v7").mkdir(parents=True, exist_ok=True)
-
-    # First: a dry run just to find the notebook's index_root
-    monkeypatch.setattr(notebook_ingest, "build_bm25_index", _fake_build)
-    monkeypatch.setattr(
-        notebook_ingest, "index_definitions_for_corpus", lambda *a, **kw: (0, 0)
-    )
-    monkeypatch.setattr(
-        notebook_ingest, "build_theorem_names_index", lambda *a, **kw: {}
-    )
-    notebook_ingest.run("demo")
-    nb_bm25_root = actual_root_holder[0]
-    assert nb_bm25_root is not None
-
-    # Pre-seed older version dirs to trigger the multi-dir warning
-    (nb_bm25_root / "v1").mkdir(parents=True, exist_ok=True)
-    (nb_bm25_root / "v2").mkdir(parents=True, exist_ok=True)
-
-    # Second run: now 3 version dirs → triggers warning
-    actual_root_holder.clear()
-    monkeypatch.setattr(notebook_ingest, "build_bm25_index", _fake_build)
-    monkeypatch.setattr(
-        notebook_ingest, "index_definitions_for_corpus", lambda *a, **kw: (0, 0)
-    )
-    monkeypatch.setattr(
-        notebook_ingest, "build_theorem_names_index", lambda *a, **kw: {}
-    )
-    rc = notebook_ingest.run("demo")
-    assert rc == 0
+    assert notebook_ingest.run("demo") == 0
     err = capsys.readouterr().err
-    assert "WARN" in err
-    assert "BM25 version directories exist" in err
+    assert "3 BM25 version directories exist" in err
 
 
 # ---------------------------------------------------------------------------

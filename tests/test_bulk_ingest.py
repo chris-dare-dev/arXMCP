@@ -29,6 +29,17 @@ from ingest.bulk_ingest import (
     run_bulk_ingest,
 )
 
+
+@pytest.fixture(autouse=True)
+def derived_builds(monkeypatch) -> list:
+    """Record index builds: the outcomes here are mocks with no dataset."""
+    calls: list = []
+    monkeypatch.setattr(
+        "ingest.bulk_ingest.build_derived_indexes", lambda path: calls.append(path)
+    )
+    return calls
+
+
 # ---------------------------------------------------------------------------
 # _read_paper_ids
 # ---------------------------------------------------------------------------
@@ -164,6 +175,33 @@ class TestRunBulkIngest:
         assert summary.ar5iv_misses == 0
         assert summary.ar5iv_hit_rate == 1.0
         assert not failures.exists()  # no failures, no JSONL line
+
+    def test_builds_the_indexes_into_the_dataset_it_wrote(
+        self, tmp_path, derived_builds
+    ):
+        staging = tmp_path / "staging"
+        with patch(
+            "ingest.bulk_ingest.ingest_one_paper",
+            side_effect=[_fail_outcome("2401.00001"), _ok_outcome("2401.00002")],
+        ):
+            run_bulk_ingest(
+                ["2401.00001", "2401.00002"], lancedb_staging_path=staging,
+                failures_path=tmp_path / "f.jsonl", log_path=tmp_path / "log",
+                ops_dir=tmp_path,
+            )
+        assert derived_builds == [staging]
+
+    def test_builds_nothing_when_no_paper_landed(self, tmp_path, derived_builds):
+        with patch(
+            "ingest.bulk_ingest.ingest_one_paper",
+            side_effect=[_fail_outcome("2401.00001")],
+        ):
+            run_bulk_ingest(
+                ["2401.00001"], lancedb_staging_path=tmp_path / "staging",
+                failures_path=tmp_path / "f.jsonl", log_path=tmp_path / "log",
+                ops_dir=tmp_path,
+            )
+        assert derived_builds == []
 
     def test_writes_ingest_summary_sentinel(self, tmp_path):
         """corpus-integrity-observability-e3 F3: run_bulk_ingest writes the
