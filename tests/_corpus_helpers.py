@@ -149,20 +149,15 @@ def seed_corpus_multi_paper(
 
 
 def patch_bge_m3_model(monkeypatch) -> None:
-    """Mock the BGE-M3 load in BOTH the query_encoder module and the
-    resources module.
+    """Mock the BGE-M3 load, for any test that runs ``Resources.startup``.
 
-    Load-bearing per the notebook-retrieval-m2 lesson: ``resources.py``
-    binds ``_get_model`` and ``_get_tokenizer`` by name via
-    ``from server.query_encoder import _get_model``, so patching only
-    ``query_encoder`` is INSUFFICIENT for any test that exercises
-    ``Resources.startup``. The patch must target both modules.
+    ``Resources.startup`` reaches the loaders through
+    ``server.query_encoder``'s module attributes, so patching them there
+    covers both the startup warm-up and request-time encoding.
     """
     import server.query_encoder as qe_mod  # noqa: PLC0415
-    import server.resources as res_mod  # noqa: PLC0415
 
     fake_model = object()
     fake_tokenizer = object()
-    for mod in (qe_mod, res_mod):
-        monkeypatch.setattr(mod, "_get_model", lambda: fake_model)
-        monkeypatch.setattr(mod, "_get_tokenizer", lambda: fake_tokenizer)
+    monkeypatch.setattr(qe_mod, "_get_model", lambda: fake_model)
+    monkeypatch.setattr(qe_mod, "_get_tokenizer", lambda: fake_tokenizer)

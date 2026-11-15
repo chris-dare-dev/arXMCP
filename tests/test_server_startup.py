@@ -150,6 +150,26 @@ def warm_app(seeded_lancedb, mocked_bge_m3):
         yield client
 
 
+class TestModelWarmupIsPatchable:
+    def test_startup_warms_through_the_query_encoder_loaders(
+        self, seeded_lancedb, monkeypatch
+    ):
+        """Startup must reach BGE-M3 through ``server.query_encoder``'s
+        module attributes, so a test that patches them keeps the model
+        out. A name bound at import would load the real model instead, and
+        every mocked test would still pass wherever the model is cached."""
+        import server.query_encoder as qe_mod
+
+        calls: list[str] = []
+        monkeypatch.setattr(qe_mod, "_get_tokenizer", lambda: calls.append("tokenizer"))
+        monkeypatch.setattr(qe_mod, "_get_model", lambda: calls.append("model"))
+
+        with TestClient(create_app(Config(lancedb_path=seeded_lancedb))):
+            pass
+
+        assert calls == ["tokenizer", "model"]
+
+
 # ===========================================================================
 # AC: GET /healthz returns 200 before readiness
 # ===========================================================================
@@ -660,7 +680,7 @@ class TestNotebookConfig:
         )
 
     def test_resources_startup_boots_notebook_corpus(
-        self, notebooks_base, mocked_bge_m3, monkeypatch
+        self, notebooks_base, mocked_bge_m3
     ):
         """F2 rectification: prove Resources.startup actually BOOTS against
         the notebook-derived lancedb path — not merely that the path
@@ -670,17 +690,6 @@ class TestNotebookConfig:
         pinned and the notebook's table opened. If routing were broken
         (read the empty shared default), startup would raise
         CorpusNotIngestedError and /readyz would be 503."""
-        # resources.py imports _get_model/_get_tokenizer as direct module
-        # names (resources.py:77-79), so the mocked_bge_m3 fixture (which
-        # patches server.query_encoder for the request-time encode path)
-        # does NOT intercept the STARTUP warmup at resources.py:357-358.
-        # Patch the resources-level names too so this boot test is
-        # hermetic — no real BGE-M3 download, no HF Hub network dependency.
-        import server.resources as res_mod
-
-        monkeypatch.setattr(res_mod, "_get_model", lambda: object())
-        monkeypatch.setattr(res_mod, "_get_tokenizer", lambda: object())
-
         nb_lancedb = notebooks_base / "demo-nb" / "lancedb"
         nb_version = _seed_corpus(nb_lancedb)
         cfg = Config(notebook="demo-nb")
