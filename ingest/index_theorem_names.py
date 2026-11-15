@@ -184,24 +184,43 @@ async def index_theorem_names_all_papers(
 
 
 def default_db_path(lancedb_path: str | Path) -> Path:
-    """Return the canonical on-disk path for the theorem-names DB.
+    """Where the theorem-name index of the dataset at ``lancedb_path`` lives:
+    inside the dataset, so cutover and rollback move it with the chunks it
+    indexes. The server derives the same path."""
+    from server.application_paths import derived_index_path
 
-    Sibling-of-sibling to the LanceDB dataset root:
-    ``var/arxmcp/index/sqlite/theorem_names.db``. This keeps the
-    project's ``var/`` tree organized — LanceDB indices live under
-    ``index/lancedb/``, SQLite indices under ``index/sqlite/``.
+    return derived_index_path(Path(lancedb_path).resolve(), "theorem_names.db")
+
+
+
+def build_theorem_names_index(
+    lancedb_path: str | Path, db_path: str | Path | None = None,
+) -> dict[str, int]:
+    """Rebuild the theorem-name index of the dataset at ``lancedb_path``.
+
+    Writes to ``db_path``, by default :func:`default_db_path`, migrating an
+    out-of-date file, which only an offline caller may do. Returns
+    ``{paper_id: rows_written}``.
     """
-    return (
-        Path(lancedb_path).resolve().parent / "sqlite" / "theorem_names.db"
-    )
+    import asyncio
 
+    import lancedb
+
+    target = Path(db_path) if db_path is not None else default_db_path(lancedb_path)
+    chunks = lancedb.connect(str(lancedb_path)).open_table("chunks")
+
+    async def run() -> dict[str, int]:
+        store = await TheoremNamesStore.open(target)
+        try:
+            return await index_theorem_names_all_papers(chunks, store)
+        finally:
+            await store.close()
+
+    return asyncio.run(run())
 
 
 def _cli(argv: list[str]) -> int:
     import argparse
-    import asyncio
-
-    import lancedb
 
     from ingest.store import DEFAULT_LANCEDB_PATH
 
@@ -215,21 +234,12 @@ def _cli(argv: list[str]) -> int:
     )
     parser.add_argument(
         "--db-path", default=None,
-        help="SQLite index to write (default: sqlite/theorem_names.db "
-        "beside the LanceDB root, where the server reads it)",
+        help="SQLite index to write (default: derived/theorem_names.db "
+        "inside the LanceDB dataset, where the server reads it)",
     )
     args = parser.parse_args(argv)
     db_path = Path(args.db_path) if args.db_path else default_db_path(args.lancedb_path)
-    chunks = lancedb.connect(args.lancedb_path).open_table("chunks")
-
-    async def run() -> dict[str, int]:
-        store = await TheoremNamesStore.open(db_path)
-        try:
-            return await index_theorem_names_all_papers(chunks, store)
-        finally:
-            await store.close()
-
-    counts = asyncio.run(run())
+    counts = build_theorem_names_index(args.lancedb_path, db_path)
     print(
         f"indexed {sum(counts.values())} theorem name(s) across "
         f"{len(counts)} paper(s) into {db_path}"
@@ -243,6 +253,7 @@ if __name__ == "__main__":  # pragma: no cover
     sys.exit(_cli(sys.argv[1:]))
 
 __all__ = [
+    "build_theorem_names_index",
     "DEFAULT_CONFIDENCE",
     "build_rows_from_chunks_for_paper",
     "default_db_path",

@@ -25,7 +25,7 @@ _LAYOUT = (
     ("corpus", "corpus"), ("index", "index"),
     ("lancedb", "index/lancedb"), ("kuzu", "index/kuzu"),
     ("bm25", "index/bm25"), ("sqlite", "index/sqlite"),
-    ("theorem_names_db", "index/sqlite/theorem_names.db"),
+    ("theorem_names_db", "index/lancedb/derived/theorem_names.db"),
     ("notebooks", "notebooks"), ("cache", "cache"),
     ("retrieval_cache_db", "cache/retrieval.db"),
     ("notebooks_db", "cache/notebooks.db"), ("ops", "ops"),
@@ -36,6 +36,18 @@ _STARTUP_CWD = Path.cwd().resolve()
 
 class ApplicationPathError(ValueError):
     """A configured application path is invalid or escapes its root."""
+
+
+#: Indexes derived from a LanceDB dataset live in this subdirectory of it,
+#: so that renaming the dataset (cutover, rollback) moves them too, and
+#: each notebook's dataset carries its own. LanceDB ignores entries in its
+#: root that are not tables.
+DERIVED_INDEX_DIR = "derived"
+
+
+def derived_index_path(lancedb_path: str | Path, name: str) -> Path:
+    """Where the derived index ``name`` of the dataset at ``lancedb_path`` lives."""
+    return Path(lancedb_path) / DERIVED_INDEX_DIR / name
 
 
 def legacy_source_path(name: str) -> Path:
@@ -175,6 +187,11 @@ class ApplicationPaths:
                 values[field] = resolved
             else:
                 values[field] = _inside(canonical_root, path, field)
+        if not supplied.get(alias_by_field["theorem_names_db"]):
+            # Follows the dataset, including a dataset moved by its own alias.
+            values["theorem_names_db"] = derived_index_path(
+                values["lancedb"], "theorem_names.db"
+            )
         return cls(
             selected,
             canonical_root,

@@ -64,7 +64,7 @@ def test_theorem_names_command_builds_the_index_the_server_reads(tmp_path):
 
     assert result.returncode == 0, result.stderr
     assert "across 2 paper(s)" in result.stdout
-    db = tmp_path / "index" / "sqlite" / "theorem_names.db"
+    db = lancedb_path / "derived" / "theorem_names.db"
     conn = sqlite3.connect(str(db))
     try:
         names = {r[0] for r in conn.execute("SELECT display_name FROM theorem_names")}

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 from types import SimpleNamespace
 
 import lancedb
@@ -22,6 +23,7 @@ def _chunk(paper_id: str) -> dict:
         chunk_id=f"{paper_id}#c0", paper_id=paper_id, kind="theorem",
         section_path=["1"], body_text="Let X be a scheme.",
         body_tokens="let x be a scheme", chunker_version="v",
+        theorem_name=f"Lemma of {paper_id}",
         embedder_version="v",
     )
     return row
@@ -71,3 +73,22 @@ def test_ingest_builds_the_definitions_table(tmp_path, monkeypatch):
     )
     assert sorted(definitions.column("paper_id").to_pylist()) == sorted(PAPERS)
     assert set(definitions.column("symbol").to_pylist()) == {r"\RR"}
+
+
+def test_ingest_builds_the_theorem_name_index(tmp_path, monkeypatch):
+    base = tmp_path / "notebooks"
+    nb_dir = base / "demo-nb"
+    nb_dir.mkdir(parents=True)
+    (nb_dir / "papers.txt").write_text("\n".join(PAPERS) + "\n", encoding="utf-8")
+    monkeypatch.setattr(_notebook_common, "NOTEBOOKS_BASE", base)
+    monkeypatch.setattr("ingest.preamble.PREAMBLE_DIR", tmp_path / "preamble")
+    monkeypatch.setattr(notebook_ingest, "run_bulk_ingest", _fake_bulk_ingest)
+
+    assert notebook_ingest.run("demo-nb") == 0
+
+    conn = sqlite3.connect(str(nb_dir / "lancedb" / "derived" / "theorem_names.db"))
+    try:
+        names = {r[0] for r in conn.execute("SELECT display_name FROM theorem_names")}
+    finally:
+        conn.close()
+    assert names == {f"Lemma of {pid}" for pid in PAPERS}
