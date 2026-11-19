@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import errno
 import os
 import sys
 import tempfile
@@ -32,6 +33,7 @@ _LAYOUT = (
     ("logs", "logs"), ("backups", "backups"), ("tmp", "tmp"),
 )
 _STARTUP_CWD = Path.cwd().resolve()
+_WINERROR_CANT_RESOLVE_FILENAME = 1921
 
 
 class ApplicationPathError(ValueError):
@@ -61,11 +63,29 @@ def legacy_source_path(name: str) -> Path:
         raise ApplicationPathError(f"unknown application path: {name}") from exc
 
 
+def _is_symlink_loop(exc: OSError) -> bool:
+    return (
+        exc.errno == errno.ELOOP
+        or getattr(exc, "winerror", 0) == _WINERROR_CANT_RESOLVE_FILENAME
+    )
+
+
 def _canonical(path: Path, label: str) -> Path:
     try:
-        return path.resolve(strict=False)
+        resolved = path.resolve(strict=False)
     except (OSError, RuntimeError) as exc:
         raise ApplicationPathError(f"{label} cannot be resolved: {path}") from exc
+    try:
+        # From Python 3.13 non-strict resolution returns a symlink loop
+        # unresolved instead of raising, so probe for one. Other stat
+        # failures are left to whoever later creates or opens the path.
+        resolved.stat()
+    except OSError as exc:
+        if _is_symlink_loop(exc):
+            raise ApplicationPathError(
+                f"{label} cannot be resolved: {path}"
+            ) from exc
+    return resolved
 
 
 def _inside(root: Path, path: Path, label: str) -> Path:
