@@ -16,7 +16,7 @@ combination of:
 ``final_score = α * (1 - normalized_ted) + (1 - α) * cosine_score``
 where ``α = config.eq_ted_weight`` (default 0.5).
 
-**v1 scope reminder** (research-synthesis.md §1 + §3):
+**v1 scope reminder:**
 - The handler delegates to this index only for **MathML inputs**;
   LaTeX inputs fall through to the legacy ``dense_only_stmt_fallback``
   path because there is no query-time LaTeXML subprocess pool yet.
@@ -409,8 +409,7 @@ class EquationHit:
 
     Wire shape matches the existing find_equation envelope: the
     handler maps these to a sorted result list with score-desc /
-    chunk_id-asc tie-breaks per the determinism contract from
-    ``06-mcp-server-design.md``.
+    chunk_id-asc tie-breaks per the determinism contract.
     """
 
     equation_id: str

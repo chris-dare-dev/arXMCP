@@ -13,7 +13,7 @@
 {# ui-uplift-m12 (UPL-1) — corpus before machinery. Three re-decisions, each
    recorded because each overturns something an earlier milestone pinned.
 
-   1. ORDER. The authored anatomy (art-direction-scout-brief.md:372): ruled
+   1. ORDER. The authored anatomy: ruled
       masthead -> papers ledger -> ONE <details> "Manage this notebook"
       carrying the five mutation forms (Topic, Discover, Add-by-URL, Upload,
       Ingest, in that order). Seven top-level blocks become THREE REGIONS —
@@ -59,8 +59,7 @@
      ui-attractive-polish-m1 (UPL-3): aria-live="polite" so screen-readers
      announce the renamed value after the outerHTML swap. CRITICAL: the swap
      REPLACES this element, so _display_name_fragment in server/routes/
-     notebooks.py MUST also emit the attribute on its returned <p> — see
-     research-synthesis.md §2. #}
+     notebooks.py MUST also emit the attribute on its returned <p>. #}
   <p class="display-name" id="display-name-block" aria-live="polite">{{ notebook.display_name or "—" }}</p>
   {# Rename form sits OUTSIDE #display-name-block so it survives the outerHTML
      swap. The base.html JSON-shim serializes the PATCH body to JSON
@@ -178,7 +177,7 @@
     {# ui-uplift-m12 (UPL-1): was "No papers yet. Add one above." — false the
        moment the Add-by-URL form moved below this table, and a first-run page
        whose only instruction points the wrong way at a collapsed region is
-       the harm challenge.md:98-104 named. ui-uplift-m11 (UPL-21) owns
+       a real harm. ui-uplift-m11 (UPL-21) owns
        empty-state copy and depends_on m12, so it revisits the voice; this
        fixes the FACT now. The disclosure's own label is quoted so the
        instruction names the affordance the operator will actually see. #}
@@ -254,13 +253,8 @@
 {# ui-uplift-m12 (UPL-1): the Manage disclosure — region 3 of 3.
 
    LABEL + STATE CUE (AC#3) are both AUTHORED strings, not invented copy:
-   "Manage this notebook" (art-direction-scout-brief.md:429-431) and the cue
-   form "Manage this notebook — ingest running" (challenge.md:115-116).
-   Both cites CORRECTED 2026-08-05 (m12 L1): the cue was cited at
-   challenge.md:107, which is an Axis-11 sentence about shipping-history
-   ordering, and the label's span ended one line short of where the phrase
-   wraps. Every other discovery cite in this milestone verifies exactly,
-   which is what made the one wrong cite likely to be trusted. BAN-10
+   "Manage this notebook" and the cue form "Manage this notebook — ingest
+   running". BAN-10
    scores 0 on this page and the discovery calls that a strength to protect —
    "Quick Actions" / "Controls" / "Tools" are the shapes it replaces. The cue
    is PLAIN TEXT, not a fourth status pill (BAN-7) and not a heading: browsers
@@ -318,8 +312,8 @@
    `interpolate-size`/`calc-size()` are Chromium-only. The refusal stands on
    Newly-not-Widely (Widely 2028-03-16), the basis m6 used for light-dark(),
    m7 for text-wrap: balance and m10 for line-clamp. Seven live discovery
-   lines still assign [MOT-15 accordion-expand] to UPL-1; challenge.md and
-   final-report.md killed it, and those two are the record.
+   lines still assign [MOT-15 accordion-expand] to UPL-1; later review
+   dropped it.
 
    No `name` attribute: a shared name opts disclosures into exclusive-
    accordion grouping and makes them close each other. #}
@@ -359,7 +353,7 @@
      too; empty values show "—". Do NOT add `| safe`. aria-live="polite"
      so screen-readers announce the updated topic after the outerHTML swap;
      the swap REPLACES this element, so _topic_fragment MUST also emit the
-     attribute on its returned <div> (research-synthesis.md §3). #}
+     attribute on its returned <div>. #}
   <div class="topic-block" id="topic-block" aria-live="polite">
     <p class="topic-category">Discovery category: <code>{{ notebook.discovery_category or "—" }}</code></p>
     <p class="topic-description">{{ notebook.description or "—" }}</p>

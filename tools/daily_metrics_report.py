@@ -424,7 +424,7 @@ def render_report(
     # --- Ingestion throughput (corpus-integrity-observability-e3) --------
     # Gauges rehydrated from var/arxmcp/ops/ingest-summary.json at scrape
     # time (see server/health.py refresh_sentinel_metrics). ``driver`` is
-    # NOT a Prometheus label (spike-3 decision.md Decision 2); read it
+    # NOT a Prometheus label; read it
     # from the sentinel file directly.
     ingest_papers = _sentinel_gauge(fams, "arxmcp_ingest_last_run_papers")
     ingest_chunks = _sentinel_gauge(fams, "arxmcp_ingest_last_run_chunks")
@@ -544,8 +544,8 @@ def _ingest_summary_driver(ops_dir: pathlib.Path) -> str | None:
     """Return the ``driver`` field from ``ingest-summary.json``, or
     ``None`` when the sentinel is absent, oversized, or malformed.
 
-    ``driver`` is carried as a JSON field (NOT a Prometheus label —
-    see spike-3 decision.md Decision 2). Reads the sentinel directly
+    ``driver`` is carried as a JSON field, NOT a Prometheus label.
+    Reads the sentinel directly
     rather than via Prometheus so the report can surface the driver name
     without adding a label to the gauges.
     """

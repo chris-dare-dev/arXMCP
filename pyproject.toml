@@ -125,7 +125,7 @@ dependencies = [
     #   operator has already downloaded ~2 GB. Bumping the cap is a
     #   deliberate act with an eval re-run, not a resolver's choice.
     "torch>=2.0,<3",
-    # safetensors: Threat 6 (08-security-observability-ops.md) requires the
+    # safetensors: Threat 6 requires the
     #   safetensors weight format and refuses ``.bin`` / pickle files. The
     #   ``transformers`` model loader picks safetensors automatically when
     #   this dependency is installed and the repo ships safetensors files.

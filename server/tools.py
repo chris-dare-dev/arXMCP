@@ -35,8 +35,7 @@ buffering). So tools enforce the 256 KB cap themselves via
 :func:`enforce_byte_cap`. Synthesis D9.
 
 **Sort order.** Every list-returning tool sorts its results by
-``(score_desc, chunk_id_asc)`` per the determinism contract
-(``06-mcp-server-design.md`` lines 270-290) and synthesis D10.
+``(score_desc, chunk_id_asc)`` per the determinism contract.
 """
 
 from __future__ import annotations
@@ -227,10 +226,10 @@ logger = logging.getLogger(__name__)
 #: search_papers_result.json both bump 21 -> 22 in lockstep.
 #: 22 -> 23 (verification-contract-m1): honest-vocabulary rename only, no
 #: behaviour change. lean_verify's status enum member "ok" becomes
-#: "elaborated_no_errors" (trust-language-policy.md §2's named fix -
-#: "ok" collapsed elaboration-clean with "trustworthy", which a bare
-#: ``axiom h : False`` passed). compilation_success / axiom_audit /
-#: continuation_status are unchanged fields, still independently derived.
+#: "elaborated_no_errors" ("ok" collapsed elaboration-clean with
+#: "trustworthy", which a bare ``axiom h : False`` passed).
+#: compilation_success / axiom_audit / continuation_status are unchanged
+#: fields, still independently derived.
 #: LEAN_VERIFY.description's two "ok" mentions are edited below, so this
 #: window is BP1-affecting: EXPECTED_TOOL_SCHEMA_SHA256 re-pins via
 #: ``pytest --update-tool-schema-hash`` and EXPECTED_BP1_SHA256 re-pins BY
@@ -1109,8 +1108,8 @@ def _wrap_with_observability(tool_name: str, handler: Any) -> Any:
                             RESULT_BYTES.labels(tool=tool_name).observe(size)
                     except Exception:
                         # Metric recording must never crash the request path
-                        # (08-security-observability-ops.md: "metrics are
-                        # operational telemetry, not load-bearing"). F5
+                        # (metrics are operational telemetry, not
+                        # load-bearing). F5
                         # rectification from E14_S01: log at WARNING so a
                         # handler returning non-JSON-serializable
                         # ``structuredContent`` produces a positive signal

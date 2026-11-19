@@ -20,7 +20,6 @@ class CitationNeighbor:
     ``chunk_id=None``" — those are inconsistent. This dataclass
     follows the AC: ``chunk_id`` is ``str | None`` and downstream
     callers must check before passing the value to ``get_chunk``.
-    See ``research-synthesis.md`` § 4 for the rationale.
 
     Fields:
         chunk_id: representative ``chunk_id`` for this paper — the

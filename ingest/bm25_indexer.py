@@ -55,7 +55,7 @@ same filesystem (the tmp file is co-located with the destination).
 LanceDB data by this module. ``pickle.load`` on an untrusted file is
 remote-code-execution; the path
 the BM25 root MUST be treated as trusted-local. Threat 6
-(``08-security-observability-ops.md``) covers model-weight pickles
+covers model-weight pickles
 (deny); the BM25 pickle is application data with the analogous-
 narrower attack surface (trust local, deny remote).
 
@@ -275,8 +275,7 @@ def build_bm25_index(
 
     .. warning::
 
-       Path-traversal validation (Threat 1 from
-       ``08-security-observability-ops.md``) is **deferred to E06's
+       Path-traversal validation (Threat 1) is **left to the
        tool-input boundary** (TODO(E06)). This function trusts
        ``lancedb_path`` as config-derived. Callers passing
        user-supplied paths MUST validate against an allowlisted
@@ -418,8 +417,7 @@ def build_bm25_index(
             "cannot build BM25 index (cannot fit BM25Okapi on empty corpus)"
         )
 
-    # Fit the BM25 index. Defaults k1=1.5, b=0.75 per
-    # ``05-storage-and-indexing.md``.
+    # Fit the BM25 index. Defaults k1=1.5, b=0.75.
     bm25 = BM25Okapi(corpus)
 
     # Atomic writes. Order: chunk_ids.json first (cheap text), then

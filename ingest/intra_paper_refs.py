@@ -5,7 +5,7 @@ Static-analysis pass that adds ``cites`` edges with
 HTML contains intra-paper ``\\ref{label}`` references resolved to
 ``theorem_label`` chunks in the same paper.
 
-The brief (`E09-citation-graph.md` § E09_S03):
+The requirement:
 
 > The milestone also includes a one-time pass at ingest time that
 > reads each chunk's ``theorem_label`` and scans the paper's LaTeXML
@@ -46,7 +46,7 @@ Confidence: 1.0. ``\\ref{}`` is curated content (the author wrote both
 the ``\\label{}`` and the ``\\ref{}``); the static-analysis label
 applies to the EXTRACTION pipeline, not to the EVIDENCE itself. A
 lower value would be appropriate if we were extracting refs from raw
-prose via NLP. See ``research-synthesis.md`` § 8 for the rationale.
+prose via NLP.
 
 Idempotency: ``MERGE`` upserts on edges + atomic checkpoint
 (``var/arxmcp/ops/intra-paper-refs-checkpoint.json``) make re-runs
@@ -156,7 +156,7 @@ def _extract_intrapaper_labels(html_text: str) -> set[str]:
 def _read_parsed_html(parsed_dir: Path, paper_id: str) -> str | None:
     """Return the parsed HTML for one paper; None if missing.
 
-    Per Threat 7 (``08-security-observability-ops.md``) we cap the
+    Per Threat 7 we cap the
     file size to ``MAX_HTML_BYTES`` rather than blindly reading
     untrusted bytes into memory.
     """

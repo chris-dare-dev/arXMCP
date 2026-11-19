@@ -7,10 +7,9 @@ chunker (E02_S01) reads this back to populate ``ChunkRecord.preamble_ref``
 with the preamble's content hash so the embedder (E03_S01) can reproduce
 ``preamble_text + "\\n\\n" + body_text`` exactly across runs.
 
-**Anthropic contextual retrieval is rejected — preamble is deterministic;
-see ``04-parsing-and-chunking.md`` § Preamble extraction.** The notes
-explicitly call out determinism as load-bearing for BP1 byte-identical
-caching across multi-agent fan-out (``08-security-observability-ops.md``);
+**Anthropic contextual retrieval is rejected — preamble is
+deterministic.** Determinism is load-bearing for BP1 byte-identical
+caching across multi-agent fan-out;
 LLM-generated chunk context would produce different bytes per run, would
 incur per-chunk API cost, and would introduce a circular Anthropic-API
 dependency in the ingestion path. Macro-definition extraction gives the

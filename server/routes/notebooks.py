@@ -324,7 +324,7 @@ async def list_notebooks(
     Scoped to the LIST deliberately. ``create_notebook``'s JSON branch still
     returns the field, because that one carries a documented
     backwards-compatibility commitment to scripted callers
-    (``06-mcp-server-design.md``'s lancedb_path info-leak note); a caller that
+    (it leaks a host path); a caller that
     needs the path knows the slug and can derive or request it. Removing it
     from a bulk listing costs nobody anything.
     """
@@ -370,7 +370,6 @@ async def create_notebook(
     html.escape()s every interpolated value); the ``HX-Request``
     header is a client hint NOT a trust boundary. The HTML branch
     deliberately omits the host-path-leak ``lancedb_path`` field
-    (per ``06-mcp-server-design.md`` note on lancedb_path info-leak)
     — the JSON branch preserves it for backwards compatibility with
     scripted callers.
     """
@@ -475,9 +474,8 @@ async def create_notebook(
     # ui-attractive-polish-m5 (UPL-12 v1): content-negotiation.
     # Starlette normalizes header names to lowercase, so "hx-request"
     # is the canonical key (matches the m4 add_paper precedent).
-    # The HTML fragment omits ``lancedb_path`` (host-path leak per
-    # 06-mcp-server-design.md); the JSON branch preserves it for
-    # scripted callers.
+    # The HTML fragment omits ``lancedb_path`` (host-path leak); the JSON
+    # branch preserves it for scripted callers.
     if request.headers.get("hx-request") == "true":
         return HTMLResponse(
             status_code=status.HTTP_201_CREATED,
@@ -585,7 +583,7 @@ def _display_name_fragment(display_name: str) -> str:
     # outerHTML-swap fragment, not just the initial template render in
     # notebook_detail.html. htmx replaces the <p> entirely on rename success;
     # the new element must carry aria-live or screen readers stop announcing
-    # rename-result changes after the first swap (research-synthesis.md §2).
+    # rename-result changes after the first swap.
     shown = html.escape(display_name) if display_name else "—"
     return (
         f'<p class="display-name" id="display-name-block" aria-live="polite">'
@@ -2208,8 +2206,7 @@ def _notebook_row_html(
       restores the standard Remove affordance via the rendered
       template.
     - ``lancedb_path`` is deliberately NOT interpolated (host-path
-      leak per ``06-mcp-server-design.md`` note on lancedb_path
-      info-leak). The JSON branch in ``create_notebook`` keeps
+      leak). The JSON branch in ``create_notebook`` keeps
       returning it for scripted callers.
     - The 4-column schema matches the rendered ``index.html`` body:
       Slug / Display name / Created / Actions.

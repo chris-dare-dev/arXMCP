@@ -1,6 +1,6 @@
 # arXMCP server Service (k3s-rancher-deploy-m1).
 #
-# NodePort — NOT a Traefik Ingress. Rationale (research-synthesis.md §3): the
+# NodePort — NOT a Traefik Ingress. Rationale: the
 # k3s Traefik LoadBalancer binds the WSL2 node's LAN IP and listens on port 80,
 # which (a) is LAN-reachable — a loopback-only threat-model regression — and
 # (b) mismatches the shim's :7733 target. A NodePort is forwarded by Rancher

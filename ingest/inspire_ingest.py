@@ -239,7 +239,7 @@ def _fetch_inspire_record(
 
     Validates ``arxiv_id`` against the new- and old-style arXiv
     regexes BEFORE issuing any network I/O — defense-in-depth for
-    Threat 1 (``08-security-observability-ops.md``) so a future direct
+    Threat 1 so a future direct
     caller bypassing ``enrich()`` can't smuggle malicious input to
     ``urllib.parse.quote``. F5 fix from the E09_S02 critique.
 

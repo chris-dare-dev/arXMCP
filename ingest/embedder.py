@@ -18,14 +18,14 @@ manifests when building the LanceDB rows.
 → ``embedding_stmt``. The third column ``embedding_eq`` is reserved for
 E10_S03 and is always NULL — the embedder never populates it.
 
-**Threat 6 (08-security-observability-ops.md).** The model is loaded
+**Threat 6.** The model is loaded
 with ``revision=BGE_M3_COMMIT_SHA`` and ``trust_remote_code=False``;
 weights are pulled in safetensors format (enforced via the
 ``safetensors>=0.4`` dependency). Loading from a floating tag like
 ``"BAAI/bge-m3"`` without a SHA is forbidden — silent model substitution
 between runs would invalidate cached embeddings without a version bump.
 
-**BP1 (07-multi-agent-caching.md).** The embedder applies
+**BP1.** The embedder applies
 ``unicodedata.normalize("NFC", ...)`` to the combined embedding input
 and calls ``model.eval()`` to disable XLM-RoBERTa dropout, ensuring
 byte-stable vectors across runs.
@@ -115,14 +115,14 @@ logging.getLogger("transformers.tokenization_utils_base").setLevel(
 
 
 # ---------------------------------------------------------------------------
-# Pinned model identity (Threat 6, 08-security-observability-ops.md)
+# Pinned model identity (Threat 6)
 # ---------------------------------------------------------------------------
 
 # Single source of truth for the BGE-M3 commit SHA. Bumping this constant
 # invalidates every cached embedding under ``var/arxmcp/corpus/embeddings``
 # and signals E04_S02's MVCC writer to re-encode. The value must match the
-# project's security manifest entry for ``BAAI/bge-m3`` (Threat 6 mitigation
-# in 08-security-observability-ops.md). Refresh procedure:
+# project's security manifest entry for ``BAAI/bge-m3`` (Threat 6
+# mitigation). Refresh procedure:
 #   curl -s https://huggingface.co/api/models/BAAI/bge-m3 \
 #     | python -c "import sys,json;print(json.load(sys.stdin)['sha'])"
 # Verified 2026-05-07; HEAD of `BAAI/bge-m3` `main` (commit message:
@@ -494,7 +494,7 @@ def _write_embeddings_npz(
     (closes F5 from the E03_S01 critique — ``np.savez`` writes archive
     members in kwargs insertion order, so file bytes are deterministic
     only if the kwargs order is fixed; alphabetical matches the
-    BP1-byte-stability discipline in 07-multi-agent-caching.md):
+    BP1-byte-stability discipline):
 
     - ``chunk_ids_proof``: 1-D string array, len N_proof
     - ``chunk_ids_stmt``: 1-D string array, len N_stmt
@@ -1129,8 +1129,7 @@ def embed_corpus(
 
     The ``lancedb_path`` parameter from the milestone-brief signature is
     accepted for forward-compat with E04_S01 but is currently unused: the
-    embedder writes NPZ files, not LanceDB rows. See
-    ``research-synthesis.md`` § D1.
+    embedder writes NPZ files, not LanceDB rows.
     """
     if lancedb_path is not None:
         # Forward-compat hook for E04_S01. Logged at DEBUG so callers don't

@@ -23,7 +23,7 @@ controls GIL release. PyTorch's GIL release is documented in the C++
 Extension docs (`torch.utils.cpp_extension`) and is implemented via
 ``pybind11::gil_scoped_release`` inside ATen operators.
 
-**Eviction model (D8 of research-synthesis.md).** The dedup is
+**Eviction model.** The dedup is
 *completion-based*: 100ms after the encode completes successfully, the
 dict entry is evicted via ``loop.call_later``. While the encode is in
 flight, ANY concurrent caller shares the future regardless of how long
@@ -34,14 +34,14 @@ does not inherit a stale exception (D10).
 cancellable — the executor thread continues running even if the calling
 task is cancelled. Other waiters still receive the result.
 
-**BP1 byte-stability (07-multi-agent-caching.md).** The encoded vector
+**BP1 byte-stability.** The encoded vector
 is byte-stable across runs because ``model.eval()`` disables XLM-RoBERTa
 dropout and the encode chain (CLS pool + explicit ``F.normalize`` +
 ``np.float32``) matches ``ingest.embedder._encode_batch`` exactly. Query
 text is canonicalized as ``unicodedata.normalize("NFC", query.strip())``
-matching the Tier-1 cache rule from 07-multi-agent-caching.md.
+matching the Tier-1 cache rule.
 
-**Threat 6 (08-security-observability-ops.md).** :data:`BGE_M3_COMMIT_SHA`
+**Threat 6.** :data:`BGE_M3_COMMIT_SHA`
 is imported from :mod:`ingest.embedder` — never redefined here. A
 regression test
 (``tests/test_query_encoder.py::TestSingleSourceOfTruth``) scans both
@@ -69,7 +69,7 @@ import numpy as np
 # ``ingest.embedder._get_model``'s lockless check-then-set can race —
 # producing a transient ~2.3 GB extra memory blip and orphaning one
 # instance. Production splits ingestion and serving into separate Docker
-# containers per ``08-security-observability-ops.md`` so the race cannot
+# containers, so the race cannot
 # fire there. In a single-process developer harness, the operator MUST
 # warm the model BEFORE concurrency starts (call ``embed_paper`` once,
 # or ``await encode_query("warmup")`` once, before fanning out). A
@@ -162,8 +162,8 @@ def shutdown_executor(*, wait: bool = True, cancel_futures: bool = False) -> Non
 # the future's resolved value (closes F10).
 _inflight: dict[str, asyncio.Future[np.ndarray]] = {}
 
-# Observability hook for the future ``arxmcp_embed_singleflight_dedup_total``
-# counter described in 06-mcp-server-design.md. Until a Prometheus client
+# Observability hook for a future ``arxmcp_embed_singleflight_dedup_total``
+# counter. Until a Prometheus client
 # is wired in (deferred milestone), this module-level integer is the
 # observable signal that singleflight coalesced a call.
 #
@@ -208,8 +208,7 @@ def _canonicalize(query_text: str) -> str:
     Two-step normalization (D4):
 
     1. ``query_text.strip()`` — matches the Tier-1 cache
-       ``canonical_form(query)`` rule from
-       ``07-multi-agent-caching.md``: "do NOT lowercase, do NOT strip
+       ``canonical_form(query)`` rule: "do NOT lowercase, do NOT strip
        punctuation. ``\\'etale`` and ``étale`` produce different
        lexical matches."
     2. ``unicodedata.normalize("NFC", ...)`` — BP1 byte-stability across

@@ -13,7 +13,7 @@ is read-only after construction (pure NumPy ops on indexed
 ``idf``/``doc_freqs``/``doc_len`` arrays), so no locking is needed
 for concurrent reads. The brief's "LanceDB scalar + FTS predicates"
 phrasing is aspirational — no ``create_fts_index`` call exists in
-the codebase. See research-synthesis.md D1.
+the codebase.
 
 **Pickle loader hardening (E04_S04 TODO(E07)).** The original
 ``ingest/bm25_indexer.py:62-71`` docstring carries a documented-but-
@@ -59,7 +59,6 @@ Deviates from the brief's ``list[tuple[str, float]]`` to also carry
 the ``filter_warnings`` array (one warning per unsupported filter
 key). Couples the API to filter semantics, but lets E07_S02 propagate
 warnings up to ``search.py``'s envelope without an extra side-channel.
-See research-synthesis.md, "Open: how to surface filter_warnings."
 """
 
 from __future__ import annotations

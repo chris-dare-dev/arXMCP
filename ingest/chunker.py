@@ -132,8 +132,7 @@ _PRINTED_NUMBER_RE = re.compile(r"(?:^|[\s(\[])([A-Za-z]?\.?\d+(?:\.\d+)*)[\s.]*
 
 # Closes F2: paper_id must match new-style YYMM.NNNNN[N][vN] or old-style
 # subject/NNNNNNN[vN] or textbook:<slug> (textbook-ingest-m1); everything
-# else is rejected before any path concat. Threat 1 in
-# 08-security-observability-ops.md. Byte-equality with
+# else is rejected before any path concat (Threat 1). Byte-equality with
 # ingest/identifiers.py::_PAPER_ID_FULL_PATTERN is enforced by
 # tests/test_identifiers.py::test_chunker_pattern_equals_canonical.
 _PAPER_ID_RE = re.compile(
@@ -287,7 +286,7 @@ def _get_tokenizer():
 
     Closes F7 from the E03_S01 adversary critique: the tokenizer is
     pinned to :data:`ingest.embedder.BGE_M3_COMMIT_SHA` to satisfy
-    Threat 6 (08-security-observability-ops.md). Without ``revision=...``
+    Threat 6. Without ``revision=...``
     the tokenizer would float on whatever HuggingFace serves for the
     ``main`` tag — silent rotation of the tokenizer-only files (with
     model weights unchanged) would drift ``body_tokens`` across runs
@@ -364,8 +363,7 @@ def _element_text(tag: Tag) -> str:
     ``$...$`` delimiters, and only fall back to inner-text when ``alttext``
     is absent.
 
-    Cite: 01-mission-and-context.md § "Why current arXiv-context tools fail
-    for research math" (mission DP1: math fidelity over coverage).
+    Math fidelity matters more than coverage here.
     """
     parts: list[str] = []
 
