@@ -10,7 +10,7 @@
 # nodePort 30733 is fixed (in the 30000-32767 NodePort range) so the operator
 # can point the stdio shim at a stable URL. The shim's --server in
 # ~/.claude.json MUST be updated to http://127.0.0.1:30733 (it defaults to
-# :7733) — see docs/ops/k3s-rancher-desktop.md.
+# :7733).
 apiVersion: v1
 kind: Service
 metadata:

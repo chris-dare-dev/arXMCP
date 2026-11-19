@@ -1,6 +1,6 @@
 """Math-aware regex pre-tokenizer for the BM25 ``body_tokens`` field (E02_S03).
 
-No custom Tantivy LaTeX analyzer is used; see H4 remediation in `.claude/roadmap/README.md`.
+No custom Tantivy LaTeX analyzer is used.
 
 Public API
 ----------

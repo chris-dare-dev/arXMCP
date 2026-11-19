@@ -40,10 +40,9 @@ at scrape time via :func:`refresh_cache_metrics`, called from
 :func:`server.health.refresh_metrics_from_singleton_state`. This
 mirrors the pattern used for ``EMBED_SINGLEFLIGHT_DEDUP_COUNTER``.
 
-**Failure-mode discipline.** Per
-``.claude/notes/07-multi-agent-caching.md``: *"Cache layer crash /
-OOM → Fall through to recompute; log; alert. Caching is
-performance, not correctness."* Metric increments are wrapped in
+**Failure-mode discipline.** A cache layer crash or OOM falls
+through to recompute, logs and alerts: caching is performance, not
+correctness. Metric increments are wrapped in
 try/except inside the cache module so a Prometheus library issue
 never propagates to a request handler.
 """
@@ -332,9 +331,7 @@ INGEST_LAST_RUN_TIMESTAMP_SECONDS: Gauge = Gauge(
 #: environment-snapshot tree: the count of successful ``LeanRepl.query``
 #: round-trips served by the CURRENT REPL instance. leanprover-community/repl
 #: records one immutable snapshot per command and frees none until a
-#: kill+respawn or an operator restart (F7 — see
-#: ``.claude/docs/lean-sandbox-design.md`` § "Environment-snapshot
-#: accumulation"). Refreshed at scrape time from
+#: kill+respawn or an operator restart. Refreshed at scrape time from
 #: :func:`refresh_lean_repl_metrics`; reads 0 when the REPL is
 #: disabled/absent and drops back toward 0 after a respawn mints a fresh
 #: instance. Operational telemetry (watch the growth; restart between heavy

@@ -24,9 +24,7 @@ is a per-call monotonically increasing integer reset to 0 at the
 start of every :func:`canonicalize_turn` invocation. The function
 returns a deep copy of the input — the original list is preserved.
 
-**Why this is "the single most underrated optimization in agentic
-pipelines"** (per ``.claude/notes/07-multi-agent-caching.md`` line
-117): without canonicalization, a 4-agent fan-out with even one
+**Why it matters.** Without canonicalization, a 4-agent fan-out with even one
 shared tool call invalidates 3 of the 4 cached prefixes — so cache
 hit rate drops from ~95% to ~25% on the cross-agent slot. With
 canonicalization, the cross-agent prefix matches byte-for-byte and
@@ -39,11 +37,8 @@ themselves valid inputs — the second pass sees them in the same
 order, assigns them to the same counter, and rewrites them to the
 same canonical form (a no-op).
 
-**Design source**: the reference pseudocode at
-``.claude/notes/07-multi-agent-caching.md`` lines 98–113 mutates the
-input in place. We deviate by returning a deep copy so the caller's
-original list is preserved (footgun-avoidance per the E08_S04
-research synthesis D2).
+**No mutation.** The function returns a deep copy so the caller's
+original list is preserved.
 """
 
 from __future__ import annotations
@@ -160,10 +155,7 @@ def canonicalize_turn(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
     IDs in the same order and maps them to the same counter values).
 
     **Mutation discipline.** The input list is NOT mutated. The
-    function returns a deep copy. This deviates from the reference
-    pseudocode in ``.claude/notes/07-multi-agent-caching.md`` which
-    mutates in place — we trade a deep-copy cost for footgun-
-    avoidance (per E08_S04 research synthesis D2).
+    function returns a deep copy, trading the copy's cost for safety.
 
     **Pairing invariant.** A ``tool_use`` block with id ``X`` and a
     later ``tool_result`` block with ``tool_use_id`` ``X`` are paired.

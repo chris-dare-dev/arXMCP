@@ -28,8 +28,6 @@ Algorithm (4 stages):
 Subprocess discipline mirrors :func:`tools.arxiv_fetch.parse_with_latexml`
 exactly: ``start_new_session=True`` + ``os.killpg`` on
 ``TimeoutExpired`` + ``--no-shell-escape`` + ``--interaction=nonstopmode``.
-See ``.claude/docs/security-cdm-sandbox.md`` for the full Threat-3
-sandbox profile applied to ``pdflatex`` and ``pdftoppm``.
 
 API:
 
@@ -447,8 +445,6 @@ def render_latex_to_image(
         #     escape` does NOT cover \openout; this var does).
         #   * shell_escape=f — defense-in-depth alongside
         #     `--no-shell-escape` (some texlive builds honor only one).
-        # See .claude/docs/security-cdm-sandbox.md for the full
-        # threat-surface table.
         sandbox_env = {
             **os.environ,
             "openin_any": "p",
@@ -783,8 +779,8 @@ def aggregate_cdm(
     substituted 0.0" — a load-bearing observability signal for the
     parser-bake-off use case (rectifies parser-fidelity-eval-m1 F3).
 
-    The gate command in ``.claude/TIER-GATES.md`` should reject when
-    ``len(result.failures) > N`` regardless of the headline mean.
+    A gate should reject when ``len(result.failures) > N`` regardless
+    of the headline mean.
     """
     scores: list[float] = []
     failures: list[tuple[int, str]] = []

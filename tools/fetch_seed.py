@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """Walk tools/seed-papers.txt and fetch + LaTeXML-parse each paper.
 
-E01_S03 main loop. Honors the politeness contract from
-.claude/notes/03-ingestion-pipeline.md § Source 3:
+Honors arXiv's politeness contract:
 - 3 second sleep between every /e-print/ request (not just on failure)
 - Retry-After honored on 503 (floor: 30s exponential backoff, cap 5min)
 - arXMCP/0.1 (mailto:$ARXMCP_CONTACT_EMAIL) User-Agent

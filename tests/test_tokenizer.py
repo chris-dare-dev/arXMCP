@@ -181,10 +181,9 @@ class TestEdgeCases:
 
 
 class TestModuleContract:
-    def test_docstring_documents_h4_remediation(self):
+    def test_docstring_says_no_custom_tantivy_analyzer(self):
         import ingest.tokenizer as tokmod
         assert "Tantivy" in (tokmod.__doc__ or "")
-        assert ".claude/roadmap/README.md" in (tokmod.__doc__ or "")
 
     def test_compiled_regex_at_module_level(self):
         # The module-level _TOKENIZER_RE is a compiled pattern; regenerating

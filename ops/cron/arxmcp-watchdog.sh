@@ -12,9 +12,6 @@
 #   30 2 * * *  /path/to/arxmcp/ops/cron/arxmcp-watchdog.sh
 #
 # `flock -n` guarantees only one watchdog runs at a time.
-#
-# See docs/ops/drift-watchdog.md for the operator workflow,
-# threshold tuning, and quarantine procedure.
 
 set -euo pipefail
 

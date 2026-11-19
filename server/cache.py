@@ -3,10 +3,8 @@
 Singleton cache that lives inside the MCP server process and is
 shared across all concurrently-connected sub-agents. The cache is
 a PERFORMANCE layer — its failure mode is a cache miss (slower but
-correct), never a correctness failure (per
-``.claude/notes/07-multi-agent-caching.md``: *"Cache layer crash /
-OOM → Fall through to recompute; log; alert. Caching is performance,
-not correctness."*).
+correct), never a correctness failure: a cache layer crash or OOM
+falls through to recompute, logs and alerts.
 
 **Three tiers** with progressively-looser equivalence:
 

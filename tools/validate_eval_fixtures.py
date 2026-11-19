@@ -19,7 +19,7 @@ entry point at the bottom of this module exists for ad-hoc invocation.
 milestone brief ("the implementer cannot automate the curation itself
 — that would make the eval circular"), this module ships the
 *tooling*. The 20 hand-labeled triples themselves are populated by a
-human curator following ``.claude/docs/eval-curation.md``. The seed fixture
+human curator. The seed fixture
 that ships with this milestone has ``"queries": []`` (zero triples) —
 the validator treats that as the "curation pending" mode and exits 0
 with a clear info line. See :func:`validate` for the full behavior

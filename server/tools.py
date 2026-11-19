@@ -124,17 +124,14 @@ logger = logging.getLogger(__name__)
 #: ``RLIMIT_AS`` memory cap via a ``preexec_fn`` (closes m2 critique
 #: F4 — agent-supplied Lean source first reaches LeanRepl.query in m3,
 #: so the cap lands here). Windows path silently no-ops the cap and
-#: logs a WARN; ``.claude/docs/lean-sandbox-design.md`` "Memory cap"
-#: row tracks the Job-Object deferral.
+#: logs a WARN (no Job-Object equivalent yet).
 #: v13: textbook-ingest-m3 — SEARCH_PAPERS description now documents
 #: that ``filters.paper_id`` accepts both the arXiv and
 #: ``textbook:<slug>`` paper_id forms (m1 widened ``is_valid_paper_id``
 #: to accept the textbook shape; the tool description had drifted from
 #: the validator contract). The BP1 cache-invalidation checkpoint for
 #: the whole textbook-ingest family — m1 and m2 deferred their re-pins
-#: here so the BP1 prompt cache invalidates ONCE per
-#: ``.claude/notes/prompts-bp-discipline.md``'s textbook-family bump
-#: section.
+#: here so the BP1 prompt cache invalidates ONCE.
 #: v14: textbook-ingest-m9 / e4 — SEARCH_PAPERS description now
 #: documents ``filters.source_kind={arxiv|textbook}`` (the cross-corpus
 #: filter) and the per-row ``source_kind`` tag in the result envelope.
@@ -205,10 +202,10 @@ logger = logging.getLogger(__name__)
 #: are tool-schema-only. search_papers_result.json also bumps 20 -> 21 for
 #: the added per-row title/year (semantic-identifiers).
 #: 21 -> 22 (W2 batched re-pin): the second batched window, applying the
-#: two deltas that had been staged in .claude/docs/w1-schema-deltas.md
-#: after W1 closed. Both were response-shape changes whose behaviour had
-#: already merged bump-free, because bumping THIS constant drifts the
-#: tools/list bytes via the ``_meta.tool_schema_version`` echo and the
+#: two deltas that had been staged after W1 closed. Both were
+#: response-shape changes whose behaviour had already merged bump-free,
+#: because bumping THIS constant drifts the tools/list bytes via the
+#: ``_meta.tool_schema_version`` echo and the
 #: repo mints that re-pin only in a BATCHED window:
 #:   - issue #204 (Tier-2 scope key): search_papers' response envelope
 #:     carries an optional ``cache_match`` object ({kind, cosine}),
@@ -653,8 +650,7 @@ def envelope(
 
 #: Tag name suffix for the retrieved-content delimiter wrapper. The
 #: literal close-tag in retrieved text is HTML-escaped before wrapping
-#: to defend against delimiter-spoofing (Threat 2; E13_S02 FM-1).
-#: See ``.claude/docs/security-threat-2-audit.md``.
+#: to defend against delimiter-spoofing (Threat 2).
 _WRAP_TAG_CHUNK = "retrieved_chunk"
 _WRAP_TAG_EQUATION = "retrieved_equation"
 #: notebook-surface-expansion-m4: operator-authored notebook metadata
@@ -685,9 +681,7 @@ def wrap_retrieved_text(
     text through this helper before placing it in the response payload.
     The consuming LLM's system prompt is expected to treat content
     inside ``<retrieved_chunk>...</retrieved_chunk>`` as data, not
-    instructions, per the contract documented in
-    ``.claude/docs/orchestrator-recommended-system-prompt.md`` and
-    ``.claude/notes/08-security-observability-ops.md`` § Threat 2.
+    instructions (Threat 2).
 
     **Escape-on-emit (E13_S02 FM-1 defense; F5 rect — both tags).**
     If the input text contains the literal **open** or **close** tag

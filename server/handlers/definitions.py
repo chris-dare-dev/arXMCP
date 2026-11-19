@@ -63,10 +63,8 @@ PAGE_SIZE = 100
 #: Real theorem / lemma / macro names are well under this. Enforced
 #: via handler-body validation rather than Pydantic ``Field(max_length=)``
 #: to avoid bumping the tool schema hash — same rationale as
-#: ``MAX_FILTER_ITEMS`` in ``search_papers``. The audit doc at
-#: ``.claude/docs/security-threat-4-audit.md`` previously flagged this
-#: as the only string parameter in the 7-tool surface without a cap;
-#: closed by the F4 rectification.
+#: ``MAX_FILTER_ITEMS`` in ``search_papers``. Without it this would be
+#: the only uncapped string parameter on the tool surface.
 MAX_TERM_LENGTH = 200
 
 

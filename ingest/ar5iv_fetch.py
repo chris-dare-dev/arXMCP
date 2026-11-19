@@ -5,9 +5,8 @@ a given arXiv paper id. The ar5iv service has already run LaTeXML
 for ~70-90% of post-2007 papers; using its cache avoids weeks of
 local CPU work during the bulk ingest.
 
-Per `.claude/notes/03-ingestion-pipeline.md:87-95` ("Run our local
-LaTeXML only on ar5iv cache misses. Saves weeks of CPU.") the
-ar5iv-first ladder is the load-bearing ingest strategy.
+Local LaTeXML runs only on ar5iv cache misses, which saves weeks of
+CPU: the ar5iv-first ladder is the load-bearing ingest strategy.
 
 **Status codes & retry:**
 
@@ -64,9 +63,8 @@ AR5IV_BASE_URL: str = "https://ar5iv.labs.arxiv.org/html"
 #: slow nodes without hanging the cron forever.
 AR5IV_TIMEOUT_SECONDS: float = 5.0
 
-#: E13_S07 Threat 7 — content-length sanity cap. The threat model
-#: in ``.claude/notes/08-security-observability-ops.md`` § Threat 7
-#: states "a single paper > 100 MB source is suspicious." The cap
+#: Threat 7 — content-length sanity cap: a single paper with a
+#: source over 100 MB is suspicious. The cap
 #: applies BOTH to the ``Content-Length`` header (pre-read reject
 #: when the server announces an oversized body) AND to the actual
 #: bytes read (catches a lying header or chunked encoding without

@@ -555,21 +555,19 @@ const LAYOUT_SUPERVISOR_SIBLING: &str = "supervisor-sibling";
 
 /// The payload layouts, in resolution order, for a given supervisor path.
 ///
-/// m7's onedir stages the payload as a SIBLING of the supervisor executable.
-/// m15's bundle-assembly ADR (`.claude/docs/adr-desktop-bundle-assembly.md`)
-/// **Decision 2a, Accepted 2026-08-12** — which SUPERSEDED Decision 2 after
-/// the assembled artifact proved `codesign` cannot seal a bundle whose
-/// `Contents/MacOS` holds non-Mach-O files — places the bundled payload under
-/// `Contents/Resources/` instead. It is a property of the LOCATION, shown by
-/// an A/B control on a six-byte data file, not of this payload.
+/// The onedir build stages the payload as a SIBLING of the supervisor
+/// executable. The assembled bundle places it under `Contents/Resources/`
+/// instead, because `codesign` cannot seal a bundle whose `Contents/MacOS`
+/// holds non-Mach-O files. That is a property of the LOCATION, shown by an
+/// A/B control on a six-byte data file, not of this payload.
 ///
-/// So the payload is no longer a sibling inside a bundle, and TWO layouts
-/// must coexist — the onedir shape every m10 gate and developer run uses, and
+/// So the payload is not a sibling inside a bundle, and TWO layouts must
+/// coexist — the onedir shape every desktop gate and developer run uses, and
 /// the bundle shape that ships:
 ///
 /// | context | supervisor at | payload at |
 /// |---|---|---|
-/// | dev / m7 onedir | `<dir>/supervisor` | `<dir>/arxmcp-desktop-child/` |
+/// | dev / onedir | `<dir>/supervisor` | `<dir>/arxmcp-desktop-child/` |
 /// | assembled `.app` | `Contents/MacOS/supervisor` | `Contents/Resources/arxmcp-desktop-child/` |
 ///
 /// The bundle candidate is offered **only when the supervisor actually sits

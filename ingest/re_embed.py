@@ -6,7 +6,7 @@ chunk in the 200K-paper corpus — is a GPU-day operation; this module
 limits work to chunks whose **content** actually changed by exploiting
 the content-addressable chunk_id contract.
 
-Per [research-synthesis.md](.claude/notes/milestones/E11_S03/research-synthesis.md):
+The design:
 
 * **Content identity:** ``ingest.chunker._compute_chunk_id`` is
   ``sha256(preamble_text + NFC(body_text))[:16]``. Two chunks with

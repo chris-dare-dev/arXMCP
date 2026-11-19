@@ -22,8 +22,7 @@ in the orchestrator — no model ID strings appear elsewhere in
   relative to Sonnet 4.6 makes Opus economically nonviable for the
   retrieval-heavy 4-agent pipeline. Per AC #4 the Opus API ID
   string MUST NOT appear anywhere in ``server/`` source — not
-  even as a deferred constant or comment. The deferral rationale
-  lives in ``docs/model-policy.md``.
+  even as a deferred constant or comment.
 
 **Verifier pass DROPPED.** The v1 design had a dedicated Verification
 agent that re-read retrieved chunks to validate proof steps. That
@@ -43,9 +42,6 @@ The ``RouteTag.VERIFICATION`` value remains in the router
 (``server/prompts.py``) for query classification + BP1 byte-identity;
 the dispatch redirection happens here, not in the router or the
 prompts.
-
-**Rationale and per-query token-budget estimates** live in
-``docs/model-policy.md``.
 
 **Integration status (F4 fix from E08_S05 critique).** As of
 E08_S05, this module is NOT yet called by any orchestrator code —
@@ -90,10 +86,8 @@ MODEL_SONNET_4_6: str = "claude-sonnet-4-6"
 #: F3 fix from the E08_S05 critique: policy version. ANY change to a
 #: cell in :data:`_SELECTION_TABLE` invalidates the Anthropic prompt
 #: cache for that ``(RouteTag, TurnType)`` pair across all four
-#: agents (cache key is ``model + prefix bytes`` per
-#: ``.claude/notes/07-multi-agent-caching.md``). PRs that touch
-#: ``_SELECTION_TABLE`` MUST bump this constant AND add a CHANGELOG
-#: entry to ``docs/model-policy.md::Cache-invalidation discipline``.
+#: agents (the cache key is ``model + prefix bytes``). A change to
+#: ``_SELECTION_TABLE`` MUST bump this constant.
 #: A test pins this constant; the rectifier's intent is that bumping
 #: the constant be a deliberate, reviewable signal in PR diff.
 POLICY_VERSION: str = "1.0"
@@ -101,7 +95,6 @@ POLICY_VERSION: str = "1.0"
 # NOTE: by AC #4, the Opus API ID string MUST NOT appear anywhere
 # in server/ source files. Do not add a "MODEL_OPUS_*" constant
 # here, even as a DEFERRED marker, until v2 of the model policy.
-# The rationale for Opus's exclusion lives in docs/model-policy.md.
 
 
 # ---------------------------------------------------------------------------

@@ -18,9 +18,6 @@
 # Requirements:
 #   - `latexmlc` on PATH (`brew install latexml` / `apt install latexml`)
 #   - uv + the project's virtualenv at <repo-root>/.venv
-#
-# See docs/ops/latexml-drift-runbook.md for the recovery procedure
-# when drift is detected.
 
 set -euo pipefail
 

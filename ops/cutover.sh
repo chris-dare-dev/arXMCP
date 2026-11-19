@@ -10,9 +10,6 @@
 #   ops/cutover.sh --dry-run             # check criteria, no swap
 #   ops/cutover.sh --rollback            # inverse swap
 #   ops/cutover.sh --skip-post-activation
-#
-# See docs/ops/cutover-runbook.md for the operator workflow,
-# the 4 activation criteria, and the rollback procedure.
 
 set -euo pipefail
 

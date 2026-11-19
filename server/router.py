@@ -5,15 +5,11 @@ agent roles (``RouteTag``). NO LLM planner, NO embedding similarity,
 NO external API call — the router runs in <1 ms on a 200-character
 query via pre-compiled regex matching against a YAML pattern list.
 
-**H1 closure** (per ``.claude/roadmap/README.md:68`` —
-*"Sonnet planner unjustified → Python regex router | E08_S01"*):
-this module is the SOLE closer of the H1 finding. The risk-note
-rationale: zero LLM calls on the routing path, deterministic, and
-auditable (the pattern list is version-controlled YAML with a
-rationale per entry).
+**Why a regex router, not an LLM planner.** Zero LLM calls on the
+routing path, deterministic, and auditable (the pattern list is
+version-controlled YAML with a rationale per entry).
 
-**The four roles** (per
-``.claude/notes/07-multi-agent-caching.md:66-67``):
+**The four roles:**
 
 - ``RouteTag.LOOKUP`` — agent retrieves a specific named object
   from the corpus (definitions, theorem statements, notation).

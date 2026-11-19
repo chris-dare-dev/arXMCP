@@ -1,6 +1,5 @@
 """Shared model-loader guards for the BGE-M3 embedder and the
-BGE-reranker-v2-m3 reranker (Threat 6 in
-``.claude/notes/08-security-observability-ops.md``).
+BGE-reranker-v2-m3 reranker (Threat 6).
 
 Three guards are exposed:
 
@@ -88,9 +87,8 @@ def validate_model_revision(revision: str, *, model_name: str) -> None:
         )
 
 
-#: Env-var name for the trust-remote-code escape hatch. Documented
-#: in ``.claude/docs/security-threat-6-audit.md``. The implementation
-#: refuses values other than the literal string ``"1"`` so the
+#: Env-var name for the trust-remote-code escape hatch. The
+#: implementation refuses values other than the literal string ``"1"`` so the
 #: operator must opt in explicitly (no fuzzy truthiness like
 #: ``True`` / ``yes`` / ``on``).
 #: The server process reads it here, not through ``Config``, so

@@ -6,9 +6,8 @@ voyage``; Anthropic Haiku summarizer if E08_S07 ships). Per-call cost
 constants are *manual* — there is no automated pricing API. Update
 them when pricing changes; the ``LAST_VERIFIED`` field at the bottom
 of this docstring is the operator-visible currency marker. The
-quarterly restore drill cadence (per
-:doc:`.claude/notes/08-security-observability-ops.md`) doubles as the
-manual pricing review cadence.
+quarterly restore drill cadence doubles as the manual pricing review
+cadence.
 
 The metric family is
 ``arxmcp_api_spend_usd_total{provider, model, agent_role}`` (3 labels
@@ -29,9 +28,7 @@ best practices.
 The ``agent_role`` label reads from the ``current_agent_role``
 ContextVar (populated by ``TracingContextMiddleware`` from the
 ``Arxmcp-Agent-Role`` HTTP request header) — NOT from a JSON-Schema
-tool argument (per
-:doc:`.claude/notes/08-security-observability-ops.md` §Tracing:
-"NOT a JSON-Schema property — keeps TOOL_SCHEMA_VERSION pinned at 6").
+tool argument, which would change the pinned tool schema.
 
 Pricing sources:
 
@@ -165,10 +162,9 @@ def record_spend(
     """Compute USD spend for a completed hosted-model call and increment
     the ``arxmcp_api_spend_usd_total`` counter.
 
-    Call this from the SUCCESS branch of the hosted-model call site
-    (per :doc:`.claude/notes/milestones/E14_Tier5plus/research-synthesis.md`
-    §D2 — counting attempted-but-failed calls as spend systematically
-    over-reports). The function returns the computed USD amount so
+    Call this from the SUCCESS branch of the hosted-model call site:
+    counting attempted-but-failed calls as spend systematically
+    over-reports. The function returns the computed USD amount so
     callers can also log it.
 
     Parameters

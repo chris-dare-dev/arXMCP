@@ -7,8 +7,8 @@ deduplicates the results against the notebook's ``notebook_papers`` junction,
 and returns a ranked candidate list of papers NOT yet in the notebook.
 
 This is the arXiv-Atom discovery CHANNEL. It is deterministic and LLM-free: it
-PROPOSES candidates; it does not ingest them (the operator confirms via the m4
-console panel; see ``.claude/notes/notebook-discovery-model.md`` §2). Ranking is
+PROPOSES candidates; it does not ingest them (the operator confirms via the
+console panel). Ranking is
 arXiv's ``sortBy=submittedDate&sortOrder=descending`` order, preserved through
 the dedup filter, so output is deterministic for a fixed API response.
 

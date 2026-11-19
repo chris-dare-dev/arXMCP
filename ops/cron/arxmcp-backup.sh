@@ -15,8 +15,6 @@
 #
 # Schedule: nightly at 03:30 (90 min after the delta loop fires)
 # via `ops/systemd/arxmcp-backup.{service,timer}` OR a crontab.
-#
-# See docs/ops/backup-restore.md for the operator workflow.
 
 set -euo pipefail
 
@@ -89,7 +87,6 @@ STATUS_FILE="'"${REPO_ROOT}"'/var/arxmcp/ops/backup-status.json"
 TMP_STATUS="${STATUS_FILE}.tmp"
 STARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
-# Closes the #202/#203 follow-up documented in docs/ops/backup-restore.md.
 # The sentinel records only the MOST RECENT run, and the consumers freshness
 # gauge is process state rehydrated from it at each /metrics scrape — so a
 # server restart while the latest run was failed/partial started the gauge at
@@ -121,8 +118,7 @@ fi
 #     is excluded below.
 #   - cache/notebooks.db: notebook metadata. An EXCEPTION to the general
 #     "var/arxmcp/cache/ is not backed up" policy: it is user-authored
-#     state, not a regenerable cache (retrieval.db stays excluded). See
-#     .claude/notes/08-security-observability-ops.md.
+#     state, not a regenerable cache (retrieval.db stays excluded).
 BACKUP_PATHS=(
     "'"${REPO_ROOT}"'/var/arxmcp/index/lancedb"
     "'"${REPO_ROOT}"'/var/arxmcp/index/kuzu"

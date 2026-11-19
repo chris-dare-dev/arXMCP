@@ -16,7 +16,7 @@ console assets              ``create_app()`` crash: StaticFiles directory
 ``server/schemas/*.json``    the declared result-row source of truth absent
 ``tools/seed-papers.txt``    ``tools/fetch_seed.py`` cannot find the seed list
 ``[project.scripts]``        ``arxmcp-server: command not found`` — the FIRST
-                             verification step in docs/install.md
+                             verification step of an install
 ===========================  ===================================================
 
 **Why a separate environment is load-bearing.** Every one of those bugs is
@@ -42,8 +42,8 @@ Modes
     Everything in ``contents``, plus an isolated venv that resolves the
     real dependency set (~2 GB: torch, transformers, faiss) and a real
     server boot with ``ARXMCP_BOOTSTRAP_MODE=1`` polled at ``/healthz``.
-    This is the honest pre-publish gate — run it before any PyPI upload
-    (see docs/releasing.md). Measured ~4 min on a warm ``uv`` cache and
+    This is the honest pre-publish gate — run it before any PyPI
+    upload. Measured ~4 min on a warm ``uv`` cache and
     ~15 min cold, dominated by the torch download.
 
     The boot additionally asserts that ``server.__file__`` resolves inside
@@ -93,8 +93,8 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 #: Files an operator must find in the installed distribution, expressed as
 #: paths relative to site-packages. Each entry is a bug that shipped.
 REQUIRED_INSTALLED_FILES: tuple[str, ...] = (
-    # ops/ — the operability layer (issue #206). The .py modules AND the
-    # shell halves the docs/ops/ runbooks actually invoke.
+    # ops/ — the operability layer. The .py modules AND the shell
+    # halves operators actually invoke.
     "ops/__init__.py",
     "ops/cutover.py",
     "ops/cutover.sh",
@@ -136,7 +136,7 @@ REQUIRED_INSTALLED_FILES: tuple[str, ...] = (
     "tools/seed-papers.txt",
 )
 
-#: Console scripts docs/install.md tells the operator to expect on $PATH.
+#: Console scripts the operator expects on $PATH after an install.
 REQUIRED_CONSOLE_SCRIPTS: tuple[str, ...] = ("arxmcp-server", "arxmcp-shim")
 
 # Cargo-only developer experiments must never hitchhike into the production
@@ -370,8 +370,7 @@ def assert_console_scripts(venv: Path) -> None:
                 "install; declare it in [project.scripts] in pyproject.toml."
             )
 
-    # arxmcp-server is the one docs/install.md:175 names as the FIRST
-    # verification step a new operator runs.
+    # arxmcp-server is the FIRST verification step a new operator runs.
     exe = _script_path(venv, "arxmcp-server")
     for flag in ("--version", "--help"):
         proc = _run([str(exe), flag], cwd=Path(tempfile.gettempdir()), timeout=120)

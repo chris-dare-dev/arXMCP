@@ -335,13 +335,11 @@ async def cite_neighbors(
 ) -> list[CitationNeighbor]:
     """Return citation neighbors of ``chunk_id`` up to ``depth`` hops.
 
-    Performance contract (E09_S04 AC#3): a ``depth=2`` call against
+    Performance contract: a ``depth=2`` call against
     the 50-paper seed-corpus-scale graph must complete in ≤ 500 ms.
-    The pin lives in ``tests/test_proof_chain.py::TestPerfGate`` and
-    in ``docs/proof-chain-workflow.md`` § Performance target. A
-    future refactor that breaks this contract must update both the
-    test and the doc — silently regressing the latency budget is a
-    project-wide H7 concern. F5 fix from the E09_S04 critique.
+    The pin lives in ``tests/test_proof_chain.py::TestPerfGate``;
+    silently regressing the latency budget breaks proof-chain
+    workflows.
 
     See module docstring for direction semantics, deduplication, and
     ordering.

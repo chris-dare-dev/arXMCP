@@ -24,8 +24,7 @@ Three operationally-distinct routes:
 
 The metric set at this milestone (synthesis D11) is intentionally
 small — per-tool counters land in E06_S03 when the tools materialize.
-The names follow the project's naming convention from
-:doc:`.claude/notes/08-security-observability-ops.md` so future
+The names follow the project's metric naming convention so future
 additions don't collide.
 """
 
@@ -739,8 +738,8 @@ def refresh_filesystem_metrics(resources: Resources) -> None:
     2. **It was inert where it was documented as live.** The shipped
        compose stack contains no Prometheus, so on a stock install
        *nothing ever scraped* and the failure-mode-7 mitigation never
-       ran — while ``docs/ops/README.md`` and the ``ArXMCPDiskFull``
-       alert both presented it as active. A background task runs whether
+       ran — while the ops guide and the ``ArXMCPDiskFull`` alert both
+       presented it as active. A background task runs whether
        or not anyone is scraping.
     3. **It failed in exactly the condition it exists to report.** On a
        read-only filesystem the sentinel write raised, taking down

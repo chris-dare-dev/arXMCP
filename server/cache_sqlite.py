@@ -24,9 +24,8 @@ and the SQLite layer mostly fills the rehydrate-after-restart role).
 during a write are safe (the test fixture and the cache writer can
 hit the same file). ``PRAGMA synchronous=NORMAL`` is set because a
 cache failure mode is "stale read" not "data loss" — losing the
-last few writes on a crash is acceptable per the design constitution
-(``.claude/notes/07-multi-agent-caching.md``: *"Cache layer crash /
-OOM → Fall through to recompute; log; alert."*).
+last few writes on a crash is acceptable. Fall through to recompute on
+any cache failure.
 
 **Schema versioning.** A ``PRAGMA user_version`` integer guards the
 schema. On startup, if the on-disk ``user_version`` is less than
@@ -87,10 +86,9 @@ DEFAULT_TTL_SECONDS: float = 3600.0
 def canonical_query_form(query: str) -> str:
     """Return the canonical form of a query for cache-key derivation.
 
-    Per the brief and ``.claude/notes/07-multi-agent-caching.md``:
-    *"canonical_form(query) is query.strip() only — do NOT lowercase,
-    do NOT strip punctuation. \\'etale and étale produce different
-    lexical matches."*
+    The canonical form is ``query.strip()`` only — do NOT lowercase,
+    do NOT strip punctuation: \\'etale and étale produce different
+    lexical matches.
 
     The two-key normalization rule (load-bearing): the cache LOOKUP
     key may use aggressive normalization; the actual query passed

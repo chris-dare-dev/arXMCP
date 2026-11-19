@@ -948,9 +948,8 @@ def create_app(config: Config | None = None) -> FastAPI:
 
         # ``json_response=True`` makes responses single-shot
         # ``application/json`` rather than ``text/event-stream`` (SSE).
-        # Required by the E06_S02 stdio shim. Design constitution
-        # (``.claude/notes/06-mcp-server-design.md`` line 46): "No
-        # protocol-level streaming of tool results."
+        # Required by the stdio shim; tool results are never streamed at
+        # the protocol level.
         # notebook-surface-expansion-m5: ``instructions=`` sets the MCP
         # initialize.instructions hint orienting a connecting agent. This is
         # the server->client handshake field, NOT SYSTEM_PROMPT/BP1 — setting

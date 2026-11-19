@@ -327,9 +327,7 @@ def open_chunks_table_with_fallback(
     """Open the ``chunks`` table at ``version``, falling back to
     ``version - 1`` if the live tip is corrupt (E14_S05 D2).
 
-    Closes failure mode 2 (LanceDB corrupt on restart) from
-    :doc:`.claude/notes/08-security-observability-ops.md`
-    §"Failure modes and graceful degradation":
+    Closes failure mode 2 (LanceDB corrupt on restart):
 
         *"Fall back to previous dataset version via
         ``dataset.checkout(version=N-1)``; alert. No symlink swap."*

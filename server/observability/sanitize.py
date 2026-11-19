@@ -24,15 +24,7 @@ silent (warn-once pattern).
 
 **False-positive surface.** Enabling this sanitizer may corrupt chunks from
 papers that legitimately discuss LLM architecture or tokenization (the math-ph
-and hep-th categories most likely to include such content). The audit doc at
-``.claude/docs/security-threat-2-audit.md`` documents this trade-off.
-
-See:
-
-* ``.claude/notes/08-security-observability-ops.md`` § Threat 2 — the
-  mitigation contract.
-* ``.claude/docs/security-threat-2-audit.md`` — full audit including
-  per-tool wrapping status, deferred work, and false-positive surface.
+and hep-th categories most likely to include such content).
 """
 
 from __future__ import annotations

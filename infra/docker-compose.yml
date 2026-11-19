@@ -7,9 +7,8 @@
 #   curl -fsS http://127.0.0.1:7733/readyz   # 200 once BGE-M3 + LanceDB warm
 #
 # Scope: the MCP server ONLY. The ingest service + a Litestream sidecar are a
-# deliberate v1 increment (see docs/install.md). The stdio shim is NOT in
-# Docker — it runs on the host as a tiny binary spawned by Claude Code
-# (08-security-observability-ops.md §Docker deployment).
+# deliberate v1 increment. The stdio shim is NOT in Docker — it runs on
+# the host as a tiny binary spawned by Claude Code.
 #
 # Mirrors the already-rectified infra/observability/phoenix-compose.yml
 # (E14_S03) — every hardening below traces to that critique.
@@ -56,7 +55,7 @@ services:
       # the restic-relevant ops tree — not just the shared index this server-only
       # v0 reads. Acceptable under the loopback-only single-workstation threat
       # model (operator owns host + data); a future v1 ingest increment may
-      # narrow the mount per-service. See docs/install.md §"Bind-mount scope".
+      # narrow the mount per-service.
       - ../var/arxmcp:/app/var/arxmcp
 
     environment:
@@ -68,7 +67,7 @@ services:
       # (server/config.py::reject_non_loopback_bind) rejects a non-loopback
       # bind at parse time UNLESS ARXMCP_UNSAFE_NETWORK_BIND=1 — so BOTH vars
       # are required here, or the container crashes at startup. A WARN log
-      # fires at startup (expected; see .claude/docs/security-binding.md).
+      # fires at startup (expected).
       ARXMCP_BIND_HOST: "0.0.0.0"
       ARXMCP_UNSAFE_NETWORK_BIND: "1"
       # BOOTSTRAP_MODE: the shared/default corpus at index/lancedb/ is empty on
@@ -109,9 +108,8 @@ services:
     # restart: "no" for v0 — the operator brings the server up explicitly
     # (`docker compose up`). Auto-restart on host reboot would reload BGE-M3
     # (~2.3 GB RAM) on every boot whether or not the operator is using it;
-    # an operator who wants an always-on server sets `unless-stopped` (see
-    # docs/install.md). NOTE: this diverges from 08-security-observability-ops.md's
-    # "always-on" framing — a deliberate v0 default favouring explicit control.
+    # an operator who wants an always-on server sets `unless-stopped`. A
+    # deliberate default favouring explicit control over always-on.
     restart: "no"
 
     # Bound the server so a busy ingest/retrieval session can't fan up the

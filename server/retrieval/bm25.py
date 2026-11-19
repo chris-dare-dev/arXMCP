@@ -25,10 +25,8 @@ process via ``pickle.load``. This module enforces the mitigation:
 refuses world-writable paths BEFORE calling ``pickle.load``. Closes
 the TODO(E07) hook left by E04_S04. (BM25 pickles are an
 application-data analog of the model-weight pickle threat
-documented under Threat 6 in
-``.claude/notes/08-security-observability-ops.md`` — Threat 6
-itself is about HuggingFace model weights, but the BM25 pickle
-shares the same load-untrusted-bytes risk surface.)
+(Threat 6) — Threat 6 itself is about HuggingFace model weights, but
+the BM25 pickle shares the same load-untrusted-bytes risk surface.)
 
 **Auto-build at startup.** E04_S04 critique H1 flagged that nothing
 in production code calls :func:`build_bm25_index`. This module
@@ -52,8 +50,7 @@ warning surface is non-empty for unsupported filter keys."
 :func:`ingest.tokenizer.tokenize_body` before BM25 scoring. The
 index was built on the tokenizer's output; without parity, raw
 ``\\Spec`` would miss the indexed ``Spec`` token entirely. The
-"byte-faithful" rule in
-``.claude/notes/07-multi-agent-caching.md:132-134`` applies upstream
+"byte-faithful" query rule applies upstream
 of caching (the cache key uses ``query.strip()`` only); BM25
 itself needs the tokenized form to retrieve anything.
 
@@ -98,9 +95,8 @@ logger = logging.getLogger(__name__)
 # Public constants
 # ---------------------------------------------------------------------------
 
-#: Default top-N candidates returned by :meth:`BM25Phase.query`. Per
-#: ``.claude/notes/05-storage-and-indexing.md:323-325`` ("Take
-#: top-200"). E07_S02 then narrows to top-50 via RRF.
+#: Default top-N candidates returned by :meth:`BM25Phase.query`. RRF
+#: then narrows to top-50.
 DEFAULT_TOP_N: int = 200
 
 #: Over-fetch factor when filters are present. We pull

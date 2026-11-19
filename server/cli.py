@@ -1,11 +1,7 @@
-"""``arxmcp-server`` console-script entry point (issue #206).
+"""``arxmcp-server`` console-script entry point.
 
-``docs/install.md`` has told every new operator to verify their install
-with ``arxmcp-server --help`` since the doc was written, but
-``pyproject.toml`` carried no ``[project.scripts]`` entry for it at all —
-only ``arxmcp-shim``. The very first verification step in the documented
-install path failed with "command not found". This module is the missing
-half; ``pyproject.toml`` maps ``arxmcp-server`` onto :func:`main`.
+Operators verify an install with ``arxmcp-server --help``;
+``pyproject.toml`` maps ``arxmcp-server`` onto :func:`main`.
 
 **Why this lives here and not in** :mod:`server.main`. ``server/main.py``
 builds the FastAPI app at module scope::
@@ -224,8 +220,7 @@ def main(argv: list[str] | None = None) -> int:
     # fallback used before Config() loaded). The filter strips
     # REDACTED_FIELDS (query, body_canonical, body_raw_latex, mathml) from
     # every log record at INFO+ level so accidental leakage of paper
-    # content into the operational log is blocked at the source. See
-    # ``.claude/docs/security-observability-logging.md``.
+    # content into the operational log is blocked at the source.
     from server.observability.logging_setup import configure as _configure_logging
 
     # corpus-integrity-observability-e2: cfg.log_format ("json" default,
@@ -264,8 +259,8 @@ def main(argv: list[str] | None = None) -> int:
         # production callers (bulk_ingest, fetch_seed, fetch_one_paper,
         # notebook_fetch) do NOT auto-thread the context. Surface this WARN
         # so an operator who sets the flag sees the gap explicitly rather
-        # than assuming bulk ingest is pinned. Full caller-side wiring is a
-        # follow-up; see .claude/docs/security-threat-7-audit.md.
+        # than assuming bulk ingest is pinned. Full caller-side wiring is
+        # not done yet.
         logger.warning(
             "ARXMCP_PIN_ARXIV_CA=1 set, BUT existing production "
             "callers (ingest/bulk_ingest.py, tools/fetch_seed.py, "

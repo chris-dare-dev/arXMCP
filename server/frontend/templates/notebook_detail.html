@@ -35,17 +35,6 @@
       CORPUS-MUTATION form above the table": rename edits the record's label,
       not the corpus.
 
-      RESOLVED 2026-08-05 (owner decision, external review). This note used to
-      read "the AC reads 'without scrolling past any input form'" and stop
-      there — declaring a narrowing against a canonical AC that still said
-      something else. An unrecorded narrowing is indistinguishable from failing
-      the AC, and a narrowing recorded ONLY at the implementation site is a
-      contradiction the roadmap does not know about, which is barely better.
-      plans/ui-uplift/roadmap.yaml now reads "without scrolling past any
-      corpus-mutation form". The AC text moved rather than the form, because
-      that milestone's own summary already scoped it to "the FIVE mutation
-      forms" — the AC sentence was the outlier, not the implementation.
-
    3. WHY <details> IS SAFE HERE AND WAS REFUSED AT server/routes/ui.py:280.
       onboarding-uplift-m3 synthesis D2 rejected <details>/<summary> for the
       status badge because hx-swap="outerHTML" replaced the whole element

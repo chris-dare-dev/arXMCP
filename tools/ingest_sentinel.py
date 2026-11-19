@@ -35,12 +35,9 @@ Producers + consumers:
 The sentinel is **idempotent**: a second :func:`write_pause` with the
 same reason overwrites the body (refreshes ``free_bytes`` /
 ``threshold_bytes``) but does not stack. :func:`clear_pause` removes
-the file unconditionally — see "self-clearing vs operator-clearing"
-in the E14_S05 research synthesis §D4.
+the file unconditionally.
 
-Closes failure mode 7 (Disk full) from
-``.claude/notes/08-security-observability-ops.md`` §"Failure modes
-and graceful degradation".
+Closes failure mode 7 (Disk full).
 """
 
 from __future__ import annotations

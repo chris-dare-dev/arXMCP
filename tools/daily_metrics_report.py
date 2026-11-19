@@ -66,10 +66,7 @@ TOOLS: tuple[str, ...] = (
     "cite_neighbors",
 )
 
-#: Cache tier labels. Note the label name is ``tier``, NOT
-#: ``layer`` as `.claude/notes/08-security-observability-ops.md`
-#: documents — the constitution note has drift; the shipped code
-#: uses ``tier``. See E14_S04 synthesis D4.
+#: Cache tier labels. The label name is ``tier``, NOT ``layer``.
 CACHE_TIERS: tuple[str, ...] = ("1", "2", "3")
 
 #: Default MCP server endpoint for the cron path. Matches

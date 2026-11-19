@@ -14,9 +14,6 @@
 #
 # systemd unit: see
 # ops/systemd/arxmcp-parser-failures-weekly.{service,timer}.
-#
-# See docs/ops/parser-failure-review.md for the human triage
-# workflow + must-act thresholds.
 
 set -euo pipefail
 
