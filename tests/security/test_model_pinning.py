@@ -460,30 +460,3 @@ class TestSbomScriptPresence:
         assert "--fail-on critical" in body
         # Outputs CycloneDX JSON.
         assert "cyclonedx" in body.lower()
-
-
-# ===========================================================================
-# Audit doc presence (re-asserts the deliverable in CLAUDE.md-compliant
-# location, NOT the brief's docs/security/threat-6-audit.md)
-# ===========================================================================
-
-
-class TestAuditDocPresence:
-    """The audit doc lives at ``.claude/docs/security-threat-6-audit.md``
-    matching the E13_S01–S05 precedent (CLAUDE.md §1 doc-placement
-    rule). The brief asks for ``docs/security/threat-6-audit.md`` but
-    that path is rejected by repo policy.
-    """
-
-    def test_audit_doc_exists_under_dot_claude(self):
-        repo_root = Path(__file__).resolve().parents[2]
-        audit = repo_root / ".claude" / "docs" / "security-threat-6-audit.md"
-        assert audit.is_file(), f"audit doc missing at {audit}"
-        body = audit.read_text(encoding="utf-8")
-        # Doc must surface the three mitigations by name for grep
-        # discoverability.
-        assert "trust_remote_code" in body
-        assert "safetensors" in body
-        # And the production SHAs (so a reader knows what's pinned).
-        assert BGE_M3_COMMIT_SHA in body
-        assert BGE_RERANKER_COMMIT_SHA in body

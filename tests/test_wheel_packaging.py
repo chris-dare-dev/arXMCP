@@ -51,7 +51,6 @@ from setuptools import find_namespace_packages
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PYPROJECT = REPO_ROOT / "pyproject.toml"
 DOCKERFILE = REPO_ROOT / "docker" / "Dockerfile.server"
-INSTALL_DOC = REPO_ROOT / "docs" / "install.md"
 
 #: Filenames that are repo navigation, not distribution content. This is an
 #: explicit decision rather than an oversight: ``README.md`` inside a
@@ -347,32 +346,6 @@ class TestConsoleScripts:
                 f"{proc.stdout}\n{proc.stderr}"
             )
             assert proc.stdout.strip(), f"`arxmcp-server {flag}` printed nothing"
-
-
-class TestDocsAgreeWithPackaging:
-    """The requirement is that docs and code agree — assert it, don't trust it."""
-
-    def test_every_binary_install_md_promises_is_declared(
-        self, pyproject: dict
-    ) -> None:
-        """Parse the binaries docs/install.md says land on $PATH.
-
-        install.md presents them in a shell block as ``arxmcp-xxx --help``;
-        anything it names there must exist as a console script.
-        """
-        text = INSTALL_DOC.read_text(encoding="utf-8")
-        promised = set(re.findall(r"^\s*(arxmcp-[a-z-]+)\s+--help", text, re.MULTILINE))
-        assert promised, (
-            "no `arxmcp-* --help` verification line found in docs/install.md; "
-            "this test's parser needs updating to match the doc"
-        )
-        declared = set(pyproject["project"]["scripts"])
-        undeclared = promised - declared
-        assert not undeclared, (
-            f"docs/install.md tells the operator to run {sorted(undeclared)} "
-            f"but [project.scripts] declares only {sorted(declared)}. Either "
-            "declare the script or correct the doc to the real invocation."
-        )
 
 
 class TestDockerfileMatchesPackaging:

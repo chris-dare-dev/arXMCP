@@ -80,10 +80,10 @@ the others necessarily failing.
 
 ## Cross-references
 
-- [`.claude/docs/security-pdf-sandbox.md`](../../.claude/docs/security-pdf-sandbox.md) — full
+- [`.claude/docs/security-pdf-sandbox.md`](https://github.com/chris-dare-dev/arXMCP/blob/433ba41ba8710be74d6f99c627dce7d3b5383fca/.claude/docs/security-pdf-sandbox.md) — full
   threat surface analysis + sandbox profile for textbook-ingest-e2.
-- [`.claude/docs/security-cdm-sandbox.md`](../../.claude/docs/security-cdm-sandbox.md) — peer
+- [`.claude/docs/security-cdm-sandbox.md`](https://github.com/chris-dare-dev/arXMCP/blob/433ba41ba8710be74d6f99c627dce7d3b5383fca/.claude/docs/security-cdm-sandbox.md) — peer
   pattern for `pdflatex` + `pdftoppm` subprocess discipline.
-- [`.claude/notes/08-security-observability-ops.md`](../../.claude/notes/08-security-observability-ops.md) — Threats 1–7
+- [`.claude/notes/08-security-observability-ops.md`](https://github.com/chris-dare-dev/arXMCP/blob/433ba41ba8710be74d6f99c627dce7d3b5383fca/.claude/notes/08-security-observability-ops.md) — Threats 1–7
   (the project's threat-model spec).
 - [CLAUDE.md §4.7](../../CLAUDE.md) — the no-fork policy.

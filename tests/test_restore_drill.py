@@ -224,11 +224,6 @@ class TestSmokeCheckKuzu:
 
 
 # ---------------------------------------------------------------------------
-# run_check end-to-end
-# ---------------------------------------------------------------------------
-
-
-# ---------------------------------------------------------------------------
 # smoke_check_notebooks (notebook-ops-hardening-m1)
 # ---------------------------------------------------------------------------
 
@@ -415,64 +410,6 @@ class TestRestoreDrillScript:
             [bash, "-n", str(self.script)], capture_output=True, text=True
         )
         assert result.returncode == 0, result.stderr
-
-
-# ---------------------------------------------------------------------------
-# Backup-restore runbook content
-# ---------------------------------------------------------------------------
-
-
-class TestBackupRestoreRunbook:
-    runbook = REPO_ROOT / "docs" / "ops" / "backup-restore.md"
-
-    def test_runbook_exists(self):
-        assert self.runbook.is_file()
-
-    def test_documents_retention_policy(self):
-        text = self.runbook.read_text(encoding="utf-8")
-        # Synthesis: 7 daily, 4 weekly, 12 monthly.
-        assert "7 daily" in text.lower() or "--keep-daily 7" in text
-        assert "4 weekly" in text.lower() or "--keep-weekly 4" in text
-        assert "12 monthly" in text.lower() or "--keep-monthly 12" in text
-
-    def test_warns_about_password_loss(self):
-        text = self.runbook.read_text(encoding="utf-8")
-        assert (
-            "password" in text.lower()
-            and ("loss" in text.lower() or "unrecoverable" in text.lower())
-        )
-
-    def test_documents_restore_drill(self):
-        text = self.runbook.read_text(encoding="utf-8")
-        assert "restore drill" in text.lower() or "restore_drill" in text
-        assert "restore-drill-passed.flag" in text
-
-    def test_documents_notebook_backup_scope(self):
-        """notebook-ops-hardening-m1: the runbook must list the notebook
-        data + metadata paths now in scope."""
-        text = self.runbook.read_text(encoding="utf-8")
-        assert "var/arxmcp/notebooks" in text
-        assert "notebooks.db" in text
-
-
-# ---------------------------------------------------------------------------
-# Design-note (08-security-observability-ops.md) coverage
-# ---------------------------------------------------------------------------
-
-
-class TestSecurityNoteBackupSection:
-    note = REPO_ROOT / ".claude" / "notes" / "08-security-observability-ops.md"
-
-    def test_note_lists_notebook_paths_and_exception(self):
-        """notebook-ops-hardening-m1 AC: the design note's backup section
-        lists the notebook paths and calls out notebooks.db as the
-        EXCEPTION to the cache-exclusion policy."""
-        text = self.note.read_text(encoding="utf-8")
-        assert "var/arxmcp/notebooks/" in text
-        assert "notebooks.db" in text
-        assert "EXCEPTION" in text
-        # retrieval.db must remain documented as excluded
-        assert "retrieval.db" in text
 
 
 # ---------------------------------------------------------------------------

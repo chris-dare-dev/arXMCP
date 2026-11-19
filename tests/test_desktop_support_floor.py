@@ -3,8 +3,9 @@
 desktop-distribution-m9. The floor is inherited, not chosen: `faiss_cpu 1.13.2`
 publishes exactly one arm64 macOS wheel (`macosx_14_0_arm64`), so nothing below
 macOS 14 can run the closure. Three places declare that floor and must agree:
-`tauri.conf.json`'s `bundle.macOS.minimumSystemVersion`, the repo-root
-`.cargo/config.toml` `MACOSX_DEPLOYMENT_TARGET` pin, and the
+`tauri.conf.json`'s `bundle.macOS.minimumSystemVersion`, the
+`MACOSX_DEPLOYMENT_TARGET` the build exports (Makefile desktop targets and
+`desktop_package.py`'s tauri build environment), and the
 `apps/desktop/README.md` "Supported boundary" section.
 
 Declarations agreeing with each other is not the same as the ARTIFACT agreeing
@@ -24,12 +25,12 @@ run means "no claim in the known shapes", never "no claim".
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 import re
 import shutil
 import subprocess
-import tomllib
 from pathlib import Path
 
 import pytest
@@ -37,7 +38,8 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parents[1]
 FLOOR = "14.0"
 TAURI_CONF = REPO_ROOT / "apps" / "desktop" / "crates" / "supervisor" / "tauri.conf.json"
-CARGO_CONFIG = REPO_ROOT / ".cargo" / "config.toml"
+MAKEFILE = REPO_ROOT / "Makefile"
+DESKTOP_PACKAGE = REPO_ROOT / "apps" / "desktop" / "pyinstaller" / "desktop_package.py"
 DESKTOP_README = REPO_ROOT / "apps" / "desktop" / "README.md"
 
 #: "macOS 14", "macOS 14.x", "macos14" — the version the claim would be about.
@@ -139,7 +141,6 @@ def _shipped_docs() -> list[Path]:
     from the on-disk tree precisely so a new file is covered by default.
     """
     docs = [p for p in REPO_ROOT.glob("*.md") if p.name not in _AGENT_DOCS]
-    docs.extend((REPO_ROOT / "docs").rglob("*.md"))
     docs.extend(p for p in (REPO_ROOT / "apps").rglob("*.md") if p.name not in _AGENT_DOCS)
     return sorted({p for p in docs if p.is_file()})
 
@@ -233,18 +234,27 @@ class TestDeclaredFloorAgreement:
             f"below the floor the faiss_cpu macosx_14_0_arm64 wheel imposes"
         )
 
-    def test_cargo_config_pins_the_deployment_target(self):
-        cfg = tomllib.loads(CARGO_CONFIG.read_text(encoding="utf-8"))
-        pin = cfg.get("env", {}).get("MACOSX_DEPLOYMENT_TARGET")
-        assert isinstance(pin, dict), (
-            ".cargo/config.toml must pin MACOSX_DEPLOYMENT_TARGET so the Rust binaries "
-            "declare minos at the floor instead of rustc's 11.0 default"
+    def test_makefile_exports_the_deployment_target_for_rust_builds(self):
+        text = MAKEFILE.read_text(encoding="utf-8")
+        floor = re.search(r"^DESKTOP_MACOS_FLOOR := (\S+)$", text, re.MULTILINE)
+        assert floor and floor.group(1) == FLOOR
+        export = re.search(
+            r"^(.+): export MACOSX_DEPLOYMENT_TARGET := \$\(DESKTOP_MACOS_FLOOR\)$",
+            text,
+            re.MULTILINE,
         )
-        assert pin.get("value") == FLOOR
-        assert pin.get("force") is True, (
-            "force = true is required: an ambient MACOSX_DEPLOYMENT_TARGET would "
-            "silently desync the built minos from the declared floor"
+        assert export, "the desktop targets must export MACOSX_DEPLOYMENT_TARGET"
+        assert {"desktop-conformance", "desktop-bundle"} <= set(export.group(1).split()), (
+            "every target that compiles the Rust binaries must carry the floor; "
+            "without it they declare rustc's 11.0 default"
         )
+
+    def test_tauri_build_env_overrides_an_ambient_deployment_target(self, monkeypatch):
+        spec = importlib.util.spec_from_file_location("_floor_desktop_package", DESKTOP_PACKAGE)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        monkeypatch.setenv("MACOSX_DEPLOYMENT_TARGET", "11.0")
+        assert module._tauri_build_env()["MACOSX_DEPLOYMENT_TARGET"] == FLOOR
 
     def test_readme_states_inherited_hard_and_unverified(self):
         text = DESKTOP_README.read_text(encoding="utf-8")
@@ -296,9 +306,8 @@ class TestBuiltArtifactDeclaresTheFloor:
     """Pinning three DECLARATIONS proves they agree with each other, not with
     the thing that ships. The implementer hit exactly that drift by hand — a
     warm cargo cache kept ``fixture-sidecar`` at ``minos 11.0`` while every
-    declaration read 14.0 — and cargo discovers ``.cargo/config.toml`` by
-    walking up from the CWD, not from ``--manifest-path``, so an invocation
-    started outside the repo root still builds at rustc's 11.0 default.
+    declaration read 14.0 — and a cargo invocation without the exported
+    ``MACOSX_DEPLOYMENT_TARGET`` builds at rustc's 11.0 default.
 
     Following the ``requires_latexmlc`` / m6 ``lsof`` precedent this carries NO
     secondary skip guard: inside ``make desktop-conformance`` a missing env
@@ -320,9 +329,9 @@ class TestBuiltArtifactDeclaresTheFloor:
         declared = _declared_minos(binary)
         assert set(declared) == {FLOOR}, (
             f"{binary.name} declares minos {sorted(set(declared))}, not {FLOOR!r}. The "
-            f"artifact disagrees with .cargo/config.toml, tauri.conf.json and the "
-            f"README. Most likely a warm cargo target dir, or a cargo invocation whose "
-            f"CWD was outside the repo root so the [env] pin was never discovered."
+            f"artifact disagrees with the Makefile, tauri.conf.json and the README. "
+            f"Most likely a warm cargo target dir, or a cargo invocation without "
+            f"MACOSX_DEPLOYMENT_TARGET exported."
         )
 
 

@@ -2,30 +2,25 @@
 
 Thanks for your interest. arXMCP is a single-maintainer research project (see
 [OWNERS.md](OWNERS.md)) — most work is done by the maintainer with Claude
-agents through a structured pipeline. External contributions are welcome;
+agents. External contributions are welcome;
 this guide explains how the repo works so a change has the best chance of
 landing.
 
 ## Before you start
 
-- **Open an issue first** for anything non-trivial. The maintainer steers a
-  roadmap ([`.claude/roadmap/README.md`](.claude/roadmap/README.md)); a quick
-  discussion avoids work that collides with it.
+- **Open an issue first** for anything non-trivial; a quick discussion avoids
+  work that collides with the maintainer's plans.
 - **Read [CREDO.md](CREDO.md)** — one page on what this repository holds and
   what it refuses. It overrides every other file here.
-- **Read [CLAUDE.md](CLAUDE.md)** — it is the working constitution
-  (conventions, gotchas, directory layout). It overrides convention when the
-  two differ.
+- **Read [CLAUDE.md](CLAUDE.md)** — working conventions, hard constraints
+  and known gotchas.
 - For security issues, **do not** open a public issue — follow
   [SECURITY.md](SECURITY.md).
 
 ## How changes are made
 
-Non-trivial changes (more than ~3 files or new tests) run through the
-four-phase **milestone pipeline**: **Research → Implement → Critique →
-Rectify**. The pipeline and its bespoke agents live under
-[`.claude/`](.claude/commands/milestone-pipeline.md). Trivial edits
-(one-liners, typo/formatting fixes) can skip it.
+A change stays under ~400 authored lines and one concern; larger work is
+split, or starts with a one-paragraph design in its issue (CREDO.md §5).
 
 This is a single-workstation project: the maintainer's local test suite is
 the authority (there is no blocking CI). `make test` must be green before
@@ -39,12 +34,13 @@ make bootstrap          # editable install + var/ tree
 make test               # ruff + pytest — must pass
 ```
 
-Python ≥ 3.11. See the [install guide](docs/install.md) for optional system
-dependencies (LaTeXML, MinerU, etc.).
+Python ≥ 3.11. Optional system dependencies (LaTeXML, MinerU, Lean, restic)
+are listed in the [archived install guide](https://github.com/chris-dare-dev/arXMCP/blob/433ba41ba8710be74d6f99c627dce7d3b5383fca/docs/install.md)
+until it moves to the wiki.
 
 ## Coding conventions
 
-These are enforced by tests and review — see [CLAUDE.md §4.7](CLAUDE.md):
+These are enforced by tests and review — see [CLAUDE.md](CLAUDE.md):
 
 - **`assert` is banned for invariants** (`python -O` strips them). Use
   `if … raise RuntimeError(…)`.
@@ -69,14 +65,11 @@ or edits any other:
   rules agents follow.
 - **Issue or pull request:** plans, research, critiques and handoffs.
 
-Markdown already under `docs/`, `.claude/` and `plans/` is frozen while it
-moves to the wiki: a pull request may delete it, never edit it.
-
 ## Commit & PR conventions
 
 - **Conventional commits**, subject ≤ 50 chars after the type prefix. Types:
-  `feat`, `rect`, `chore`, `docs`. Scopes match subsystems (`server`,
-  `ingest`, `shim`, `infra`, `tests`, `notes`, `repo`, …).
+  `feat`, `fix`, `test`, `chore`, `ci`, `docs`. Scopes match subsystems
+  (`server`, `ingest`, `shim`, `infra`, `apps`, `tests`, `repo`, …).
 - **GPG signing is required** (`commit.gpgsign=true`). Never `--no-gpg-sign`.
 - **Pre-commit hooks are honored.** Never `--no-verify`; fix the underlying
   issue and make a new commit.
@@ -93,10 +86,5 @@ moves to the wiki: a pull request may delete it, never edit it.
 
 The `tools/list` response is **byte-stable** for prompt-cache discipline. If
 you add or change a tool, re-pin `EXPECTED_TOOL_SCHEMA_SHA256`
-(`pytest --update-tool-schema-hash`) and follow the full checklist in
-[CLAUDE.md §9](CLAUDE.md). A tool-surface change is at least a MINOR release.
-
-## Recognition
-
-Contributors are listed in [CONTRIBUTORS.md](CONTRIBUTORS.md). Open a PR
-adding yourself (or ask, and the maintainer will).
+(`pytest --update-tool-schema-hash`) and follow the checklist in
+[CLAUDE.md](CLAUDE.md). A tool-surface change is at least a MINOR release.

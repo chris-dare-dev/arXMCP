@@ -156,33 +156,6 @@ def test_restart_policy_is_no() -> None:
     )
 
 
-def test_install_doc_states_corpus_prerequisite() -> None:
-    """m3 critique F1 regression guard: the documented compose happy-path
-    crashes at startup on an empty corpus (the server warms eagerly;
-    open_chunks_table raises FileNotFoundError → uvicorn exits). The
-    "Run via Docker Compose" section MUST tell the operator a corpus is
-    required first, or the headline flow is non-functional for a fresh user."""
-    install = (REPO_ROOT / "docs" / "install.md").read_text(encoding="utf-8")
-    marker = "Run via Docker Compose"
-    assert marker in install, "compose section missing from docs/install.md"
-    section = install.split(marker, 1)[1]
-    # Bound the window to this section (stop at the next H3) so the assertion
-    # is about the compose flow, not the bare-metal troubleshooting note.
-    section = section.split("\n### ", 1)[0]
-    lowered = section.lower()
-    assert "corpus prerequisite" in lowered, (
-        "compose section must carry a 'Corpus prerequisite' callout"
-    )
-    assert "ingest" in lowered or "arxmcp_notebook" in lowered, (
-        "compose section must point at the ingest path or ARXMCP_NOTEBOOK "
-        "as the way to populate a corpus before `docker compose up`"
-    )
-    assert "exit" in lowered, (
-        "compose section must warn that an empty corpus EXITS the container "
-        "at startup (not a graceful 503)"
-    )
-
-
 def test_builds_from_project_dockerfile() -> None:
     svc = _service(yaml.safe_load(COMPOSE_PATH.read_text(encoding="utf-8")))
     build = svc.get("build", {})

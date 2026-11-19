@@ -671,33 +671,6 @@ class TestPolitenessContract:
 
 
 # ---------------------------------------------------------------------------
-# Runbook content
-# ---------------------------------------------------------------------------
-
-
-class TestRunbookContent:
-    def test_runbook_states_90_minute_budget(self):
-        runbook = (
-            Path(__file__).resolve().parent.parent
-            / "docs" / "ops" / "delta-loop.md"
-        )
-        assert runbook.is_file(), f"runbook missing at {runbook}"
-        text = runbook.read_text(encoding="utf-8")
-        assert "90-minute" in text or "90 minute" in text
-
-    def test_runbook_documents_no_touch_file(self):
-        runbook = (
-            Path(__file__).resolve().parent.parent
-            / "docs" / "ops" / "delta-loop.md"
-        )
-        text = runbook.read_text(encoding="utf-8")
-        # The brief mentioned a touch file; the synthesis drops it.
-        # The runbook should document the manual-restart mechanism
-        # and explicitly say there is no touch file.
-        assert "restart" in text.lower()
-
-
-# ---------------------------------------------------------------------------
 # Endpoint hygiene
 # ---------------------------------------------------------------------------
 
@@ -707,11 +680,6 @@ class TestEndpointHygiene:
         # Synthesis D4: HTTPS, not legacy HTTP.
         assert OAI_PMH_ENDPOINT.startswith("https://")
         assert "oaipmh.arxiv.org" in OAI_PMH_ENDPOINT
-
-
-# ---------------------------------------------------------------------------
-# CLI parsing
-# ---------------------------------------------------------------------------
 
 
 # ---------------------------------------------------------------------------

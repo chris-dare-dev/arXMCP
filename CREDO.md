@@ -82,9 +82,11 @@ Rules for this codebase:
 - A test file SHOULD be no longer than the module it tests. When it is, the
   cases are redundant or the module wants splitting.
 - `make test` runs in CI on every change to product or test code.
-- The `credo` workflow fails any change that adds or edits Markdown outside
-  the allow-list above. Its exceptions list, `LEGACY` in
-  `.github/credo_prose.py`, only shrinks.
+- The `credo` workflow fails any change that leaves a tracked Markdown file
+  outside the allow-list above. It has no exceptions list.
+- `.claude/`, `.cargo/` and `.milestone-pipeline/` are machine-local and
+  gitignored: agent harness, pipeline state and per-machine build settings
+  never enter the tree.
 - Milestone identifiers do not appear in `server/`, `ingest/`, `apps/` or
   `tests/`: not in names, not in comments, not in docstrings.
 
@@ -94,10 +96,8 @@ The repository does not meet these yet. A line is deleted when it becomes
 true. Until then the older rule in `CLAUDE.md` applies to what that line
 names and to nothing else.
 
-- Markdown under `docs/`, `.claude/` (agent definitions, commands, skills and
-  references included) and `plans/` is still in the tree (§1). It may be
-  deleted, never edited; `LEGACY` names what is left.
-- `CLAUDE.md` is over 200 lines and carries dated history (§1).
 - CI runs one test file, not `make test` (§3).
 - `tests/` includes tests of documentation wording and stylesheets.
 - Milestone identifiers remain in product and test code (§4).
+- Comments, docstrings and operator messages in product code still cite files
+  under `.claude/` and `docs/` that have left the tree (§4).

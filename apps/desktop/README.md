@@ -21,7 +21,7 @@ artifact — each nested Mach-O and the outer bundle — is ad-hoc: a real seal,
 tamper-evident locally, and **not** a distribution signature.
 
 The decision behind the layout is recorded in
-[`.claude/docs/adr-desktop-bundle-assembly.md`](../../.claude/docs/adr-desktop-bundle-assembly.md)
+[`.claude/docs/adr-desktop-bundle-assembly.md`](https://github.com/chris-dare-dev/arXMCP/blob/433ba41ba8710be74d6f99c627dce7d3b5383fca/.claude/docs/adr-desktop-bundle-assembly.md)
 (Accepted). It also records, with its sources, why the notarization question
 cannot be answered here and what a build-and-submit trial would have to submit
 to answer it.
@@ -229,7 +229,7 @@ succeed: assembly RAISES rather than leaving an unsealed `.app` on disk.
    expectation — it is not the expectation itself.
 
 **Two declared floors, and they disagree.** The Tauri shell reports
-`minos 14.0` (pinned by `.cargo/config.toml`); the two PyInstaller-produced
+`minos 14.0` (pinned by the build's `MACOSX_DEPLOYMENT_TARGET`); the two PyInstaller-produced
 executables report `minos 11.0`, because this project does not compile the
 CPython bootloader and inherits whatever the upstream wheel declared. Across
 the payload's 180 Mach-O files: 111 at 14.0, 36 at 12.0, 33 at 11.0. The
@@ -257,9 +257,10 @@ arm64 fallback, and 132 of the 200 Mach-O files in the Python closure declare
 minOS 14.0 (measured 2026-08-09). The floor is declared in three places that
 must agree: `bundle.macOS.minimumSystemVersion` in
 `crates/supervisor/tauri.conf.json` (without it, Tauri's bundler default would
-advertise 10.13 — four majors below what the faiss wheel needs), the repo-root
-`.cargo/config.toml` pin `MACOSX_DEPLOYMENT_TARGET = "14.0"` that makes both
-Rust binaries report `minos 14.0`, and this section.
+advertise 10.13 — four majors below what the faiss wheel needs), the build's
+`MACOSX_DEPLOYMENT_TARGET = "14.0"` (exported by the Makefile's desktop targets
+and forced by `desktop_package.py` for `tauri build`) that makes both Rust
+binaries report `minos 14.0`, and this section.
 `tests/test_desktop_support_floor.py` fails if the three drift apart, if the
 BUILT binaries report a `minos` other than 14.0 (read off the artifacts under
 `make desktop-conformance`, because agreeing declarations are not an agreeing
@@ -303,15 +304,15 @@ shell will continue to use the existing server-rendered operator console.
 
 ## Development and conformance commands
 
-Run these commands from the repository root — that is a correctness
-precondition, not a convenience: cargo discovers the repo-root
-`.cargo/config.toml` deployment-target pin by walking up from the CWD, not from
-`--manifest-path`, so a cargo invocation started outside the repo root builds
-at rustc's 11.0 default instead of the 14.0 floor. A temporary Cargo target
-keeps generated binaries out of the source tree.
+Run these commands from the repository root. Export
+`MACOSX_DEPLOYMENT_TARGET=14.0` before calling cargo directly: `make
+desktop-conformance` sets it, but a bare cargo build uses rustc's 11.0 default
+instead of the 14.0 floor. A temporary Cargo target keeps generated binaries
+out of the source tree.
 
 ```bash
 make desktop-conformance PYTHON=.venv/bin/python
+export MACOSX_DEPLOYMENT_TARGET=14.0
 cargo fmt --all --manifest-path apps/desktop/Cargo.toml -- --check
 cargo test --locked --manifest-path apps/desktop/Cargo.toml \
   --target-dir /private/tmp/arxmcp-desktop-target

@@ -49,6 +49,3 @@ suppresses the XML comment, not the div. The drift detector
 therefore parses the HTML via BeautifulSoup, extracts every
 `<math>` element, and serializes them as a canonical string before
 diff. The `<math>` content IS byte-stable across runs.
-
-See `.claude/notes/milestones/E10_S04/research-synthesis.md` (D2)
-for the design rationale.

@@ -42,6 +42,12 @@ DESKTOP_EXE_SUFFIX := .exe
 else
 DESKTOP_EXE_SUFFIX :=
 endif
+# macOS floor for the desktop Rust binaries: faiss_cpu ships only a
+# macosx_14_0_arm64 wheel, so nothing older can run the bundle. Set here, not
+# inherited, so an ambient value cannot desync the binaries' minos from
+# tauri.conf.json's minimumSystemVersion. Ignored on non-Apple targets.
+DESKTOP_MACOS_FLOOR := 14.0
+desktop-conformance desktop-bundle: export MACOSX_DEPLOYMENT_TARGET := $(DESKTOP_MACOS_FLOOR)
 
 help:
 	@echo "arXMCP development targets:"
@@ -59,8 +65,7 @@ help:
 	@echo "                                 appends to var/arxmcp/notebooks/<slug>/papers.txt."
 	@echo "  make notebook-list             List registered notebooks (live REST if server up,"
 	@echo "                                 else direct SQLite read)."
-	@echo "  make ingest                    Bulk-ingest the seed corpus into the shared LanceDB"
-	@echo "                                 (E11_S01; see docs/ops/bulk-ingest-runbook.md)."
+	@echo "  make ingest                    Bulk-ingest the seed corpus into the shared LanceDB."
 	@echo "  make up                        Start the arxmcp-server on 127.0.0.1:7733."
 	@echo "  make up-wizard                 Start with ARXMCP_BOOTSTRAP_MODE=1 (fresh-clone"
 	@echo "                                 wizard mode). MCP tools return no_notebook_selected"
@@ -78,22 +83,22 @@ help:
 	@echo ""
 	@echo "  EVERYTHING ELSE:"
 	@echo "  make test        Run ruff + pytest"
-	@echo "  make eval        Run the Tier-0 retrieval-quality gate (see .claude/TIER-GATES.md)"
+	@echo "  make eval        Run the Tier-0 retrieval-quality gate"
 	@echo "  make status      Print a one-line running/ready summary from /status"
-	@echo "  make delta       Run the OAI-PMH nightly delta loop (E11_S02; see docs/ops/delta-loop.md)"
-	@echo "  make re-embed    Run the partial re-embed driver (E11_S03; see docs/ops/re-embed-runbook.md)"
+	@echo "  make delta       Run the OAI-PMH nightly delta loop"
+	@echo "  make re-embed    Run the partial re-embed driver"
 	@echo "  make re-embed-all Re-embed every LanceDB dataset (shared + notebook-scoped; embedder-truncation-m1)"
 	@echo "  make ingest-recover-preambles  Back-fill raw .tex + preamble.json for ar5iv-only papers (notebook-preamble-recovery-m1)"
 	@echo "                                 NOTE: triggers chunk_id rotation; follow with make re-embed-all"
-	@echo "  make watchdog    Run the drift watchdog against staging (E11_S04; see docs/ops/drift-watchdog.md)"
-	@echo "  make cutover     Activate the staging corpus as the new active (E11_S05; see docs/ops/cutover-runbook.md)"
+	@echo "  make watchdog    Run the drift watchdog against staging"
+	@echo "  make cutover     Activate the staging corpus as the new active"
 	@echo "  make notebook-cutover       Promote notebook lancedb-staging -> lancedb (notebook-cutover-m1)"
 	@echo "                              DEFAULT: ALL promotable notebooks; scope with ARGS='--notebook=<slug>'."
 	@echo "                              Rollback: ARGS='--rollback --notebook=<slug>' (single-level). MEASURE first;"
 	@echo "                              RESTART the server after (it holds an open handle on the old inode)."
-	@echo "  make daily-report           Scrape /metrics and write the daily ops report (E14_S04; see docs/ops/daily-ops-cadence.md)"
-	@echo "  make parser-failures-report Roll up parser-failures/*.{log,jsonl} into the weekly review (E14_S04; see docs/ops/parser-failure-review.md)"
-	@echo "  make sbom        Generate CycloneDX SBOMs + grype scan (E13_S06; see .claude/docs/security-threat-6-audit.md)"
+	@echo "  make daily-report           Scrape /metrics and write the daily ops report"
+	@echo "  make parser-failures-report Roll up parser-failures/*.{log,jsonl} into the weekly review"
+	@echo "  make sbom        Generate CycloneDX SBOMs + grype scan (into var/sbom/)"
 	@echo "  make refresh-arxiv-ca       Re-download infra/ca/arxiv-ca-bundle.pem and verify against live arxiv hosts (E13_S07c)"
 	@echo "  make wheel-check            Build the wheel, install it into a throwaway venv, assert ops/ + server/frontend/ + console scripts (issue #206; ~10s)"
 	@echo "  make wheel-check-full       Same, but an isolated venv with the REAL deps + an ARXMCP_BOOTSTRAP_MODE=1 boot polled at /healthz. Pre-publish gate (~4 min warm)"
@@ -531,9 +536,8 @@ sbom:
 	@#   - grype           (unless ``--no-scan`` is passed via ARGS)
 	@#   - syft + docker   (unless ``--skip-image`` is passed)
 	@#
-	@# Outputs land under .claude/docs/security/sbom/ by default; the
-	@# directory is gitignored to keep raw SBOM JSON out of the repo
-	@# (multi-MB; reconsider at release-tag time per the audit doc).
+	@# Outputs land under var/sbom/ by default, inside the gitignored
+	@# data tree: raw SBOM JSON is multi-MB and regenerated per run.
 	@#
 	@# Examples:
 	@#   make sbom                          # full run (Python + image)

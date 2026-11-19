@@ -38,7 +38,6 @@ a regression-suite grep target.
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
@@ -340,36 +339,3 @@ class TestUnsafeBindWarnLogContent:
             f"unsafe_network_bind=False must NOT emit the warn; "
             f"got: {[r.getMessage() for r in warns]}"
         )
-
-
-# ===========================================================================
-# Audit-doc cross-reference — the doc must mention this regression file
-# ===========================================================================
-
-
-class TestBindRegressionDocReference:
-    """The audit doc ``.claude/docs/security-binding.md`` was
-    shipped by E13_S05 and is updated by E13_S09 with a cross-
-    reference table pointing at this file. A future docs-only
-    refactor that drops the cross-reference would fire this test
-    loudly so the audit chain stays intact.
-    """
-
-    def test_audit_doc_exists_and_references_this_file(self):
-        repo_root = Path(__file__).resolve().parents[2]
-        audit = repo_root / ".claude" / "docs" / "security-binding.md"
-        assert audit.is_file(), f"audit doc missing at {audit}"
-        body = audit.read_text(encoding="utf-8")
-        # The doc must reference this regression-test file by name
-        # so an auditor can navigate from the doc to the tests.
-        assert "test_bind_regression.py" in body, (
-            "E13_S09 audit doc must cross-reference this regression "
-            "test file by name in .claude/docs/security-binding.md"
-        )
-        # The doc must clarify the exception type so a future
-        # implementer doesn't introduce a spurious ``ConfigError``
-        # class.
-        assert "ValidationError" in body
-        # The doc must surface the env-var names.
-        assert "ARXMCP_BIND_HOST" in body
-        assert "ARXMCP_UNSAFE_NETWORK_BIND" in body

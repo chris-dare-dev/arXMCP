@@ -19,8 +19,7 @@ table in this repo had ever listed. The old table covered 12 token-on-ground
 cells; this one covers every pair the stylesheet renders. **Do not restate
 that count in prose here** — it was typed as "67" while the registry had
 grown to 91 by the time ui-uplift-m10 opened this file, in the module whose
-thesis is that hand-typed numbers rot. The live figure is generated into the
-published artifact's Headline by :func:`render_headline`.
+thesis is that hand-typed numbers rot.
 
 Floors: **4.5:1** for text (SC 1.4.3) and **3:1** for non-text UI boundaries
 and graphical objects (SC 1.4.11).
@@ -49,17 +48,11 @@ no longer exists is the registry rotting in place, and its site string is
 what ships into the published artifact. m8 also adds the rule ladder's three
 rungs; the two tinted ones are the registry's first ``EXEMPT`` rows that are
 exempt by DESIGN rather than by mechanism, so read their justifications.
-
-Running this module directly regenerates ``.claude/docs/ui-contrast-table.md``:
-
-    python -m tests.test_ui_contrast --update
 """
 
 from __future__ import annotations
 
 import re
-import sys
-from pathlib import Path
 
 import pytest
 
@@ -73,10 +66,6 @@ from tests._ui_color import (
     load_tokens,
     mix_oklab,
 )
-
-TABLE_DOC: Path = REPO_ROOT / ".claude" / "docs" / "ui-contrast-table.md"
-BEGIN_MARK = "<!-- BEGIN GENERATED CONTRAST TABLE -->"
-END_MARK = "<!-- END GENERATED CONTRAST TABLE -->"
 
 LIGHT, DARK = load_tokens()
 
@@ -774,271 +763,6 @@ def test_favicon_tracks_light_accent() -> None:
 # ---------------------------------------------------------------------------
 # The published artifact
 # ---------------------------------------------------------------------------
-def render_table() -> str:
-    lines = [
-        "| # | Mode | Site / selector | Foreground | Background | Ratio | Floor | SC | Verdict |",
-        "|---|---|---|---|---|---|---|---|---|",
-    ]
-    for i, (mode, site, fg, bg, ratio, floor, ok) in enumerate(_rows(), start=1):
-        if floor == EXEMPT:
-            sc, floor_cell, verdict = "exempt", "—", "EXEMPT"
-        else:
-            # ui-uplift-m7: was `"1.4.3" if floor == TEXT else
-            # "1.4.11 / large text"`. With LARGE gone, every non-TEXT floor
-            # is SC 1.4.11 and nothing else, so the label says so plainly
-            # instead of offering the reader a criterion no row uses.
-            sc = "1.4.3" if floor == TEXT else "1.4.11"
-            floor_cell = f"{floor}:1"
-            verdict = "PASS" if ok else "FAIL"
-        lines.append(
-            f"| {i} | {mode} | {site} | `{fg}` | `{bg}` | **{ratio:.3f}:1** | "
-            f"{floor_cell} | {sc} | {verdict} |"
-        )
-    return "\n".join(lines)
-
-
-def render_roles_table() -> str:
-    """AC#3's five roles, generated (critique H2).
-
-    This table was hand-typed and outside the generated markers; nine of its
-    twelve ratio cells disagreed with what the milestone's own code computes,
-    several of them digit transpositions (6.583 vs 6.553, 7.199 vs 7.190) —
-    the classic hand-typing tell, inside the artifact written to end exactly
-    that failure mode.
-    """
-    light = {label: r for label, r, _f in _accent_role_checks("light")}
-    dark = {label: r for label, r, _f in _accent_role_checks("dark")}
-    _flash = "`@keyframes badge-flash`"
-    sites = [
-        ("1 · button ground", "`button, .button`",
-         "role 1 button ground vs its own text"),
-        ("1b · hover ground", "`button:hover`",
-         "role 1b :hover ground vs its own text"),
-        ("2 · focus ring vs `--bg`", "`:focus-visible`",
-         "role 2 focus ring vs --bg"),
-        ("2 · focus ring vs `--card-bg`", "`:focus-visible`",
-         "role 2 focus ring vs --card-bg"),
-        ("3 · link", "`.breadcrumb a`", "role 3 link vs --bg"),
-        ("4 · skip-link ground", "`.skip-link:focus-visible`",
-         "role 4 skip-link ground vs its own text"),
-        ("5 · badge-flash border vs `--bg`", _flash,
-         "role 5 badge-flash border vs --bg"),
-        ("5 · badge-flash border vs `--card-bg`", _flash,
-         "role 5 badge-flash border vs --card-bg"),
-    ]
-    lines = ["| Role | Site | Light | Dark |", "|---|---|---|---|"]
-    for role, site, key in sites:
-        lines.append(f"| {role} | {site} | {light[key]:.3f}:1 | {dark[key]:.3f}:1 |")
-    return "\n".join(lines)
-
-
-def render_headline() -> str:
-    """The Headline block, generated (critique M4).
-
-    It hand-typed "68 (34 light, 34 dark)" when the split was 36/32, on the
-    first page of a document whose thesis is that hand-typed numbers are how
-    three AA failures shipped.
-    """
-    rows = _rows()
-    gated = [r for r in rows if r[5] != EXEMPT]
-    exempt = [r for r in rows if r[5] == EXEMPT]
-    light_n = sum(1 for r in rows if r[0] == "light")
-    failures = [r for r in gated if not r[6]]
-    tightest = min(gated, key=lambda r: r[4])
-    text_rows = [r for r in gated if r[5] == TEXT]
-    tightest_text = min(text_rows, key=lambda r: r[4])
-    return "\n".join([
-        "| | |",
-        "|---|---|",
-        f"| Pairs measured | **{len(rows)}** ({light_n} light, "
-        f"{len(rows) - light_n} dark) |",
-        f"| Of those, gated / exempt | **{len(gated)}** gated, "
-        f"**{len(exempt)}** exempt (each with its reason in the Site column) |",
-        f"| Failures | **{len(failures)}** |",
-        f"| Tightest gated pair | {tightest[0]} `{tightest[1]}` — "
-        f"**{tightest[4]:.3f}:1** against a {tightest[5]}:1 floor |",
-        f"| Tightest gated text pair | {tightest_text[0]} `{tightest_text[1]}` — "
-        f"**{tightest_text[4]:.3f}:1** against 4.5:1 |",
-    ])
-
-
-#: The four `.status-badge--*` modifiers as (mode, name, fg, bg), derived from
-#: the same literals the pair registry uses. Light `--down` is token-sourced
-#: (`--danger` on `--error-bg`) and the other three are v1 literals — which is
-#: exactly how the artifact came to say "all seven pills": counting the literal
-#: rows gives 3 light + 4 dark, and the token-sourced light `--down` was
-#: silently dropped. There are EIGHT rendered variants.
-def _pill_variants() -> list[tuple[str, str, str, str]]:
-    out = [("light", name, fg, bg) for name, bg, fg, _bd in _LIGHT_PILLS]
-    out.append(("light", "down", LIGHT["--danger"], LIGHT["--error-bg"]))
-    out += [("dark", name, fg, bg) for name, bg, fg, _bd in _DARK_PILLS]
-    return out
-
-
-def render_rejected_alternatives() -> str:
-    """The rejected badge-flash alternatives, generated.
-
-    **Why this region exists.** These numbers were prose, and they were
-    allow-listed in ``test_no_ratio_is_typed_outside_a_generated_region`` as
-    "historical ... they describe code that no longer exists, so they cannot
-    drift". That reasoning was wrong twice over: a *rejected* alternative is
-    not historical code, it is a hypothetical recomputed from the CURRENT
-    tokens, so it drifts whenever ``--accent`` or a pill literal moves — and
-    two of the four were simply incorrect when written.
-
-    An external principal-engineer review (2026-08-05) found the inset row
-    published as ``3.044:1-3.902:1`` failing "all seven" pills. The true range
-    is ``3.044:1-4.311:1`` over EIGHT variants: ``3.902:1`` is light ``--ok``,
-    not the maximum, and light ``--down`` was missing from both the range and
-    the count. The rejection still stands — 8 of 8 fail — but a decision
-    record whose arithmetic nobody re-checks is how that survived.
-
-    Three models, and the distinction between them is the whole point:
-
-    - **fill tint** replaces the pill's ``background``, so its text lands on
-      accent-over-the-PAGE-ground. This is what shipped and what m6's rectify
-      removed, and what the 10% variant would have kept.
-    - **inset overlay** paints over the pill's own opaque fill, so the ground
-      is the PILL, not the page. Same alpha, different backdrop, different
-      answer — reading one model's number under the other's name is the error
-      this table makes impossible.
-    """
-    variants = _pill_variants()
-    lines = [
-        "| variant | shipped (`border-color`) | fill tint @10% | fill tint @30% | inset @30% |",
-        "|---|---|---|---|---|",
-    ]
-    cols: dict[str, list[float]] = {"shipped": [], "t10": [], "t30": [], "inset": []}
-    for mode, name, fg, bg in variants:
-        tok = LIGHT if mode == "light" else DARK
-        accent, page = tok["--accent"], tok["--bg"]
-        shipped = contrast_ratio(fg, bg)
-        t10 = contrast_ratio(fg, alpha_over(accent, 0.10, page))
-        t30 = contrast_ratio(fg, alpha_over(accent, 0.30, page))
-        inset = contrast_ratio(fg, alpha_over(accent, 0.30, bg))
-        for key, val in (("shipped", shipped), ("t10", t10),
-                         ("t30", t30), ("inset", inset)):
-            cols[key].append(val)
-        lines.append(
-            f"| {mode} `--{name}` | {shipped:.3f}:1 | {t10:.3f}:1 | "
-            f"{t30:.3f}:1 | {inset:.3f}:1 |"
-        )
-    labels = {
-        "shipped": "shipped (`border-color`)",
-        "t10": "fill tint @10%",
-        "t30": "fill tint @30%",
-        "inset": "inset @30%",
-    }
-    lines.append("")
-    for key, label in labels.items():
-        vals = cols[key]
-        under = sum(1 for v in vals if v < TEXT)
-        lines.append(
-            f"- **{label}**: {min(vals):.3f}:1–{max(vals):.3f}:1, "
-            f"**{under} of {len(vals)}** below {TEXT}:1."
-        )
-    return "\n".join(lines)
-
-
-#: Every generated region in the artifact: marker name -> renderer.
-#: Critique H2/M4: the roles table and the Headline block were BOTH hand-typed
-#: and BOTH outside the single marker pair, so
-#: ``test_published_contrast_table_is_current`` structurally could not see
-#: them — it only ever compared the rows between the CONTRAST TABLE markers.
-GENERATED_REGIONS: dict[str, object] = {
-    "CONTRAST TABLE": render_table,
-    "ROLES TABLE": render_roles_table,
-    "HEADLINE": render_headline,
-    # 2026-08-05: added after an external review found the rejected-alternative
-    # range published with the wrong maximum over the wrong number of pills.
-    # They were prose, allow-listed as un-driftable "historical" values; they
-    # are neither historical nor un-driftable. See render_rejected_alternatives.
-    "REJECTED ALTERNATIVES": render_rejected_alternatives,
-}
-
-
-def _region_re(name: str) -> re.Pattern[str]:
-    return re.compile(
-        rf"<!-- BEGIN GENERATED {re.escape(name)} -->(.*?)"
-        rf"<!-- END GENERATED {re.escape(name)} -->",
-        re.S,
-    )
-
-
-def _extract_generated(doc: str, name: str = "CONTRAST TABLE") -> str:
-    m = _region_re(name).search(doc)
-    if m is None:
-        raise RuntimeError(f"{TABLE_DOC} is missing the GENERATED {name} markers")
-    return m.group(1).strip()
-
-
-@pytest.mark.parametrize("name", sorted(GENERATED_REGIONS))
-def test_published_region_is_current(name: str) -> None:
-    """AC#2: the shipped artifact is generated, not hand-typed. If this
-    fails, run `python -m tests.test_ui_contrast --update`."""
-    doc = TABLE_DOC.read_text(encoding="utf-8")
-    render = GENERATED_REGIONS[name]
-    assert _extract_generated(doc, name) == render().strip(), (  # type: ignore[operator]
-        f"{TABLE_DOC.relative_to(REPO_ROOT).as_posix()} region {name!r} is "
-        f"stale — regenerate with: python -m tests.test_ui_contrast --update"
-    )
-
-
-#: A contrast ratio written as prose. Critique H2: the artifact claimed
-#: "Ratios are computed, never typed" while carrying twelve typed ones, nine
-#: of them wrong.
-_TYPED_RATIO_RE = re.compile(r"\d+\.\d{2,3}:1")
-
-
-def test_no_ratio_is_typed_outside_a_generated_region() -> None:
-    """The artifact's own central claim, enforced instead of asserted.
-
-    Historical ratios (the before-values this milestone closed) are the one
-    legitimate typed number — they describe code that no longer exists, so
-    they cannot drift. They live in the narrative sections and are allow-
-    listed here explicitly.
-    """
-    doc = TABLE_DOC.read_text(encoding="utf-8")
-    for name in GENERATED_REGIONS:
-        doc = _region_re(name).sub("", doc)
-    historical = {
-        # Before-values this milestone closed, or measurements of code that
-        # no longer exists. None can drift: the code they describe is gone.
-        "1.342:1", "2.526:1", "4.974:1", "21.000:1", "2.414:1", "4.478:1",
-        "1.062:1", "5.025:1",
-        # 2026-08-05: the rejected-alternative measurements USED to be
-        # allow-listed here on the reasoning that they "describe code that no
-        # longer exists, so they cannot drift". That was wrong — a rejected
-        # alternative is a hypothetical recomputed from the LIVE tokens, and
-        # it moves whenever --accent or a pill literal moves. It also let two
-        # incorrect figures sit unchecked through two milestones. They are now
-        # generated (region "REJECTED ALTERNATIVES"), and `4.542:1` left this
-        # list entirely because the generated table is its only home.
-        #
-        # What remains here are QUOTATIONS, not measurements:
-        "3.044:1",  # the published range's low end — correct, and quoted as
-        "3.902:1",  # such alongside the wrong high end it was paired with
-        # A genuine historical value: dark --down's text over accent@30%
-        # composited on --card-bg, the ground it had before ui-uplift-m8
-        # deleted .card. Against today's --bg ground the same model gives a
-        # different number, which is precisely why it needed this note.
-        "3.095:1",
-    }
-    targets = {
-        # The "Solved for" column of the token family table. These are design
-        # INPUTS — the target each token was binary-searched against — not
-        # measurements of anything, so they cannot be generated from the
-        # result. Written with 2 decimals precisely to read as targets.
-        # ui-uplift-m10 adds --fg-muted's 7.00:1 (SC 1.4.6 / AAA, both modes).
-        "3.30:1", "3.35:1", "5.30:1", "5.60:1", "6.20:1", "6.60:1", "7.00:1",
-    }
-    typed = {m for m in _TYPED_RATIO_RE.findall(doc)} - historical - targets
-    assert not typed, (
-        f"{TABLE_DOC.name} types the ratio(s) {sorted(typed)} outside a "
-        f"generated region. Either move the number into a generated region "
-        f"or, if it is a historical before-value that can never drift, add "
-        f"it to the allow-list in this test with a note."
-    )
 
 
 def test_table_covers_more_than_the_legacy_token_grid() -> None:
@@ -1068,35 +792,3 @@ def test_every_faded_css_rule_has_a_registry_row() -> None:
             f"composite over the page, so its real contrast is unmeasured."
         )
 
-
-def _update() -> None:
-    doc = TABLE_DOC.read_text(encoding="utf-8")
-    for name, render in GENERATED_REGIONS.items():
-        body = render()  # type: ignore[operator]
-        doc, count = _region_re(name).subn(
-            lambda _m, _n=name, _b=body: (
-                f"<!-- BEGIN GENERATED {_n} -->\n\n{_b}\n\n"
-                f"<!-- END GENERATED {_n} -->"
-            ),
-            doc,
-        )
-        # Fail loudly rather than writing the file back unchanged — a silent
-        # no-match here would leave a stale table looking freshly generated.
-        if count != 1:
-            raise RuntimeError(
-                f"expected exactly 1 GENERATED {name} region in {TABLE_DOC}, "
-                f"found {count}"
-            )
-    new = doc
-    # newline="\n" explicitly: the default translates to os.linesep on
-    # write, so regenerating on Windows vs POSIX would churn every line of
-    # a checked-in artifact.
-    TABLE_DOC.write_text(new, encoding="utf-8", newline="\n")
-    print(f"wrote {len(PAIRS)} pairs to {TABLE_DOC}")
-
-
-if __name__ == "__main__":
-    if "--update" in sys.argv:
-        _update()
-    else:
-        print(render_table())

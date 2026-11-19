@@ -86,8 +86,6 @@ directory at test-collection time:
   classes) → promotion gate fires; parser must score mean CDM
   ≥ 0.85 to promote.
 
-The cold-start matrix is documented in `.claude/TIER-GATES.md`.
-
 ---
 
 ## Attribution
@@ -155,7 +153,3 @@ LaTeXML-eligible classes use.
 
 - `tools/cdm_eval.py` — CDM impl
 - `tests/eval/test_parser_fidelity.py` — pytest harness
-- `.claude/TIER-GATES.md` — promotion gate definition
-- `.claude/docs/security-cdm-sandbox.md` — subprocess sandbox doc
-- `.claude/notes/milestones/parser-fidelity-eval-m1/` — milestone state
-- `.claude/notes/capability-scouts/pdf-ingest-2026/artifacts/final-report.md` — RICE ranking + sequencing rationale

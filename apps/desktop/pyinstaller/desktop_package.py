@@ -1018,11 +1018,20 @@ _TAURI_SIGNING_ENV: tuple[str, ...] = (
 )
 
 
+#: The macOS floor the Rust binaries declare as `minos`. faiss_cpu ships only
+#: a macosx_14_0_arm64 wheel, so nothing older can run the bundle. Must equal
+#: tauri.conf.json's `minimumSystemVersion` and the Makefile's
+#: DESKTOP_MACOS_FLOOR.
+MACOS_DEPLOYMENT_TARGET = "14.0"
+
+
 def _tauri_build_env() -> dict[str, str]:
     """The environment `tauri build` runs under: ours, minus every knob that
-    would let it sign or notarize on its own (see :data:`_TAURI_SIGNING_ENV`).
+    would let it sign or notarize on its own (see :data:`_TAURI_SIGNING_ENV`),
+    with the deployment target forced so an ambient value cannot lower it.
     """
     env = {k: v for k, v in os.environ.items() if k not in _TAURI_SIGNING_ENV}
+    env["MACOSX_DEPLOYMENT_TARGET"] = MACOS_DEPLOYMENT_TARGET
     return env
 
 
@@ -1030,9 +1039,8 @@ def build_app_shell(root: Path = DEFAULT_ROOT) -> Path:
     """Run Tauri's bundler to produce the `.app` SHELL.
 
     Run from the supervisor crate directory, which is where `tauri.conf.json`
-    lives; the repo-root `.cargo/config.toml` deployment-target pin is still
-    discovered, because cargo walks up from the CWD and the crate is inside
-    the repo. `tests/test_desktop_bundle.py` re-reads `minos` off the bundled
+    lives; the deployment target comes from :func:`_tauri_build_env`.
+    `tests/test_desktop_bundle.py` re-reads `minos` off the bundled
     binary rather than trusting that sentence.
     """
     cli = ensure_tauri_cli(root)

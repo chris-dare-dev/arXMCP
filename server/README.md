@@ -53,7 +53,7 @@ sub-agents.
 
 ## Design references
 
-- [`.claude/notes/02-architecture-overview.md`](../.claude/notes/02-architecture-overview.md)
-- [`.claude/notes/06-mcp-server-design.md`](../.claude/notes/06-mcp-server-design.md) (the source of every MUST in this directory)
-- [`.claude/notes/07-multi-agent-caching.md`](../.claude/notes/07-multi-agent-caching.md) (the singleflight reference implementation)
-- [`.claude/notes/08-security-observability-ops.md`](../.claude/notes/08-security-observability-ops.md) (Threats 1–6, the bind-host AC)
+- [`.claude/notes/02-architecture-overview.md`](https://github.com/chris-dare-dev/arXMCP/blob/433ba41ba8710be74d6f99c627dce7d3b5383fca/.claude/notes/02-architecture-overview.md)
+- [`.claude/notes/06-mcp-server-design.md`](https://github.com/chris-dare-dev/arXMCP/blob/433ba41ba8710be74d6f99c627dce7d3b5383fca/.claude/notes/06-mcp-server-design.md) (the source of every MUST in this directory)
+- [`.claude/notes/07-multi-agent-caching.md`](https://github.com/chris-dare-dev/arXMCP/blob/433ba41ba8710be74d6f99c627dce7d3b5383fca/.claude/notes/07-multi-agent-caching.md) (the singleflight reference implementation)
+- [`.claude/notes/08-security-observability-ops.md`](https://github.com/chris-dare-dev/arXMCP/blob/433ba41ba8710be74d6f99c627dce7d3b5383fca/.claude/notes/08-security-observability-ops.md) (Threats 1–6, the bind-host AC)

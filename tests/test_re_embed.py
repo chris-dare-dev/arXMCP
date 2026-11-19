@@ -690,51 +690,6 @@ class TestPaperIdValidation:
 
 
 # ---------------------------------------------------------------------------
-# Runbook content (AC3 + AC4)
-# ---------------------------------------------------------------------------
-
-
-class TestRunbookContent:
-    runbook = (
-        Path(__file__).resolve().parent.parent
-        / "docs" / "ops" / "re-embed-runbook.md"
-    )
-
-    def test_runbook_exists(self):
-        assert self.runbook.is_file(), f"runbook missing at {self.runbook}"
-
-    def test_warns_against_mixing_spaces(self):
-        """Closes AC4."""
-        text = self.runbook.read_text(encoding="utf-8")
-        # Must mention the danger explicitly.
-        assert (
-            "mixing embedding spaces" in text.lower()
-            or "mix embedding spaces" in text.lower()
-        ), "runbook must call out the embedding-space mixing risk"
-        # Must mention the column or concept by name.
-        assert (
-            "embedder_version" in text or "embedding_space" in text
-        )
-
-    def test_gpu_hours_table_present(self):
-        """Closes AC3 — runbook covers all four scenarios with ranges."""
-        text = self.runbook.read_text(encoding="utf-8")
-        # All four scenarios named.
-        assert "model swap" in text.lower() or "embedder model swap" in text.lower()
-        assert "chunker logic" in text.lower()
-        assert "macro normalizer" in text.lower() or "macro-normalizer" in text.lower()
-        assert "ar5iv" in text.lower()
-        # A GPU-hours range table is present.
-        assert "chunks/sec" in text or "c/s" in text
-
-    def test_runbook_warns_against_advancing_active_marker(self):
-        text = self.runbook.read_text(encoding="utf-8")
-        # The staging-vs-active discipline must be explicit.
-        assert "corpus-version.json" in text
-        assert "staging" in text.lower()
-
-
-# ---------------------------------------------------------------------------
 # Makefile target
 # ---------------------------------------------------------------------------
 
@@ -1065,40 +1020,6 @@ class TestMakefileReEmbedArgsNote:
         # 30 lines should be enough to cover the comment block.
         block = "\n".join(text[block_start:].splitlines()[:30])
         assert "spaces" in block.lower() or "NOTE on ARGS" in block
-
-
-# ---------------------------------------------------------------------------
-# IS2 — Runbook warns about concurrent invocations
-# IS3 — Runbook says no automated scheduling
-# ---------------------------------------------------------------------------
-
-
-class TestRunbookOperatorWarnings:
-    runbook = (
-        Path(__file__).resolve().parent.parent
-        / "docs" / "ops" / "re-embed-runbook.md"
-    )
-
-    def test_warns_about_concurrent_invocations(self):
-        """Closes IS2."""
-        text = self.runbook.read_text(encoding="utf-8")
-        lower = text.lower()
-        assert (
-            "concurrent" in lower
-            or "single instance" in lower
-            or "two operators" in lower
-        ), "runbook must warn against concurrent make re-embed runs"
-
-    def test_declares_no_automated_scheduling(self):
-        """Closes IS3."""
-        text = self.runbook.read_text(encoding="utf-8")
-        lower = text.lower()
-        assert (
-            "human-initiated" in lower
-            or "no cron" in lower
-            or "no automated scheduling" in lower
-            or "no scheduled" in lower
-        ), "runbook must explicitly declare absence of cron/systemd"
 
 
 # ---------------------------------------------------------------------------

@@ -448,7 +448,6 @@ class TestUnsafeNetworkBindEscapeHatch:
         pins the delegation so the two entry points cannot diverge and
         leave one of them silently un-warned.
         """
-        from pathlib import Path
 
         source = Path(__file__).parent.parent.parent / "server" / "cli.py"
         text = source.read_text(encoding="utf-8")
@@ -467,7 +466,6 @@ class TestUnsafeNetworkBindEscapeHatch:
         copy. This asserts ``server/main.py``'s ``__main__`` block
         delegates rather than carrying its own duplicate.
         """
-        from pathlib import Path
 
         source = Path(__file__).parent.parent.parent / "server" / "main.py"
         text = source.read_text(encoding="utf-8")
@@ -570,42 +568,6 @@ class TestAllowedHostsEnvVarWiring:
         )
         response = client.get("/healthz", headers={"Host": "127.0.0.1"})
         assert response.status_code != 421
-
-
-# ===========================================================================
-# AC5 reframe: design note documents loopback port mapping
-# ===========================================================================
-
-
-class TestDesignNoteDocumentsLoopbackBinding:
-    """The brief's AC5 says ``Docker compose ports: maps
-    127.0.0.1:7733:7733``. No main docker-compose.yml exists
-    at v1 (E14 owns it). Reframe: verify the design note at
-    ``.claude/notes/08-security-observability-ops.md`` documents
-    this binding pattern, so future operators reading the note
-    have the canonical guidance.
-    """
-
-    SECURITY_NOTE = (
-        Path(__file__).parent.parent.parent
-        / ".claude" / "notes" / "08-security-observability-ops.md"
-    )
-
-    def test_security_note_documents_loopback_port_mapping(self):
-        text = self.SECURITY_NOTE.read_text()
-        # Either the explicit 127.0.0.1:7733:7733 form OR a
-        # general "127.0.0.1:" port-binding pattern is acceptable.
-        # The note shows the recommended docker-compose snippet.
-        assert "127.0.0.1" in text
-        # And references the bind-to-localhost rule explicitly.
-        assert any(
-            phrase in text
-            for phrase in (
-                "127.0.0.1:7733",
-                "binds only to localhost",
-                "127.0.0.1) rather than all",
-            )
-        )
 
 
 # ===========================================================================
