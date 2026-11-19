@@ -1,7 +1,0 @@
-{
-  "schema_version": 1,
-  "source_remote": "git@github.com:chris-dare-dev/arXMCP.git",
-  "render_remote_prefixes": [],
-  "artifact_registry_prefixes": [],
-  "artifact_resolver": null
-}
