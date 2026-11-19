@@ -1,6 +1,6 @@
 """Markdown-native textbook chunker (textbook-markdown-chunker-m1).
 
-Chunks MinerU markdown DIRECTLY into :class:`~ingest.chunker_types.ChunkRecord`
+Chunks MinerU markdown DIRECTLY into :class:`~ingest.chunk.ChunkRecord`
 objects, bypassing the ``markdown -> LaTeXML -> HTML -> section-div`` path of
 :func:`ingest.textbook_chunker.chunk_textbook`.
 
@@ -17,7 +17,7 @@ clean and complete (ATX ``#``/``##`` headings, paragraph breaks, ``$...$`` /
 - and produces fine, token-bounded chunks instead of one truncated chunk per section.
 
 The chunk identity / store contract is IDENTICAL to the HTML path: ``chunk_id`` via
-:func:`ingest.textbook_chunker._compute_textbook_chunk_id` (so the m9 ``textbook:``
+:func:`ingest.chunk._compute_textbook_chunk_id` (so the m9 ``textbook:``
 prefix <-> ``source_kind`` invariant + dedup hold), ``source_kind="textbook"``,
 ``preamble_text=""`` (m8 OQ-1: PDF textbooks have no author macros). Only the
 ``chunker_version`` (``tmd0.1``) and ``parser_used`` (``mineru+markdown``) differ, so
@@ -35,13 +35,9 @@ import logging
 import re
 from pathlib import Path
 
+from ingest.chunk import ChunkRecord, _compute_textbook_chunk_id
 from ingest.chunker import PER_PAPER_FAILURE_EXCEPTIONS, _validate_paper_id
-from ingest.chunker_types import ChunkRecord
-from ingest.textbook_chunker import (
-    _compute_textbook_chunk_id,
-    _flat_paper_id,
-    _resolve_notebook_dir,
-)
+from ingest.textbook_chunker import _flat_paper_id, _resolve_notebook_dir
 from ingest.textbook_renderer import _ATX_HEADING_RE
 from ingest.tokenizer import tokenize_body
 from tools._notebook_common import NotebookError
@@ -51,7 +47,7 @@ logger = logging.getLogger(__name__)
 #: Separate lineage from the HTML chunker ("tv0.1" / "mineru+latexml") so a
 #: markdown-chunker change never invalidates arXiv or HTML-textbook chunks.
 TEXTBOOK_MD_CHUNKER_VERSION = "tmd0.1"
-#: MUST be present in ``ingest.store._ALLOWED_PARSER_USED`` or write_chunks raises.
+#: MUST be present in ``ingest.chunk.ALLOWED_PARSER_USED`` or write_chunks raises.
 TEXTBOOK_MD_PARSER_USED = "mineru+markdown"
 
 #: Soft target / hard ceiling (in whitespace tokens) for a chunk. The target is

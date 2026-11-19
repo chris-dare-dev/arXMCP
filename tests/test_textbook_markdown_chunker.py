@@ -6,7 +6,7 @@ fixture strings — no MinerU, no LaTeXML, no file IO.
 
 from __future__ import annotations
 
-from ingest.store import _ALLOWED_PARSER_USED
+from ingest.chunk import ALLOWED_PARSER_USED
 from ingest.textbook_markdown_chunker import (
     _MAX_TOKENS,
     TEXTBOOK_MD_CHUNKER_VERSION,
@@ -26,7 +26,7 @@ def _chunk(md: str):
 class TestStampingAndIdentity:
     def test_store_allows_mineru_markdown_parser(self) -> None:
         # Without this the LanceDB write raises ValueError on every chunk.
-        assert TEXTBOOK_MD_PARSER_USED in _ALLOWED_PARSER_USED
+        assert TEXTBOOK_MD_PARSER_USED in ALLOWED_PARSER_USED
         assert TEXTBOOK_MD_PARSER_USED == "mineru+markdown"
 
     def test_fields_stamped(self) -> None:

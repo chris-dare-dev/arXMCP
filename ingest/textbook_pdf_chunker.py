@@ -5,9 +5,9 @@ from __future__ import annotations
 import re
 import subprocess
 
+from ingest.chunk import ChunkRecord, _compute_textbook_chunk_id
 from ingest.chunker import STMT_MAX_TOKENS, _validate_paper_id, _window_text_spans
-from ingest.chunker_types import ChunkRecord
-from ingest.textbook_chunker import _compute_textbook_chunk_id, _resolve_notebook_dir
+from ingest.textbook_chunker import _resolve_notebook_dir
 from ingest.tokenizer import tokenize_body
 
 _LABEL = re.compile(

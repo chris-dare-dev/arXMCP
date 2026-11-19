@@ -44,8 +44,8 @@ from unittest.mock import patch
 
 import pytest
 
+from ingest.chunk import CHUNKER_VERSION
 from ingest.chunker import _compute_chunk_id, chunk_paper
-from ingest.chunker_types import CHUNKER_VERSION
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures" / "chunker"
 
@@ -212,7 +212,7 @@ class TestChunkerVersionConstant:
     def test_dataclass_default_uses_constant(self):
         # Construct without explicit chunker_version arg — default flows
         # from CHUNKER_VERSION.
-        from ingest.chunker_types import ChunkRecord
+        from ingest.chunk import ChunkRecord
         rec = ChunkRecord(
             chunk_id="test",
             paper_id="2307.00001",
@@ -349,7 +349,7 @@ class TestSingleVersionDefinition:
         # Closes F4: broadened from a 2-file scan to the entire ingest/
         # package, and to BOTH "vX.Y" and 'vX.Y' quote forms. The scan
         # exempts the canonical assignments:
-        #   chunker_types.py: CHUNKER_VERSION = "<current>"
+        #   chunk.py:         CHUNKER_VERSION = "<current>"
         #   tokenizer.py:     TOKENIZER_VERSION = "<current>"
         # CHUNKER_VERSION and TOKENIZER_VERSION track independent
         # invariants (chunking strategy vs tokenizer regex). The test
@@ -358,12 +358,12 @@ class TestSingleVersionDefinition:
         # doesn't require touching this test's allowed-count map.
         # Future modules that hard-code either literal instead of
         # importing the relevant constant will fail this check.
-        from ingest.chunker_types import CHUNKER_VERSION
+        from ingest.chunk import CHUNKER_VERSION
         from ingest.tokenizer import TOKENIZER_VERSION
 
         ingest_dir = Path(__file__).parent.parent / "ingest"
         canonical_literals = {
-            "chunker_types.py": CHUNKER_VERSION,
+            "chunk.py": CHUNKER_VERSION,
             "tokenizer.py": TOKENIZER_VERSION,
         }
         # The literals we forbid outside their canonical home.
@@ -382,7 +382,7 @@ class TestSingleVersionDefinition:
                         f"{py_file.name}: has {total} occurrence(s) of "
                         f"{lit!r} literal (allowed: {allowed}). Import "
                         "the relevant *_VERSION constant from "
-                        "chunker_types or tokenizer."
+                        "ingest.chunk or tokenizer."
                     )
         assert not violations, (
             "single-source-of-truth violation:\n  " + "\n  ".join(violations)

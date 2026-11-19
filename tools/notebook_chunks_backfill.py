@@ -102,18 +102,17 @@ from bs4 import BeautifulSoup, Tag
 # no embedder at module load (its tokenizer + BGE_M3_COMMIT_SHA imports are
 # function-local in ``_get_tokenizer``), so this import keeps the driver's
 # 0-re-embed guarantee structural.
+from ingest.chunk import ChunkRecord, _compute_chunk_id
 from ingest.chunker import (
     _THEOREM_CLASS_RE,
     PER_PAPER_FAILURE_EXCEPTIONS,
     STMT_MAX_TOKENS,
-    _compute_chunk_id,
     _count_tokens,
     _extract_body_fallback_chunks,
     _extract_chunks_from_container,
     _extract_section_chunks,
     _resolve_preamble_doc,
 )
-from ingest.chunker_types import ChunkRecord
 from ingest.tokenizer import tokenize_body
 from server.documents_store import (
     DOCUMENTS_DB_FILENAME,

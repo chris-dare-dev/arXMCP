@@ -212,7 +212,7 @@ def _canonicalize(query_text: str) -> str:
        punctuation. ``\\'etale`` and ``étale`` produce different
        lexical matches."
     2. ``unicodedata.normalize("NFC", ...)`` — BP1 byte-stability across
-       hosts; matches ``ingest.embedder._build_embed_input``.
+       hosts; matches ``ingest.chunk.embedding_input``.
 
     Closes F14 + F15 from the E03_S03 critique: F14 — the LaTeX
     ``\\'etale`` example uses one escape (``\\\\'``) so the docstring

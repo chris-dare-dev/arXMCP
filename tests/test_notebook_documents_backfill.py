@@ -24,7 +24,7 @@ from pathlib import Path
 
 import pytest
 
-from ingest.chunker_types import CHUNKER_VERSION
+from ingest.chunk import CHUNKER_VERSION
 from server.documents_store import (
     DOCUMENTS_DB_FILENAME,
     RAW_SOURCE_STATUS_PRESENT,

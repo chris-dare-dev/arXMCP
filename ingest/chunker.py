@@ -5,7 +5,7 @@ Public API
 chunk_paper(paper_id: str) -> list[ChunkRecord]
     Walk ``var/arxmcp/corpus/parsed/<paper_id>/index.html``, extract all
     theorem, proof, definition, section, and similar environments, and return
-    a list of :class:`~ingest.chunker_types.ChunkRecord` objects.  Output
+    a list of :class:`~ingest.chunk.ChunkRecord` objects.  Output
     JSON files are written to ``var/arxmcp/corpus/chunks/<paper_id>/``.
 
 Token budgets
@@ -31,7 +31,7 @@ corrupt paper does not abort the ingestion loop.
 Determinism (BP1)
 -----------------
 *Output bytes are reproducible.*  Dict keys are sorted before JSON
-serialisation (see :class:`~ingest.chunker_types.ChunkRecord.to_dict`).
+serialisation (see :meth:`~ingest.chunk.ChunkRecord.to_dict`).
 No timestamps, no random content. Chunk IDs are content-addressable
 ``arxiv:<paper_id>:<sha256(preamble_text + NFC(body_text))[:16]>``
 (landed in E02_S04). The hash input uses the NFC-normalised
@@ -45,22 +45,22 @@ across hosts (F3 closure documents this asymmetry).
 
 from __future__ import annotations
 
-import hashlib
 import json
 import logging
 import os
 import re
 import time
-import unicodedata
 import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from bs4 import BeautifulSoup, NavigableString, Tag
 
-# CHUNKER_VERSION lives in chunker_types to avoid a circular import — the
-# dataclass default in ChunkRecord references it directly.
-from ingest.chunker_types import CHUNKER_VERSION, ChunkRecord
+# The record, its version and the chunk-id hash live in ingest.chunk. The id
+# function is imported under its bare name so ``_chunk_paper_impl`` resolves
+# it in this module's namespace (tests patch ``ingest.chunker._compute_chunk_id``
+# and ``TestChunkerVersionFreeze`` pins its source through this re-export).
+from ingest.chunk import CHUNKER_VERSION, ChunkRecord, _compute_chunk_id
 from ingest.tokenizer import tokenize_body
 from server.application_paths import ApplicationPaths
 
@@ -236,7 +236,7 @@ _THEOREM_ENV_KINDS = {
     # Short-form aliases observed in real arXiv papers (math.AG corpus
     # April 2026 — IntroThm/IntroCor/Df/Lm/Rmk style class names from
     # LaTeXML). Without these the fallback would emit raw env_name
-    # which the schema's _ALLOWED_KINDS rejects.
+    # which ingest.chunk.ALLOWED_KINDS rejects.
     "lm": "lemma",
     "df": "definition",
     "rmk": "remark",
@@ -579,7 +579,7 @@ def _env_kind(env_name: str) -> str:
     bulk-ingest crash when papers used custom theorem environments
     not in ``_THEOREM_ENV_KINDS`` (e.g. an author's ``\\newtheorem
     {weirdthm}``) because the resulting chunk's ``kind`` is rejected
-    by ``ingest.store._ALLOWED_KINDS``.
+    by ``ingest.chunk.ALLOWED_KINDS``.
     """
     return _THEOREM_ENV_KINDS.get(env_name.lower(), "stmt")
 
@@ -1499,33 +1499,6 @@ def _resolve_preamble_doc(paper_id: str):
             exc,
         )
         return None
-
-
-def _compute_chunk_id(paper_id: str, preamble_text: str, body_text: str) -> str:
-    """Return ``arxiv:<paper_id>:<sha256(preamble_text + NFC(body_text))[:16]>``.
-
-    The hash input is ``preamble_text + NFC(body_text)`` UTF-8-encoded.
-    ``preamble_text`` is already NFC (preamble.py applies F6's
-    normalization at extraction time); ``body_text`` is NFC-normalised
-    here for the hash but the stored ``chunk.body_text`` is left
-    unchanged. This is the same discipline ``tokenize_body`` uses.
-
-    The 16-hex-char prefix is 64 bits of entropy. At the project's 200K-
-    paper end state (~20M chunks), the birthday-bound collision
-    probability is ≈ 1.1×10⁻⁵ — negligible for a retrieval system, and
-    we additionally fail loudly on any duplicate ``chunk_id`` per paper
-    (see ``_chunk_paper_impl``).
-
-    When the per-paper preamble is missing (extraction failed; F3
-    fallback), ``preamble_text`` is ``""``. The hash then depends only
-    on ``body_text``, which still keeps the chunk_id content-addressable
-    and stable across re-runs of the same paper.
-    """
-    body_normalized = unicodedata.normalize("NFC", body_text)
-    digest = hashlib.sha256(
-        (preamble_text + body_normalized).encode("utf-8")
-    ).hexdigest()[:16]
-    return f"arxiv:{paper_id}:{digest}"
 
 
 def _write_chunk_manifest(

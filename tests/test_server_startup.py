@@ -34,7 +34,7 @@ import pytest
 import uvicorn
 from fastapi.testclient import TestClient
 
-from ingest.chunker_types import CHUNKER_VERSION, ChunkRecord
+from ingest.chunk import CHUNKER_VERSION, ChunkRecord
 from ingest.embedder import EMBEDDER_VERSION, EMBEDDING_DIM
 from ingest.schema import EmbedRecord
 from ingest.store import write_chunks

@@ -44,7 +44,7 @@ because curation is all-or-nothing. This catches accidental
 half-merges of in-progress curation work.
 
 **Single source of truth for ``CHUNKER_VERSION``.** The validator
-imports ``CHUNKER_VERSION`` from :mod:`ingest.chunker_types` rather
+imports ``CHUNKER_VERSION`` from :mod:`ingest.chunk` rather
 than literalizing the version string. The fixture header's ``chunker_version``
 field is the curator's commit; the validator's job is to confirm it
 matches the running chunker. Hardcoding the literal would silently
@@ -79,7 +79,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from ingest.chunker_types import CHUNKER_VERSION  # noqa: E402
+from ingest.chunk import CHUNKER_VERSION  # noqa: E402
 
 #: Default fixture path; the validator is callable with an override path.
 DEFAULT_FIXTURE_PATH = REPO_ROOT / "tests" / "eval" / "fixtures" / "queries.json"
@@ -372,7 +372,7 @@ def _validate_header(data: dict, fixture_path: Path) -> None:
         # chunker constant. A mismatch means chunk_ids are stale.
         raise FixtureValidationError(
             f"fixture {fixture_path}: chunker_version must equal "
-            f"ingest.chunker_types.CHUNKER_VERSION ({CHUNKER_VERSION!r}), "
+            f"ingest.chunk.CHUNKER_VERSION ({CHUNKER_VERSION!r}), "
             f"got {data['chunker_version']!r}. Re-curate the fixture "
             f"or revert the CHUNKER_VERSION bump."
         )

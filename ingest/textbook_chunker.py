@@ -20,7 +20,7 @@ Public API
 
 Design decisions (research-synthesis §"LOAD-BEARING constraints")
 -----------------------------------------------------------------
-1. Does NOT call :func:`ingest.chunker._compute_chunk_id` — that hardcodes
+1. Does NOT call :func:`ingest.chunk._compute_chunk_id` — that hardcodes
    the ``arxiv:`` prefix. Uses :func:`_compute_textbook_chunk_id` which
    emits ``textbook:<slug>:<sha>`` with the SAME hash discipline.
 2. Does NOT call ``_resolve_preamble_doc`` — it resolves the arXiv
@@ -35,7 +35,7 @@ Design decisions (research-synthesis §"LOAD-BEARING constraints")
    ``content_list.json`` page metadata is not propagated through the
    LaTeXML render. Correlating it back is not done.
 5. ``TEXTBOOK_CHUNKER_VERSION`` is SEPARATE from
-   ``chunker_types.CHUNKER_VERSION`` so a textbook-only change never
+   ``ingest.chunk.CHUNKER_VERSION`` so a textbook-only change never
    forces arXiv corpus re-embedding.
 6. Writes chunk JSONs only — NOT LanceDB. Embedding/LanceDB-write is a
    downstream step (matches ``chunk_paper``'s contract); this keeps the
@@ -44,17 +44,16 @@ Design decisions (research-synthesis §"LOAD-BEARING constraints")
 
 from __future__ import annotations
 
-import hashlib
 import json
 import logging
 import os
 import time
-import unicodedata
 import uuid
 from pathlib import Path
 
 from bs4 import BeautifulSoup, Tag
 
+from ingest.chunk import ChunkRecord, _compute_textbook_chunk_id
 from ingest.chunker import (
     PER_PAPER_FAILURE_EXCEPTIONS,
     _extract_chunks_from_container,
@@ -63,7 +62,6 @@ from ingest.chunker import (
     _sanitize_log_field,
     _validate_paper_id,
 )
-from ingest.chunker_types import ChunkRecord
 from ingest.tokenizer import tokenize_body
 from server.application_paths import ApplicationPaths
 from tools._notebook_common import NotebookError, notebook_dir
@@ -77,7 +75,7 @@ logger = logging.getLogger(__name__)
 REPO_ROOT = Path(__file__).resolve().parent.parent
 NOTEBOOKS_BASE = ApplicationPaths.resolve().notebooks
 
-#: Deliberately SEPARATE from ``chunker_types.CHUNKER_VERSION`` (the arXiv
+#: Deliberately SEPARATE from ``ingest.chunk.CHUNKER_VERSION`` (the arXiv
 #: chunker version): a textbook-chunker change must NOT trigger arXiv
 #: corpus re-embedding. The ``tv`` prefix marks textbook chunks distinctly;
 #: ``0.1`` is the v0 cut (book/chapter/section only — no definition/
@@ -130,29 +128,6 @@ def _textbook_chunks_dir(nb_dir: Path, paper_id: str) -> Path:
 def _textbook_chunk_log_path(nb_dir: Path) -> Path:
     """Per-notebook chunk-failure log (analogous to corpus chunk.log)."""
     return nb_dir / "ops" / "chunk-failures.log"
-
-
-# ---------------------------------------------------------------------------
-# Chunk-id (textbook prefix — NOT the arxiv: hardcode in chunker.py)
-# ---------------------------------------------------------------------------
-
-
-def _compute_textbook_chunk_id(
-    slug: str, preamble_text: str, body_text: str
-) -> str:
-    """Return ``textbook:<slug>:<sha256(preamble_text + NFC(body_text))[:16]>``.
-
-    Identical hash discipline to
-    :func:`ingest.chunker._compute_chunk_id` (NFC-normalize body, UTF-8
-    encode, 16-hex prefix) but emits the ``textbook:`` prefix so the
-    id round-trips through ``ingest.identifiers.CHUNK_ID_PATTERN``. The
-    arXiv helper hardcodes ``arxiv:`` and cannot be reused directly.
-    """
-    body_normalized = unicodedata.normalize("NFC", body_text)
-    digest = hashlib.sha256(
-        (preamble_text + body_normalized).encode("utf-8")
-    ).hexdigest()[:16]
-    return f"textbook:{slug}:{digest}"
 
 
 # ---------------------------------------------------------------------------

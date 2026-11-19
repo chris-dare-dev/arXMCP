@@ -49,6 +49,7 @@ def _fixture_html(paper_id: str) -> str:
 # Import chunker internals for unit-level tests
 # ---------------------------------------------------------------------------
 
+from ingest.chunk import ChunkRecord  # noqa: E402
 from ingest.chunker import (  # noqa: E402
     PROOF_MAX_TOKENS,
     PROOF_WINDOW_OVERLAP,
@@ -67,7 +68,6 @@ from ingest.chunker import (  # noqa: E402
     _window_proof_text,
     chunk_paper,
 )
-from ingest.chunker_types import ChunkRecord  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Utility: run _extract_chunks_from_container on raw HTML string
@@ -1221,7 +1221,7 @@ class TestB2BudgetBumpTakesEffect:
         chunk = stmt_chunks[0]
 
         # AC clause (a): chunker_version is "v1.2".
-        from ingest.chunker_types import CHUNKER_VERSION
+        from ingest.chunk import CHUNKER_VERSION
         assert chunk.chunker_version == "v1.2"
         assert chunk.chunker_version == CHUNKER_VERSION
 
@@ -1734,7 +1734,7 @@ class TestFixtureSuite:
         # produced 10 redundant failure reports for one underlying issue
         # on a CHUNKER_VERSION bump. One assertion now reports the full
         # mismatch list and exits.
-        from ingest.chunker_types import CHUNKER_VERSION
+        from ingest.chunk import CHUNKER_VERSION
         mismatches = []
         for paper_id in _FIXTURE_SUITE_IDS:
             expected = _load_expected_fixture(paper_id)

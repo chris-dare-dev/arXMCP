@@ -35,8 +35,8 @@ import numpy as np
 import pyarrow as pa
 import pytest
 
+from ingest.chunk import ChunkRecord
 from ingest.chunker import chunk_paper
-from ingest.chunker_types import ChunkRecord
 from ingest.embedder import EMBEDDER_VERSION, EMBEDDING_DIM
 from ingest.preamble_types import PreambleDoc
 from ingest.schema import CHUNKS_SCHEMA_V1, EmbedRecord
@@ -640,7 +640,7 @@ class TestRealPreambleRoundTrip:
 
 
 # ---------------------------------------------------------------------------
-# M2 — the driver's own add_columns -> hydrate composition (21 -> 26 cols)
+# M2 — the driver's own add_columns -> hydrate composition (pre-v2 -> v2 cols)
 # ---------------------------------------------------------------------------
 
 
@@ -658,27 +658,38 @@ _POST_V2_COLUMNS = frozenset(
         "source_end",
     }
 )
+# The columns a pre-v2 table carries: the E04_S01 and textbook-ingest-m2 ones.
+_PRE_V2_COLUMNS = frozenset(
+    {
+        "chunk_id", "paper_id", "kind", "section_path", "theorem_name",
+        "theorem_label", "body_text", "body_tokens", "embedding_stmt",
+        "embedding_proof", "embedding_eq", "chunker_version",
+        "embedder_version", "preamble_ref",
+        "source_kind", "license", "chapter", "page_start", "page_end",
+        "textbook_slug", "parser_used",
+    }
+)
 
 
 class TestMigrateThenHydrate:
     """M2 — every other backfill test builds via ``write_chunks`` (already at
-    the 26-col schema), so ``_ensure_v2_columns`` returns ``[]`` and the
-    migrate-then-hydrate path — add 5 columns to a genuine pre-v2 table, then
-    hydrate them in the SAME run (the live go-live scenario) — is exercised by
-    no test. Build a real 21-col pre-v2 table, run the backfill, and assert the
-    5 columns are added AND hydrated non-null (read back from disk) with
-    embeddings byte-identical."""
+    the full schema), so ``_ensure_v2_columns`` returns ``[]`` and the
+    migrate-then-hydrate path — add the 5 v2 columns to a genuine pre-v2
+    table, then hydrate them in the SAME run (the live go-live scenario) — is
+    exercised by no test. Build a real pre-v2 table, run the backfill, and
+    assert the 5 columns are added AND hydrated non-null (read back from disk)
+    with embeddings byte-identical."""
 
     def _build_pre_v2_table(
         self, tmp_path: Path, base: Path, parsed_root: Path, paper_id: str, *, seed: int
     ) -> None:
-        """Materialize the notebook's chunks table at the 21-col pre-source-
-        truth-m2 schema holding real, HIT-reproducible rows + embeddings — the
-        live on-disk shape BEFORE the backfill adds the five v2 columns.
+        """Materialize the notebook's chunks table at the pre-source-truth-m2
+        schema holding real, HIT-reproducible rows + embeddings — the live
+        on-disk shape BEFORE the backfill adds the five v2 columns.
 
         ``write_chunks`` always builds the full current table, so harvest the
         real rows + embeddings from a throwaway build and re-materialize the
-        21-col subset at the real notebook path (no ``drop_table`` needed).
+        pre-v2 subset at the real notebook path (no ``drop_table`` needed).
         The subset is chosen by column name, not position: columns added after
         v2 are appended to the schema tail too, so slicing it would drop them
         instead of the v2 five."""
@@ -694,7 +705,7 @@ class TestMigrateThenHydrate:
         pre_v2_schema = pa.schema(
             [f for f in CHUNKS_SCHEMA_V1 if f.name not in dropped]
         )
-        assert len(pre_v2_schema.names) == 21
+        assert set(pre_v2_schema.names) == _PRE_V2_COLUMNS
         assert dropped <= set(CHUNKS_SCHEMA_V1.names)
         pre_rows = [
             {k: v for k, v in r.items() if k not in dropped} for r in full_rows
@@ -711,12 +722,12 @@ class TestMigrateThenHydrate:
         self._build_pre_v2_table(tmp_path, base, parsed, PAPER, seed=31)
         _register(base, [_doc(PAPER, license_status="eligible")])
 
-        # The table is genuinely pre-v2: 21 columns, none of the five.
-        assert len(
+        # The table is genuinely pre-v2: its columns, none of the five.
+        assert set(
             lancedb.connect(str(_lancedb_dir(base)))
             .open_table("chunks")
             .schema.names
-        ) == 21
+        ) == _PRE_V2_COLUMNS
 
         before = _read_rows(base)
 
@@ -734,11 +745,13 @@ class TestMigrateThenHydrate:
         }
 
         after = _read_rows(base)
-        assert len(
+        # Exactly the five v2 columns were added; the post-v2 columns are
+        # not this driver's to add.
+        assert set(
             lancedb.connect(str(_lancedb_dir(base)))
             .open_table("chunks")
             .schema.names
-        ) == 26
+        ) == _PRE_V2_COLUMNS | _V2_COLUMNS
 
         # (b) the five columns are hydrated non-null on the HIT paper, read BACK
         # from the table (NOT the in-memory report). The theorem stmt row

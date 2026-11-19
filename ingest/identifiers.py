@@ -183,7 +183,7 @@ def is_valid_arxiv_paper_id(value: str) -> bool:
 
 
 #: The ``source_kind`` a paper_id's *shape* implies. Mirrors the
-#: chunks-table enum (``ingest.store._ALLOWED_SOURCE_KINDS``) and
+#: chunks-table enum (``ingest.chunk.ALLOWED_SOURCE_KINDS``) and
 #: ``server.handlers.search._VALID_SOURCE_KIND_FILTER_VALUES``.
 SOURCE_KIND_ARXIV: str = "arxiv"
 SOURCE_KIND_TEXTBOOK: str = "textbook"

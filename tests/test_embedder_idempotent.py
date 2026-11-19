@@ -29,6 +29,7 @@ stayed flat).
 from __future__ import annotations
 
 import json
+import shutil
 import sys
 import threading
 from pathlib import Path
@@ -38,7 +39,7 @@ import numpy as np
 import pytest
 
 import ingest.embedder as embedder_mod
-from ingest.chunker_types import CHUNKER_VERSION
+from ingest.chunk import CHUNKER_VERSION, reuse_identity
 from ingest.embedder import (
     EMBED_INPUT_POLICY_VERSION,
     EMBEDDER_VERSION,
@@ -184,22 +185,11 @@ def _patched_embed_paper(
     if fake_tokenizer is None or fake_model is None:
         fake_tokenizer, fake_model = _fake_model_factory()
 
-    from ingest.preamble_types import PreambleDoc
-
-    preamble = PreambleDoc(
-        paper_id=paper_id,
-        source_hash="0" * 64,
-        macros=[],
-        preamble_text="",
-        preamble_hash="0" * 16,
-    )
-
     with (
         patch("ingest.embedder.CHUNKS_DIR", chunks_dir),
         patch("ingest.embedder.EMBEDDINGS_DIR", embeddings_dir),
         patch("ingest.embedder.EMBED_STATS_PATH", stats_path),
         patch("ingest.embedder.EMBED_LOG_PATH", log_path),
-        patch("ingest.embedder.load_preamble", return_value=preamble),
         patch("ingest.embedder._get_tokenizer", return_value=fake_tokenizer),
         patch("ingest.embedder._get_model", return_value=fake_model),
     ):
@@ -216,21 +206,11 @@ def _patched_embed_corpus(
     log_path = tmp_path / "ops" / "embed.log"
     if fake_tokenizer is None or fake_model is None:
         fake_tokenizer, fake_model = _fake_model_factory()
-    from ingest.preamble_types import PreambleDoc
-
-    preamble = PreambleDoc(
-        paper_id="x",
-        source_hash="0" * 64,
-        macros=[],
-        preamble_text="",
-        preamble_hash="0" * 16,
-    )
     with (
         patch("ingest.embedder.CHUNKS_DIR", chunks_dir),
         patch("ingest.embedder.EMBEDDINGS_DIR", embeddings_dir),
         patch("ingest.embedder.EMBED_STATS_PATH", stats_path),
         patch("ingest.embedder.EMBED_LOG_PATH", log_path),
-        patch("ingest.embedder.load_preamble", return_value=preamble),
         patch("ingest.embedder._get_tokenizer", return_value=fake_tokenizer),
         patch("ingest.embedder._get_model", return_value=fake_model),
     ):
@@ -672,206 +652,212 @@ class TestConcurrency:
 # ===========================================================================
 
 
+def _ident(kind: str, body: str) -> str:
+    return reuse_identity(kind, body, embedder_version=EMBEDDER_VERSION)
+
+
+def _write_sidecar(
+    paper_dir: Path,
+    entries: list[dict],
+    *,
+    chunker_version: str = EXPECTED_CHUNKER_VERSION,
+    npz: bool = True,
+) -> None:
+    paper_dir.mkdir(parents=True)
+    if npz:
+        # Closes F1: the helper requires the NPZ to exist alongside the
+        # sidecar; a stub file is enough for the helper.
+        (paper_dir / "embeddings.npz").write_bytes(b"")
+    (paper_dir / EMBEDDINGS_MANIFEST_NAME).write_text(
+        json.dumps(
+            {
+                "chunker_version": chunker_version,
+                "embedded_chunks": entries,
+                "embedder_version": EMBEDDER_VERSION,
+                "embed_input_policy_version": EMBED_INPUT_POLICY_VERSION,
+                "paper_id": paper_dir.name,
+            },
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+
+
 class TestPaperUpToDateHelper:
+    A = "arxiv:2307.00173:" + "a" * 16
+    B = "arxiv:2307.00173:" + "b" * 16
+    C = "arxiv:2307.00173:" + "c" * 16
+
+    def _entry(self, cid: str, kind: str, body: str) -> dict:
+        return {"chunk_id": cid, "kind": kind, "reuse_identity": _ident(kind, body)}
+
     def test_returns_false_when_sidecar_missing(self, tmp_path):
         with patch("ingest.embedder.EMBEDDINGS_DIR", tmp_path):
             assert not embedder_mod._paper_is_up_to_date(
-                "2307.00170", {"arxiv:2307.00170:" + "0" * 16}
+                "2307.00173", {self.A: _ident("stmt", "Body A")}
             )
 
     def test_returns_false_on_wrong_chunker_version(self, tmp_path):
-        out_path = tmp_path / "2307.00171" / EMBEDDINGS_MANIFEST_NAME
-        out_path.parent.mkdir(parents=True)
-        out_path.write_text(
-            json.dumps(
-                {
-                    "chunker_version": "v0.9",
-                    "embedded_chunks": [
-                        {
-                            "chunk_id": "arxiv:2307.00171:" + "0" * 16,
-                            "kind": "stmt",
-                        }
-                    ],
-                    "embedder_version": EMBEDDER_VERSION,
-                    "embed_input_policy_version": EMBED_INPUT_POLICY_VERSION,
-                    "paper_id": "2307.00171",
-                },
-                sort_keys=True,
-            ),
-            encoding="utf-8",
+        _write_sidecar(
+            tmp_path / "2307.00173",
+            [self._entry(self.A, "stmt", "Body A")],
+            chunker_version="v0.9",
         )
         with patch("ingest.embedder.EMBEDDINGS_DIR", tmp_path):
             assert not embedder_mod._paper_is_up_to_date(
-                "2307.00171", {"arxiv:2307.00171:" + "0" * 16}
+                "2307.00173", {self.A: _ident("stmt", "Body A")}
             )
 
     def test_returns_false_when_chunk_missing_from_sidecar(self, tmp_path):
-        # Sidecar covers chunk A only; manifest now says {A, B}. Must
-        # re-embed because B is new.
-        out_path = tmp_path / "2307.00172" / EMBEDDINGS_MANIFEST_NAME
-        out_path.parent.mkdir(parents=True)
-        out_path.write_text(
-            json.dumps(
-                {
-                    "chunker_version": EXPECTED_CHUNKER_VERSION,
-                    "embedded_chunks": [
-                        {
-                            "chunk_id": "arxiv:2307.00172:" + "a" * 16,
-                            "kind": "stmt",
-                        }
-                    ],
-                    "embedder_version": EMBEDDER_VERSION,
-                    "embed_input_policy_version": EMBED_INPUT_POLICY_VERSION,
-                    "paper_id": "2307.00172",
-                },
-                sort_keys=True,
-            ),
-            encoding="utf-8",
-        )
+        # Sidecar covers chunk A only; the paper now has {A, B}.
+        _write_sidecar(tmp_path / "2307.00173", [self._entry(self.A, "stmt", "Body A")])
         with patch("ingest.embedder.EMBEDDINGS_DIR", tmp_path):
             assert not embedder_mod._paper_is_up_to_date(
-                "2307.00172",
-                {
-                    "arxiv:2307.00172:" + "a" * 16,
-                    "arxiv:2307.00172:" + "b" * 16,
-                },
+                "2307.00173",
+                {self.A: _ident("stmt", "Body A"), self.B: _ident("stmt", "Body B")},
             )
 
-    def test_returns_true_when_all_match(self, tmp_path):
-        paper_dir = tmp_path / "2307.00173"
-        paper_dir.mkdir(parents=True)
-        # Closes F1: the helper now requires the NPZ to exist alongside
-        # the sidecar; touch a stub NPZ to make this assertion pass.
-        (paper_dir / "embeddings.npz").write_bytes(b"")
-        (paper_dir / EMBEDDINGS_MANIFEST_NAME).write_text(
-            json.dumps(
-                {
-                    "chunker_version": EXPECTED_CHUNKER_VERSION,
-                    "embedded_chunks": [
-                        {
-                            "chunk_id": "arxiv:2307.00173:" + "a" * 16,
-                            "kind": "stmt",
-                        }
-                    ],
-                    "embedder_version": EMBEDDER_VERSION,
-                    "embed_input_policy_version": EMBED_INPUT_POLICY_VERSION,
-                    "paper_id": "2307.00173",
-                },
-                sort_keys=True,
-            ),
-            encoding="utf-8",
-        )
+    def test_returns_true_only_when_ids_and_identities_match(self, tmp_path):
+        _write_sidecar(tmp_path / "2307.00173", [self._entry(self.A, "stmt", "Body A")])
         with patch("ingest.embedder.EMBEDDINGS_DIR", tmp_path):
             assert embedder_mod._paper_is_up_to_date(
-                "2307.00173", {"arxiv:2307.00173:" + "a" * 16}
+                "2307.00173", {self.A: _ident("stmt", "Body A")}
             )
+            # Same chunk id, now on the proof route: not reusable.
             assert not embedder_mod._paper_is_up_to_date(
-                "2307.00173", {"arxiv:2307.00173:" + "a" * 16},
-                {"arxiv:2307.00173:" + "a" * 16: "proof"},
+                "2307.00173", {self.A: _ident("proof", "Body A")}
+            )
+            # Same chunk id, different embedding input: not reusable.
+            assert not embedder_mod._paper_is_up_to_date(
+                "2307.00173", {self.A: _ident("stmt", "Body A, edited")}
+            )
+
+    def test_entry_without_reuse_identity_forces_reembed(self, tmp_path):
+        # Every sidecar written before chunk-module-m1 has bare
+        # {chunk_id, kind} entries; it is never a source of reuse.
+        _write_sidecar(
+            tmp_path / "2307.00173", [{"chunk_id": self.A, "kind": "stmt"}]
+        )
+        with patch("ingest.embedder.EMBEDDINGS_DIR", tmp_path):
+            assert not embedder_mod._paper_is_up_to_date(
+                "2307.00173", {self.A: _ident("stmt", "Body A")}
             )
 
     def test_returns_false_when_npz_missing(self, tmp_path):
         # Closes F1 (CRITICAL) from the E03_S02 critique: a sidecar
-        # claiming an embedding exists, with the actual NPZ missing
-        # (manual deletion, partial cleanup, fs corruption), MUST
-        # trigger re-embed — not silently skip the paper.
-        paper_dir = tmp_path / "2307.00174"
-        paper_dir.mkdir(parents=True)
-        # Sidecar claims everything is in order...
-        (paper_dir / EMBEDDINGS_MANIFEST_NAME).write_text(
-            json.dumps(
-                {
-                    "chunker_version": EXPECTED_CHUNKER_VERSION,
-                    "embedded_chunks": [
-                        {
-                            "chunk_id": "arxiv:2307.00174:" + "0" * 16,
-                            "kind": "stmt",
-                        }
-                    ],
-                    "embedder_version": EMBEDDER_VERSION,
-                    "embed_input_policy_version": EMBED_INPUT_POLICY_VERSION,
-                    "paper_id": "2307.00174",
-                },
-                sort_keys=True,
-            ),
-            encoding="utf-8",
+        # claiming an embedding exists, with the actual NPZ missing,
+        # MUST trigger re-embed — not silently skip the paper.
+        _write_sidecar(
+            tmp_path / "2307.00173",
+            [self._entry(self.A, "stmt", "Body A")],
+            npz=False,
         )
-        # ...but the NPZ is missing.
         with patch("ingest.embedder.EMBEDDINGS_DIR", tmp_path):
             assert not embedder_mod._paper_is_up_to_date(
-                "2307.00174", {"arxiv:2307.00174:" + "0" * 16}
+                "2307.00173", {self.A: _ident("stmt", "Body A")}
             )
 
     def test_returns_false_on_malformed_sidecar_entry(self, tmp_path):
-        # Closes F9: a sidecar entry that is a dict missing chunk_id, or
-        # a non-dict entry, or a chunk_id that isn't a string, must
-        # force a re-embed (don't let bad data pass the subset check).
-        paper_dir = tmp_path / "2307.00175"
-        paper_dir.mkdir(parents=True)
-        (paper_dir / "embeddings.npz").write_bytes(b"")
-        # Entry is a dict but missing chunk_id.
-        (paper_dir / EMBEDDINGS_MANIFEST_NAME).write_text(
-            json.dumps(
-                {
-                    "chunker_version": EXPECTED_CHUNKER_VERSION,
-                    "embedded_chunks": [{"kind": "stmt"}],  # no chunk_id!
-                    "embedder_version": EMBEDDER_VERSION,
-                    "embed_input_policy_version": EMBED_INPUT_POLICY_VERSION,
-                    "paper_id": "2307.00175",
-                },
-                sort_keys=True,
-            ),
-            encoding="utf-8",
-        )
+        # Closes F9: an entry that is a dict missing chunk_id must force
+        # a re-embed.
+        _write_sidecar(tmp_path / "2307.00173", [{"kind": "stmt"}])
         with patch("ingest.embedder.EMBEDDINGS_DIR", tmp_path):
             assert not embedder_mod._paper_is_up_to_date(
-                "2307.00175", {"arxiv:2307.00175:" + "0" * 16}
+                "2307.00173", {self.A: _ident("stmt", "Body A")}
             )
 
     def test_orphan_chunks_in_sidecar_do_not_block_skip(self, tmp_path):
-        # Closes F7: when the sidecar has MORE chunks than the manifest
-        # (chunks were removed from the manifest after the last embed
-        # ran), the paper is still considered up to date for the
-        # current manifest. The orphan vectors will be GC'd by E04_S02.
-        paper_dir = tmp_path / "2307.00176"
-        paper_dir.mkdir(parents=True)
-        (paper_dir / "embeddings.npz").write_bytes(b"")
-        (paper_dir / EMBEDDINGS_MANIFEST_NAME).write_text(
-            json.dumps(
-                {
-                    "chunker_version": EXPECTED_CHUNKER_VERSION,
-                    "embedded_chunks": [
-                        {
-                            "chunk_id": "arxiv:2307.00176:" + "a" * 16,
-                            "kind": "stmt",
-                        },
-                        {
-                            "chunk_id": "arxiv:2307.00176:" + "b" * 16,
-                            "kind": "proof",
-                        },
-                        {
-                            "chunk_id": "arxiv:2307.00176:" + "c" * 16,
-                            "kind": "stmt",
-                        },
-                    ],
-                    "embedder_version": EMBEDDER_VERSION,
-                    "embed_input_policy_version": EMBED_INPUT_POLICY_VERSION,
-                    "paper_id": "2307.00176",
-                },
-                sort_keys=True,
-            ),
-            encoding="utf-8",
+        # Closes F7: a sidecar with MORE chunks than the paper now has is
+        # still up to date for the current chunks; orphan vectors are
+        # GC'd by E04_S02.
+        _write_sidecar(
+            tmp_path / "2307.00173",
+            [
+                self._entry(self.A, "stmt", "Body A"),
+                self._entry(self.B, "proof", "Body B"),
+                self._entry(self.C, "stmt", "Body C"),
+            ],
         )
         with patch("ingest.embedder.EMBEDDINGS_DIR", tmp_path):
-            # Manifest only carries chunks A and B; sidecar also has C
-            # (the orphan). Skip should still succeed.
             assert embedder_mod._paper_is_up_to_date(
-                "2307.00176",
-                {
-                    "arxiv:2307.00176:" + "a" * 16,
-                    "arxiv:2307.00176:" + "b" * 16,
-                },
+                "2307.00173",
+                {self.A: _ident("stmt", "Body A"), self.B: _ident("proof", "Body B")},
             )
+
+
+# ===========================================================================
+# TestReuseIdentitySkip — the skip decision through embed_paper
+# ===========================================================================
+
+
+class TestReuseIdentitySkip:
+    """ADR rules 2 and 3 at the embedder: the sidecar stores each chunk's
+    reuse identity, and a paper is skipped only when every current chunk's
+    identity matches. A chunk id match alone never reuses a vector."""
+
+    def _sidecar(self, tmp_path: Path, paper_id: str) -> dict:
+        path = tmp_path / "embeddings" / paper_id / EMBEDDINGS_MANIFEST_NAME
+        return json.loads(path.read_text(encoding="utf-8"))
+
+    def test_sidecar_entries_carry_reuse_identity(self, tmp_path):
+        paper_id = "2307.00190"
+        chunks = [
+            _make_chunk(paper_id, "stmt", "Body A", suffix="0" * 16),
+            _make_chunk(paper_id, "proof", "Body B", suffix="1" * 16),
+        ]
+        _stage_chunk_dir(tmp_path, paper_id, chunks)
+        _patched_embed_paper(tmp_path, paper_id)
+        entries = self._sidecar(tmp_path, paper_id)["embedded_chunks"]
+        assert entries == [
+            {
+                "chunk_id": c["chunk_id"],
+                "kind": c["kind"],
+                "reuse_identity": _ident(c["kind"], c["body_text"]),
+            }
+            for c in chunks
+        ]
+
+    def test_pre_identity_sidecar_forces_one_reembed(self, tmp_path):
+        paper_id = "2307.00191"
+        _stage_chunk_dir(
+            tmp_path, paper_id, [_make_chunk(paper_id, "stmt", "Body A", suffix="0" * 16)]
+        )
+        _patched_embed_paper(tmp_path, paper_id)
+        path = tmp_path / "embeddings" / paper_id / EMBEDDINGS_MANIFEST_NAME
+        legacy = self._sidecar(tmp_path, paper_id)
+        for entry in legacy["embedded_chunks"]:
+            del entry["reuse_identity"]
+        path.write_text(json.dumps(legacy, sort_keys=True), encoding="utf-8")
+
+        stats, _, _, model = _patched_embed_paper(tmp_path, paper_id)
+        assert stats.chunks_processed == 1
+        assert model.call_count > 0
+        assert "reuse_identity" in self._sidecar(tmp_path, paper_id)["embedded_chunks"][0]
+
+        # The rewritten sidecar is reusable: the next run skips.
+        stats, _, _, model = _patched_embed_paper(tmp_path, paper_id)
+        assert stats.chunks_skipped == 1
+        assert model.call_count == 0
+
+    def test_same_chunk_id_on_other_route_is_reembedded(self, tmp_path):
+        # The 7b160a0 case: the chunk id does not hash the kind, so a
+        # re-chunk can return the same id on the proof route.
+        paper_id = "2307.00192"
+        _stage_chunk_dir(
+            tmp_path, paper_id, [_make_chunk(paper_id, "section", "Body A", suffix="0" * 16)]
+        )
+        _patched_embed_paper(tmp_path, paper_id)
+        shutil.rmtree(tmp_path / "chunks" / paper_id)
+        _stage_chunk_dir(
+            tmp_path, paper_id, [_make_chunk(paper_id, "proof", "Body A", suffix="0" * 16)]
+        )
+
+        stats, embeddings_dir, _, model = _patched_embed_paper(tmp_path, paper_id)
+        assert stats.chunks_processed == 1
+        assert model.call_count > 0
+        npz = np.load(embeddings_dir / paper_id / "embeddings.npz", allow_pickle=True)
+        assert list(npz["chunk_ids_proof"]) == [f"arxiv:{paper_id}:" + "0" * 16]
+        assert list(npz["chunk_ids_stmt"]) == []
 
 
 # ===========================================================================

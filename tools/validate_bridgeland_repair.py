@@ -9,7 +9,8 @@ from pathlib import Path
 
 import numpy as np
 
-from ingest.embedder import EMBED_INPUT_POLICY_VERSION, EMBEDDER_VERSION
+from ingest.chunk import EMBED_INPUT_POLICY_VERSION, stored_vector
+from ingest.embedder import EMBEDDER_VERSION
 from server.application_paths import ApplicationPaths
 from tools.arxiv_fetch import find_main_tex
 
@@ -119,7 +120,7 @@ def validate(staging: Path) -> dict:
             row["page_start"] is None or row["page_end"] is None
         ):
             errors.append(f"textbook page span missing: {chunk_id}")
-        vec = row["embedding_proof"] if row["kind"] == "proof" else row["embedding_stmt"]
+        vec = stored_vector(row)
         if vec is None:
             errors.append(f"embedding missing: {chunk_id}")
         else:

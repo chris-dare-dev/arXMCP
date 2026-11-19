@@ -5,8 +5,8 @@ from __future__ import annotations
 import re
 from bisect import bisect_left
 
-from ingest.chunker import STMT_MAX_TOKENS, _compute_chunk_id, _window_text_spans
-from ingest.chunker_types import CHUNKER_VERSION, ChunkRecord
+from ingest.chunk import CHUNKER_VERSION, ChunkRecord, _compute_chunk_id
+from ingest.chunker import STMT_MAX_TOKENS, _window_text_spans
 from ingest.tokenizer import tokenize_body
 from server.application_paths import ApplicationPaths
 from tools.arxiv_fetch import find_main_tex

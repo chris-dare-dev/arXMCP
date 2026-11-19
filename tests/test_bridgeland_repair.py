@@ -9,6 +9,7 @@ import pytest
 from bs4 import BeautifulSoup
 
 from ingest import chunker, embedder, tex_formal_chunker, textbook_pdf_chunker
+from ingest.chunk import embedding_input
 
 
 def test_windows_cover_exact_source_characters(monkeypatch):
@@ -30,7 +31,8 @@ def test_windows_cover_exact_source_characters(monkeypatch):
 
 
 def test_body_policy_and_special_token_budget(monkeypatch):
-    assert embedder._build_embed_input("giant preamble " * 3000, "body") == "body"
+    # body-first-v1: the embedding input is the NFC body; no preamble reaches it.
+    assert embedding_input("body") == "body"
 
     class Tokenizer:
         def __call__(self, texts, **kwargs):

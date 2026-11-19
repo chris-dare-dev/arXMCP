@@ -217,11 +217,11 @@ def _build_paper_id_predicate(paper_id_value: Any) -> str:
 
 
 #: Valid ``filters.source_kind`` values (textbook-ingest-m9 / e4).
-#: Mirror of ``ingest.store._ALLOWED_SOURCE_KINDS`` (the chunks-table
+#: Mirror of ``ingest.chunk.ALLOWED_SOURCE_KINDS`` (the chunks-table
 #: enum domain) — kept as a local constant here the same way this
 #: handler keeps its own ``SUPPORTED_FILTER_KEYS`` mirror of the bm25
 #: copy. If a new source_kind is ever added to the schema enum, update
-#: BOTH this set and ``ingest.store._ALLOWED_SOURCE_KINDS``.
+#: BOTH this set and ``ingest.chunk.ALLOWED_SOURCE_KINDS``.
 _VALID_SOURCE_KIND_FILTER_VALUES: frozenset[str] = frozenset(
     {"arxiv", "textbook"}
 )

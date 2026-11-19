@@ -5,7 +5,7 @@ returned by ``search_papers``) and the follow-up tracked at
 ``chris-dare-dev/arXMCP#8``.
 
 ``ingest.textbook_chunker.chunk_textbook(slug, paper_id)`` renders + chunks
-a textbook PDF into :class:`~ingest.chunker_types.ChunkRecord` objects (and
+a textbook PDF into :class:`~ingest.chunk.ChunkRecord` objects (and
 writes per-chunk JSONs) but does NOT write LanceDB. This driver is the
 missing embed -> write tail::
 
@@ -20,13 +20,13 @@ notebook (``ARXMCP_NOTEBOOK=<slug>`` process-level, or
 Design (textbook-ingest-m12 research synthesis):
 
 - **Embeds ChunkRecords DIRECTLY** via the embedder's low-level
-  :func:`ingest.embedder._encode_batch` + :func:`~ingest.embedder._build_embed_input`
+  :func:`ingest.embedder._encode_batch` + :func:`ingest.chunk.embedding_input`
   — the SAME primitives ``ingest/embed_equations.py`` reuses — NOT
   ``embed_paper`` / the global-store NPZ round-trip (which assumes the
   global ``var/arxmcp/corpus/chunks`` layout, not the notebook scope).
-  The proof/stmt routing rule is applied from the imported single source,
-  never copied (m12 FM-1: a wrong-column placement retrieves the wrong
-  body and is NOT caught by ``EmbedRecord`` validation).
+  The proof/stmt routing rule is :func:`ingest.chunk.route`, never copied
+  (m12 FM-1: a wrong-column placement retrieves the wrong body; the store
+  now refuses one, see ``ingest.store._build_arrow_table``).
 - **Always writes the PER-NOTEBOOK LanceDB** (``notebook_lancedb_path(slug)``),
   NEVER the global ``DEFAULT_LANCEDB_PATH`` (m12 FM-3: writing textbook rows
   into the shared arXiv corpus would pollute unfiltered ``search_papers``).
@@ -59,11 +59,10 @@ import sys
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
+from ingest.chunk import EMBEDDING_DIM, embedding_input, route
 from ingest.embedder import (
     EMBED_BATCH_DEFAULT,
     EMBEDDER_VERSION,
-    EMBEDDING_DIM,
-    _build_embed_input,
     _encode_batch,
 )
 from ingest.identifiers import is_valid_paper_id
@@ -78,7 +77,7 @@ from tools._notebook_common import (
 )
 
 if TYPE_CHECKING:
-    from ingest.chunker_types import ChunkRecord
+    from ingest.chunk import ChunkRecord
 
 logger = logging.getLogger("notebook_textbook_ingest")
 
@@ -98,16 +97,9 @@ def _build_embed_record(
 
     Mirrors ``ingest.embedder._embed_paper_impl``'s build -> batch -> split
     flow EXACTLY, but operates on :class:`ChunkRecord` objects and returns
-    the ``EmbedRecord`` in-memory (no NPZ round-trip). Textbook
-    ``preamble_text`` is permanently ``""`` (m8 OQ-1 — MinerU expands math at
-    render time, so there are no author macros to inherit).
-
-    The proof/stmt routing (``"embedding_proof" if kind == "proof" else
-    "embedding_stmt"``) is the SAME single source as
-    ``ingest/embedder.py`` — applied here, NOT duplicated as a divergent
-    copy. ``EmbedRecord.__post_init__`` validates dup/overlap but does NOT
-    detect a wrong-column placement, so keeping one routing source is the
-    real FM-1 guard.
+    the ``EmbedRecord`` in-memory (no NPZ round-trip). The embedding input
+    and the route come from :mod:`ingest.chunk`, the same single source the
+    embedder uses (m12 FM-1).
 
     ``encoder`` is injectable (default the real :func:`_encode_batch`) so
     tests pass synthetic L2-normalized vectors and never load the model.
@@ -115,13 +107,11 @@ def _build_embed_record(
     import numpy as np  # noqa: PLC0415
 
     embed_inputs: list[str] = []
-    routing: list[str] = []  # "embedding_stmt" | "embedding_proof"
+    routes: list[str] = []  # "stmt" | "proof"
     chunk_ids_in_order: list[str] = []
     for chunk in chunks:
-        embed_inputs.append(_build_embed_input("", chunk.body_text))
-        routing.append(
-            "embedding_proof" if chunk.kind == "proof" else "embedding_stmt"
-        )
+        embed_inputs.append(embedding_input(chunk.body_text))
+        routes.append(route(chunk.kind))
         chunk_ids_in_order.append(chunk.chunk_id)
 
     if not embed_inputs:
@@ -140,8 +130,8 @@ def _build_embed_record(
     chunk_ids_proof: list[str] = []
     rows_stmt: list[Any] = []
     rows_proof: list[Any] = []
-    for i, column in enumerate(routing):
-        if column == "embedding_proof":
+    for i, chunk_route in enumerate(routes):
+        if chunk_route == "proof":
             chunk_ids_proof.append(chunk_ids_in_order[i])
             rows_proof.append(all_array[i])
         else:
