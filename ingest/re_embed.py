@@ -456,6 +456,32 @@ def _load_old_rows(
     }
 
 
+def _route(kind: str | None) -> str:
+    """The embedding route a chunk of ``kind`` is stored on.
+
+    Proof chunks carry their vector in ``embedding_proof``; every other
+    kind in ``embedding_stmt``. A chunk_id does not hash its kind, so the
+    same id can come back from a re-chunk on the other route.
+    """
+    return "proof" if kind == "proof" else "stmt"
+
+
+def _route_changed_ids(
+    copy_ids: set[str],
+    new_chunks: list[ChunkRecord],
+    old_kinds: dict[str, str | None],
+) -> set[str]:
+    """Return the copy candidates whose new kind is on another route
+    than their stored row, so their vector cannot be carried over."""
+    new_kinds = {c.chunk_id: c.kind for c in new_chunks}
+    return {
+        cid
+        for cid in copy_ids
+        if cid in old_kinds
+        and _route(old_kinds[cid]) != _route(new_kinds[cid])
+    }
+
+
 def _build_copy_embed_record(
     new_chunks_by_id: dict[str, ChunkRecord],
     old_rows_by_id: dict[str, dict],
@@ -467,6 +493,10 @@ def _build_copy_embed_record(
     F1-class guard: every old row's ``embedder_version`` MUST match
     ``old_embedder_version`` (read from the active corpus-version.json
     at run start). A mismatch is a stale or corrupt input — refuse.
+
+    Route guard: the new chunk must sit on the same route as the old
+    row. ``_plan_paper`` already sends route changes to re-embed; this
+    refuses any that reach the copy path anyway.
     """
     chunk_ids_stmt: list[str] = []
     chunk_ids_proof: list[str] = []
@@ -482,7 +512,20 @@ def _build_copy_embed_record(
                 f"corpus-version.json's value). Refusing to copy a "
                 f"row from a different embedding space."
             )
-        kind = row["kind"]
+        new_chunk = new_chunks_by_id.get(cid)
+        if new_chunk is None:
+            raise RuntimeError(
+                f"copy path: chunk_id={cid!r} is not among the paper's "
+                f"new chunks"
+            )
+        kind = new_chunk.kind
+        if _route(row["kind"]) != _route(kind):
+            raise RuntimeError(
+                f"copy path: chunk_id={cid!r} moved from the "
+                f"{_route(row['kind'])} route (kind={row['kind']!r}) to the "
+                f"{_route(kind)} route (kind={kind!r}); its vector cannot "
+                f"be copied and must be re-embedded"
+            )
         # Statement chunks store the vector in ``embedding_stmt``;
         # proof chunks store it in ``embedding_proof``. The other
         # column is NULL.
@@ -548,8 +591,14 @@ def _plan_paper(
     *, notebook_slug: str | None = None,
     parser_used: str | None = None,
     force_re_embed: bool = False,
+    old_kinds: dict[str, str | None] | None = None,
 ) -> _PaperWorkPlan:
-    """Re-chunk the paper, diff against the old chunk-id set."""
+    """Re-chunk the paper, diff against the old chunk-id set.
+
+    ``old_kinds`` maps the paper's stored chunk_ids to their stored
+    kind. A copy candidate whose new kind is on another route is moved
+    to re-embed: the same chunk_id does not mean the same vector.
+    """
     if paper_id.startswith("textbook:"):
         if notebook_slug is None:
             raise ValueError(f"notebook slug required for {paper_id}")
@@ -576,6 +625,10 @@ def _plan_paper(
     if force_re_embed:
         copy_ids = set()
         re_embed_ids = new_ids
+    elif old_kinds is not None:
+        moved = _route_changed_ids(copy_ids, new_chunks, old_kinds)
+        copy_ids = copy_ids - moved
+        re_embed_ids = re_embed_ids | moved
     return _PaperWorkPlan(
         paper_id=paper_id,
         new_chunks=new_chunks,
@@ -854,6 +907,10 @@ def run_re_embed(
             plan = _plan_paper(
                 paper_id, old_ids, notebook_slug=notebook_slug,
                 parser_used=parser_used, force_re_embed=force_re_embed,
+                old_kinds={
+                    cid: old_rows_cache[cid].get("kind")
+                    for cid in old_ids if cid in old_rows_cache
+                },
             )
         except Exception as exc:  # noqa: BLE001 — per-paper isolation
             logger.warning(

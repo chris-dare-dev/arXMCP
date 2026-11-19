@@ -246,6 +246,29 @@ class TestBuildCopyEmbedRecord:
         assert record.chunk_ids_proof == ["arxiv:2401.00001:aaaaaaaaaaaaaaaa"]
         assert record.chunk_ids_stmt == []
 
+    def test_refuses_to_copy_across_a_route_change(self):
+        """A chunk whose kind moved it onto the other route keeps its
+        chunk_id but not its vector: copying the old statement-route
+        vector onto a proof chunk would store a proof row with only
+        ``embedding_stmt`` set."""
+        cid = "arxiv:2401.00001:aaaaaaaaaaaaaaaa"
+        new_chunks = {cid: _make_chunk("2401.00001", cid, kind="proof")}
+        old_rows = {
+            cid: {
+                "embedding_stmt": _normalized(1),
+                "embedding_proof": None,
+                "embedder_version": "bge-m3@aaaaaaaa",
+                "kind": "section",
+            }
+        }
+        with pytest.raises(RuntimeError, match="route"):
+            _build_copy_embed_record(
+                new_chunks_by_id=new_chunks,
+                old_rows_by_id=old_rows,
+                old_embedder_version="bge-m3@aaaaaaaa",
+                target_embedder_version="bge-m3@aaaaaaaa",
+            )
+
 
 # ---------------------------------------------------------------------------
 # End-to-end run_re_embed with mocked dependencies
@@ -436,6 +459,95 @@ class TestCopyEfficacy:
         )
         # At least one write_chunks call carried the 5 re-embed chunks.
         assert any(len(c[1].chunk_ids_stmt) == 5 for c in write_spy.calls)
+
+
+class TestRouteChangeIsReEmbedded:
+    """A chunk_id that survives a re-chunk with a kind on the other
+    route (here an old ``section`` row whose body the chunker now emits
+    as a ``proof``) must be re-embedded, not copied. The vector belongs
+    to the route it was stored on."""
+
+    def test_section_to_proof_with_same_id_is_re_embedded(self, tmp_path):
+        active = tmp_path / "lancedb"
+        staging = tmp_path / "lancedb-staging"
+        _write_active_marker(active, embedder_version=EMBEDDER_VERSION)
+
+        paper_id = "2401.00001"
+        moved = f"arxiv:{paper_id}:{1:016x}"
+        kept = f"arxiv:{paper_id}:{2:016x}"
+        new_chunks = [
+            _make_chunk(paper_id, moved, kind="proof"),
+            _make_chunk(paper_id, kept, kind="stmt"),
+        ]
+        old_rows_by_id = {
+            moved: {
+                "embedding_stmt": _normalized(1),
+                "embedding_proof": None,
+                "embedder_version": EMBEDDER_VERSION,
+                "kind": "section",
+                "parser_used": None,
+            },
+            kept: {
+                "embedding_stmt": _normalized(2),
+                "embedding_proof": None,
+                "embedder_version": EMBEDDER_VERSION,
+                "kind": "stmt",
+                "parser_used": None,
+            },
+        }
+        full_record = EmbedRecord(
+            chunk_ids_stmt=[kept],
+            embedding_stmt=np.asarray([_normalized(3)], dtype=np.float32),
+            chunk_ids_proof=[moved],
+            embedding_proof=np.asarray([_normalized(4)], dtype=np.float32),
+            embedder_version=EMBEDDER_VERSION,
+        )
+        write_spy = _WriteChunksSpy()
+        embed_calls: list[str] = []
+
+        def _embed_paper_stub(pid):
+            embed_calls.append(pid)
+            return _ok_embed_stats()
+
+        with (
+            patch("ingest.re_embed.chunk_paper", lambda _pid: new_chunks),
+            patch(
+                "ingest.re_embed._index_old_chunk_ids_by_paper",
+                lambda _path: {paper_id: {moved, kept}},
+            ),
+            patch(
+                "ingest.re_embed._build_old_rows_index",
+                lambda _path: old_rows_by_id,
+            ),
+            patch("ingest.re_embed.embed_paper", _embed_paper_stub),
+            patch(
+                "ingest.re_embed.load_embed_record", lambda _pid: full_record
+            ),
+            patch(
+                "ingest.re_embed._check_staging_embedder_versions",
+                lambda _path, _target: None,
+            ),
+            patch("ingest.re_embed.write_chunks", write_spy),
+        ):
+            summary = run_re_embed(
+                active_lancedb_path=active,
+                staging_lancedb_path=staging,
+                state_path=tmp_path / "state.json",
+                failures_path=tmp_path / "failures.jsonl",
+            )
+
+        assert summary.papers_failed == []
+        assert summary.chunks_copied == 1
+        assert summary.chunks_re_embedded == 1
+        assert embed_calls == [paper_id]
+        written = {
+            chunk.chunk_id: record
+            for chunks, record in write_spy.calls
+            for chunk in chunks
+        }
+        assert written[kept].chunk_ids_stmt == [kept]
+        assert written[moved].chunk_ids_proof == [moved]
+        assert moved not in written[moved].chunk_ids_stmt
 
 
 class TestResume:
