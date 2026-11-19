@@ -50,6 +50,7 @@ from ingest.bulk_ingest import DEFAULT_LANCEDB_STAGING_PATH
 from ingest.chunk import (
     CHUNKER_VERSION,
     EMBED_INPUT_POLICY_VERSION,
+    EMBEDDING_DIM,
     ChunkRecord,
     reusable_vectors,
     reuse_identity,
@@ -62,7 +63,6 @@ from ingest.embedder import EMBEDDER_VERSION, embed_paper
 from ingest.identifiers import is_valid_paper_id
 from ingest.schema import (
     CHUNKS_TABLE_NAME,
-    EMBEDDING_DIM,
     EmbedRecord,
 )
 from ingest.store import (

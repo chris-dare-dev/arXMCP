@@ -66,7 +66,12 @@ import pyarrow as pa
 # chunk facts owned by ``ingest.chunk`` (no stray ``1024`` literal here).
 # Importing them from there rather than from ``ingest.embedder`` keeps this
 # module free of the embedder's import graph.
-from ingest.chunk import CHUNKS_SCHEMA_V1, EMBED_INPUT_POLICY_VERSION, EMBEDDING_DIM
+from ingest.chunk import (
+    CHUNKS_SCHEMA_V1,
+    EMBED_INPUT_POLICY_VERSION,
+    EMBEDDING_COLUMN_NAMES,
+    EMBEDDING_DIM,
+)
 
 # ---------------------------------------------------------------------------
 # Table identity
@@ -89,14 +94,10 @@ DEFINITIONS_TABLE_NAME = "definitions"
 # would bloat every chunk row with NULLs if folded into CHUNKS_SCHEMA_V1.
 EQUATIONS_TABLE_NAME = "equations"
 
-# Names of the two dual-encoding embedding columns. Pinned here so the
-# E05_S02 retrieval-quality test (and any future reader that needs to
-# enumerate searchable vector columns) imports rather than literalizes
-# the column-name strings. Closes F3 from the E05_S02 critique. The
-# tuple ordering is the canonical search order: stmt first, proof
-# second, mirroring the ``EmbedRecord`` field ordering and the
-# ``CHUNKS_SCHEMA_V1`` declaration order below.
-EMBEDDING_COLUMN_NAMES = ("embedding_stmt", "embedding_proof")
+# ``EMBEDDING_COLUMN_NAMES`` (the two dual-encoding vector columns, stmt
+# first, proof second) is a chunk fact declared in ``ingest.chunk`` next
+# to ``CHUNKS_SCHEMA_V1`` and re-exported here for the E05_S02 readers
+# (F3). Its order mirrors the ``EmbedRecord`` field ordering.
 
 
 # ---------------------------------------------------------------------------
@@ -352,6 +353,7 @@ class EmbedRecord:
 __all__ = [
     "CHUNKS_SCHEMA_V1",
     "CHUNKS_TABLE_NAME",
+    "EMBEDDING_COLUMN_NAMES",
     "EMBEDDING_DIM",
     "DEFINITIONS_SCHEMA_V1",
     "DEFINITIONS_TABLE_NAME",

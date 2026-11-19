@@ -22,14 +22,17 @@ from unittest.mock import patch
 
 import lancedb
 import numpy as np
+import pyarrow as pa
 import pytest
 
 from ingest.chunk import (
     CHUNKER_VERSION,
+    CHUNKS_SCHEMA_V1,
     EMBED_INPUT_POLICY_VERSION,
     LEGACY_EMBED_INPUT_POLICY_VERSION,
     ChunkRecord,
     route,
+    to_row,
 )
 from ingest.embedder import EMBEDDER_VERSION
 from ingest.re_embed import (
@@ -38,7 +41,12 @@ from ingest.re_embed import (
     compute_diff,
     run_re_embed,
 )
-from ingest.schema import EMBEDDING_DIM, EmbedRecord
+from ingest.schema import (
+    CHUNKS_TABLE_NAME,
+    EMBEDDING_DIM,
+    LANCE_STORAGE_OPTIONS,
+    EmbedRecord,
+)
 from ingest.store import CORPUS_VERSION_MARKER_NAME, write_chunks
 
 # ---------------------------------------------------------------------------
@@ -403,6 +411,49 @@ class TestReuseByIdentity:
         assert _bytes(row["embedding_stmt"]) == _normalized(FRESH_SEED).tobytes()
         assert row["embedder_version"] == EMBEDDER_VERSION
         assert row["embed_input_policy_version"] == EMBED_INPUT_POLICY_VERSION
+
+    def test_active_table_without_policy_column_is_re_embedded(self, tmp_path):
+        # A live notebook built before the Bridgeland repair has no
+        # ``embed_input_policy_version`` column at all (the five repair
+        # columns are absent, not NULL). Its rows must read as "policy
+        # unknown" and be re-embedded (ADR rule 3), and the scan must not
+        # crash on the missing columns.
+        repair_columns = {
+            "embed_input_policy_version",
+            "part_index",
+            "part_count",
+            "source_start",
+            "source_end",
+        }
+        pre_repair = pa.schema(
+            [f for f in CHUNKS_SCHEMA_V1 if f.name not in repair_columns]
+        )
+        chunk = _make_chunk(PAPER, _cid(PAPER, 1), body="Let X be a scheme.")
+        row = to_row(
+            chunk,
+            _normalized(7),
+            embedder_version=EMBEDDER_VERSION,
+            policy=EMBED_INPUT_POLICY_VERSION,
+        )
+        active = tmp_path / "lancedb"
+        lancedb.connect(str(active)).create_table(
+            CHUNKS_TABLE_NAME,
+            data=pa.Table.from_pylist(
+                [{k: v for k, v in row.items() if k not in repair_columns}],
+                schema=pre_repair,
+            ),
+            storage_options=LANCE_STORAGE_OPTIONS,
+        )
+        _write_active_marker(active)
+
+        summary, embedder = _run(tmp_path, active, {PAPER: [chunk]})
+
+        assert summary.papers_failed == []
+        assert summary.chunks_copied == 0
+        assert summary.chunks_re_embedded == 1
+        assert embedder.calls == [PAPER]
+        staged = _staged(tmp_path)[chunk.chunk_id]
+        assert _bytes(staged["embedding_stmt"]) == _normalized(FRESH_SEED).tobytes()
 
     def test_unchanged_papers_are_copied_without_the_embedder(self, tmp_path):
         # E11_S03 AC1: unchanged content is copied with no model call. Four

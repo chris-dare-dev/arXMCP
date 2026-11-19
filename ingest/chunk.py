@@ -302,8 +302,15 @@ def _compute_textbook_chunk_id(
 # Route
 # ---------------------------------------------------------------------------
 
+#: Names of the two dual-encoding vector columns, in canonical search
+#: order (stmt first, proof second, as declared in
+#: :data:`CHUNKS_SCHEMA_V1`). ``ingest.schema`` re-exports this, so
+#: readers that enumerate the searchable vector columns import it
+#: rather than literalize the names (E05_S02 F3).
+EMBEDDING_COLUMN_NAMES = ("embedding_stmt", "embedding_proof")
+
 # Which vector column each route fills. The other column is NULL.
-_ROUTE_COLUMNS = {"stmt": "embedding_stmt", "proof": "embedding_proof"}
+_ROUTE_COLUMNS = dict(zip(("stmt", "proof"), EMBEDDING_COLUMN_NAMES, strict=True))
 
 
 def route(kind: str | None) -> str:
@@ -463,11 +470,14 @@ CHUNKS_SCHEMA_V1 = pa.schema(
         pa.field("body_text", pa.utf8(), nullable=False),
         # ``body_tokens`` is non-nullable here even though
         # ``ChunkRecord.body_tokens: str | None`` allows None for legacy
-        # pre-E02_S03 chunks. :func:`to_row` raises ``ValueError`` on a None.
+        # pre-E02_S03 chunks. :func:`to_row` raises ``ValueError`` on a
+        # None at write time.
         pa.field("body_tokens", pa.utf8(), nullable=False),
-        # Dual-column dense embeddings, one per route: a ``proof`` chunk
-        # has ``embedding_proof`` populated and ``embedding_stmt`` NULL;
-        # everything else the reverse (see :func:`route`).
+        # Dual-column dense embeddings. Nullable per the dual-encoding
+        # contract: ``kind="proof"`` chunks have ``embedding_proof``
+        # populated and ``embedding_stmt`` NULL; everything else has
+        # ``embedding_stmt`` populated and ``embedding_proof`` NULL. The
+        # column a chunk's vector belongs in is its :func:`route`.
         pa.field(
             "embedding_stmt",
             pa.list_(pa.float32(), EMBEDDING_DIM),
@@ -487,59 +497,105 @@ CHUNKS_SCHEMA_V1 = pa.schema(
             nullable=True,
         ),
         # Versioning columns (required). ``chunker_version`` flows from
-        # ``ChunkRecord.chunker_version``; ``embedder_version`` from the
-        # embedder's ``EMBEDDER_VERSION`` via ``EmbedRecord``.
+        # ``ChunkRecord.chunker_version``; ``embedder_version`` flows from
+        # the embedder's ``EMBEDDER_VERSION`` constant via ``EmbedRecord``.
         pa.field("chunker_version", pa.utf8(), nullable=False),
         pa.field("embedder_version", pa.utf8(), nullable=False),
         # ``preamble_ref`` is the SHA-256[:16] of the per-paper preamble;
         # NULL when preamble extraction failed (F3 fallback in E02_S02).
         pa.field("preamble_ref", pa.utf8(), nullable=True),
         # ---- textbook-ingest-m2 columns ----
-        # All nullable so the in-place migration of a pre-m2 table
-        # (``ingest.store._migrate_chunks_schema_if_needed``) can add them;
-        # new writes always populate ``source_kind`` and ``license``.
-        # ``source_kind`` domain: :data:`ALLOWED_SOURCE_KINDS`.
+        # All declared nullable=True so a freshly-created table at
+        # this schema version accepts arXiv-only writes (NULL for the
+        # textbook-specific columns). The in-place schema-evolution
+        # migration that backfills these on a pre-m2 LanceDB table is
+        # the work of ``textbook-ingest-m2`` proper — NOT bundled with
+        # ``embedder-truncation-m1`` even though that milestone
+        # incorporated the schema additions. New writes always populate
+        # ``source_kind`` and ``license`` (from ``ChunkRecord``
+        # defaults); the four textbook-only columns stay NULL for
+        # arXiv chunks.
+        #
+        # ``source_kind`` enum domain: {"arxiv", "textbook"}. Enforced
+        # at write time in :func:`to_row` against :data:`ALLOWED_SOURCE_KINDS`.
         pa.field("source_kind", pa.utf8(), nullable=True),
-        # ``license`` is free-text — documentary, not validated; it gates
-        # no serving decision (license-serving-removal-m1).
+        # ``license`` is free-text — domain is documentary, not
+        # validated. Default ``"arxiv-license"`` for arXiv chunks;
+        # textbook chunks carry the textbook's specific license token
+        # (``"GFDL"`` for Stacks Project, ``"author-distributed"`` for
+        # lecture notes, etc.). licensing gates no serving
+        # decision — the ``truncated_for_license`` / e5 truncation gate was
+        # removed in license-serving-removal-m1.
         pa.field("license", pa.utf8(), nullable=True),
-        # Textbook chapter name. NULL for arXiv chunks.
+        # Textbook chapter name (``"Chapter 3: Schemes"``). NULL for
+        # arXiv chunks; populated by the textbook chunker (e3).
         pa.field("chapter", pa.utf8(), nullable=True),
         # Inclusive page range for textbook chunks. NULL for arXiv.
         pa.field("page_start", pa.int32(), nullable=True),
         pa.field("page_end", pa.int32(), nullable=True),
-        # Notebook slug for textbook chunks. NULL for arXiv chunks.
+        # Notebook slug for textbook chunks (``"shimura-varieties"``).
+        # Redundant with ``paper_id = "textbook:<slug>"`` but enables a
+        # scalar-index filter without string-splitting at query time.
+        # NULL for arXiv chunks.
         pa.field("textbook_slug", pa.utf8(), nullable=True),
-        # Per-chunk parser provenance, domain :data:`ALLOWED_PARSER_USED`
-        # plus NULL for unknown / failure.
+        # Per-chunk parser provenance. Domain: :data:`ALLOWED_PARSER_USED`,
+        # enforced at write time in :func:`to_row`. NULL = unknown /
+        # failure. Promoted from ``PaperOutcome`` in m2 so chunk-grain
+        # re-parse decisions are possible.
         pa.field("parser_used", pa.utf8(), nullable=True),
         # ---- source-truth-m2 columns (chunks schema v2) ----
-        # All five nullable; the migration of pre-v2 rows rides the same
-        # SQL-dict ``add_columns`` loop (one ``cast(NULL as ...)`` each).
+        # All five declared nullable=True: a freshly-created table
+        # accepts writes that leave the registry-derived columns NULL,
+        # and the in-place migration of pre-v2 rows
+        # (``_migrate_chunks_schema_if_needed``) rides the same SQL-dict
+        # ``add_columns`` loop as the textbook columns above — one
+        # ``cast(NULL as ...)`` default each, NO struct branch (spike-4).
         #
-        # ``source_revision_id`` — pointer to the per-revision
-        # documents-registry row, ``f"{work_id}@{arxiv_version}"`` or the
-        # bare ``work_id``. NULL on a plain new write; hydrated by
-        # ``tools/notebook_chunks_backfill.py``.
+        # ``source_revision_id`` — the authoritative pointer to the
+        # per-revision documents-registry row (source-truth-m1), stored
+        # as ``f"{work_id}@{arxiv_version}"`` or the bare ``work_id`` when
+        # unversioned (the ``notebook_documents_backfill._label`` form).
+        # NULL when the chunk's paper is unregistered or the registry has
+        # >1 row for the work (defensive abstention). Hydrated by the
+        # backfill; a plain new write leaves it NULL (forward-wiring is a
+        # tracked fast-follow — no new-ingest driver consults the
+        # per-notebook registry yet).
         pa.field("source_revision_id", pa.utf8(), nullable=True),
         # ``source_span`` — a JSON *string* (NOT a struct, so it rides the
-        # SQL-dict migration path), byte-stable via
+        # SQL-dict migration path unmodified), byte-stable via
         # ``json.dumps(sort_keys=True, separators=(",", ":"))``. Shape:
-        # ``{"rev":<16-hex>, "txt":<64-hex sha256(NFC(ws-collapsed
-        # body_text))>, "id":<source element id or "">}``.
+        # ``{"rev":<16-hex parse_artifact_sha256 prefix>,
+        #    "txt":<64-hex sha256(NFC(ws-collapsed body_text))>,
+        #    "id":<source element id or "">}``. ``txt`` is the
+        # authoritative resolving key (spike-3); ``rev`` is a redundant
+        # cross-check; ``id`` is a non-authoritative debug hint. NULL when
+        # ``source_revision_id`` is unresolved OR the backfill's chunk-id
+        # re-derivation did not reproduce this row (abstention, counted).
         pa.field("source_span", pa.utf8(), nullable=True),
-        # ``truncated`` — persists ``ChunkRecord.truncated``.
+        # ``truncated`` — persists ``ChunkRecord.truncated`` (previously
+        # computed at ingest but dropped at ``_build_arrow_table``). The
+        # ONLY v2 column with no legitimate NULL path once hydrated: the
+        # backfill fills it for 100% of rows (exact on a chunk-id hit,
+        # else a safe-direction token recount vs ``STMT_MAX_TOKENS`` /
+        # unconditional False for ``kind="proof"``).
         pa.field("truncated", pa.bool_(), nullable=True),
-        # ``printed_number`` — the rendered theorem number. Chunker-native.
+        # ``printed_number`` — the rendered theorem number ("3.1", "A.2",
+        # "1.5.1") extracted by ``ingest.chunker._extract_printed_number``
+        # from the ``ltx_tag_theorem`` heading text. Chunker-native (every
+        # new theorem-like/proof chunk gets it). NULL when genuinely
+        # unnumbered (F1), for ``kind`` in {proof-orphan, section}, or when
+        # the backfill's chunk-id match missed.
         pa.field("printed_number", pa.utf8(), nullable=True),
-        # ``license_ref`` — the matched registry row's ``license_status``,
-        # denormalized; ADVISORY. NULL exactly when ``source_revision_id``
-        # is NULL.
+        # ``license_ref`` — the matched registry row's ``license_status``
+        # value denormalized onto the chunk row (``eligible`` /
+        # ``not-allowlisted-open`` / ``unknown``), NOT a second pointer.
+        # ADVISORY: changes no serving behavior until the owner-gated m4
+        # cutover. NULL exactly when ``source_revision_id`` is NULL.
         pa.field("license_ref", pa.utf8(), nullable=True),
         # Bridgeland corpus repair: the embedding input policy the row's
         # vector was computed under (NULL on pre-repair rows, read as
-        # :data:`LEGACY_EMBED_INPUT_POLICY_VERSION`) and lossless window
-        # provenance. Added at the tail for schema evolution.
+        # :data:`LEGACY_EMBED_INPUT_POLICY_VERSION`, never reusable) and
+        # lossless window provenance. Added at the tail for schema evolution.
         pa.field("embed_input_policy_version", pa.utf8(), nullable=True),
         pa.field("part_index", pa.int32(), nullable=True),
         pa.field("part_count", pa.int32(), nullable=True),
@@ -706,15 +762,17 @@ def _check_row(row: Mapping[str, object]) -> None:
             )
 
 
-def to_arrow_table(rows: Sequence[Mapping[str, object]]) -> pa.Table:
+def to_arrow_table(rows: Iterable[Mapping[str, object]]) -> pa.Table:
     """Build a :data:`CHUNKS_SCHEMA_V1` table from ``chunks`` rows.
 
     Every row must carry exactly the schema's columns and no NULL in a
-    non-nullable one; the error names the column.
+    non-nullable one; the error names the column. ``rows`` is read once,
+    so a generator yields the same table as a list.
     """
-    for row in rows:
+    materialized = [dict(row) for row in rows]
+    for row in materialized:
         _check_row(row)
-    return pa.Table.from_pylist([dict(row) for row in rows], schema=CHUNKS_SCHEMA_V1)
+    return pa.Table.from_pylist(materialized, schema=CHUNKS_SCHEMA_V1)
 
 
 def from_row(row: Mapping[str, object]) -> ChunkRecord:
@@ -744,6 +802,7 @@ __all__ = [
     "ALLOWED_SOURCE_KINDS",
     "CHUNKER_VERSION",
     "CHUNKS_SCHEMA_V1",
+    "EMBEDDING_COLUMN_NAMES",
     "EMBEDDING_DIM",
     "EMBED_INPUT_POLICY_VERSION",
     "LEGACY_EMBED_INPUT_POLICY_VERSION",

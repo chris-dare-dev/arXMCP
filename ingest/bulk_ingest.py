@@ -398,9 +398,11 @@ def run_bulk_ingest(
     The loop is **single-process sequential** at the write
     boundary (``ingest.store.write_chunks`` is single-writer-per-
     dataset). GPU batching happens inside ``embed_paper``. Naive
-    re-runs are safe: the embedder's per-paper sidecar carries a
-    version check, so already-processed papers short-circuit at
-    the embed step regardless.
+    re-runs are safe: the embedder's per-paper sidecar carries the
+    versions and each chunk's reuse identity, so already-processed
+    papers short-circuit at the embed step regardless (a sidecar
+    written before chunk-module-m1 has no identity and re-embeds
+    once).
     """
     if progress_interval <= 0:
         # Closes F8: a positive interval is the only sane value; 0

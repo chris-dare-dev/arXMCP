@@ -135,10 +135,12 @@ from tools.oai_license import (
 logger = logging.getLogger("notebook_chunks_backfill")
 
 # The LanceDB chunks table name. Literalized here (rather than imported from
-# ``ingest.schema``) because ``ingest.schema`` does ``from ingest.embedder
-# import EMBEDDING_DIM`` at module load — importing it would pull the embedder
-# module into this driver's import graph and defeat the STRUCTURAL 0-re-embed
-# guarantee. The name is stable; a rename is a one-line change here.
+# ``ingest.schema``) so this driver's import lines stay limited to the chunk
+# module, the chunker and the tokenizer — the STRUCTURAL 0-re-embed guarantee
+# that ``TestZeroReEmbed`` checks. Since chunk-module-m1 the only ``ingest``
+# module ``ingest.schema`` imports is ``ingest.chunk`` (not the embedder), so
+# importing the name from there would also be safe. The name is stable; a
+# rename is a one-line change.
 CHUNKS_TABLE_NAME = "chunks"
 
 # The five source-truth-m2 columns and their NULL-default SQL for the
