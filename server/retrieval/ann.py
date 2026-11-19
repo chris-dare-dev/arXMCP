@@ -14,8 +14,7 @@ KIND-ROUTED at index time (``kind == "proof"`` →
 ``embedding_proof``; everything else → ``embedding_stmt``;
 ``ingest/embedder.py:19-22``). At query time we call
 :func:`server.query_encoder.encode_query` ONCE and reuse the
-single 1024-dim L2-normalized vector against both columns. See
-research-synthesis.md, fact 1.
+single 1024-dim L2-normalized vector against both columns.
 
 **Score conversion.** L2 distance on unit-normalized vectors →
 cosine similarity in [0, 1] via ``score = max(0, 1 - dist / 2)``.

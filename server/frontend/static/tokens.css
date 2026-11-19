@@ -103,10 +103,8 @@
   --card-bg: oklch(99% 0.004 250);     /* anchor: control surface */
   --border: oklch(62.984% 0.018 250);  /* solved: 3.30:1 on --bg (SC 1.4.11) */
   /* ui-uplift-m8 (UPL-2): the graded hairline RULE LADDER that replaces the
-     .card primitive. The three weights are the ones the 2026q3 discovery
-     authored BY NAME (discover/art-direction-scout-brief.md:176-177,
-     artifacts/synthesis.md:234) and the roadmap summary dropped, as it
-     dropped m7's clamp() values and m10's finding-H3 rules. Horizontal
+     .card primitive. The three weights were authored BY NAME in the
+     design discovery. Horizontal
      only; no vertical edge anywhere in the sheet.
 
      SHORTHANDS, NOT COLOURS. Each value is a whole `border-*` shorthand, so
@@ -206,9 +204,8 @@
      --tracking-meta is correctly em, not rem: tracking must scale with
      ITS OWN element's size, which is the entire point at 11px.
 
-     --text-title is the value authored by the 2026q3 uplift discovery
-     (art-direction-scout-brief.md:493, synthesis.md:270,
-     final-report.md:193 — identical in all three), NOT invented here.
+     --text-title is the value authored by the design discovery, NOT
+     invented here.
      It resolves to 24px, is pinned at that minimum below a 400px
      viewport and at 36px above 700px. It clears SC 1.4.4 on both
      counts: min and max are rem (so text-only zoom scales them), and
@@ -221,10 +218,9 @@
      ramp to 28-36px (1.29x), which barely justifies a clamp at all.
      Recorded here rather than left silent.
 
-     REFUSED — text-wrap: balance. final-report.md:492 attaches it to
-     UPL-3 by name, so it is the obvious reach for a fluid title. It is
-     Baseline NEWLY available (2024-05-13); Widely lands 2026-11-13,
-     after this milestone. Refused on exactly the basis ui-uplift-m6
+     REFUSED — text-wrap: balance. It is the obvious reach for a fluid
+     title. It is Baseline NEWLY available (2024-05-13); Widely lands
+     2026-11-13, after this milestone. Refused on exactly the basis ui-uplift-m6
      refused light-dark() above. text-wrap: pretty is a harder no —
      Baseline limited, Firefox has not shipped it at all.
 

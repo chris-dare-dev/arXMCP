@@ -2,8 +2,7 @@
 
 The chunk_id and paper_id formats are referenced by:
 
-- ``ingest/chunker.py`` (the writer; closes Threat 1 path-traversal
-  per ``08-security-observability-ops.md``).
+- ``ingest/chunker.py`` (the writer; closes Threat 1 path-traversal).
 - ``tools/validate_eval_fixtures.py`` (the eval-fixture validator;
   ensures curated chunk_ids match the chunker's output).
 - ``server/handlers/*.py`` (every tool handler that accepts a

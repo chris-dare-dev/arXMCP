@@ -20,7 +20,7 @@ Four resources are registered (see :func:`register_resources`):
 This surface is **read-only** — notebook mutation stays on the ``/ui/api`` REST
 surface (the MCP notebook-mutation-tools path is on the project's Won't list).
 
-Security (security-reviewer lens; ``08-security-observability-ops.md``):
+Security:
 
 - ``validate_slug`` is the FIRST call in the per-slug path — a ``resources/read``
   is an unauthenticated MCP call, so the slug is treated as hostile (the regex

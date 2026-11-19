@@ -9,9 +9,7 @@ schema inline.
 Schema mutations require a corresponding MVCC version bump. E04_S02
 shipped the ``corpus_version`` integer in ``corpus-version.json``;
 the schema version now ratchets via LanceDB's MVCC integer (written
-by every successful ``write_chunks`` call). See
-``05-storage-and-indexing.md`` § "MVCC versioning" for the
-operational handshake.
+by every successful ``write_chunks`` call).
 
 **Existing-row migration shipped in textbook-ingest-m2** as
 :func:`ingest.store._migrate_chunks_schema_if_needed`. On every
@@ -44,7 +42,7 @@ until that forward-wiring fast-follow lands.
 Column order follows the brief's table verbatim. PyArrow doesn't
 require a particular order for correctness, but a fixed source-literal
 ordering keeps the schema bytes deterministic across runs (BP1
-discipline from ``07-multi-agent-caching.md``).
+discipline).
 
 **Why a separate module rather than inline in store.py.** The brief
 explicitly requires "PyArrow schema definition is imported from a

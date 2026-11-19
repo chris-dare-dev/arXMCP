@@ -4,7 +4,7 @@ Iterates over ``tools/seed-papers.txt``, resolves each arXiv ID to an
 OpenAlex Work, fetches the work's ``referenced_works`` list, and writes
 ``papers`` nodes plus ``cites`` edges to the Kùzu graph.
 
-Two-pass shape (per ``research-synthesis.md`` § 3):
+Two-pass shape:
 
 1. **Resolution.** For each seed arXiv ID, GET the OpenAlex Work and
    record ``(arxiv_id → oa_work_id, references)`` in memory and on
@@ -133,7 +133,7 @@ MAX_HTTP_RETRIES = 3
 #: Cap on the OpenAlex JSON response body. A real Work record is
 #: ~10 KB; 5 MiB is generous for the 99th-percentile response and
 #: tight enough to fail fast on a misbehaving / hostile server. Threat
-#: 7 (``08-security-observability-ops.md``) requires a meaningful cap;
+#: 7 requires a meaningful cap;
 #: we do NOT inherit ``tools.arxiv_fetch.MAX_RESPONSE_BYTES`` (200 MB)
 #: because that constant is calibrated for arXiv source tarballs and
 #: would let a malformed CDN response allocate 20,000× more memory
@@ -529,7 +529,7 @@ def ingest(
     Args:
         seed_ids: ordered list of arXiv IDs (already validated upstream;
             this function asserts each via ``validate_paper_id`` for
-            defense-in-depth — Threat 1, ``08-security-observability-ops.md``).
+            defense-in-depth — Threat 1).
         db_path: Kùzu database directory. Created if missing.
         checkpoint_path: JSON file persisted after every batch.
         contact_email: passed through ``build_user_agent`` and into the

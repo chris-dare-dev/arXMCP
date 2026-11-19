@@ -94,7 +94,7 @@ class RerankerHandle(NamedTuple):
 
 
 # ---------------------------------------------------------------------------
-# Pinned model identity (Threat 6, 08-security-observability-ops.md)
+# Pinned model identity (Threat 6)
 # ---------------------------------------------------------------------------
 
 #: Single source of truth for the BGE-reranker-v2-m3 commit SHA.

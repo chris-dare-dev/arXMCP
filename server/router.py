@@ -100,8 +100,7 @@ class RouteTag(StrEnum):
 
 
 #: Default tag returned by :func:`classify` when no pattern matches.
-#: Routes the query to the cheapest agent role (Haiku for retrieval
-#: per ``E08-agent-runtime.md:192``). Per ``01-mission-and-context.md``,
+#: Routes the query to the cheapest agent role (Haiku for retrieval).
 #: Sketcher/Tactician retrieval is the most general-purpose path —
 #: a no-match query is "I don't know what this is", which most
 #: resembles "look something up". Document the choice prominently.

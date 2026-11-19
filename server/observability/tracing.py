@@ -36,10 +36,8 @@ equivalent).
 
 **Cache-layer enum.** The OTel attribute uses
 ``tier1|tier2|tier3|miss`` — matches the Prometheus surface
-:func:`server.metrics.CACHE_HITS_COUNTER` label space. The
-``08-security-observability-ops.md`` constitution note's legacy
-``exact|semantic|rerank|miss`` enumeration is updated in
-lockstep with this milestone (E14_S02 synthesis D6).
+:func:`server.metrics.CACHE_HITS_COUNTER` label space, not the older
+``exact|semantic|rerank|miss`` enumeration.
 """
 
 from __future__ import annotations
@@ -159,8 +157,7 @@ CORPUS_VERSION_RESOURCES_NOT_READY: str = "resources-not-ready"
 #: Why a header and NOT a JSON-Schema property: adding ``_agent_role``
 #: as a first-class JSON-Schema property on every tool would bump
 #: :data:`server.tools.TOOL_SCHEMA_VERSION` and invalidate the BP1
-#: prompt-cache for every existing agent prefix
-#: (``07-multi-agent-caching.md`` Property 1). The header keeps
+#: prompt-cache for every existing agent prefix. The header keeps
 #: TOOL_SCHEMA_VERSION pinned at 6. The brief's wording
 #: "documented in the tool schema but not required" is interpreted
 #: as "the attribute is documented" not "a JSON-Schema property

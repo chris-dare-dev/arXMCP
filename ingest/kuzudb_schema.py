@@ -2,24 +2,17 @@
 
 Idempotent migration that creates the ``papers`` node table and
 ``cites`` rel table at the canonical path ``var/arxmcp/index/kuzu/``
-(matches ``Makefile:bootstrap`` and ``05-storage-and-indexing.md``).
+(matches ``Makefile:bootstrap``).
 
-The milestone brief AC#1 names the path ``var/arxmcp/index/kuzudb/``;
-that wording conflicts with the bootstrap target and both relevant
-design notes (``05-storage-and-indexing.md`` and
-``08-security-observability-ops.md``), all of which use ``kuzu/``. The
-implementation follows the design constitution and treats the brief's
-AC#1 path-name as drift to be corrected in a follow-up docs PR. See
-``research-synthesis.md`` § 2.1 for the resolution.
+The path is ``kuzu/``, not ``kuzudb/``, to match the bootstrap target.
 
 Kuzu was archived 2025-10-10; pinned to v0.11.3 (last stable, MIT) in
 ``pyproject.toml``. Future fork migration (Kineviz bighorn /
 Vela-Engineering) is tracked separately; do not bump the pin without
 re-evaluating the upstream landscape.
 
-Schema (Tier-3 minimal — the richer 5-table form in
-``05-storage-and-indexing.md`` § Kùzu citation graph is intentionally
-deferred to E09_S03+):
+Schema (Tier-3 minimal — a richer 5-table form is intentionally
+deferred):
 
 - ``papers``: paper_id (PK), title, abstract, authors, year,
   categories, oa_work_id.
@@ -39,8 +32,7 @@ import kuzu
 
 #: Schema version. Bump whenever ``SCHEMA_STATEMENTS`` mutates so
 #: callers (and downstream cache layers, e.g. ``cite_neighbors`` in
-#: E09_S03) can detect drift on an existing database. F6 from the
-#: E09_S01 critique cites ``07-multi-agent-caching.md``: any schema
+#: E09_S03) can detect drift on an existing database. Any schema
 #: mutation MUST bump a version constant so cached responses derived
 #: from the schema don't go stale silently.
 #:

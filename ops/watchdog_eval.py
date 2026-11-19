@@ -72,7 +72,7 @@ MIN_QUERIES_FOR_REGRESSION_CHECK: int = 10
 #: Operator overrides via ``ARXMCP_EVAL_REGRESSION_THRESHOLD_PCT``.
 DEFAULT_REGRESSION_THRESHOLD_PCT: float = 10.0
 
-#: Standard E05 minimum (Tier-0 → Tier-1 gate; see TIER-GATES.md).
+#: Standard minimum (the Tier-0 → Tier-1 gate).
 DEFAULT_NDCG_MIN: float = 0.70
 
 #: Default fixture location.

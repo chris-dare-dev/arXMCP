@@ -16,7 +16,7 @@ Capabilities:
   query (a phrase value matches literally).
 - ``parse_atom_feed`` — parse the Atom response into ``Candidate`` rows using
   ``defusedxml`` (XXE / billion-laughs safe — the response is untrusted
-  external data; Threat 7 in ``08-security-observability-ops.md``). Detects the
+  external data; Threat 7). Detects the
   arXiv "error entry" pattern (HTTP 200 + an ``/api/errors#`` id) and raises.
 - ``fetch_candidates`` — fetch + paginate + parse, returning ``list[Candidate]``.
   Pagination is bounded by the requested ``max_results`` (≤2000/page per the

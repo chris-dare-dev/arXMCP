@@ -186,8 +186,7 @@ _ALLOWED_SOURCE_KINDS = frozenset({"arxiv", "textbook"})
 # "extend the parser_used enum" wording is only meaningful if the
 # column is actually enum-validated). None means failure / unknown
 # and is accepted by ``_build_arrow_table`` — only non-None values
-# must be in this set. Domain mirrors the synthesis D2 documentation
-# + the chunker_types.py / 05-storage-and-indexing.md descriptions.
+# must be in this set. Domain mirrors the chunker_types.py descriptions.
 _ALLOWED_PARSER_USED = frozenset(
     {"ar5iv", "latexml", "mineru+latexml", "mineru+markdown"}
 )
@@ -269,7 +268,7 @@ def load_embed_record(paper_id: str) -> EmbedRecord | None:
     Closes F1 from the E04_S01 adversary critique: ``paper_id`` is
     validated via ``_validate_paper_id`` before any path concatenation.
     The chunker / embedder / preamble loaders all gate on this exact
-    helper (Threat 1 in 08-security-observability-ops.md); a public
+    helper (Threat 1); a public
     function that interpolates ``paper_id`` into a filesystem path
     must do the same.
     """
@@ -752,8 +751,7 @@ def write_corpus_version_marker(
 
     .. warning::
 
-       Path-traversal validation (Threat 1 from
-       ``08-security-observability-ops.md``) is **deferred to E06's
+       Path-traversal validation (Threat 1) is **left to the
        tool-input boundary** (TODO(E06)) — same discipline as
        :func:`server.corpus.open_chunks_table`. This function trusts
        ``lancedb_path`` as config-derived. Callers passing
@@ -1043,8 +1041,7 @@ def write_chunks(
         # try AFTER the marker write so chunk_count/paper_count are bound and it
         # fires only on the success path (a marker-write failure is logged by
         # the except below, not as a spurious "complete"). Aggregate counts are
-        # safe at INFO — the RedactionFilter guards body/query fields only
-        # (08-security-observability-ops.md §Logging).
+        # safe at INFO — the RedactionFilter guards body/query fields only.
         logger.info(
             "write_chunks_complete",
             extra={

@@ -17,7 +17,7 @@ loads, this function:
 
 Also exports :class:`JsonFormatter`. As of
 corpus-integrity-observability-e2 it is installed BY DEFAULT (12-factor
-JSON to stdout, per ``08-security-observability-ops.md`` §Logging);
+JSON to stdout);
 ``configure(log_format="text")`` opts out for human-readable dev output.
 The formatter always runs AFTER :class:`RedactionFilter` on the same
 handler, so the format choice never affects redaction. (Through E13_S08

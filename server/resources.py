@@ -2307,7 +2307,7 @@ async def _load_reranker_or_raise() -> Any:
     in ``Resources.startup`` for the LanceDB handle and BGE-M3
     embedder loads.
 
-    Threat 6 (``08-security-observability-ops.md``): pass
+    Threat 6: pass
     ``trust_remote_code=False`` so a tampered ``modeling_*.py`` in
     the cache cannot achieve RCE, and ``revision=BGE_RERANKER_COMMIT_SHA``
     so transformers fetches the pinned ref (rather than HEAD).
@@ -2360,10 +2360,8 @@ async def _load_reranker_or_raise() -> Any:
                 RERANKER_MODEL_ID,
                 revision=BGE_RERANKER_COMMIT_SHA,
                 trust_remote_code=trc,
-                # F1 fix from the E07_S03 critique: enforce safetensors
-                # to close the pickle-RCE vector. Threat 6 in
-                # 08-security-observability-ops.md mandates "Use
-                # safetensors format only; refuse .bin / pickle weights."
+                # Enforce safetensors to close the pickle-RCE vector:
+                # Threat 6 refuses .bin / pickle weights.
                 # If a future SHA upgrade ships only .bin, this
                 # raises loudly — the correct security failure mode.
                 use_safetensors=True,

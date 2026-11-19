@@ -33,8 +33,7 @@ Design decisions (research-synthesis §"LOAD-BEARING constraints")
    silently overwrite the first on disk (m7 FM-4).
 4. ``page_start`` / ``page_end`` stay ``None`` — MinerU's
    ``content_list.json`` page metadata is not propagated through the
-   LaTeXML render. Correlating it back is a future item (not in the e3
-   outcome); see textbook-preamble-decision.md §"Related deferrals".
+   LaTeXML render. Correlating it back is not done.
 5. ``TEXTBOOK_CHUNKER_VERSION`` is SEPARATE from
    ``chunker_types.CHUNKER_VERSION`` so a textbook-only change never
    forces arXiv corpus re-embedding.
@@ -384,7 +383,7 @@ def _chunk_textbook_impl(
     # PREAMBLE DECISION (textbook-ingest-m8, OQ-1): preamble_text is
     # PERMANENTLY "" for PDF-sourced textbooks, and preamble_ref stays
     # None. This is NOT a v0 placeholder — it is the correct steady
-    # state. The arXiv preamble lever (04-parsing-and-chunking.md)
+    # state. The arXiv preamble lever
     # expands UNEXPANDED author macros (\newcommand/\def) from a .tex
     # source; the PDF→MinerU→LaTeXML path has none — MinerU emits math
     # already expanded at the PDF-render level (\mathbb{F}, never \F).

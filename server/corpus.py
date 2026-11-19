@@ -52,7 +52,7 @@ and route queries to the cached handle. Re-pinning to a new version
 requires opening a new handle (do not call ``checkout`` on a cached
 one).
 
-**Threat 1 (08-security-observability-ops.md).** This function accepts
+**Threat 1.** This function accepts
 a filesystem path. In production the path comes from a trusted config
 value, not from tool input — but we ``Path(...).exists()``-check before
 passing to LanceDB so the failure mode is a clear ``FileNotFoundError``
@@ -72,8 +72,7 @@ Only ``version``. When the server reads a ``corpus-version.json``
 naming a different ``version`` than the one it is serving, it MUST
 re-bind the corpus and clear every in-process cache keyed on the old
 version. This prevents stale serving after a corpus update without
-requiring a server restart. The caching doc's Tier-1 key formula
-(``07-multi-agent-caching.md`` § "Tier 1 — Exact-query") is::
+requiring a server restart. The Tier-1 key formula is::
 
     key = sha256(model_name + model_version + canonical_form(query) + corpus_version)
 
@@ -461,8 +460,7 @@ def open_chunks_table(
 
     .. warning::
 
-       Path-traversal validation (Threat 1 from
-       ``08-security-observability-ops.md``) is **deferred to E06's
+       Path-traversal validation (Threat 1) is **left to the
        tool-input boundary**. This function trusts ``lancedb_path`` as
        config-derived. Callers that pass user-supplied paths MUST
        validate against an allowlisted corpus root first.
@@ -706,8 +704,7 @@ def read_corpus_version(
 
     .. warning::
 
-       Path-traversal validation (Threat 1 from
-       ``08-security-observability-ops.md``) is **deferred to E06's
+       Path-traversal validation (Threat 1) is **left to the
        tool-input boundary** (TODO(E06)) — same discipline as
        :func:`open_chunks_table` and
        :func:`ingest.store.write_corpus_version_marker`. This function

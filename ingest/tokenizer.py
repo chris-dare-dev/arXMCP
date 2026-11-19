@@ -48,9 +48,7 @@ analyzer)" implying a custom Tantivy analyzer. Tantivy ships no such
 analyzer. Building one in Rust would be multi-week work for a Python
 project that doesn't otherwise need Rust. The Python regex approach is
 self-contained, deterministic, sub-millisecond at the 512-token-chunk
-scale, and trades small recall on exotic LaTeX for shipping today. The
-H4 finding from the rev-2026-05 roadmap critique forced this decision;
-``05-storage-and-indexing.md`` and the milestone brief are aligned.
+scale, and trades small recall on exotic LaTeX for shipping today.
 
 Determinism
 -----------

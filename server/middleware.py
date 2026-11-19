@@ -312,9 +312,8 @@ def _validate_host_header(
     """Return True if a ``Host`` header is acceptable.
 
     F3: Threat 5 (DNS rebinding) requires Host header validation in
-    addition to Origin validation. ``08-security-observability-ops.md``
-    line 74: "validate the ``Host`` header is ``127.0.0.1`` or
-    ``localhost`` with the configured port."
+    addition to Origin validation: the ``Host`` header must be
+    ``127.0.0.1`` or ``localhost`` with the configured port.
 
     A valid Host has the form ``<hostname>[:<port>]``. We accept:
     - hostname in :data:`LOOPBACK_HOST_HEADER_HOSTS` (127.0.0.1,
@@ -674,8 +673,7 @@ class SecFetchSiteMiddleware:
 class HostValidationMiddleware:
     """Reject requests whose ``Host`` header is not loopback.
 
-    F3 fix from the E06_S05 critique: Threat 5
-    (``08-security-observability-ops.md`` line 74) mandates DNS
+    Threat 5 mandates DNS
     rebinding defense via Host header validation in addition to
     Origin validation. FastMCP's built-in
     :class:`TransportSecurityMiddleware` validates Host only on

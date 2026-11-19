@@ -6,7 +6,7 @@ embedder (E03_S01) reads this back via the ``preamble_hash`` field, which
 matches the ``preamble_ref`` stored on every chunk emitted by ``chunker.py``.
 
 The serialised JSON is sorted-keys, no timestamps — supporting BP1
-byte-identical caching per ``08-security-observability-ops.md``.
+byte-identical caching.
 """
 
 from __future__ import annotations

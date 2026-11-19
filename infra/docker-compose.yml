@@ -31,7 +31,7 @@ services:
 
     ports:
       # Host side pinned to LOOPBACK (127.0.0.1). This is the load-bearing
-      # network defense (08-security-observability-ops.md): the LAN can never
+      # network defense: the LAN can never
       # reach the server. Do NOT drop the 127.0.0.1: prefix — a bare
       # "7733:7733" publishes on 0.0.0.0 (all host interfaces).
       - "127.0.0.1:7733:7733"

@@ -35,7 +35,7 @@ logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# Sandbox constants — load-bearing per security-pdf-sandbox.md
+# Sandbox constants — load-bearing
 # ---------------------------------------------------------------------------
 
 #: Virtual-memory ceiling for the MinerU subprocess. 4 GB is ~2x the
@@ -434,8 +434,7 @@ def _signal_process_group(proc: subprocess.Popen, *, force: bool) -> None:
     one from this helper.
 
     Also on Windows this reaches only the direct child -- MinerU's grandchild
-    FastAPI service may survive, an accepted gap (security-pdf-sandbox.md
-    §"explicitly does NOT do"; CLAUDE.md gotcha #10).
+    FastAPI service may survive, an accepted gap (CLAUDE.md gotcha #10).
     """
     with contextlib.suppress(ProcessLookupError, OSError):
         if hasattr(os, "getpgid"):
@@ -580,7 +579,7 @@ def run_mineru_sandboxed(
         stdout, stderr = proc.communicate(timeout=effective_timeout)
     except subprocess.TimeoutExpired:
         # Kill the process group; MinerU 3.x's grandchild FastAPI
-        # service may survive (see security-pdf-sandbox.md). Drain
+        # service may survive. Drain
         # the PIPEs to avoid deadlock during cleanup. Capture the
         # drain output and surface in the WARN log — closes m5 F5
         # (timeout-path observability gap).

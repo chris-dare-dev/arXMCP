@@ -298,7 +298,7 @@ BACKUP_STATUS_GAUGE: Gauge = Gauge(
 #: Rehydrated from var/arxmcp/ops/ingest-summary.json at /metrics scrape time.
 #: Unlabeled scalars (no {driver} label — only the most-recent run is
 #: reflected; a labelled series would leave non-recent drivers frozen at
-#: stale values; see spike-3 decision.md Decision 2).
+#: stale values).
 INGEST_LAST_RUN_PAPERS: Gauge = Gauge(
     "arxmcp_ingest_last_run_papers",
     "Number of papers processed in the last ingest run, "

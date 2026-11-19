@@ -58,12 +58,10 @@ fewer surface points for a future edit to break BP2.
 role prefix lives in the SAME content block as the user's
 ``problem_statement`` (separated by ``\\n\\n``), an attacker who
 controls ``problem_statement`` can splice an extra ``[Role: …]``
-marker after the legitimate one. Per
-``server/prompts.md``'s "Security — `[Role:]` injection" section,
-the orchestrator MUST either reject or escape ``[Role:`` substrings
-in untrusted input before concatenation. This is a contract for the
-upstream (E08_S04) to enforce; it is documented but not enforced
-here because this module is pure constants.
+marker after the legitimate one. The orchestrator MUST either reject or
+escape ``[Role:`` substrings in untrusted input before concatenation.
+This is a contract for the upstream (E08_S04) to enforce; it is
+documented but not enforced here because this module is pure constants.
 """
 
 from __future__ import annotations

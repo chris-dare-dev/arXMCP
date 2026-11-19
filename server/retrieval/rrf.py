@@ -28,7 +28,7 @@ families (BM25 is an unbounded sum-of-logs, cosine is a bounded
 
 **Output shape and ordering.** Returns ``list[tuple[str, float]]``
 sorted by ``(fused_score desc, chunk_id asc)`` — the project-wide
-determinism convention from ``06-mcp-server-design.md`` (mirrors the
+determinism convention (mirrors the
 existing `search.py:128` sort key). Stable across runs given
 identical input lists; cross-agent prompt-cache hits remain viable.
 

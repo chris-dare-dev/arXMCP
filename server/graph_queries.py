@@ -54,12 +54,8 @@ from server.graph_types import CitationNeighbor
 
 logger = logging.getLogger(__name__)
 
-#: Default Kùzu DB directory. Matches the Makefile bootstrap target
-#: and the design notes (``05-storage-and-indexing.md`` § Kùzu citation
-#: graph). The brief signature default is ``var/arxmcp/index/kuzudb/``;
-#: that is the path-name drift documented in ``research-synthesis.md``
-#: § 3 — three repo signals (Makefile, two design notes, two prior
-#: shipped milestones) all use ``kuzu/``. The brief is the outlier.
+#: Default Kùzu DB directory. Matches the Makefile bootstrap target:
+#: ``kuzu/``, not ``kuzudb/``.
 DEFAULT_KUZUDB_PATH = "var/arxmcp/index/kuzu"
 
 #: Hard cap on the per-call result count. The brief AC#5 mentions 50;
@@ -103,8 +99,7 @@ def _build_query(direction: Direction, depth: int) -> str:
       ``(n)-[r:cites*1..N]->(s {paper_id: $paper_id})``.
 
     The variable-length form ``[r:cites*1..N]`` and the
-    ``relationships(p)`` projection both verified live in Kùzu 0.11.3
-    (see ``research-synthesis.md`` § 1).
+    ``relationships(p)`` projection both verified live in Kùzu 0.11.3.
     """
     if depth not in (1, 2):
         raise ValueError(f"depth must be 1 or 2, got {depth}")
@@ -368,8 +363,7 @@ async def cite_neighbors(
 
     .. warning::
 
-        Path-traversal validation (Threat 1 from
-        ``08-security-observability-ops.md``) is **deferred to E06's
+        Path-traversal validation (Threat 1) is **left to the
         tool-input boundary**. This function trusts ``kuzudb_path``
         and ``lancedb_path`` as config-derived. The MCP-tool wrapper
         that lands in E06_S04 / E09_S04 MUST NOT pass agent-supplied

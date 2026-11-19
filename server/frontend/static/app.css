@@ -265,8 +265,8 @@ dl.meta dd, dl.meta dd code, .topic-description { overflow-wrap: anywhere; }
 
 /* ui-uplift-m10 (UPL-9): the Discover panel — the one surface presenting
    externally-sourced content for an operator decision. Anatomy is discovery
-   H3's five authored rules (current-state-critic-brief.md:130-136) carried
-   onto the m7 scale, not pasted: H3's raw 0.8/0.875rem predate --text-small.
+   H3's five authored rules carried onto the m7 scale, not pasted: H3's raw
+   0.8/0.875rem predate --text-small.
    A hairline LADDER, not cards (BAN-2). No chip (BAN-7), no icon (BAN-3).
    REFUSED AC#4 — a relevance line: the Atom feed carries no score in either
    namespace and _arxiv_api.py:156 pins sortBy=submittedDate, so one would be
@@ -522,9 +522,8 @@ button.danger:focus-visible { outline-color: var(--danger); outline-offset: 3px;
    No transitions/animations exist in this file today (verified by
    research-brief-1), so this clamp has no immediate behavioral effect — it
    future-proofs every motion candidate that lands in subsequent milestones
-   (UPL-11, UPL-13, UPL-15, UPL-22). Per motion-vocabulary.md MOT-NO-5,
-   any future animation that omits the no-preference gate is now a
-   Phase-3 BLOCKER. */
+   (UPL-11, UPL-13, UPL-15, UPL-22). Any future
+   animation that omits the no-preference gate is a BLOCKER. */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0.01ms !important;

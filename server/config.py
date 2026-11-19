@@ -43,18 +43,17 @@ from server.metrics_refresh import DEFAULT_REFRESH_INTERVAL_SECONDS
 # Module-level constants
 # ---------------------------------------------------------------------------
 
-#: The v1 default bind port. Picked once and pinned (`06-mcp-server-design.md`
-#: line 313). The shim (E06_S02) hard-codes the same default; both must
-#: change together if the project ever moves off 7733.
+#: The v1 default bind port, picked once and pinned. The shim (E06_S02)
+#: hard-codes the same default; both must change together if the project
+#: ever moves off 7733.
 DEFAULT_BIND_PORT = 7733
 
-#: Loopback values accepted by ``bind_host``. Per Threat 4
-#: (`08-security-observability-ops.md`), only these names may be bound;
+#: Loopback values accepted by ``bind_host``. Per Threat 4, only these
+#: names may be bound;
 #: ``0.0.0.0`` and any public interface are rejected at config parse.
 LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "localhost"})
 
-#: Default 256 KB inline result-payload cap, per the brief and
-#: `06-mcp-server-design.md` line 38. Larger payloads must be returned
+#: Default 256 KB inline result-payload cap. Larger payloads must be returned
 #: via ``resource_link`` (E06_S03 enforcement).
 DEFAULT_RESULT_BYTE_CAP = 256 * 1024
 
@@ -343,11 +342,10 @@ class Config(BaseSettings):
     log_level: str = "INFO"
 
     #: Log output format (corpus-integrity-observability-e2). ``"json"`` emits
-    #: one structured JSON line per record (12-factor; the default per
-    #: ``08-security-observability-ops.md`` §Logging "Structured JSON logs to
-    #: stdout"); ``"text"`` keeps the human-readable stdlib format for local
-    #: dev. The ``RedactionFilter`` runs regardless of format. Set via
-    #: ``ARXMCP_LOG_FORMAT``.
+    #: one structured JSON line per record (12-factor; structured JSON logs
+    #: to stdout are the default); ``"text"`` keeps the human-readable
+    #: stdlib format for local dev. The ``RedactionFilter`` runs regardless
+    #: of format. Set via ``ARXMCP_LOG_FORMAT``.
     log_format: str = "json"
 
     #: Tolerance for the startup corpus-count reconciliation invariant
@@ -441,8 +439,7 @@ class Config(BaseSettings):
     #: matches Phoenix's OTLP intake.
     #:
     #: **Security: loopback-only at config parse time.** Spans carry
-    #: ``mcp.session_id`` (per ``08-security-observability-ops.md``
-    #: §Tracing). Forwarding to an external SaaS collector would
+    #: ``mcp.session_id``. Forwarding to an external SaaS collector would
     #: leak session IDs. The :meth:`validate_otel_endpoint_loopback`
     #: validator rejects non-loopback hostnames at instantiation
     #: time — same precedent as :meth:`reject_non_loopback_bind` for

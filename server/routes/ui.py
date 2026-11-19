@@ -308,9 +308,7 @@ async def ui_status_badge(request: Request) -> HTMLResponse:
     # MUST be on the SWAP RESULT (this fragment), not only on the initial
     # render in base.html. htmx hx-swap="outerHTML transition:false" replaces the <span>
     # entirely every 10s — if the new element omits these attributes, screen
-    # readers stop announcing badge state changes after the first poll
-    # (research-synthesis.md §2 — both Phase-1 researchers flagged this
-    # independently as the most-critical implementation risk for m1).
+    # readers stop announcing badge state changes after the first poll.
     # onboarding-uplift-m3 (AC5): when status is non-pass, append a
     # static <small> remediation block with operator-actionable hints
     # naming the failing check + the Make command to heal it. m3
