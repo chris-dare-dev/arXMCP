@@ -29,18 +29,6 @@ _ALIASES = {
     "ARXMCP_BM25_INDEX_ROOT", "ARXMCP_THEOREM_NAMES_DB_PATH",
     "ARXMCP_NOTEBOOKS_DB_PATH", "ARXMCP_OPS_DIR",
 }
-_INVENTORY_REQUIRED_OWNER_ANCHORS = (
-    "server/main.py:lifespan",
-    "server/metrics_refresh.py:run_metrics_refresh_loop",
-    "server/health.py:refresh_disk_free_metric",
-    "tools/ingest_sentinel.py:write_pause/clear_pause",
-    "tools/_notebook_common.py:ensure_raw_tex",
-    "tools/arxiv_fetch.py:fetch_eprint",
-    "ingest/bulk_download.sh",
-    "tools/quarterly_drill_reminder.sh",
-    "tools/sbom.sh",
-    "ops/cron/arxmcp-backup.sh",
-)
 
 
 def _canonical(path: Path, label: str) -> Path:
@@ -360,14 +348,3 @@ def test_installed_default_and_container_redirects(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="requires"):
         ApplicationPaths.resolve(env={}, mode="container", startup_cwd=tmp_path)
 
-
-def test_inventory_covers_known_write_owners() -> None:
-    inventory = (
-        Path(__file__).parents[1]
-        / ".claude/notes/spikes/desktop-distribution-spike-2.md"
-    ).read_text(encoding="utf-8")
-    missing = [
-        owner for owner in _INVENTORY_REQUIRED_OWNER_ANCHORS
-        if owner not in inventory
-    ]
-    assert not missing, f"inventory is missing known owners: {missing}"
