@@ -601,35 +601,6 @@ class TestCli:
 
 
 # ---------------------------------------------------------------------------
-# AC4 — runbook content
-# ---------------------------------------------------------------------------
-
-
-class TestRunbookContent:
-    runbook = REPO_ROOT / "docs" / "ops" / "drift-watchdog.md"
-
-    def test_runbook_exists(self):
-        assert self.runbook.is_file(), f"runbook missing at {self.runbook}"
-
-    def test_documents_threshold(self):
-        text = self.runbook.read_text(encoding="utf-8")
-        # Must name the env var AND the percent values (10% default,
-        # 5% long-term goal).
-        assert "ARXMCP_EVAL_REGRESSION_THRESHOLD_PCT" in text
-        assert "10%" in text or "10 percent" in text
-        assert "5%" in text or "5 percent" in text
-
-    def test_documents_quarantine(self):
-        text = self.runbook.read_text(encoding="utf-8")
-        assert "eval-quarantine.flag" in text
-        assert "quarantine" in text.lower()
-
-    def test_documents_cutover_dependency(self):
-        text = self.runbook.read_text(encoding="utf-8")
-        assert "E11_S05" in text
-
-
-# ---------------------------------------------------------------------------
 # Makefile target presence
 # ---------------------------------------------------------------------------
 
@@ -865,24 +836,6 @@ class TestCliQuarantineFlagPath:
         assert not flag.is_file()
 
 
-class TestReadmeRunbookLinks:
-    """Closes adversary F9 + infra-safety IS2 (cross-critic):
-    every E10/E11 ops runbook is linked from the root README."""
-
-    def test_all_ops_runbooks_linked(self):
-        text = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
-        for runbook in (
-            "docs/ops/latexml-drift-runbook.md",
-            "docs/ops/bulk-ingest-runbook.md",
-            "docs/ops/delta-loop.md",
-            "docs/ops/re-embed-runbook.md",
-            "docs/ops/drift-watchdog.md",
-        ):
-            assert runbook in text, (
-                f"README.md must link {runbook}"
-            )
-
-
 class TestShellWrapperFlockGuard:
     """Closes infra-safety IS1: both cron wrappers must
     `command -v flock` before invoking it. macOS doesn't ship
@@ -900,45 +853,3 @@ class TestShellWrapperFlockGuard:
             encoding="utf-8"
         )
         assert "command -v flock" in text
-
-
-class TestRunbookConcurrentReadSafe:
-    """Closes infra-safety IS4: runbook accurately describes the
-    duplicate-alert hazard rather than a non-existent data-
-    corruption hazard."""
-
-    runbook = REPO_ROOT / "docs" / "ops" / "drift-watchdog.md"
-
-    def test_describes_safe_concurrent_reads(self):
-        text = self.runbook.read_text(encoding="utf-8")
-        # The revised callout must mention BOTH the safety of
-        # concurrent reads AND the duplicate-alert nuance.
-        lower = text.lower()
-        assert "concurrent reads" in lower or "mvcc" in lower
-        assert "duplicate alert" in lower or "duplicate" in lower
-
-    def test_documents_flock_macos_install(self):
-        """Closes IS1's docs leg: macOS operators need a
-        Prerequisites pointer to `brew install flock`."""
-        text = self.runbook.read_text(encoding="utf-8")
-        assert "brew install" in text and "flock" in text.lower()
-
-
-class TestRunbookSystemdExplanation:
-    """Closes infra-safety IS3: the systemd-alternative section
-    explains WHY the scope deviates from E11_S02 and documents
-    the correct dependency chaining."""
-
-    runbook = REPO_ROOT / "docs" / "ops" / "drift-watchdog.md"
-
-    def test_explains_scope_decision(self):
-        text = self.runbook.read_text(encoding="utf-8")
-        # The revised section must mention `scope decision` or
-        # `deliberately` so operators understand the asymmetry
-        # vs E11_S02.
-        lower = text.lower()
-        assert (
-            "scope decision" in lower
-            or "deliberately" in lower
-            or "not shipped" in lower
-        )

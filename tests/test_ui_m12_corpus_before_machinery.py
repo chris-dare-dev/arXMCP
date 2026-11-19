@@ -292,44 +292,6 @@ class TestCorpusPrecedesMachinery:
             "CORPUS-MUTATION form above the table'."
         )
 
-    def test_the_narrowing_agrees_with_the_canonical_AC(self) -> None:
-        """The narrowing must live in the ROADMAP too, not only here.
-
-        External review, 2026-08-05. m12 declared AC#1 narrowed to "no
-        mutation form above the table" in the template while
-        ``plans/ui-uplift/roadmap.yaml`` still read "without scrolling past
-        any input form" — and ``form.rename-form`` is an input form above the
-        table. So the milestone read as passing an AC its canonical text says
-        it fails, and nothing could see the disagreement because the two
-        statements lived in different files with no guard between them.
-
-        Resolved by owner decision: the AC text moved. That milestone's own
-        ``summary`` already scoped it to "the FIVE mutation forms" — rename is
-        the sixth — so the AC sentence was the outlier, not the shipped page.
-
-        This pins the agreement rather than either side alone. A future edit
-        that reverts the AC to "any input form" without moving rename fails
-        here, which is the state that existed before this test.
-        """
-        roadmap = (REPO_ROOT / "plans" / "ui-uplift" / "roadmap.yaml").read_text(
-            encoding="utf-8"
-        )
-        block = roadmap.split("id: ui-uplift-m12", 1)[1].split("id: ui-uplift-m13", 1)[0]
-        ac1 = next(
-            line for line in block.splitlines()
-            if "the papers table is visible without scrolling" in line
-        )
-        assert "corpus-mutation form" in ac1, (
-            f"roadmap AC#1 reads:\n  {ac1.strip()}\n"
-            f"but this page keeps form.rename-form above the table. Either the "
-            f"AC names corpus-mutation forms, or rename moves below the table. "
-            f"A narrowing recorded only in the template is a contradiction the "
-            f"roadmap does not know about."
-        )
-        assert "any input form" not in ac1, (
-            "roadmap AC#1 has reverted to the unnarrowed wording while rename "
-            "still sits above the table"
-        )
 
     def test_the_page_lands_three_regions_not_seven_blocks(self) -> None:
         """BAN-2's authored payload — 7 cards -> 3 regions

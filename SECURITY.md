@@ -13,10 +13,9 @@ that same machine, so the server ships **no authentication layer** by design.
 | **Out of scope** | Threats that require already owning the host (you are the trust boundary), LAN/remote exposure you deliberately created by overriding the loopback bind, and TLS/auth for a server that is loopback-only by design. |
 
 The full threat model — seven named threats, mitigations, and ongoing test
-coverage — is in
-[`.claude/notes/08-security-observability-ops.md`](.claude/notes/08-security-observability-ops.md).
-That note is authoritative; this file is the public contact + reporting
-policy.
+coverage — is moving to the wiki; until it lands, read the
+[archived note](https://github.com/chris-dare-dev/arXMCP/blob/433ba41ba8710be74d6f99c627dce7d3b5383fca/.claude/notes/08-security-observability-ops.md).
+This file is the public contact + reporting policy.
 
 ## Reporting a vulnerability
 
@@ -85,8 +84,8 @@ Enforced at config-parse time, request-handling time, or via the test suite.
 
 The threat-by-threat audit (Threat 1 path traversal; 2 prompt injection;
 3 LaTeXML/subprocess sandbox; 4 resource exhaustion; 5 Origin/DNS-rebinding;
-6 supply chain; 7 source-ingestion TLS / content-length) lives in
-[`08-security-observability-ops.md`](.claude/notes/08-security-observability-ops.md).
+6 supply chain; 7 source-ingestion TLS / content-length) lives in the same
+threat-model note.
 
 ## Test coverage
 

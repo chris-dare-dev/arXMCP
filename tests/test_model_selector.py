@@ -25,7 +25,6 @@ Plus regression-grade tests for:
 
 from __future__ import annotations
 
-import re
 import subprocess
 import sys
 from pathlib import Path
@@ -48,14 +47,6 @@ from server.router import RouteTag
 #: Path to ``server/`` for the forbidden-string scan.
 SERVER_DIR: Path = Path(__file__).resolve().parent.parent / "server"
 
-#: Path to the policy doc. Moved 2026-05-10 from ``docs/`` to ``.claude/docs/``
-#: as part of the repo-wide doc-layout consolidation (root-MD restriction).
-POLICY_DOC_PATH: Path = (
-    Path(__file__).resolve().parent.parent / ".claude" / "docs" / "model-policy.md"
-)
-
-#: The verbatim section title required by AC #5.
-REQUIRED_DOC_SECTION: str = "Verifier pass: dropped and why"
 
 #: The forbidden substring per AC #4.
 FORBIDDEN_STRING: str = "claude-opus"
@@ -136,50 +127,6 @@ class TestForbiddenStrings:
         """A defensive pin so a future contributor cannot soften the
         check by changing FORBIDDEN_STRING in this file."""
         assert FORBIDDEN_STRING == "claude-opus"
-
-
-# ===========================================================================
-# AC #5 — policy doc has the required section title
-# ===========================================================================
-
-
-class TestPolicyDoc:
-    """AC #5: ``docs/model-policy.md`` includes a section titled
-    exactly *"Verifier pass: dropped and why"*.
-
-    The match is byte-exact on the section title text — a markdown
-    heading prefix (``## `` or ``### ``) plus the title. We also
-    permit the title appearing inline as text (in case a future
-    reorg moves it under a different parent), as long as the exact
-    phrase is present."""
-
-    def test_policy_doc_exists(self):
-        assert POLICY_DOC_PATH.is_file(), (
-            f"AC #5 requires {POLICY_DOC_PATH} to exist."
-        )
-
-    def test_policy_doc_contains_verifier_pass_section_title(self):
-        text = POLICY_DOC_PATH.read_text(encoding="utf-8")
-        # Match the title as a markdown header line: ``## Verifier
-        # pass: dropped and why`` (or ``### …``). Also accept the
-        # phrase appearing standalone for resilience.
-        section_header_re = re.compile(
-            r"^#{1,6}\s+" + re.escape(REQUIRED_DOC_SECTION) + r"\s*$",
-            re.MULTILINE,
-        )
-        assert section_header_re.search(text) or REQUIRED_DOC_SECTION in text, (
-            f"AC #5: docs/model-policy.md must contain a section "
-            f"titled {REQUIRED_DOC_SECTION!r}. Found neither a "
-            f"markdown header nor an inline occurrence."
-        )
-
-    def test_policy_doc_documents_haiku_and_sonnet_ids(self):
-        """Sanity: the doc cites the model IDs by their string form so
-        a reader copying-pasting from the doc gets the canonical
-        spelling."""
-        text = POLICY_DOC_PATH.read_text(encoding="utf-8")
-        assert MODEL_HAIKU_4_5 in text
-        assert MODEL_SONNET_4_6 in text
 
 
 # ===========================================================================
@@ -504,20 +451,4 @@ class TestPolicyVersion:
             f"only changed POLICY_VERSION (e.g., to fix a typo) "
             f"without changing `_SELECTION_TABLE`, just update "
             f"EXPECTED_VERSION in this test file."
-        )
-
-    def test_policy_doc_has_cache_invalidation_section(self):
-        """F3: the cache-invalidation discipline section must exist
-        in the policy doc. A regression that drops the section
-        would let table changes ship without the cache-warming
-        cost being acknowledged."""
-        text = POLICY_DOC_PATH.read_text(encoding="utf-8")
-        assert "Cache-invalidation discipline" in text, (
-            "docs/model-policy.md must contain a 'Cache-invalidation "
-            "discipline' section per F3 fix from the E08_S05 critique."
-        )
-        # The section must mention POLICY_VERSION.
-        assert "POLICY_VERSION" in text, (
-            "Cache-invalidation section must mention POLICY_VERSION "
-            "(the constant that signals intent in PR diffs)."
         )

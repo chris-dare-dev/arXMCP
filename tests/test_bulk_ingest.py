@@ -560,7 +560,7 @@ class TestPerPaperIsolation:
 
 class TestResumeFlagRemoved:
     """Closes F3 + IS2: the no-op `--resume` flag is gone from the
-    CLI, the `run_bulk_ingest` signature, and the runbook."""
+    CLI and the `run_bulk_ingest` signature."""
 
     def test_resume_absent_from_cli(self):
         from ingest.bulk_ingest import _cli
@@ -573,16 +573,6 @@ class TestResumeFlagRemoved:
 
         sig = inspect.signature(run_bulk_ingest)
         assert "resume" not in sig.parameters
-
-    def test_resume_absent_from_runbook(self):
-        from pathlib import Path
-
-        runbook = Path(__file__).resolve().parent.parent / (
-            "docs/ops/bulk-ingest-runbook.md"
-        )
-        text = runbook.read_text(encoding="utf-8")
-        # The runbook explicitly documents no --resume at v1.
-        assert "There is no `--resume` flag at v1." in text
 
 
 class TestParsedDirFlagRemoved:

@@ -12,15 +12,10 @@ release manager. All design decisions, milestone schedules, and merges to
 
 ## Working model
 
-- **Single-user, single-workstation.** All work lands on the `main` branch
-  directly. No pull requests, no code review handoff, no feature
-  branches.
-- **Claude agents do most of the implementation work.** Each milestone
-  runs through the four-phase
-  [`/milestone-pipeline`](.claude/commands/milestone-pipeline.md)
-  slash command (Research → Implement → Critique → Rectify), with the owner
-  authorizing scope at milestone entry and approving the external-write
-  boundary at milestone exit.
+- **Single-user, single-workstation.** Changes land on `main` through pull
+  requests the owner reads and merges.
+- **Claude agents do most of the implementation work.** The owner sets
+  scope in the issue and approves every external write.
 - **Push authorization is per-event.** The owner explicitly authorizes
   each `git push`. A push approved for one event does not authorize
   future pushes.

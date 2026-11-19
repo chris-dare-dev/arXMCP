@@ -587,25 +587,6 @@ class TestPinArxivCaFlag:
         cfg = Config(_env_file=None)  # type: ignore[call-arg]
         assert cfg.pin_arxiv_ca is True
 
-    def test_audit_doc_documents_the_flag(self):
-        """The audit doc must surface the env-var name verbatim so a
-        grep for the flag lands on the operator runbook.
-        """
-        repo_root = Path(__file__).resolve().parents[2]
-        audit = repo_root / ".claude" / "docs" / "security-threat-7-audit.md"
-        assert audit.is_file(), f"audit doc missing at {audit}"
-        text = audit.read_text(encoding="utf-8")
-        assert "ARXMCP_PIN_ARXIV_CA" in text
-        # F4 rectification (E13_S07 adversary): the prior assertion
-        # was ``"100" in text`` which would pass spuriously on any
-        # unrelated number like a year or section. Pin the actual
-        # cap value AND units so a future doc edit that removes
-        # the explanation triggers the test.
-        assert re.search(r"100\s*MB", text), (
-            "audit doc must surface the 100 MB Content-Length cap value"
-        )
-        assert "Threat 7" in text
-
 
 # ===========================================================================
 # E13_S07c — ARXMCP_PIN_ARXIV_CA SSL-context wiring + refresh procedure

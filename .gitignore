@@ -1,6 +1,11 @@
-# Per-user Claude state (machine-local; not for the repo)
-.claude/settings.local.json
-.claude/worktrees/
+# Agent and tool state. Each is machine-local configuration, not product
+# (CREDO.md §1): agent harness, pipeline state, per-machine cargo settings.
+/.claude/
+/.milestone-pipeline/
+/.cargo/
+.agents/
+.codex/
+AGENTS.md
 
 # Python
 __pycache__/
@@ -11,90 +16,23 @@ venv/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
-/apps/desktop/target/
+*.egg-info/
 
-# Editors
+# Editors and OS
 .vscode/
 .idea/
-
-# OS
 .DS_Store
 Thumbs.db
 
-# Build / runtime artifacts (paths anticipated by the design notes)
-# CLAUDE.md section 5 describes the WHOLE of var/ as the gitignored data tree,
-# but this pattern only ever covered var/arxmcp/ -- so ingest staging trees
-# (var/fourier-staging/, var/textbook-staging/, ~93 MB of source PDFs) and the
-# loose driver scripts beside them showed up as untracked noise on every
-# status, and were one `git add .` away from being committed. Widened to all
-# of var/ to match the documented intent. Nothing under var/ has ever been
-# tracked (`git ls-files var/` is empty), so this changes no history.
+# Runtime data, logs and build output. build/ and dist/ are anchored at the
+# root so a source directory with either name deeper in the tree stays
+# trackable.
 /var/
 *.log
-*.egg-info/
-
-# Wheel-build artifacts. setuptools drops build/ (bdist.<platform>/ + lib/ with
-# copied source trees) in the directory the build runs from, and `python -m
-# build` / `uv build` write dist/ there too -- both in the repo root, hence the
-# leading-slash anchor: a future SOURCE directory named build/ or dist/ deeper
-# in the tree must still be trackable.
-#
-# tools/wheel_install_check.py already rmtree's build/ after a successful
-# `make wheel-check`, but only when it did not pre-exist, and not at all when
-# the build fails -- so once build/ lands it is self-perpetuating. Any bare
-# `python -m build` leaves both behind unconditionally. That matters beyond
-# tidiness: .claude/commands/milestone-pipeline.md Phase 0 preflight requires
-# `git status --porcelain` to be empty, so a wheel build otherwise blocks the
-# next milestone until someone removes the directory by hand.
-#
-# arxmcp.egg-info/ is already covered by the *.egg-info/ pattern above.
-# .dockerignore has carried build/ + dist/ since E06_S01; this closes the
-# matching gap on the git side.
 /build/
 /dist/
-
-# E11_S05 — restic creds. The .template is committed; the filled
-# file with the operator's RESTIC_REPOSITORY / B2 creds is not.
-ops/restic-env.sh
-
-# E13_S06 — SBOM JSON outputs. The raw CycloneDX files are multi-MB
-# and timestamped per run; the audit doc references the procedure
-# (``make sbom``) rather than committing the artifacts directly.
-# A future release-tag milestone may flip this to commit only the
-# tag's signed SBOM.
-.claude/docs/security/sbom/*.json
-.claude/docs/security/sbom/*.cdx.json
-
-# Codex (OpenAI agent tool) working artifacts — ephemeral, per-session scratch.
-# arXMCP's agent instructions live in CLAUDE.md; these are local codex state and
-# must not enter git. `.agents/` showed up as a stray, divergent skill mirror
-# (NOT written by sync-repos.py, which targets .claude/skills/); `.codex/` is the
-# codex session dir.
-#
-# AGENTS.md: DECIDED for arXMCP (2026-07-29) — ignore it. It was previously left
-# "tracked-eligible, decide per-repo". Reasons to ignore here: (a) CLAUDE.md § 1
-# restricts the repo root to eight named files and AGENTS.md is not one of them;
-# (b) this repo's agent instructions are CLAUDE.md, so a second 35 KB root
-# instruction file is a duplicate that will drift out of sync with it;
-# (c) `.codex/` is already ignored, so the rest of the codex surface is local
-# state and AGENTS.md is the same class. The fleet is deliberately NOT uniform on
-# this — proclivity tracks its AGENTS.md and that stays correct for proclivity;
-# the per-repo choice is the point.
-.agents/
-.codex/
-AGENTS.md
-
-# Pipeline output and agent memory (CREDO.md §1). The milestone,
-# capability-scout and frontend-uplift pipelines write their state, briefs,
-# critiques and summaries here, `memory: project` agents write their memory, and
-# pipeline-outcome-log.py appends its outcome log. All of it is machine-local;
-# the record of a change is its issue.
-/.claude/notes/milestones/
-/.claude/notes/pipeline-outcomes/
-/.claude/notes/capability-scouts/
-/.claude/notes/frontend-uplifts/
-/.claude/agent-memory/
-
-# Tauri build regenerates crate-local gen/schemas on every cargo build;
-# generated permission-schema artifacts never enter git.
+/apps/desktop/target/
 apps/desktop/crates/supervisor/gen/
+
+# Filled restic credentials; the .template beside it is committed.
+ops/restic-env.sh

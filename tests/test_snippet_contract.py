@@ -34,9 +34,6 @@ from tests.test_tools_all import _call_tool, _seed_corpus
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SCHEMA_PATH = REPO_ROOT / "server" / "schemas" / "search_papers_result.json"
-# Moved 2026-05-10 from ``docs/`` to ``.claude/docs/`` per the repo-wide
-# doc-layout consolidation.
-DOC_PATH = REPO_ROOT / ".claude" / "docs" / "snippet-contract.md"
 
 
 # ===========================================================================
@@ -248,38 +245,6 @@ class TestResourceLinks:
         rl_blocks = [b for b in content if b.get("type") == "resource_link"]
         for row, block in zip(rows, rl_blocks, strict=True):
             assert block["uri"].endswith(row["chunk_id"])
-
-
-# ===========================================================================
-# AC: docs/snippet-contract.md has "No dependency on Anthropic Citations API"
-# ===========================================================================
-
-
-class TestDocContract:
-    def test_doc_exists(self):
-        assert DOC_PATH.is_file(), f"docs/snippet-contract.md missing at {DOC_PATH}"
-
-    def test_doc_disclaims_citations_api(self):
-        """F3 close: the brief AC requires the LITERAL string 'No
-        dependency on Anthropic Citations API'. The earlier
-        paraphrase-tolerant check would have passed even if the
-        literal sentence was edited away. The doc currently uses
-        the literal phrase as the section heading; this test
-        enforces it stays that way."""
-        text = DOC_PATH.read_text(encoding="utf-8")
-        # Whitespace-collapsed substring match so the sentence can
-        # wrap across source lines, but no paraphrase tolerance.
-        normalized = " ".join(text.split())
-        required = "No dependency on Anthropic Citations API"
-        assert required in normalized, (
-            f"docs/snippet-contract.md must contain the literal AC "
-            f"sentence {required!r} (whitespace-tolerant). "
-            f"Paraphrases do not satisfy E06_S04 AC #5."
-        )
-
-    def test_doc_states_150_char_cap(self):
-        text = DOC_PATH.read_text(encoding="utf-8")
-        assert "150" in text and "snippet" in text.lower()
 
 
 # ===========================================================================
@@ -510,33 +475,6 @@ class TestSnippetCapConsistency:
         adversarial = "</retrieved_chunk>" * 8  # 8 close tags = 144 chars
         out_adv = _snippet(adversarial + ("x" * 50))
         jsonschema.Draft7Validator(snippet_schema).validate(out_adv)
-
-    def test_doc_mentions_the_exact_cap(self):
-        """``test_doc_states_150_char_cap`` checks ``"150" in text``;
-        this tightens to ``"150 character"`` so a future "150 ms" /
-        "150 papers" drift is caught."""
-        text = DOC_PATH.read_text(encoding="utf-8").lower()
-        accepted = ("150 character", "150-character", "150-char", "150 char")
-        assert any(s in text for s in accepted), (
-            "docs/snippet-contract.md must mention the 150-character "
-            "cap explicitly (a bare '150' could refer to anything)"
-        )
-
-    def test_doc_documents_e13_s02_delimiter_wrap(self):
-        """F2 regression guard (E13_S02 adversary critique): the
-        snippet contract doc must document the <retrieved_chunk>
-        delimiter wrap. Without this assertion, the doc can drift
-        back to the pre-wrap shape silently while tests still pass.
-        """
-        text = DOC_PATH.read_text(encoding="utf-8")
-        assert "<retrieved_chunk>" in text, (
-            "snippet-contract.md must document the <retrieved_chunk> "
-            "delimiter wrap that E13_S02 added"
-        )
-        assert "E13_S02" in text, (
-            "snippet-contract.md must reference E13_S02 as the source "
-            "of the delimiter-wrapping contract"
-        )
 
 
 class TestSchemaVersionPin:

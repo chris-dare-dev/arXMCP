@@ -27,7 +27,7 @@
 # fail.
 #
 # Usage:
-#   tools/sbom.sh                 # default: ./.claude/docs/security/sbom
+#   tools/sbom.sh                 # default: ./var/sbom
 #   tools/sbom.sh --skip-image    # Python SBOM only
 #   tools/sbom.sh --no-scan       # generate SBOMs, skip grype
 #   SBOM_DIR=/tmp/sbom tools/sbom.sh
@@ -71,7 +71,7 @@ done
 # Path setup
 # ----------------------------------------------------------------------
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-SBOM_DIR="${SBOM_DIR:-$REPO_ROOT/.claude/docs/security/sbom}"
+SBOM_DIR="${SBOM_DIR:-$REPO_ROOT/var/sbom}"
 TS="$(date -u +%Y%m%dT%H%M%SZ)"
 
 mkdir -p "$SBOM_DIR"

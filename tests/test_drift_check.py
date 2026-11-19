@@ -402,53 +402,6 @@ class TestCLI:
 
 
 # ===========================================================================
-# Runbook content (AC4)
-# ===========================================================================
-
-
-class TestRunbookContent:
-    def test_runbook_exists(self):
-        runbook = (
-            Path(__file__).resolve().parent.parent
-            / "docs"
-            / "ops"
-            / "latexml-drift-runbook.md"
-        )
-        assert runbook.is_file()
-
-    def test_runbook_documents_timing_estimates(self):
-        """AC4: the runbook includes timing estimates for the
-        50-paper seed corpus AND the 200K-paper full corpus."""
-        runbook = (
-            Path(__file__).resolve().parent.parent
-            / "docs"
-            / "ops"
-            / "latexml-drift-runbook.md"
-        ).read_text(encoding="utf-8")
-        # Loose phrase matches — the exact wording can evolve.
-        assert "50-paper" in runbook
-        assert "200K" in runbook
-
-    def test_runbook_references_extract_and_index_modules(self):
-        """The runbook must reference the CORRECT modules
-        (`ingest.extract_equations` + `ingest.index_equations`),
-        NOT the brief's spurious `--rerender-all` flag.
-        """
-        runbook = (
-            Path(__file__).resolve().parent.parent
-            / "docs"
-            / "ops"
-            / "latexml-drift-runbook.md"
-        ).read_text(encoding="utf-8")
-        assert "ingest.extract_equations" in runbook
-        assert "ingest.index_equations" in runbook
-        # The brief's non-existent flag must NOT appear (would be
-        # a hint that someone copy-pasted from the brief without
-        # verifying against the codebase).
-        assert "--rerender-all" not in runbook
-
-
-# ===========================================================================
 # Integration — requires latexmlc on PATH
 # ===========================================================================
 

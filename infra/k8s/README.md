@@ -7,7 +7,8 @@ It runs the **same** image built by [`../../docker/Dockerfile.server`](../../doc
 
 > Full setup, the Docker Desktop ↔ Rancher Desktop coexistence caveat, the WSL2
 > RAM requirement, and the security delta vs Compose live in the operator
-> runbook: [`docs/ops/k3s-rancher-desktop.md`](../../docs/ops/k3s-rancher-desktop.md).
+> runbook, which is moving to the wiki (until then:
+> [archived copy](https://github.com/chris-dare-dev/arXMCP/blob/433ba41ba8710be74d6f99c627dce7d3b5383fca/docs/ops/k3s-rancher-desktop.md)).
 
 ## Files
 

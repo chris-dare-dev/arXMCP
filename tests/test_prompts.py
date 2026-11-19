@@ -69,15 +69,6 @@ PROMPTS_MODULE_PATH: Path = (
     Path(__file__).resolve().parent.parent / "server" / "prompts.py"
 )
 
-#: Path to the prompts BP-discipline doc (used by the AC #4 verbatim-
-#: sentence test). Moved 2026-05-10 from ``server/prompts.md`` to
-#: ``.claude/notes/prompts-bp-discipline.md`` per the repo-wide
-#: doc-layout consolidation (no Markdown in non-``.claude/``
-#: directories beyond README/CLAUDE).
-PROMPTS_DOC_PATH: Path = (
-    Path(__file__).resolve().parent.parent
-    / ".claude" / "notes" / "prompts-bp-discipline.md"
-)
 
 #: The verbatim sentence required by AC #4. Byte-exact, NOT
 #: paraphrased.
@@ -377,49 +368,6 @@ class TestRuntimeImmutability:
     def test_role_prefixes_delitem_raises(self):
         with pytest.raises(TypeError):
             del ROLE_PREFIXES[RouteTag.LOOKUP]  # type: ignore[index]
-
-
-# ===========================================================================
-# AC #4 — verbatim sentence in prompts.md
-# ===========================================================================
-
-
-class TestDocBP3DropSentence:
-    """Brief AC #4: ``server/prompts.md`` MUST explicitly state:
-
-        "BP3 is dropped; heterogeneous roles never share seed
-        retrieval bytes"
-
-    Byte-exact substring check, NOT a paraphrase. Catches a future
-    documentation rewrite that rephrases the sentence and
-    inadvertently breaks the AC."""
-
-    def test_prompts_md_contains_ac4_sentence_verbatim(self):
-        assert PROMPTS_DOC_PATH.is_file(), (
-            f"server/prompts.md missing at {PROMPTS_DOC_PATH}"
-        )
-        text = PROMPTS_DOC_PATH.read_text(encoding="utf-8")
-        assert AC4_VERBATIM_SENTENCE in text, (
-            f"server/prompts.md must contain the AC #4 verbatim "
-            f"sentence:\n  {AC4_VERBATIM_SENTENCE!r}\n"
-            f"Found neither in the headers nor body."
-        )
-
-    def test_prompts_md_documents_the_four_roles(self):
-        """Sanity: each RouteTag value must appear in the docs."""
-        text = PROMPTS_DOC_PATH.read_text(encoding="utf-8")
-        for tag in RouteTag:
-            assert tag.value in text, (
-                f"RouteTag.{tag.name} ({tag.value!r}) is not "
-                f"documented in server/prompts.md."
-            )
-
-    def test_prompts_md_documents_extended_cache_ttl_header(self):
-        """The 1-hour TTL beta header literal must appear in the
-        docs so a future operator searching for the header value
-        finds the source-of-truth doc."""
-        text = PROMPTS_DOC_PATH.read_text(encoding="utf-8")
-        assert EXTENDED_CACHE_TTL_HEADER_VALUE in text
 
 
 # ===========================================================================

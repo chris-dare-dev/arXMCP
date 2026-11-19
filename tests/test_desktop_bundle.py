@@ -79,8 +79,8 @@ GATE_ENV = "DESKTOP_BUNDLE_GATE"
 #: arm64) and pinned here because nothing in this repo had ever read it.
 #:
 #: **It is 11.0, not 14.0, and that is the finding — not a typo.** The Rust
-#: half is pinned to the floor by `.cargo/config.toml`'s
-#: `MACOSX_DEPLOYMENT_TARGET` and m9 reads it back; the CPython/PyInstaller
+#: half is pinned to the floor by the build's `MACOSX_DEPLOYMENT_TARGET`
+#: and m9 reads it back; the CPython/PyInstaller
 #: half is whatever the upstream bootloader wheel was built against, and this
 #: project does not compile it. So the artifact carries TWO different declared
 #: floors, and the lower one is three majors below the 14.0 the `faiss_cpu`
