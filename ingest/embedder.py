@@ -8,12 +8,10 @@ pinned at :data:`BGE_M3_COMMIT_SHA`, and writes the 1024-dim L2-normalized
 vectors to a parallel per-paper NPZ store at
 ``var/arxmcp/corpus/embeddings/<paper_id>/embeddings.npz``.
 
-**Why NPZ-first, not direct LanceDB.** The roadmap lists E03_S01 ↔ E04_S01
-as a mutual dependency, so neither can literally block on the other. The
-NPZ store breaks the deadlock: E03_S01 ships independent of E04_S01, and
-E04_S01's ``ingest/store.py`` reads the NPZ alongside the chunk
-manifests when building the LanceDB rows. See
-``.claude/notes/milestones/E03_S01/research-synthesis.md`` § D1.
+**Why NPZ-first, not direct LanceDB.** Embedding and the LanceDB store
+depend on each other, so neither can block on the other. The NPZ store
+breaks the cycle: ``ingest/store.py`` reads the NPZ alongside the chunk
+manifests when building the LanceDB rows.
 
 **Routing.** ``kind == "proof"`` → ``embedding_proof``; everything else
 (``stmt``, ``section``, ``definition``, ``lemma``, ``proposition``, ...)
@@ -342,14 +340,11 @@ def _get_model():
             # ``pytorch_model.bin`` — adding the kwarg would fail the
             # load. Bumping the SHA to a safetensors-bearing revision
             # would invalidate every cached embedding under
-            # ``var/arxmcp/corpus/embeddings`` (E04_S02 MVCC re-encode
-            # required), which is out of scope for E13_S06's
-            # rectification budget. The reranker IS safetensors-only
-            # (see ``server/resources.py:_load_reranker_or_raise``)
-            # and the gap is documented in
-            # ``.claude/docs/security-threat-6-audit.md``. A future
-            # ingest milestone should bump BGE_M3_COMMIT_SHA to a
-            # safetensors-bearing revision and add
+            # ``var/arxmcp/corpus/embeddings`` (a full MVCC re-encode).
+            # The reranker IS safetensors-only (see
+            # ``server/resources.py:_load_reranker_or_raise``). Closing
+            # the gap means bumping BGE_M3_COMMIT_SHA to a
+            # safetensors-bearing revision and adding
             # ``use_safetensors=True`` here.
         )
         _model.eval()

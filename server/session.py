@@ -42,8 +42,7 @@ by the original framing:
 - Therefore: raising these caps does **not** widen a security
   boundary, because they were never one. It trades a larger
   per-session token budget for not rejecting legitimate interactive
-  work. The Threat-4 posture is unchanged — see
-  ``.claude/docs/security-threat-4-audit.md``.
+  work. The Threat-4 posture is unchanged.
 
 **In-memory only.** Counters reset on server restart. Per the
 project's caching note: *"Caching is performance, not correctness."*
@@ -113,9 +112,8 @@ TOOLS_WITH_CAPS: Final[dict[str, str]] = {
 # ---------------------------------------------------------------------------
 
 #: Sliding-window length in seconds for the hourly rate limit.
-#: Pinned at one hour per the design note in
-#: `.claude/notes/08-security-observability-ops.md` § Threat 4:
-#: *"max 1000 per hour. Configurable."*
+#: Pinned at one hour: the Threat 4 limit is "max 1000 per hour,
+#: configurable".
 HOURLY_WINDOW_SECONDS: int = 3600
 
 #: Maximum tool calls per hour per session — applies to ALL tools,

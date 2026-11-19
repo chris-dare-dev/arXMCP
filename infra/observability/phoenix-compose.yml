@@ -12,13 +12,10 @@
 #
 # Phoenix is permissive-but-not-Apache-2.0 (Elastic License 2.0,
 # ELv2). The license is suitable for the project's local-first
-# single-workstation use; the runbook
-# (.claude/docs/observability-phoenix.md) documents the license
-# callout for future contributors.
+# single-workstation use.
 #
 # Security: both Phoenix ports bind to 127.0.0.1 on the HOST. Spans
-# carry ``mcp.session_id`` (per
-# .claude/notes/08-security-observability-ops.md §Tracing); allowing
+# carry ``mcp.session_id``; allowing
 # the LAN to scrape OTLP traffic would leak session IDs. The
 # loopback binding is the load-bearing defense — do NOT remove the
 # ``127.0.0.1:`` prefix.
@@ -26,17 +23,14 @@
 services:
   phoenix:
     # Minor-version pin (15.10 line) plus content-addressable
-    # digest pin. F7/IS3 rectification from the E14_S03 critiques:
-    # the tag alone is mutable (Docker Hub allows overwrites of
-    # `15.10` with `15.10.1`, `15.10.2`, ...); a compromised
-    # builder or malicious upstream push would silently land on
-    # the operator's `docker compose pull`. Per
-    # .claude/notes/08-security-observability-ops.md §Threat 6,
-    # the project pins by SHA wherever possible (model weights;
-    # the same discipline applies to Docker images).
+    # digest pin: the tag alone is mutable (Docker Hub allows
+    # overwrites of `15.10` with `15.10.1`, `15.10.2`, ...); a
+    # compromised builder or malicious upstream push would silently
+    # land on the operator's `docker compose pull`. The project pins
+    # by SHA wherever possible (model weights; the same discipline
+    # applies to Docker images).
     # Multi-arch (amd64 + arm64) — Apple Silicon works without
-    # Rosetta. Bump procedure documented in
-    # .claude/docs/observability-phoenix.md §"Upgrading Phoenix".
+    # Rosetta.
     image: arizephoenix/phoenix:15.10@sha256:34464e86c02f878d76851bd0feb4bba6faead0e842bbea207e08011fa5efcac9
 
     # Opt-in profile. The default ``docker compose up`` does nothing

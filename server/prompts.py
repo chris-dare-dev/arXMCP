@@ -10,14 +10,8 @@ This design choice is load-bearing for prompt-cache efficiency:
 - A per-role system prompt would produce four distinct BP1 prefixes
   and eliminate cross-role cache hits.
 
-The full breakpoint strategy is documented in ``server/prompts.md``;
-the rationale for dropping BP3 lives there too. This module provides
-the importable string constants only.
-
-**Closes H2** (per ``.claude/roadmap/README.md:69`` — "BP3 seed
-cache not stable → DROPPED, BP1+BP2 only") AND the MEDIUM finding
-"Sub-agent role-specific system prompts → no cross-role caching"
-(README:91).
+This module provides the importable string constants only. There is
+no BP3: a seed-cache breakpoint was not stable, so only BP1+BP2 exist.
 
 **Frozen-constants discipline.** The prefixes are bare string
 literals wrapped in :data:`types.MappingProxyType`. They MUST NOT
@@ -84,10 +78,7 @@ from server.router import RouteTag
 # ---------------------------------------------------------------------------
 
 #: The Anthropic beta header value enabling 1-hour cache TTL on
-#: ``cache_control`` markers. Per
-#: ``.claude/notes/07-multi-agent-caching.md:27``: *"1 hour via beta
-#: header anthropic-beta: extended-cache-ttl-2025-04-11 (verify
-#: exact name)."*. Frozen here so the orchestrator (E08_S04) imports
+#: ``cache_control`` markers. Frozen here so the orchestrator imports
 #: a single source of truth.
 #:
 #: TODO(E08_S04): Verify the header value against current Anthropic

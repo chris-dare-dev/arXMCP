@@ -136,9 +136,8 @@ bootstrap:
 	# The host path bind-mounts to /mnt/data inside the container per
 	# infra/observability/phoenix-compose.yml.
 	mkdir -p var/arxmcp/observability/phoenix
-	# NOTE: E02_S02 LaTeXML container will need write access to corpus/parsed/;
-	# see .claude/notes/08-security-observability-ops.md § Threat 3 for the
-	# rootless-container UID isolation that lands there.
+	# NOTE: the LaTeXML container runs as an unprivileged UID and needs
+	# write access to corpus/parsed/.
 	@echo ""
 	@echo "Bootstrap complete. var/arxmcp/ tree created."
 	@if [ -z "$$ARXMCP_CONTACT_EMAIL" ]; then \
@@ -277,10 +276,9 @@ desktop-package-clean:
 	rm -rf apps/desktop/target/release/bundle
 	rm -rf apps/desktop/target/release
 
-# The Tier-0 → Tier-1 exit gate. See .claude/TIER-GATES.md for the full
-# behavior matrix (pass / fail / SKIP) and the operator's prerequisite
-# checklist. SKIP is NOT a pass for promotion — verify the test
-# reports `1 passed`, not `1 skipped`, before declaring Tier-0 done.
+# The Tier-0 → Tier-1 exit gate. SKIP is NOT a pass for promotion —
+# verify the test reports `1 passed`, not `1 skipped`, before declaring
+# Tier-0 done.
 eval:
 	@$(PYTHON) -c "import sys; assert sys.version_info >= (3, $(MIN_PY_MINOR)), \
 		f'arXMCP requires Python >= 3.$(MIN_PY_MINOR); got {sys.version_info[:2]}. \
@@ -344,8 +342,6 @@ ingest:
 	@# NOTE on ARGS: paths inside ARGS must not contain spaces — Make's
 	@# shell expansion splits at whitespace before argparse sees the
 	@# tokens. Use an absolute, space-free path for --paper-ids-file.
-	@#
-	@# See docs/ops/bulk-ingest-runbook.md for the operator workflow.
 	@$(PYTHON) -c "import sys; assert sys.version_info >= (3, $(MIN_PY_MINOR)), \
 		f'arXMCP requires Python >= 3.$(MIN_PY_MINOR); got {sys.version_info[:2]}. \
 Try: make ingest PYTHON=python3.$(MIN_PY_MINOR)'"
@@ -360,8 +356,6 @@ delta:
 	@# (ops/systemd/arxmcp-delta.{service,timer}) or cron
 	@# (ops/cron/arxmcp-delta.sh). This Makefile target is for
 	@# operator smoke tests + manual one-shot runs.
-	@#
-	@# See docs/ops/delta-loop.md for the operator workflow.
 	@$(PYTHON) -c "import sys; assert sys.version_info >= (3, $(MIN_PY_MINOR)), \
 		f'arXMCP requires Python >= 3.$(MIN_PY_MINOR); got {sys.version_info[:2]}. \
 Try: make delta PYTHON=python3.$(MIN_PY_MINOR)'"
@@ -380,10 +374,6 @@ re-embed:
 	@# Make's shell expansion splits at whitespace before argparse
 	@# sees the tokens. Use an absolute, space-free path for
 	@# --paper-ids-file.
-	@#
-	@# Operator workflow: see docs/ops/re-embed-runbook.md for the
-	@# scenario-by-scenario GPU-hours table and the
-	@# embedding-space-mixing warning.
 	@$(PYTHON) -c "import sys; assert sys.version_info >= (3, $(MIN_PY_MINOR)), \
 		f'arXMCP requires Python >= 3.$(MIN_PY_MINOR); got {sys.version_info[:2]}. \
 Try: make re-embed PYTHON=python3.$(MIN_PY_MINOR)'"
@@ -449,10 +439,6 @@ watchdog:
 	@# Make's shell expansion splits at whitespace before argparse
 	@# sees the tokens. Use an absolute, space-free path for
 	@# --fixture-path / --report-dir.
-	@#
-	@# Operator workflow: see docs/ops/drift-watchdog.md for the
-	@# threshold-tuning table, the cutover dependency, and the
-	@# quarantine-clearance procedure.
 	@$(PYTHON) -c "import sys; assert sys.version_info >= (3, $(MIN_PY_MINOR)), \
 		f'arXMCP requires Python >= 3.$(MIN_PY_MINOR); got {sys.version_info[:2]}. \
 Try: make watchdog PYTHON=python3.$(MIN_PY_MINOR)'"
@@ -469,8 +455,6 @@ cutover:
 	@# NOTE on ARGS: paths inside ARGS must not contain spaces —
 	@# Make's shell expansion splits at whitespace before argparse
 	@# sees the tokens.
-	@#
-	@# Operator workflow: see docs/ops/cutover-runbook.md.
 	@$(PYTHON) -c "import sys; assert sys.version_info >= (3, $(MIN_PY_MINOR)), \
 		f'arXMCP requires Python >= 3.$(MIN_PY_MINOR); got {sys.version_info[:2]}. \
 Try: make cutover PYTHON=python3.$(MIN_PY_MINOR)'"
@@ -564,17 +548,17 @@ wheel-check:
 	@# This exists because packaging bugs are invisible from a source
 	@# checkout: the repo root is on sys.path and every data file is right
 	@# there on disk, so the suite passes and `make up` works while the
-	@# wheel ships none of it. Five holes were open simultaneously until
-	@# 2026-07-31 — the whole ops/ layer, frontend/, router_patterns.yaml,
+	@# wheel ships none of it. Five holes were once open at the same time —
+	@# the whole ops/ layer, frontend/, router_patterns.yaml,
 	@# server/schemas/*.json and tools/seed-papers.txt — plus an
-	@# arxmcp-server console script that docs/install.md promised and
+	@# arxmcp-server console script the install guide promised and
 	@# pyproject.toml never declared.
 	@#
 	@# Needs `uv` (or `python -m build`) on PATH. No network.
 	$(PYTHON) tools/wheel_install_check.py --mode contents
 
 wheel-check-full:
-	@# The pre-publish gate (docs/releasing.md). Same as `wheel-check`,
+	@# The pre-publish gate. Same as `wheel-check`,
 	@# but the venv is fully isolated and resolves the REAL dependency set
 	@# (~2 GB: torch, transformers, faiss), then boots the installed
 	@# server with ARXMCP_BOOTSTRAP_MODE=1 and polls /healthz.
@@ -605,9 +589,6 @@ refresh-arxiv-ca:
 	@# the bundle if the new PEM does not verify the live arxiv.org
 	@# cert chain — do NOT use --no-verify or similar; review the
 	@# failure and refresh manually if needed.
-	@#
-	@# See .claude/docs/security-threat-7-audit.md § "Refresh the
-	@# pinned CA bundle" for the rationale + manual fallback.
 	@command -v curl >/dev/null 2>&1 || { echo "ERROR: curl not found" >&2; exit 1; }
 	@command -v openssl >/dev/null 2>&1 || { echo "ERROR: openssl not found" >&2; exit 1; }
 	@mkdir -p infra/ca
@@ -705,10 +686,8 @@ notebook-list:
 # Two heal commands. Server-up = curl the REST endpoint; server-down =
 # direct Python via tools/notebook_repair_registry.py +
 # tools/notebook_reconcile_marker.py (which themselves route writes
-# through NotebooksStore.create_notebook — m2 critique F1 lesson:
-# never direct SQLite INSERT to the notebooks table).
-#
-# See proposal §9 + decisions.md + .claude/notes/milestones/onboarding-uplift-m3/.
+# through NotebooksStore.create_notebook — never a direct SQLite
+# INSERT to the notebooks table).
 
 repair-registry:
 	@# AC4 — walk var/arxmcp/notebooks/ and register on-disk dirs that

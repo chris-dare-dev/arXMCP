@@ -336,7 +336,7 @@ class TestLayoutConstantsAgreeAcrossLanguages:
         assert match.group(1) == dp.BUNDLE_NAME
 
     def test_the_resolver_documents_both_layouts(self):
-        """Decision 2a's cost is that two layouts coexist. The resolver's doc
+        """Two layouts coexist. The resolver's doc
         comment must say so — a comment naming only one is how a future reader
         concludes the other arm is dead code and deletes it."""
         rust = SUPERVISOR_SRC.read_text(encoding="utf-8")
@@ -345,7 +345,6 @@ class TestLayoutConstantsAgreeAcrossLanguages:
         doc = comment[1]
         assert "Contents/Resources/arxmcp-desktop-child/" in doc
         assert "<dir>/arxmcp-desktop-child/" in doc
-        assert "Decision 2a" in doc
 
     def test_the_disjunction_is_explicit_not_a_blind_probe(self):
         """The ADR forbids an untested 'try one, then the other'. The bundle

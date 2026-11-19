@@ -1,8 +1,7 @@
 """Sandboxed MinerU subprocess driver (textbook-ingest-m5).
 
-Implements the layer-2 defense from
-``.claude/docs/security-pdf-sandbox.md``: a subprocess sandbox profile
-for MinerU 3.x's pipeline backend, invoked via CLI form.
+Implements the layer-2 PDF defense: a subprocess sandbox profile for
+MinerU 3.x's pipeline backend, invoked via CLI form.
 
 Layer-1 (upload-side pre-flight) is in ``server/routes/notebooks.py``
 (m4); layer-3 (per-notebook LanceDB blast-radius) was validated by
@@ -13,7 +12,6 @@ change. Consumed in m6 (LaTeXML re-render + upload-route wiring).
 
 Cross-references
 ----------------
-- ``.claude/docs/security-pdf-sandbox.md`` — prescriptive contract
 - ``tools/cdm_eval.py::_run_subprocess_with_pgkill`` — closest peer
 - ``server/lean_repl.py::spawn`` — RLIMIT_AS precedent (also has the
   macOS gap this driver explicitly addresses)
@@ -500,9 +498,8 @@ def run_mineru_sandboxed(
     - Wall timeout + process-group kill on expiry.
     - Scrubbed env (no proxies, no credentials, TMPDIR confined).
 
-    The grandchild FastAPI server gap from MinerU 3.x is documented in
-    .claude/docs/security-pdf-sandbox.md §"explicitly does NOT do" —
-    loopback-only, accepted gap.
+    Not covered: the grandchild FastAPI server MinerU 3.x starts. It is
+    loopback-only, an accepted gap.
 
     Parameters
     ----------

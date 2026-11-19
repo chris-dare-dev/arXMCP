@@ -19,9 +19,6 @@
 # var/arxmcp/ops/.delta.lock. If a previous run is still active,
 # this script exits 1 immediately. systemd records this as a
 # failed unit; cron mailer surfaces the same.
-#
-# See docs/ops/delta-loop.md for the operator workflow + the
-# 90-minute budget alert semantics.
 
 set -euo pipefail
 

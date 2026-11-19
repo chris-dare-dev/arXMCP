@@ -25,11 +25,9 @@ Design decisions (research-synthesis §"LOAD-BEARING constraints")
    emits ``textbook:<slug>:<sha>`` with the SAME hash discipline.
 2. Does NOT call ``_resolve_preamble_doc`` — it resolves the arXiv
    preamble store (wrong tree; the ``:`` is an invalid path byte).
-   ``preamble_text`` is PERMANENTLY ``""`` for PDF-sourced textbooks
-   (textbook-ingest-m8 OQ-1 decision): MinerU emits math already
-   expanded at the PDF-render level, so there are no author macros to
-   inherit. NOT a placeholder — see
-   ``.claude/docs/textbook-preamble-decision.md``.
+   ``preamble_text`` is PERMANENTLY ``""`` for PDF-sourced textbooks:
+   MinerU emits math already expanded at the PDF-render level, so
+   there are no author macros to inherit. NOT a placeholder.
 3. Replicates the ``_chunk_paper_impl`` dedup loop — same body + empty
    preamble → same chunk_id; without dedup the second JSON would
    silently overwrite the first on disk (m7 FM-4).
@@ -370,11 +368,10 @@ def _chunk_textbook_impl(
         chunk.parser_used = TEXTBOOK_PARSER_USED
         chunk.chunker_version = TEXTBOOK_CHUNKER_VERSION
         chunk.chapter = _chapter_for_chunk(chunk, chapter_titles)
-        # page_start/page_end stay None: page metadata is lost in the m6
+        # page_start/page_end stay None: page metadata is lost in the
         # markdown→LaTeX→LaTeXML render. Correlating MinerU's
-        # content_list.json page_idx back onto rendered chunks is a
-        # future item (NOT m8 — not part of the e3 outcome); see
-        # .claude/docs/textbook-preamble-decision.md §"Related deferrals".
+        # content_list.json page_idx back onto rendered chunks is not
+        # done.
         chunk.page_start = None
         chunk.page_end = None
         chunk.body_tokens = tokenize_body(chunk.body_text)
@@ -393,8 +390,7 @@ def _chunk_textbook_impl(
     # already expanded at the PDF-render level (\mathbb{F}, never \F).
     # A future .tex-source textbook ingest path (separate epic) would
     # call ingest.preamble.extract_preamble; until such a path exists
-    # there is nothing to inherit. Full rationale + evidence:
-    # .claude/docs/textbook-preamble-decision.md.
+    # there is nothing to inherit.
     preamble_text = ""
     seen: dict[str, str] = {}  # chunk_id -> body_text fingerprint
     deduped_chunks: list[ChunkRecord] = []

@@ -28,9 +28,8 @@ Usage::
 next ``make re-embed-all`` will detect that body+preamble of every
 back-filled paper now differs (because preamble is non-empty), so
 ``re_embed`` produces ``re_embedded ≫ copied`` for the affected
-notebooks — 2-4 hours additional CPU. This is INTENDED behavior per
-AC5 (LanceDB MVCC handles it cleanly). See
-``.claude/notes/milestones/embedder-truncation-m1/operator-followup.md``.
+notebooks — 2-4 hours additional CPU. This is INTENDED behavior
+(LanceDB MVCC handles it cleanly).
 
 Exit codes::
 

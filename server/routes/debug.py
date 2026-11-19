@@ -17,8 +17,7 @@ Body shape:
 ```
 
 The endpoint is reachable WITHOUT authentication (the server binds
-to loopback only — Threat 4 from
-``.claude/notes/08-security-observability-ops.md``). It returns 200
+to loopback only — Threat 4). It returns 200
 with all-zero counters when the cache singleton is uninitialized
 (server still in startup) so the endpoint is safe to scrape during
 the warm-up window.

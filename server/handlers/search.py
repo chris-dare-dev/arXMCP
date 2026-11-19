@@ -16,12 +16,6 @@ explicit per-call opt-in, not a ranking change. ``retrieval_mode`` and
 ``excluded_kinds`` now describe the route that actually ran instead of
 being hardcoded to the statement route's answer.
 
-The ``filters`` DESCRIPTION string is deliberately unchanged: the
-opt-in ships as a versioned contract event in agent-platform's W1
-window, staged at ``.claude/docs/w1-schema-deltas.md``
-(retrieval-unlocks-t-w1-schema-delta-search). Behaviour now, one
-bundled ``TOOL_SCHEMA_VERSION`` re-pin later.
-
 Aggregation per ``level``:
 - ``level="theorem"`` (default): one row per chunk.
 - ``level="section"``: dedup by ``(paper_id, section_path[0])``,
@@ -70,8 +64,7 @@ does NOT rely on the client following them. Agents that ignore
 them call :func:`server.handlers.chunk.handle_get_chunk` to
 materialize a full body. Citations API integration is explicitly
 NOT a dependency (Citations API validates document blocks in the
-messages array, not MCP tool results — see
-``docs/snippet-contract.md``).
+messages array, not MCP tool results).
 """
 
 from __future__ import annotations
@@ -113,9 +106,8 @@ SNIPPET_MAX_CHARS = 150
 #: (E13_S04 Threat 4 resource-exhaustion defense). Enforced via
 #: handler-body validation rather than Pydantic
 #: ``Field(max_length=...)`` so the constraint does NOT bump the
-#: rendered tool schema and trigger ``EXPECTED_TOOL_SCHEMA_SHA256``
-#: re-pin per ``.claude/notes/07-multi-agent-caching.md`` BP1
-#: byte-stability discipline. The security goal is identical:
+#: rendered tool schema and trigger an ``EXPECTED_TOOL_SCHEMA_SHA256``
+#: re-pin (BP1 byte-stability). The security goal is identical:
 #: oversized filter dicts are rejected before any meaningful
 #: processing.
 MAX_FILTER_ITEMS = 100

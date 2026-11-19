@@ -477,9 +477,8 @@ async def encode_query_with_fallback(
     ``degraded=true`` when ``used_fallback`` is True so the
     orchestrator can see the degradation.
 
-    Closes failure mode 1 (hosted-embedder outage) from
-    :doc:`.claude/notes/08-security-observability-ops.md`:
-    *"Fall back to local embedder; tag results degraded=true."*
+    Closes failure mode 1 (hosted-embedder outage): fall back to the
+    local embedder and tag results ``degraded=true``.
 
     Today only ``"local"`` and ``"voyage"`` are accepted providers
     (validated at config parse). Voyage is a stub that raises on

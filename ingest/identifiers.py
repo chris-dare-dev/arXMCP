@@ -13,8 +13,7 @@ Closes F11 from the E06_S03 critique. Three call sites had drifted
 toward independent definitions; this module collapses them to one.
 A single drift here is caught by ``tests/test_identifiers.py``.
 
-The regexes themselves match the format documented in
-``.claude/notes/02-architecture-overview.md``:
+The regexes match these formats:
 
 - ``paper_id``: arXiv "new style" ``YYMM.NNNNN[v<int>]`` OR
   "old style" ``subject/NNNNNNN[v<int>]`` OR

@@ -30,8 +30,8 @@ Cross-references
 - ``tools/arxiv_fetch.py::parse_with_latexml`` — the LaTeXML subprocess
   helper this module delegates to (inherits process-group kill, sandbox
   profile, timeout discipline).
-- ``.claude/docs/security-pdf-sandbox.md`` — the latexmlc invocation in
-  the textbook path is a peer subprocess to the MinerU sandbox.
+- ``ingest/textbook_parser.py`` — the latexmlc invocation in the
+  textbook path is a peer subprocess to the MinerU sandbox.
 """
 
 from __future__ import annotations

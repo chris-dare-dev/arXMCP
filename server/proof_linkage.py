@@ -23,8 +23,7 @@ adjacent proof" is not computable from served data.
 Rather than guess, this module resolves an unlabeled pairing ONLY when
 the section scope makes it unambiguous (exactly one unlabeled
 statement-kind chunk in that section), and otherwise returns the
-``ambiguous`` epistemic outcome from
-``.claude/docs/trust-language-policy.md`` §5a. A wrong proof attached to
+``ambiguous`` epistemic outcome. A wrong proof attached to
 a theorem is worse than no proof: the agent cannot tell it is wrong,
 because both are well-formed chunks from the right paper.
 

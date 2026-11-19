@@ -3,8 +3,7 @@
 The single source of truth for the long-running ``arxmcp-server``
 process's runtime knobs. Every value is overridable via an
 ``ARXMCP_*`` environment variable; defaults are the v1 production
-values per the design constitution
-(:doc:`.claude/notes/06-mcp-server-design.md`).
+values.
 
 **Loopback-only binding (load-bearing).** ``bind_host`` is validated
 at config-parse time to reject any non-loopback value
@@ -12,19 +11,11 @@ at config-parse time to reject any non-loopback value
 ``0.0.0.0`` is rejected at config parse time."* The validator
 raises ``ValueError`` so pydantic-settings turns it into a
 ``ValidationError`` at instantiation, before uvicorn binds the
-socket. Closes Threat 4 from
-:doc:`.claude/notes/08-security-observability-ops.md` at the
-config layer.
+socket. Closes Threat 4 at the config layer.
 
-**Note on docker-compose drift.** ``08-security-observability-ops.md``
-line 261 shows a docker-compose example setting
-``ARXMCP_BIND_HOST=0.0.0.0`` inside the container (with the host-side
-port-publish at ``127.0.0.1:7733``). The E06_S01 brief AC overrides
-this for v1: reject non-loopback at the config layer with no
-exception. If a future docker-compose deployment needs
-container-internal binding, E06_S05 (security hardening) will
-revisit. This synthesis call is documented in the implementation
-summary.
+**Containers.** A container binds ``0.0.0.0`` internally (with the
+host-side port-publish at ``127.0.0.1:7733``). That takes the explicit
+``unsafe_network_bind`` escape hatch, which logs a WARN at startup.
 
 **Why pydantic-settings.** A field-level ``@field_validator`` raises
 at instantiation, satisfying the "rejected at config parse time"
@@ -268,8 +259,7 @@ class Config(BaseSettings):
     #: and ``asyncio.create_subprocess_exec`` raises ``ValueError`` if
     #: ``preexec_fn`` is set — ``LeanRepl.spawn`` therefore silently skips
     #: the cap on ``sys.platform == "win32"`` and logs a WARN at startup.
-    #: A Job-Object-based equivalent for Windows is documented as
-    #: deferred in ``.claude/docs/lean-sandbox-design.md``.
+    #: A Job-Object-based equivalent for Windows is not built yet.
     lean_rlimit_as_bytes: int = 4 * 1024 * 1024 * 1024  # 4 GiB
 
     # --- Concurrency -----------------------------------------------------
@@ -499,8 +489,7 @@ class Config(BaseSettings):
     #: at config parse time (the historical behavior preserved).
     #: ``True`` = the bind-host validator permits non-loopback
     #: values AND a WARN log fires at startup. The escape hatch is
-    #: documented for container deployments only — see
-    #: ``.claude/docs/security-binding.md``.
+    #: for container deployments only.
     unsafe_network_bind: bool = False
 
     #: E13_S07 (Threat 7) — opt-in CA pinning flag for arxiv.org +
@@ -529,12 +518,9 @@ class Config(BaseSettings):
     #: Scope: arxiv.org + ar5iv.labs.arxiv.org ONLY. The pin does
     #: NOT apply to OpenAlex / INSPIRE / OAI-PMH fetches — those
     #: have separate hosts and separate CA chains, outside Threat 7
-    #: scope per the threat statement in
-    #: ``.claude/notes/08-security-observability-ops.md``.
+    #: scope.
     #:
-    #: See ``.claude/docs/security-threat-7-audit.md`` for the
-    #: refresh procedure (``make refresh-arxiv-ca``) and the
-    #: rotation-cadence rationale.
+    #: Refresh the bundle with ``make refresh-arxiv-ca``.
     pin_arxiv_ca: bool = False
 
     #: E13_S07c — operator override for the pinned CA bundle path.

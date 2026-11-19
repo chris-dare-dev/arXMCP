@@ -19,8 +19,7 @@ The filter is installed in
 logger so that every logger created via ``logging.getLogger(__name__)``
 inherits the same redaction without per-module wiring.
 
-**Threat verbatim** (``.claude/notes/08-security-observability-ops.md``
-§ Logging):
+**The threat:**
 
     > Structured JSON logs to stdout (12-factor). One line per event.
     > Required fields on every log line: timestamp (ISO 8601 UTC),

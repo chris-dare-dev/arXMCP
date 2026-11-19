@@ -39,8 +39,6 @@ re-embed state file at ``var/arxmcp/ops/re-embed-state.json``
 reports ``status="in_progress"``. Operator schedules the
 watchdog as a separate cron entry ~30 min after the delta loop
 (``ops/cron/arxmcp-delta.sh``).
-
-See ``docs/ops/drift-watchdog.md`` for the operator workflow.
 """
 
 from __future__ import annotations

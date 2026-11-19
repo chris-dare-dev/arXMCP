@@ -18,9 +18,6 @@
 # Reentrancy: `flock -n` acquires an exclusive lock on
 # var/arxmcp/ops/.daily-report.lock. If a previous run is still
 # active, this script exits 1 immediately.
-#
-# See docs/ops/daily-ops-cadence.md for the full schedule + alert
-# thresholds.
 
 set -euo pipefail
 

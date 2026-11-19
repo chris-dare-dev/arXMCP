@@ -16,11 +16,8 @@
 #   - network_mode: none      → no network egress (no DNS, no IP)
 #   - read_only: true         → root filesystem write-locked
 #   - security_opt: no-new-privileges → can't gain capabilities
-#   - user: 65534:65534 (nobody) → unprivileged UID per design note
+#   - user: 65534:65534 (nobody) → unprivileged UID
 #   - cap_drop: ALL           → all Linux capabilities dropped
-#
-# Reference: `.claude/notes/08-security-observability-ops.md` § Threat 3
-# Reference: `.claude/docs/security-threat-3-audit.md` (audit summary)
 
 services:
   latexml:

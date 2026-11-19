@@ -12,13 +12,8 @@ Lifecycle: gated by ``ARXMCP_ENABLE_LEAN`` (default off). When enabled,
 ``LeanRepl`` and :meth:`Resources.shutdown` closes it. The flag-off
 path spawns nothing and leaves the 7 existing MCP tools untouched.
 
-Design references:
-- ``.claude/notes/spikes/verification-feedback-spike-2.md`` — the spike
-  that installed Lean 4 + built the repl and validated this exact
-  asyncio-subprocess approach (sub-second round-trips; the absolute-
-  ``lake``-path requirement on Windows).
-- ``.claude/docs/lean-sandbox-design.md`` — the sandbox sub-design
-  (per-query timeout, filesystem isolation, stderr discipline).
+The asyncio-subprocess approach gives sub-second round-trips; on Windows
+``lake`` must be given as an absolute path.
 
 Sandbox discipline implemented here: every :meth:`query` round-trip is
 wrapped in ``asyncio.wait_for`` (the Lean REPL has no built-in
@@ -58,9 +53,8 @@ logger = logging.getLogger(__name__)
 
 #: Default per-:meth:`LeanRepl.query` wall-clock timeout (seconds). The
 #: Lean REPL has no built-in per-command timeout — this is the
-#: implemented sandbox guard against a runaway elaboration (see
-#: ``.claude/docs/lean-sandbox-design.md``). The spike measured
-#: sub-second round-trips for simple snippets; 30 s is generous.
+#: implemented sandbox guard against a runaway elaboration. Simple
+#: snippets take sub-second round-trips; 30 s is generous.
 DEFAULT_QUERY_TIMEOUT_S = 30.0
 
 #: Grace period for a clean subprocess ``terminate()`` before the
@@ -193,8 +187,8 @@ class LeanRepl:
         cap. On Windows the cap is silently skipped — the platform has
         no ``RLIMIT_AS`` analogue and ``preexec_fn`` is rejected by
         ``asyncio.create_subprocess_exec``; the 30 s per-query timeout
-        remains the only memory backstop there (deferred to a Job-Object
-        follow-up; ``.claude/docs/lean-sandbox-design.md``).
+        remains the only memory backstop there (no Job-Object equivalent
+        yet).
 
         Raises :class:`LeanUnavailableError` if either path is missing
         or the subprocess cannot be started.
@@ -336,10 +330,8 @@ class LeanRepl:
         """Successful :meth:`query` round-trips served by THIS instance — a
         proxy for the size of the REPL's append-only environment-snapshot
         tree (leanprover-community/repl records one immutable snapshot per
-        command; see ``.claude/docs/lean-sandbox-design.md`` §
-        "Environment-snapshot accumulation (F7)"). Surfaced at ``/metrics``
-        scrape time as ``arxmcp_lean_repl_env_snapshots``; resets to 0 on a
-        restart (lean-repl-observability-m1).
+        command). Surfaced at ``/metrics`` scrape time as
+        ``arxmcp_lean_repl_env_snapshots``; resets to 0 on a restart.
         """
         return self._env_snapshot_count
 

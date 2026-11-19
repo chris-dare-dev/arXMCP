@@ -418,9 +418,8 @@ async def create_notebook(
     )
     # notebook-paper-discovery-m1 rect F1: strip C0 control chars + DEL
     # from ``description`` BEFORE storage, mirroring the PATCH /topic path
-    # (``update_notebook_topic``) and the rename handler. The design-note
-    # contract (.claude/notes/notebook-discovery-model.md §1) states the
-    # field is "control chars stripped before storage"; m2's arXiv query
+    # (``update_notebook_topic``) and the rename handler. The field's
+    # contract is "control chars stripped before storage"; the arXiv query
     # builder reads it as an ``abs:``/``ti:`` keyword string, so it must
     # be clean text regardless of which write path created the notebook.
     cleaned_description = _CONTROL_CHARS_RE.sub("", body.description)
@@ -1647,13 +1646,11 @@ def _is_html_bytes(head: bytes) -> bool:
 #: Upload-cap envelope for arxiv-kind notebooks (HTML ar5iv files).
 #: The middleware allows 200 MB through; the route handler rejects
 #: 413 if the body exceeds this cap on an arxiv-kind notebook.
-#: m4 D3 mechanism per .claude/notes/milestones/textbook-ingest-m4/
-#: research-synthesis.md.
 _ARXIV_UPLOAD_MAX_BYTES: int = 10 * 1024 * 1024  # 10 MB
 
 #: Maximum PDF page count accepted at the upload boundary. Bourbaki
 #: tops out around 500 pages; 5000 is a 10x safety margin against
-#: page-count-exhaustion DoS (per `.claude/docs/security-pdf-sandbox.md`).
+#: page-count-exhaustion DoS.
 _PDF_MAX_PAGE_COUNT: int = 5000
 
 #: Tail-window size for polyglot detection. ZIP central-directory
@@ -1764,9 +1761,7 @@ def _pdf_declared_page_count(pdf_bytes: bytes) -> int:
 def _run_pdf_preflight(content: bytes) -> None:
     """Run all 5 PDF rejection vectors on ``content``.
 
-    Order is fast-first per
-    ``.claude/notes/milestones/textbook-ingest-m4/research-synthesis.md``
-    D5:
+    Order is fast-first:
 
     1. Magic-byte sniff (5-byte read) — :func:`_is_pdf_bytes`.
     2. Polyglot tail (last 1 KB scan) — :func:`_pdf_polyglot_check`.
@@ -1914,8 +1909,7 @@ async def upload_paper(
     # buffered fully before the 10 MB check below fires HTTP 413.
     # Acceptable under loopback-only deployment per CLAUDE.md; a
     # future networked deployment must move the per-kind cap into
-    # the middleware. See `.claude/docs/security-pdf-sandbox.md` §
-    # "Memory-pressure caveat" for the design tradeoff.
+    # the middleware.
     try:
         content = await file.read()
     except Exception as e:  # noqa: BLE001

@@ -4,7 +4,7 @@
 # This is a SCAFFOLDING script. The actual ~300 GB Academic Torrents
 # download is intentionally NOT automated — the operator runs it
 # manually after verifying disk space, network bandwidth, and the
-# current valid magnet link. See docs/ops/bulk-ingest-runbook.md.
+# current valid magnet link.
 #
 # What this script does:
 #   1. Verify `aria2c` is on PATH.

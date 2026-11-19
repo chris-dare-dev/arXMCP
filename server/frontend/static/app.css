@@ -590,8 +590,8 @@ button.danger:focus-visible { outline-color: var(--danger); outline-offset: 3px;
      --down pill in particular keeps the old Primer red (#f85149) while
      --danger has moved — a pre-existing divergence (its background
      #3d1216 already differed from --error-bg) that m6 widens rather
-     than introduces. Every one of them is still measured in
-     .claude/docs/ui-contrast-table.md and still passes. */
+     than introduces. Every one of them is still measured by
+     tests/test_ui_contrast.py and still passes. */
   .status-badge--ok       { background: #0d2818; color: #3fb950; border-color: #3fb950; }
   .status-badge--warn     { background: #3d2a07; color: #d29922; border-color: #d29922; }
   .status-badge--ops-warn { background: #1c2230; color: #8b949e; border-color: #8b949e; }
@@ -617,8 +617,8 @@ button.htmx-request,
      width is SC 2.4.13, a different criterion. The dimmed LABEL cannot
      reach 4.5:1 at any sane opacity and is exempt as an inactive
      component (SC 1.4.3), which `pointer-events: none` is what earns.
-     Both are registered with measured ratios in
-     .claude/docs/ui-contrast-table.md — declared, not silent. */
+     Both are registered in tests/test_ui_contrast.py — declared, not
+     silent. */
   opacity: 0.7;
   pointer-events: none;
   cursor: wait;
@@ -659,8 +659,7 @@ button.htmx-request,
      which REPLACES the pill's opaque fill rather than overlaying it, so
      pill text sat on accent@30% over the page ground — 6 of 8 under SC
      1.4.3. Flashing `border-color` keeps every pill on its designed
-     ground, so no text pair moves; role 5 stays --accent. Rejected
-     alternatives and all measurements: .claude/docs/ui-contrast-table.md */
+     ground, so no text pair moves; role 5 stays --accent. */
   @keyframes badge-flash {
     from { border-color: var(--accent); }
   }

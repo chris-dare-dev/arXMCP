@@ -87,9 +87,7 @@
   (subpath (string-append (param "HOME") "/Library/Perl")))
 
 ;; --- Filesystem writes ------------------------------------------------------
-;; Only the per-paper output directory is writable. This is the
-;; "filesystem write whitelist" mitigation from `.claude/notes/
-;; 08-security-observability-ops.md` Threat 3.
+;; Only the per-paper output directory is writable.
 (allow file-write*
   (subpath (param "OUTPUT_DIR")))
 

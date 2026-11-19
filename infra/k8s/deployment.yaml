@@ -69,7 +69,7 @@ spec:
                 - ALL
           # Maps Compose's `mem_limit: 8g` / `cpus: 4.0`. The Rancher Desktop
           # WSL2 VM must be given >= ~12 GB (%USERPROFILE%\.wslconfig) or BGE-M3
-          # + the reranker OOMKill — see docs/ops/k3s-rancher-desktop.md.
+          # + the reranker OOMKill.
           resources:
             requests:
               memory: "2Gi"

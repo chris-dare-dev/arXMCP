@@ -11,9 +11,7 @@
 #      infra/prometheus/alerts.yml` (smoke-tested at
 #      tests/test_alerts_yaml.py with skipif-not-on-PATH).
 #
-# All rules surface failure modes from
-# .claude/notes/08-security-observability-ops.md
-# §"Failure modes and graceful degradation".
+# Each rule surfaces one of the server's failure or degraded modes.
 
 groups:
   - name: arxmcp

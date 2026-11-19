@@ -21,7 +21,7 @@ data:
   # reject_non_loopback_bind) REJECTS a non-loopback bind at parse time UNLESS
   # ARXMCP_UNSAFE_NETWORK_BIND=1 — so BOTH vars are required, or the pod
   # CrashLoopBackOffs at startup. A WARN log about the non-loopback bind is
-  # expected (see .claude/notes/08-security-observability-ops.md).
+  # expected.
   ARXMCP_BIND_HOST: "0.0.0.0"
   ARXMCP_UNSAFE_NETWORK_BIND: "1"
   # BOOTSTRAP_MODE: boot with an EMPTY default corpus and serve per-notebook

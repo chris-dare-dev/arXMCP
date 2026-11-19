@@ -37,9 +37,8 @@
      everything else is solved against them. Chroma stays low at the
      lightness extremes because the sRGB gamut allows almost none there
      (max C at L=99% on hue 250 is 0.0049).
-     Every rendered pair, its target and its measured ratio:
-     .claude/docs/ui-contrast-table.md — regenerated, not hand-typed, by
-     tests/test_ui_contrast.py (which is also the AA gate).
+     Every rendered pair is registered with its target ratio in
+     tests/test_ui_contrast.py, which is also the AA gate.
      light-dark() is deliberately NOT used: Baseline Newly Available,
      not Widely, and inside a custom property an unsupporting engine
      fails at SUBSTITUTION — background-color does not inherit, so its

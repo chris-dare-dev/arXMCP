@@ -37,8 +37,6 @@ rewrite needed.**
 `active_path` → `lancedb-failed-cutover-<ts>/`, then
 `rollback_path` → `active_path`. Two renames + restart server
 under 30s.
-
-See `docs/ops/cutover-runbook.md` for the operator workflow.
 """
 
 from __future__ import annotations

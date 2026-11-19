@@ -35,8 +35,7 @@ is NOT advanced; activation is E11_S05's atomic cutover.
 - D8: 90-minute budget breach surfaces as ERROR log + sentinel
   flag file at ``var/arxmcp/ops/delta-timeout.flag``.
 - D11: NO filesystem touch file. The active marker is not
-  touched; manual restart is the documented mechanism per
-  ``.claude/notes/06-mcp-server-design.md:346-354``.
+  touched; a manual server restart is the mechanism.
 - D12: ``<header status="deleted">`` records are logged and
   skipped (no chunk/embed; existing chunks left alone).
 - D13: ``papers``-table metadata upsert is deferred (no
@@ -96,9 +95,8 @@ POLITENESS_SLEEP_SECONDS: float = 3.0
 #: enough that a stuck connection doesn't poison the run.
 OAI_PMH_TIMEOUT_SECONDS: float = 30.0
 
-#: E13_S07 Threat 7 — content-length sanity cap. The threat model
-#: in ``.claude/notes/08-security-observability-ops.md`` § Threat 7
-#: states "a single paper > 100 MB source is suspicious." OAI-PMH
+#: Threat 7 — content-length sanity cap: a single paper with a
+#: source over 100 MB is suspicious. OAI-PMH
 #: ListRecords XML batches can be large (tens of MB) but never
 #: legitimately exceed this threshold; 100 MB is a generous safety
 #: net. Applied both at the ``Content-Length`` header (pre-read
@@ -708,8 +706,8 @@ def run_delta(
     """Run one delta harvest. Returns aggregate summary.
 
     The active ``corpus-version.json`` is NOT advanced — writes go
-    to the staging LanceDB path. See synthesis D3 + design note
-    ``.claude/notes/06-mcp-server-design.md:346-354`` for why.
+    to the staging LanceDB path; activation is the atomic cutover's
+    job (``ops/cutover.py``), never the harvester's.
 
     ``fetch_page`` and ``sleep_between_pages`` default to the
     module-level helpers; they are resolved at CALL time (not

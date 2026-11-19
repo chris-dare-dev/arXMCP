@@ -15,9 +15,7 @@ E14_S04):
   ``delta.jsonl``, ``bulk.jsonl``, ``re-embed.jsonl``.
 
 The reporter reads both formats and groups by ``(stage, reason)``
-to surface the most common failure modes for human triage. The
-operator-facing workflow lives at
-``docs/ops/parser-failure-review.md``.
+to surface the most common failure modes for human triage.
 
 Usage::
 
@@ -61,9 +59,8 @@ DEFAULT_REPORTS_DIR: pathlib.Path = (
 )
 
 #: Map filename → stage name surfaced in the report. The list is
-#: closed at the inventory found in researcher 1's brief §1.3 +
-#: the live grep against ``ingest/*.py``. Adding a stage requires
-#: an entry here AND updating ``docs/ops/parser-failure-review.md``.
+#: closed at the stages under ``ingest/*.py`` that write these logs.
+#: Adding a stage requires an entry here.
 KNOWN_TSV_LOGS: dict[str, str] = {
     "chunk.log": "chunker",
     "preamble.log": "preamble",

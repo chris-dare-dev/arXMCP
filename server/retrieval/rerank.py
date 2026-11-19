@@ -9,23 +9,21 @@ candidates as ``(chunk_id, rerank_score)`` tuples.
 the env-var (default ``False``). When disabled,
 :meth:`RerankPhase.rerank` is a passthrough that returns the input
 candidates truncated to ``top_k`` — no encode, no model load, no
-semaphore acquisition, no singleflight lookup. The activation path
-(per ``.claude/notes/05-storage-and-indexing.md:329-331``): E07_S04
-demonstrates that nDCG@5 ≥ 0.80 requires the reranker; only then
-the flag flips on. If nDCG@5 ≥ 0.80 is reached without rerank, the
-flag stays off and Phase 3 remains dormant.
+semaphore acquisition, no singleflight lookup. The flag flips on
+only once the eval shows that nDCG@5 ≥ 0.80 requires the reranker.
+If nDCG@5 ≥ 0.80 is reached without rerank, the flag stays off and
+Phase 3 remains dormant.
 
 **Model: ``BAAI/bge-reranker-v2-m3``** loaded via
 :class:`transformers.AutoModelForSequenceClassification` (NOT
 FlagEmbedding, mirroring the embedder's E03_S01 precedent — keeps
 the dependency surface minimal). Pinned to
 :data:`BGE_RERANKER_COMMIT_SHA` via ``revision=`` kwarg
-(Threat 6 from ``08-security-observability-ops.md``;
+(Threat 6;
 ``trust_remote_code=False`` blocks the modeling-script RCE vector).
 ``model.eval()`` + ``torch.no_grad()`` at inference.
 
-**Tier-3 cache** (``.claude/notes/07-multi-agent-caching.md:155-166``):
-the singleflight key is
+**Tier-3 cache.** The singleflight key is
 ``sha256(query_vec.tobytes() + sorted_chunk_id_bytes + reranker_version_bytes)``.
 This deduplicates concurrent identical rerank requests — the spec
 also calls for a separate LRU memo (1-hour TTL) for completed
@@ -220,8 +218,7 @@ def _build_singleflight_key(
     query_vec: np.ndarray,
     candidates: Sequence[tuple[str, float]],
 ) -> str:
-    """Build the Tier-3 cache key per
-    ``.claude/notes/07-multi-agent-caching.md:155-166``:
+    """Build the Tier-3 cache key:
 
         key = sha256(
             query_embedding_hash

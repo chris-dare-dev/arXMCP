@@ -243,8 +243,7 @@ def _has_local_parsed_html(paper_id: str, parsed_dir: Path) -> bool:
     LaTeXML-fallback path assumes the operator has already
     run ``tools/arxiv_fetch.py`` (or similar) to produce this
     file. Bulk ingest does NOT itself fetch raw .tex or invoke
-    LaTeXML — those are operator-side concerns documented in
-    ``docs/ops/bulk-ingest-runbook.md``.
+    LaTeXML — those are operator-side concerns.
     """
     return (parsed_dir / paper_id / "index.html").is_file()
 

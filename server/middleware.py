@@ -560,9 +560,8 @@ class SecFetchSiteMiddleware:
 
     The MCP 2025-06-18 spec does NOT mandate this check (it only
     mandates Origin validation as MUST). Sec-Fetch-Site is project-
-    specific defense-in-depth from the design note at
-    ``.claude/notes/08-security-observability-ops.md`` § Threat 5:
-    *"`Sec-Fetch-Site: none` enforced where possible."*
+    specific defense-in-depth against Threat 5: ``Sec-Fetch-Site:
+    none`` is enforced where possible.
     """
 
     #: The only permitted value when the header IS present on

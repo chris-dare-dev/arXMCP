@@ -276,8 +276,7 @@ CHUNKS_SCHEMA_V1 = pa.schema(
 # Definitions table schema (E10_S01)
 # ---------------------------------------------------------------------------
 
-# Per ``.claude/notes/05-storage-and-indexing.md`` lines 92-104 the
-# definitions table captures one row per macro-definition or named
+# The definitions table captures one row per macro-definition or named
 # definition with the columns below. Every column is non-nullable: the
 # indexer is responsible for substituting sentinels (e.g. an empty
 # string for an unknown ``defining_chunk_id``) rather than relying on
@@ -315,13 +314,11 @@ DEFINITIONS_SCHEMA_V1 = pa.schema(
 # Equations table schema (E10_S03)
 # ---------------------------------------------------------------------------
 
-# Per ``.claude/notes/05-storage-and-indexing.md`` § "Table: equations"
-# the equation atom carries the columns below. The brief calls for a
-# ``mathml_tree_pickle`` column for the Zhang-Shasha trees; this
-# implementation deliberately stores trees as JSON (``mathml_tree_json``)
-# instead — pickle is a code-execution vector on read and Python-pickle
-# format drift across minor releases can silently corrupt the column
-# (see research-synthesis.md D2). The JSON form is trivial because
+# The equation atom carries the columns below. The Zhang-Shasha trees
+# are stored as JSON (``mathml_tree_json``), deliberately not pickled:
+# pickle is a code-execution vector on read and Python-pickle format
+# drift across minor releases can silently corrupt the column. The JSON
+# form is trivial because
 # ``zss.Node`` is exactly ``{label: str, children: list[Node]}``.
 #
 # ``embedding_eq`` is reserved at v1 — every row written by E10_S03 has

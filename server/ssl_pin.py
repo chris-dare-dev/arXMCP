@@ -5,8 +5,7 @@ Wires :attr:`server.config.Config.pin_arxiv_ca` into an
 sites — ``ingest/ar5iv_fetch.py::try_cache`` and
 ``tools/arxiv_fetch.py::fetch_eprint``. Closes Threat 7 mitigation #2
 ("Pin known fingerprint of arxiv.org's certificate authority chain
-(rotated periodically)") from
-``.claude/notes/08-security-observability-ops.md``.
+(rotated periodically)").
 
 **Scope.** arxiv.org + ar5iv.labs.arxiv.org ONLY. The pin does NOT
 apply to ``api.openalex.org``, ``inspirehep.net``, or

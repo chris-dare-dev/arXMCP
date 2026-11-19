@@ -986,11 +986,9 @@ class Resources:
             config.enable_rerank,
         )
 
-        # 5c. Reranker warm-up dummy inference (E14_S05 D3). The
-        # brief's failure-mode table calls for explicit pre-warming
-        # at server startup ("Reranker model load slow on cold
-        # start: Pre-warm at server startup; readiness probe blocks
-        # shim until ready" — `.claude/notes/08-security-observability-ops.md`).
+        # 5c. Reranker warm-up dummy inference. A cold reranker load is
+        # slow, so it is pre-warmed at server startup and the readiness
+        # probe holds the shim until it is ready.
         # Run a single batched forward pass over the first 10
         # chunks of the table BEFORE /readyz opens. Deterministic
         # slice (not random) so the startup-time signal is stable
@@ -2192,9 +2190,8 @@ async def _close_quietly(handle: Any, *, label: str) -> None:
     **Known narrow window.** A request that read ``get_cache()`` just
     before the swap holds the OLD cache object and can have it closed
     underneath it. Every cache method logs-and-falls-through on error
-    (``.claude/notes/07-multi-agent-caching.md``: caching is
-    performance, not correctness), so the worst outcome is one logged
-    cache miss on one request, at most once per ingest. Closing after
+    (caching is performance, not correctness), so the worst outcome is
+    one logged cache miss on one request, at most once per ingest. Closing after
     the swap rather than before is what keeps the window this small;
     the alternatives are leaking a handle per ingest or refcounting
     every cache borrow, and neither is worth it for a miss.

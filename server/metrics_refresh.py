@@ -15,8 +15,8 @@ do three things it had no business doing:
 3. **Nothing at all, on a stock install.** The shipped compose stack contains
    no Prometheus. With the mitigation living on the scrape path, *nobody ever
    scraped*, so failure-mode 7 was never mitigated — while
-   ``docs/ops/README.md`` and the ``ArXMCPDiskFull`` alert both described it
-   as active. This is the worst of the three: a documented safety mechanism
+   the ops guide and the ``ArXMCPDiskFull`` alert both described it as
+   active. This is the worst of the three: a documented safety mechanism
    that was inert by construction.
 
 This module owns the replacement: a lifespan-scoped asyncio task that calls

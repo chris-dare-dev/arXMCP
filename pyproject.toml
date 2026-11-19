@@ -65,10 +65,10 @@ exclude = ["tools.desktop_lifecycle_spike*"]
 "server.schemas" = ["*.json"]
 "ingest" = ["*.sh"]
 "tools" = ["*.sh", "seed-papers.txt"]
-# ops/: the operability layer (issue #206) — backup, cutover, restore drill,
-# drift watchdog. The ``.sh`` / ``.cron`` / ``.service`` / ``.timer`` files
-# are the halves an operator actually invokes; shipping only the ``.py``
-# modules would leave the runbooks in docs/ops/ pointing at absent files.
+# ops/: the operability layer — backup, cutover, restore drill, drift
+# watchdog. The ``.sh`` / ``.cron`` / ``.service`` / ``.timer`` files are
+# the halves an operator actually invokes; shipping only the ``.py``
+# modules would leave operators pointed at absent files.
 "ops" = ["*.sh", "*.template"]
 "ops.cron" = ["*.sh", "*.cron"]
 "ops.systemd" = ["*.service", "*.timer"]
@@ -85,10 +85,8 @@ exclude = ["tools.desktop_lifecycle_spike*"]
 # this command name verbatim; renaming would force every operator to
 # update their MCP server registration.
 arxmcp-shim = "shim.arxmcp_shim:main"
-# The long-running server (issue #206). ``docs/install.md`` has instructed
-# operators to verify their install with ``arxmcp-server --help`` since the
-# doc was written, but no ``[project.scripts]`` section existed at all — the
-# first verification step a new operator runs failed immediately.
+# The long-running server. Operators verify their install with
+# ``arxmcp-server --help``.
 #
 # Points at ``server.cli``, NOT ``server.main``: importing ``server.main``
 # executes ``create_app()`` at module scope (``server/main.py:890``), so
@@ -338,7 +336,6 @@ dev = [
 # driver at the binary via ARXMCP_MINERU_BIN. Project tests use
 # `requires_mineru` marker + opt-in env var; project venv never
 # imports the mineru package directly.
-# See docs/install.md for the install procedure.
 
 [dependency-groups]
 # PEP 735 dependency group — deliberately MIRRORS the ``dev`` extra above.
@@ -347,8 +344,8 @@ dev = [
 # consumed by different installers and neither can reference the other:
 #
 #   * ``[project.optional-dependencies].dev`` is what ``pip install -e
-#     ".[dev]"`` resolves — the Makefile ``bootstrap`` target and
-#     docs/install.md both use that form.
+#     ".[dev]"`` resolves — the Makefile ``bootstrap`` target uses that
+#     form.
 #   * ``[dependency-groups].dev`` is what **uv** installs BY DEFAULT on
 #     every ``uv sync`` and every ``uv run``. Extras are NOT installed by
 #     default; groups named in ``default-groups`` are, and ``dev`` is
@@ -362,8 +359,8 @@ dev = [
 # ``TestRegenFixture``): the in-flight run survived on already-imported
 # modules, so the test passed, and the NEXT ``make test`` died with
 # "No module named pytest". Roughly twenty ``uv run python -m tools.…``
-# commands are documented across tools/ docstrings and docs/ops/ runbooks;
-# this block is what makes every one of them safe to run.
+# commands are documented across tools/ docstrings; this block is what
+# makes every one of them safe to run.
 #
 # ``tests/test_dev_toolchain_guard.py`` fails if the two lists drift apart.
 dev = [

@@ -2,10 +2,9 @@
 
 The arXiv `/e-print/` contract, the LaTeXML invocation shape, and the
 parse-success detector all live here so `fetch_one_paper.py` and
-`fetch_seed.py` use one implementation. Production ingestion (E11) will
-re-implement these in `ingest/` with subprocess UID isolation per
-.claude/notes/08-security-observability-ops.md Threat 3 — for now this is
-unsandboxed dev tooling running on trusted arXiv source.
+`fetch_seed.py` use one implementation. Production ingestion is to
+re-implement these in `ingest/` with subprocess UID isolation (Threat 3)
+— for now this is unsandboxed dev tooling running on trusted arXiv source.
 """
 
 from __future__ import annotations
@@ -424,8 +423,7 @@ def _safe_extract(tar: tarfile.TarFile, dest: Path) -> None:
     """Reject path-traversal members before extraction.
 
     arXiv tarballs are trusted but the safety check is cheap and protects
-    against a future supply-chain swap (cf. Threat 6 in
-    .claude/notes/08-security-observability-ops.md).
+    against a future supply-chain swap (cf. Threat 6).
     """
     dest_resolved = dest.resolve()
     for member in tar.getmembers():
@@ -646,8 +644,8 @@ def parse_with_latexml(
     direct child — grandchildren survive as orphans and continue
     consuming resources. The full sandbox (sandbox-exec on macOS,
     seccomp+landlock on Linux, ``--read-only`` + ``no-new-privileges``
-    in Docker) is Phase 2 of the Threat-3 mitigation and ships in a
-    future milestone; see ``.claude/docs/security-threat-3-audit.md``.
+    in Docker) is Phase 2 of the Threat-3 mitigation, outside this
+    function.
     """
     latexmlc_bin = shutil.which("latexmlc")
     if latexmlc_bin is None:

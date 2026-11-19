@@ -73,14 +73,12 @@ logger = logging.getLogger(__name__)
 # Public constants
 # ---------------------------------------------------------------------------
 
-#: Default top-N candidates returned by :meth:`ANNPhase.query`. Per
-#: ``.claude/notes/05-storage-and-indexing.md:328-329`` ("Take
-#: top-50") — Phase 3 (E07_S03) reduces this further via reranking.
+#: Default top-N candidates returned by :meth:`ANNPhase.query`. The
+#: rerank phase reduces this further.
 DEFAULT_TOP_N: int = 50
 
 #: Per-column ANN candidate count. Each column contributes its
-#: top-50 to the RRF fusion before truncation. Per
-#: ``.claude/notes/05-storage-and-indexing.md:325`` ("top-50 each").
+#: top-50 to the RRF fusion before truncation.
 PER_COLUMN_LIMIT: int = 50
 
 #: The two embedding columns the dual-ANN searches. Listed

@@ -3,9 +3,8 @@
 Detects PDF dictionary key names that indicate embedded JavaScript,
 auto-open actions, or other content-execution vectors. Algorithm
 borrowed (NOT copied) from Didier Stevens' public-domain ``pdfid``
-tool — see ``.claude/notes/capability-scouts/pdf-ingest-2026/`` CAND-2
-for the vendoring discipline and ``tools/security/README.md`` for the
-no-fork policy rationale.
+tool — see ``tools/security/README.md`` for the no-fork policy
+rationale.
 
 **This is defense-in-depth, NOT a complete PDF malware scanner.** The
 detection is a byte-level string-grep over the PDF token stream:
@@ -22,8 +21,7 @@ Backstops for evasion cases (m4 rect F5 — corrected attribution):
 
 - **Compressed-stream JS evasion:** the actual protection is that
   PyMuPDF (the parser MinerU uses internally) does NOT evaluate
-  embedded JavaScript — see `.claude/docs/security-pdf-sandbox.md`
-  threat surface table row 1. m5's RLIMIT_AS / wall-timeout
+  embedded JavaScript. The RLIMIT_AS / wall-timeout
   sandbox bounds the resource consumption of MinerU's parsing
   pass; it does NOT block JS execution (which never happens
   because PyMuPDF doesn't run it).

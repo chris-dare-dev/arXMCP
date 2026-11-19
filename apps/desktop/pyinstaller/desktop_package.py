@@ -722,27 +722,23 @@ def verify_determinism(
 
 
 # --------------------------------------------------------------------------
-# macOS application-bundle assembly (desktop-distribution-m15)
+# macOS application-bundle assembly
 #
-# Implements Decision 1 of `.claude/docs/adr-desktop-bundle-assembly.md`
-# (Accepted): Tauri's bundler builds the `.app` SHELL ONLY — no `resources`,
-# no `externalBin`, no `frameworks` entry for the payload — and this module
+# Tauri's bundler builds the `.app` SHELL ONLY — no `resources`, no
+# `externalBin`, no `frameworks` entry for the payload — and this module
 # owns pre-signing the onedir bottom-up, placing it at
-# `Contents/Resources/arxmcp-desktop-child/` (**Decision 2a**, which superseded
-# Decision 2's `Contents/MacOS/` location on 2026-08-12) and re-sealing the
-# outer bundle.
+# `Contents/Resources/arxmcp-desktop-child/` and re-sealing the outer bundle.
+# The payload cannot sit under `Contents/MacOS/`: `codesign` cannot seal a
+# bundle whose `Contents/MacOS` holds non-Mach-O files.
 #
-# Decision 2a is NOT a re-opening of rejected alternative R2. R2 rejected the
-# Tauri `bundle.resources` CONFIG KEY, which copies a tree without signing it;
-# that mechanism is still not used here. Only the destination directory
-# changed, and every nested Mach-O is still pre-signed bottom-up by this
-# module before the outer seal — `codesign --deep` remains forbidden.
+# Tauri's `bundle.resources` CONFIG KEY is not used: it copies a tree without
+# signing it. Every nested Mach-O is pre-signed bottom-up by this module
+# before the outer seal — `codesign --deep` remains forbidden.
 #
-# Read Decision 3 before writing anything into this section: whether the
-# resulting artifact survives Apple's notary service is OPEN and unanswerable
-# here. Nothing below may be described as notarization-ready, Gatekeeper-ready
-# or signable-as-is; `tests/test_desktop_notarization_claims.py` fails the
-# suite on such a claim.
+# Whether the resulting artifact survives Apple's notary service is OPEN and
+# unanswerable here. Nothing below may be described as notarization-ready,
+# Gatekeeper-ready or signable-as-is;
+# `tests/test_desktop_notarization_claims.py` fails the suite on such a claim.
 # --------------------------------------------------------------------------
 
 TAURI_CONF = REPO_ROOT / "apps" / "desktop" / "crates" / "supervisor" / "tauri.conf.json"

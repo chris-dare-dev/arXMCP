@@ -10,8 +10,7 @@ where ``rank_i(d)`` is the 1-based position of document ``d`` in
 ranked list ``L_i``, or implicitly infinity if absent (which makes
 ``1/(k + inf) == 0`` — that document contributes nothing from that
 list). The constant ``k = 60`` is the empirical default from the
-original paper and is pinned by ``.claude/notes/05-storage-and-
-indexing.md:328`` ("Reciprocal Rank Fusion (k=60)"). Bumping this
+original paper. Bumping this
 constant is a deliberate retrieval-quality change, not a casual edit.
 
 **Input shape: chunk_ids only.** The function takes
@@ -46,10 +45,9 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 #: The canonical RRF tuning constant from the original Cormack paper.
-#: Pinned by ``.claude/notes/05-storage-and-indexing.md:328``. A bump
-#: here is a deliberate retrieval-quality decision (changing it
+#: A bump here is a deliberate retrieval-quality decision (changing it
 #: re-balances the relative influence of high vs low ranks across the
-#: fused lists) — coordinate with E05's eval harness before touching.
+#: fused lists) — coordinate with the eval harness before touching.
 RRF_K: int = 60
 
 

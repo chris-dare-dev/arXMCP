@@ -30,9 +30,6 @@ to be named ``server/observability/logging.py``. We use
 the stdlib :mod:`logging` package — Python 3 absolute imports already
 make ``import logging`` resolve to the stdlib from anywhere in this
 package, but a same-named module is still a reader-confusion hazard.
-The rename is documented in
-``.claude/docs/security-observability-logging.md`` and the
-``implementation-summary.md`` for E13_S08.
 """
 
 from __future__ import annotations
@@ -54,9 +51,8 @@ _debug_warning_emitted = False
 #: its output. These are bookkeeping fields the stdlib populates on
 #: every record; emitting them inflates JSON without informing the
 #: operator. We intentionally KEEP ``levelname``, ``name``, ``message``,
-#: ``asctime`` etc. — those are the threat-model "required fields on
-#: every log line" listed in ``.claude/notes/08-security-observability-ops.md``
-#: § Logging.
+#: ``asctime`` etc. — those are the threat model's required fields on
+#: every log line.
 _FORMATTER_INTERNAL_ATTRS: frozenset[str] = frozenset({
     "args",
     "msg",

@@ -32,8 +32,7 @@ we adopt ``gen_ai.request.model`` (the model NAME on embed/rerank
 child spans) where it exists in semconv, and use the
 project-private ``arxmcp.*`` namespace for everything else,
 including ``arxmcp.model.revision`` (commit SHA — no semconv
-equivalent). The complete attribute catalog lives in
-``.claude/docs/observability-tracing.md``.
+equivalent).
 
 **Cache-layer enum.** The OTel attribute uses
 ``tier1|tier2|tier3|miss`` — matches the Prometheus surface
@@ -123,8 +122,7 @@ current_session_id: ContextVar[str | None] = ContextVar(
 #: from the E14_S02 adversary critique — without an allow-list, any
 #: 64 KB string was admitted, blowing up span cardinality + opening a
 #: log-injection / Phoenix-cardinality DoS vector. The canonical four
-#: roles match the multi-agent pipeline documented in
-#: :doc:`.claude/notes/01-mission-and-context.md` (Sketcher →
+#: roles match the multi-agent pipeline (Sketcher →
 #: Autoformalizer → Tactician → Fixer). Header values outside this set
 #: are dropped at the middleware layer with a DEBUG log.
 VALID_AGENT_ROLES: frozenset[str] = frozenset(
@@ -347,8 +345,7 @@ def span_tool_call(
     no-op span and the yielded object's ``set_attribute`` calls are
     cheap no-ops.
 
-    Closes :doc:`.claude/notes/08-security-observability-ops.md`
-    §Tracing requirements:
+    Meets the tracing requirements:
 
     - ``mcp.session_id``
     - ``mcp.tool_name``

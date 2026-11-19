@@ -1,10 +1,9 @@
 """Per-tool request + embedder + reranker Prometheus metrics
 (E14_S01).
 
-These families fill the per-request observability gap that
-`.claude/notes/08-security-observability-ops.md` § Metrics
-documents. The cache + retrieval-cap + drift + eval gauges
-already live in :mod:`server.metrics`; that placement is kept
+These families fill the per-request observability gap. The cache +
+retrieval-cap + drift + eval gauges already live in
+:mod:`server.metrics`; that placement is kept
 for backwards compatibility with existing tests (E08_S03,
 E10_S04, E11_S04 all import from there).
 

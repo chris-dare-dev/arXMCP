@@ -7,11 +7,9 @@ CLI scripts guarantees the four scripts share the same path constants
 and slug validation.
 
 The slug regex (``^[a-z][a-z0-9-]{2,30}$``) is the FIRST-LINE defense
-against path traversal — see Threat 1 in
-``.claude/notes/08-security-observability-ops.md`` and FM-2 in
-``.claude/notes/milestones/proof-verify-handler-wiring-m6/research-synthesis.md``.
-A path containment check at ``(notebooks_base / slug).resolve()`` is
-the belt-and-braces secondary check.
+against path traversal (Threat 1). A path containment check at
+``(notebooks_base / slug).resolve()`` is the belt-and-braces secondary
+check.
 """
 
 from __future__ import annotations

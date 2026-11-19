@@ -28,11 +28,8 @@ happened on the ``lean_status`` axis: ``timeout``, ``crashed`` (the
 process failed during this call), or ``unavailable`` (Lean is enabled
 but the process cannot be started; the next call tries again).
 
-Design references:
-- ``.claude/notes/milestones/verification-feedback-m3/research-synthesis.md``
-- ``.claude/notes/spikes/verification-feedback-spike-2.md`` (REPL JSON
-  protocol — message keys ``severity``/``pos``/``data``, sorry rows
-  with ``goal``/``pos``).
+The REPL's JSON protocol: message keys ``severity``/``pos``/``data``,
+sorry rows with ``goal``/``pos``.
 """
 
 from __future__ import annotations
@@ -366,10 +363,9 @@ def _project_sorries(
 # tool here that emits a *verdict* rather than evidence, so that token is
 # designed to be believed.
 #
-# The fix is an INDEPENDENT axis, never a widened ``status``
-# (``.claude/docs/trust-language-policy.md`` §6 rule 1: "New trust-bearing
-# fields are namespaced and axis-specific"; §4: "no axis may be inferred from
-# another"). Concretely:
+# The fix is an INDEPENDENT axis, never a widened ``status``: new
+# trust-bearing fields are namespaced and axis-specific, and no axis may be
+# inferred from another. Concretely:
 #
 #   - ``status`` / ``compilation_success`` keep answering EXACTLY what they
 #     measure — elaboration + proof closure, and kernel acceptance. The kernel
@@ -385,9 +381,7 @@ def _project_sorries(
 # value (policy §6 rule 5): every path that does not measure the axis says so.
 
 #: The transitive axioms a proof may depend on and still count as clean. These
-#: three are Lean 4 / mathlib's standard classical foundation and are the
-#: allowlist named by the R3 verification contract
-#: (``.claude/roadmap-briefs/R3-verification-contract.md`` key result 3).
+#: three are Lean 4 / mathlib's standard classical foundation.
 #:
 #: Everything else is flagged, with no special-casing needed for the notable
 #: cases: ``sorryAx`` (an unproved hole — the axiom-side cross-check on the
@@ -885,24 +879,14 @@ def _normalize_response(
     sorry_goals = _project_sorries(resp.get("sorries"), repl_generation)
     goals_remaining = [s["goal"] for s in sorry_goals if s["goal"]]
 
-    # `status` stays a bare token here, NOT because the trust-language policy
-    # exempts it — it does not. ``.claude/docs/trust-language-policy.md`` §6
-    # rule 3 reads "Every trust-bearing field carries its ``Certificate``
-    # (level + attached evidence), not a bare token", with no qualifier, and
-    # this field's own schema description defines an ordinal precedence
-    # ladder. So rule 3 DOES reach `status`.
-    #
-    # This is a SCOPED DEFERRAL, owned by ``verification-contract-e3``:
-    # nesting `status` into a Certificate is a wire-breaking shape change,
-    # and e3 owns the response-schema redesign that can carry it. m1's scope
-    # was the honest token plus the design ADR. Meanwhile the evidence rule 3
-    # wants attached does ship — as sibling fields (``messages``,
+    # `status` stays a bare token here, although every trust-bearing field
+    # should carry a ``Certificate`` (level + attached evidence) and this
+    # field's own schema description defines an ordinal precedence ladder.
+    # Nesting `status` into a Certificate is a wire-breaking shape change
+    # that waits for a response-schema redesign. Meanwhile the evidence a
+    # Certificate would attach does ship — as sibling fields (``messages``,
     # ``sorry_goals``, ``proof_state``, ``axiom_audit``) rather than as one
     # attached record.
-    #
-    # Do not read policy §2 as blessing the rename alone: §2 names the rename
-    # AND the five-operation split together as R3's remedy. See
-    # ``.claude/docs/adr-verification-contract-five-operations.md`` Decision 2.
     has_error = any(m["severity"] == "error" for m in messages)
     has_sorry = bool(sorry_goals)
     if has_error:

@@ -16,10 +16,7 @@ tool-input boundary".
 **No caching.** ``cite_neighbors`` results are NOT cached: the handler
 calls the live Kùzu graph on every invocation, so a citation-graph
 re-ingest can never serve a stale neighbor list. A ``graph_version``-
-keyed cache is an optimization deferred to a future milestone — see
-``.claude/notes/milestones/verification-feedback-m1/research-synthesis.md``
-§ 2 for the scope decision (the Phase-3 challenger's sanctioned
-"exclude from caching" option).
+keyed cache is a possible later optimization.
 
 **Graceful degradation.** ``graph_status`` reports the citation graph's
 state: ``"absent"`` when the Kùzu DB path does not exist (seed-stage
