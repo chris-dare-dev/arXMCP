@@ -4,7 +4,7 @@
 Honors arXiv's politeness contract:
 - 3 second sleep between every /e-print/ request (not just on failure)
 - Retry-After honored on 503 (floor: 30s exponential backoff, cap 5min)
-- arXMCP/0.1 (mailto:$ARXMCP_CONTACT_EMAIL) User-Agent
+- arXMCP application User-Agent (optional contact email when configured)
 
 Logs ALL outcomes (success and failure) to
 var/arxmcp/ops/parser-failures/seed.log so the rate is the baseline E02
@@ -19,9 +19,11 @@ Acceptance criterion is ≥45/50 successful parses; the script exits 0 if
 that threshold is met, 1 otherwise.
 
 Usage:
-    export ARXMCP_CONTACT_EMAIL=you@example.com
     python tools/fetch_seed.py
     python tools/fetch_seed.py --allow-undersized   # dev-only escape hatch
+
+Set ``ARXMCP_CONTACT_EMAIL`` only if you want a contact address included in
+the User-Agent; it is optional.
 """
 
 from __future__ import annotations

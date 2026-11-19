@@ -14,9 +14,8 @@ research brief):
 
 - ≤1 request / 3 s: a 3-second sleep BEFORE every request except the
   first (``tools.arxiv_fetch.POLITENESS_SLEEP_SECONDS``).
-- Polite User-Agent with a contact email, enforced at ``run()`` entry
-  via :func:`tools._notebook_common.resolve_contact_email` (never at
-  import — tests that don't exercise the network need no email).
+- Identifying User-Agent; an operator contact email is optional and
+  resolved through :func:`tools._notebook_common.resolve_contact_email`.
 - 503 → backoff via ``parse_retry_after`` clamped to ≥30 s (arXiv has
   served ``Retry-After: 0``, which would otherwise hammer).
 - 429 (plain-text ``Rate exceeded.``) → ≥60 s cool-down (15 s was
@@ -282,9 +281,8 @@ def run(
     ``notebook_fetch.run`` convention); production callers pass only
     ``slug``. Returns the process exit code.
     """
-    # Slug validation is the FIRST check (per _notebook_common convention),
-    # then run-entry politeness enforcement: raises NotebookError with the
-    # canonical `make init EMAIL=…` remediation if no source has one.
+    # Slug validation is the FIRST check (per _notebook_common convention).
+    # A configured contact address is optional and only affects the request UA.
     validate_slug(slug)
     contact_email = resolve_contact_email(None)
     nb_dir = notebook_dir(slug, base=base)

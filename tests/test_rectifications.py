@@ -459,7 +459,7 @@ class TestF5PolitenessContract:
         assert any(s >= 60 for s in sleep_calls), f"expected ≥60s sleep, got {sleep_calls}"
 
     def test_user_agent_on_every_request(self, tmp_path: Path, monkeypatch):
-        """fetch_eprint must always pass arXMCP/0.1 (mailto:...) UA."""
+        """fetch_eprint must identify arXMCP and include configured contact."""
         monkeypatch.setenv("ARXMCP_CONTACT_EMAIL", "test@example.com")
         captured_headers: list[dict] = []
 
@@ -495,5 +495,5 @@ class TestF5PolitenessContract:
             None,
         )
         assert ua_header is not None
-        assert ua_header.startswith("arXMCP/0.1 (mailto:")
+        assert ua_header.startswith("arXMCP/0.1 ")
         assert "test@example.com" in ua_header

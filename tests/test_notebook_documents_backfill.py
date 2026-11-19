@@ -1,7 +1,7 @@
 """Tests for ``tools.notebook_documents_backfill`` (source-truth-m1).
 
 Mirrors ``tests/test_notebook_metadata_backfill.py``: happy path,
-politeness (3s spacing, email enforced at run entry), idempotent re-run
+politeness (3s spacing, optional contact information), idempotent re-run
 (zero network egress), membership-from-``papers.txt``, the abstention
 marker for old-style raw sources, the 3-way ``license_status`` mapping,
 ``idDoesNotExist`` as a non-fatal registration, transient-failure ->
@@ -292,23 +292,23 @@ class TestPoliteness:
         # sleep BEFORE every request except the first.
         assert sleeps == [POLITENESS_SLEEP_SECONDS, POLITENESS_SLEEP_SECONDS]
 
-    def test_email_enforced_at_run_entry_before_any_fetch(
+    def test_missing_contact_email_does_not_block_fetch(
         self, tmp_path, monkeypatch,
     ):
         base = _make_notebook(tmp_path, "2307.00001\n")
+        raw_root, parsed_root = _make_corpus(
+            tmp_path, new_ids=["2307.00001"],
+        )
         fetch = _fetch_for({"2307.00001": ("license", NONEXCLUSIVE)})
 
-        def _no_email(_arg):
-            raise NotebookError("no contact email available")
-
         monkeypatch.setattr(
-            notebook_documents_backfill, "resolve_contact_email", _no_email,
+            notebook_documents_backfill, "resolve_contact_email", lambda _arg: None,
         )
-        with pytest.raises(NotebookError, match="contact email"):
-            notebook_documents_backfill.run(
-                SLUG, base=base, sleep=lambda _s: None, fetch=fetch,
-            )
-        assert fetch.calls == []
+        assert notebook_documents_backfill.run(
+            SLUG, base=base, corpus_raw_dir=raw_root,
+            corpus_parsed_dir=parsed_root, sleep=lambda _s: None, fetch=fetch,
+        ) == 0
+        assert fetch.calls == ["2307.00001"]
 
 
 # ---------------------------------------------------------------------------

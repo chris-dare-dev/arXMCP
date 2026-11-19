@@ -14,7 +14,8 @@ live as of 2026-05-28; 0 in ``corpus/raw/``). For each paper missing a
     2. ``fetch_eprint`` with 503 backoff (exponential up to 300 s).
     3. ``extract_preamble`` (idempotent — short-circuits via SHA256).
 
-**Requires ARXMCP_CONTACT_EMAIL** (User-Agent for the /e-print/ request).
+The arXiv User-Agent includes the application identifier. A contact email is
+optional and is included when configured.
 
 Usage::
 
@@ -35,7 +36,7 @@ Exit codes::
 
     0 — every paper either recovered, was already present, or failed
         with a recoverable reason (404 withdrawn, security event)
-    1 — env var missing, malformed args, or any structural failure
+    1 — malformed args or any structural failure
     2 — no candidate papers discovered (corpus/parsed/ empty)
 """
 
@@ -63,7 +64,6 @@ from tools._notebook_common import (
     NOTEBOOKS_BASE,
     NotebookError,
     read_paper_ids_from_papers_txt,
-    resolve_contact_email,
     validate_slug,
 )
 
@@ -232,12 +232,6 @@ def run(
     per-paper failures (404, 503, etc.) — those are logged and
     aggregated.
     """
-    # onboarding-uplift-m2: priority chain — explicit arg → SQLite
-    # operator_settings → ARXMCP_CONTACT_EMAIL env var → raise. The
-    # historical env-var path still works; `make init EMAIL=...` is
-    # the new canonical mechanism.
-    resolve_contact_email(None)
-
     candidates = _discover_candidates(notebook_slug)
     if not candidates:
         return RecoverySummary(total_candidates=0)

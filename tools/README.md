@@ -11,7 +11,8 @@ One-off developer scripts. Not part of the production ingestion pipeline (that l
 
 ## Usage
 
-Before running any of these, export your contact email (used in the `User-Agent` per arXiv TOS):
+An identifying application User-Agent is sent automatically. Optionally set
+`ARXMCP_CONTACT_EMAIL` to include a contact address:
 
 ```sh
 export ARXMCP_CONTACT_EMAIL=you@example.com

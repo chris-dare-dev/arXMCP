@@ -69,10 +69,6 @@ class TestNotebookFetchRun:
 
         with (
             patch.object(
-                notebook_fetch, "resolve_contact_email",
-                return_value="ops@example.com",
-            ),
-            patch.object(
                 notebook_fetch, "notebook_dir", return_value=nb_dir,
             ),
             patch.object(notebook_fetch, "CORPUS_RAW_DIR", raw_dir),

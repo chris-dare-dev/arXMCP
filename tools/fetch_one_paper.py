@@ -5,13 +5,12 @@ E01_S02 smoke test for the ingestion path. Verifies politeness contract,
 tar-vs-gzip Content-Type dispatch, and LaTeXML HTML5+MathML emission.
 
 Usage:
-    export ARXMCP_CONTACT_EMAIL=you@example.com
     python tools/fetch_one_paper.py 2307.01156
 
 Exit codes:
     0  parse succeeded (HTML emitted, MathML present, ≥1 KB)
     1  parse failed (any of the four success conditions unmet)
-    2  network/setup failure (no email, bad paper_id, http error)
+    2  network/setup failure (bad paper_id, http error)
 """
 
 from __future__ import annotations

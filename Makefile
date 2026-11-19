@@ -113,10 +113,8 @@ help:
 	@echo ""
 	@echo "Override the python interpreter with: make test PYTHON=python3.13"
 	@echo ""
-	@echo "Before running the arXiv CLI fetch tools (tools/notebook_fetch.py,"
-	@echo "tools/recover_preambles.py, ingest/inspire_ingest.py — NOT"
-	@echo "'make up'; the server REJECTS the var), export"
-	@echo "ARXMCP_CONTACT_EMAIL=<your-email> for the User-Agent (arXiv TOS)."
+	@echo "Optional: set ARXMCP_CONTACT_EMAIL to include a contact address in"
+	@echo "arXiv request User-Agent headers. Request pacing is handled automatically."
 
 bootstrap:
 	@$(PYTHON) -c "import sys; assert sys.version_info >= (3, $(MIN_PY_MINOR)), \
@@ -140,12 +138,6 @@ bootstrap:
 	# write access to corpus/parsed/.
 	@echo ""
 	@echo "Bootstrap complete. var/arxmcp/ tree created."
-	@if [ -z "$$ARXMCP_CONTACT_EMAIL" ]; then \
-		echo "NOTE: export ARXMCP_CONTACT_EMAIL=<your-email> before running"; \
-		echo "the arXiv CLI fetch tools (tools/notebook_fetch.py,"; \
-		echo "tools/recover_preambles.py, ingest/inspire_ingest.py)."; \
-		echo "The server itself REJECTS the var — keep it unset for 'make up'."; \
-	fi
 
 test:
 	@$(PYTHON) -c "import sys; assert sys.version_info >= (3, $(MIN_PY_MINOR)), \
@@ -386,7 +378,7 @@ ingest-recover-preambles:
 	@# 0 in corpus/raw/). For each missing preamble.json: politeness_sleep,
 	@# fetch_eprint with 503 backoff, extract_preamble.
 	@#
-	@# Requires ARXMCP_CONTACT_EMAIL (User-Agent for /e-print/).
+	@# ARXMCP_CONTACT_EMAIL is optional contact information for the User-Agent.
 	@#
 	@# OPERATOR WARNING: after this completes, the next `make re-embed-all`
 	@# will detect that body+preamble of every back-filled paper now

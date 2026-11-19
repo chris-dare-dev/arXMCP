@@ -836,18 +836,26 @@ def test_fetch_raw_tex_if_missing_tarball_bomb_logs_error_returns_false(
     )
 
 
-def test_notebook_fetch_run_requires_arxmcp_contact_email(
+def test_notebook_fetch_run_does_not_require_contact_email(
     notebooks_base: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """AC7: notebook_fetch.run() fails fast with a clear NotebookError
-    when ARXMCP_CONTACT_EMAIL is unset. Enforcement at run-time, NOT
-    import-time (so tests that don't exercise the raw-tex path don't
-    have to set the env var)."""
+    """A missing optional contact address must not block notebook fetch."""
     _seed_notebook(notebooks_base, "demo", ["2303.07061"])
     monkeypatch.delenv("ARXMCP_CONTACT_EMAIL", raising=False)
-    with pytest.raises(NotebookError, match="ARXMCP_CONTACT_EMAIL"):
-        notebook_fetch.run("demo", sleep_seconds=0.0)
+    monkeypatch.setattr(
+        notebook_fetch,
+        "try_cache",
+        lambda paper_id, **kw: Ar5ivResult(
+            paper_id=paper_id,
+            hit=True,
+            cache_path=Path("/cache"),
+            parsed_path=Path("/parsed"),
+            reason="ok_local_cache",
+        ),
+    )
+    monkeypatch.setattr(notebook_fetch, "fetch_raw_tex_if_missing", lambda *a: False)
+    assert notebook_fetch.run("demo", sleep_seconds=0.0) == 0
 
 
 # ---------------------------------------------------------------------------
@@ -986,16 +994,16 @@ def test_recover_preambles_503_backoff_retries_then_succeeds(
     assert summary.preamble_recovered == 1
 
 
-def test_recover_preambles_requires_arxmcp_contact_email(
+def test_recover_preambles_does_not_require_contact_email(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """AC7: recover_preambles.run() also enforces ARXMCP_CONTACT_EMAIL."""
+    """A missing optional contact address must not block local recovery."""
     from tools import recover_preambles
 
     monkeypatch.delenv("ARXMCP_CONTACT_EMAIL", raising=False)
-    with pytest.raises(NotebookError, match="ARXMCP_CONTACT_EMAIL"):
-        recover_preambles.run(sleep_seconds=0.0)
+    monkeypatch.setattr(recover_preambles, "_discover_candidates", lambda _: [])
+    assert recover_preambles.run(sleep_seconds=0.0).total_candidates == 0
 
 
 def test_recover_preambles_continues_past_tarball_bomb(
