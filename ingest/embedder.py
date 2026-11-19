@@ -133,6 +133,7 @@ BGE_M3_COMMIT_SHA = "5617a9f61b028005a4858fdac845db406aefb181"
 # ``embedder_version`` column. Same short-and-sortable style as
 # ``chunker_version`` (single source of truth in ``chunker_types``).
 EMBEDDER_VERSION = f"bge-m3@{BGE_M3_COMMIT_SHA[:8]}"
+EMBED_INPUT_POLICY_VERSION = "body-first-v1"
 
 # BGE-M3's hidden size (XLM-RoBERTa-large backbone). Pinned here so that
 # downstream readers (tests, E04_S01's schema) can import the constant
@@ -149,7 +150,10 @@ MAX_TOKENS = 2048
 # embedder-truncation-m1 because XLM-RoBERTa's O(n²) attention makes a
 # 32-batch of 2048-token inputs OOM-prone on CPU (16× attention memory
 # vs the prior 512-token regime).
-EMBED_BATCH_DEFAULT = 8
+EMBED_DEVICE = os.environ.get("ARXMCP_EMBED_DEVICE", "cpu")
+if EMBED_DEVICE not in {"cpu", "cuda"}:
+    raise ValueError("ARXMCP_EMBED_DEVICE must be cpu or cuda")
+EMBED_BATCH_DEFAULT = 2 if EMBED_DEVICE == "cuda" else 8
 
 
 # ---------------------------------------------------------------------------
@@ -348,12 +352,17 @@ def _get_model():
             # ``use_safetensors=True`` here.
         )
         _model.eval()
+        if EMBED_DEVICE == "cuda":
+            if not torch.cuda.is_available():
+                raise RuntimeError("ARXMCP_EMBED_DEVICE=cuda but CUDA is unavailable")
+            _model.to("cuda")
         # Default torch CPU thread count can be 1 on some configurations;
         # explicit setting eliminates the surprise. CPU-only by design —
         # never call .cuda() / .to("cuda"); GPU acceleration is an E11
         # concern. Closes F11: ``torch`` is already imported above; no
         # need to re-import inside this branch.
-        torch.set_num_threads(os.cpu_count() or 4)
+        if EMBED_DEVICE == "cpu":
+            torch.set_num_threads(os.cpu_count() or 4)
     return _model
 
 
@@ -363,7 +372,7 @@ def _get_model():
 
 
 def _build_embed_input(preamble_text: str, body_text: str) -> str:
-    """Return the NFC-normalized ``preamble + "\\n\\n" + body_text`` view.
+    """Return the NFC-normalized rendered body used for dense retrieval.
 
     F3 fallback: when the per-paper preamble is missing, ``preamble_text``
     is ``""`` and the embedder encodes ``body_text`` alone (no leading
@@ -376,10 +385,7 @@ def _build_embed_input(preamble_text: str, body_text: str) -> str:
     across hosts and matches the tokenizer's discipline (``tokenizer.py``
     line 128).
     """
-    combined = (
-        preamble_text + "\n\n" + body_text if preamble_text else body_text
-    )
-    return unicodedata.normalize("NFC", combined)
+    return unicodedata.normalize("NFC", body_text)
 
 
 # ---------------------------------------------------------------------------
@@ -392,10 +398,9 @@ def _encode_batch(
 ) -> tuple[object, int]:
     """Encode a list of texts to L2-normalized 1024-dim vectors.
 
-    Returns ``(embeddings, truncated_count)`` where ``embeddings`` is a
-    numpy ``float32`` array of shape ``(len(texts), EMBEDDING_DIM)`` and
-    ``truncated_count`` is the number of inputs whose token sequence had
-    to be truncated to fit ``MAX_TOKENS``.
+    Returns ``(embeddings, 0)`` where ``embeddings`` is a numpy ``float32``
+    array of shape ``(len(texts), EMBEDDING_DIM)``. An input longer than
+    ``MAX_TOKENS``, including special tokens, raises before model inference.
 
     Closes F3 from the E03_S01 adversary critique: the truncation count
     is now derived from the SAME tokenizer call style that produces the
@@ -405,10 +410,8 @@ def _encode_batch(
     batch ``tokenizer(...)`` with truncation) that were not guaranteed
     to produce identical token-id lengths for non-trivial inputs.
 
-    Closes F10: when ``chunk_ids`` is supplied, a per-chunk DEBUG log
-    fires on truncation so operators can identify which specific chunk
-    overflowed (the paper-level WARNING summary still fires once per
-    paper at the call site).
+    When ``chunk_ids`` is supplied, an overflow error identifies the
+    offending chunk.
 
     Critical: raw ``transformers.AutoModel`` does NOT apply L2
     normalization by default — unlike ``BGEM3FlagModel.encode()``. The
@@ -420,50 +423,38 @@ def _encode_batch(
     import torch.nn.functional as F  # noqa: PLC0415
 
     tokenizer = _get_tokenizer()
-    model = _get_model()
 
     # Closes F3: single no-truncation pre-pass that returns un-clipped
     # length per text, matching the call-style of the actual encode
     # below. ``return_length=True`` makes ``length`` a per-input list
     # in the returned batch encoding.
     #
-    # embedder-truncation-m1: ``add_special_tokens=False`` so CLS+SEP
-    # (+2 tokens) are NOT included in the length count. Without this,
-    # a chunk emitted by the chunker at exactly MAX_TOKENS tokens of
-    # raw text is re-counted as truncated (length=MAX_TOKENS+2 > cap).
-    # The actual encode below MUST keep the default (add_special_tokens
-    # is implicitly True) — CLS+SEP are required for correct sentence-
-    # level embeddings from XLM-RoBERTa.
+    # Count CLS/SEP here because the actual model input includes them.
     pre = tokenizer(
         texts,
         padding=False,
         truncation=False,
         return_length=True,
-        add_special_tokens=False,
+        add_special_tokens=True,
     )
     lengths = pre["length"]
-    truncated_count = 0
     for i, length in enumerate(lengths):
         if length > MAX_TOKENS:
-            truncated_count += 1
-            # Closes F10: per-chunk DEBUG log so ops can identify which
-            # chunk overflowed. Paper-level WARNING summary still fires
-            # at the call site for the higher-signal path.
-            if chunk_ids is not None:
-                logger.debug(
-                    "truncation: chunk_id=%s tokens=%d cap=%d",
-                    chunk_ids[i],
-                    length,
-                    MAX_TOKENS,
-                )
+            chunk_id = chunk_ids[i] if chunk_ids is not None else str(i)
+            raise ValueError(
+                f"embedding input exceeds {MAX_TOKENS} tokens including "
+                f"special tokens: chunk_id={chunk_id} tokens={length}"
+            )
 
     encoded = tokenizer(
         texts,
         padding=True,
-        truncation=True,
-        max_length=MAX_TOKENS,
+        truncation=False,
         return_tensors="pt",
     )
+    if EMBED_DEVICE == "cuda":
+        encoded = {key: value.to("cuda") for key, value in encoded.items()}
+    model = _get_model()
 
     with torch.no_grad():
         output = model(**encoded)
@@ -472,7 +463,7 @@ def _encode_batch(
         # Explicit L2 normalization — raw AutoModel does not apply it.
         embeddings = F.normalize(embeddings, p=2, dim=-1)
 
-    return embeddings.cpu().numpy().astype(np.float32), truncated_count
+    return embeddings.cpu().numpy().astype(np.float32), 0
 
 
 # ---------------------------------------------------------------------------
@@ -618,6 +609,7 @@ def _write_embeddings_manifest(
         "chunker_version": EXPECTED_CHUNKER_VERSION,
         "embedded_chunks": embedded_chunks,
         "embedder_version": EMBEDDER_VERSION,
+        "embed_input_policy_version": EMBED_INPUT_POLICY_VERSION,
         "paper_id": paper_id,
     }
     payload = json.dumps(sidecar, ensure_ascii=False, sort_keys=True) + "\n"
@@ -651,7 +643,8 @@ def _read_embeddings_manifest(out_path: Path) -> dict | None:
 
 
 def _paper_is_up_to_date(
-    paper_id: str, manifest_chunk_ids: set[str]
+    paper_id: str, manifest_chunk_ids: set[str],
+    manifest_chunk_kinds: dict[str, str] | None = None,
 ) -> bool:
     """Return True iff the paper can be skipped on this run.
 
@@ -716,6 +709,8 @@ def _paper_is_up_to_date(
         return False
     if sidecar.get("embedder_version") != EMBEDDER_VERSION:
         return False
+    if sidecar.get("embed_input_policy_version") != EMBED_INPUT_POLICY_VERSION:
+        return False
     embedded = sidecar.get("embedded_chunks", [])
     if not isinstance(embedded, list):
         return False
@@ -725,6 +720,7 @@ def _paper_is_up_to_date(
     # well-formed sidecar). Don't let ``None`` slip into the set and
     # accidentally pass the subset check.
     embedded_ids: set[str] = set()
+    embedded_kinds: dict[str, str] = {}
     for entry in embedded:
         if not isinstance(entry, dict):
             return False
@@ -732,7 +728,17 @@ def _paper_is_up_to_date(
         if not isinstance(cid, str):
             return False
         embedded_ids.add(cid)
-    return manifest_chunk_ids.issubset(embedded_ids)
+        kind = entry.get("kind")
+        if isinstance(kind, str):
+            embedded_kinds[cid] = kind
+    if not manifest_chunk_ids.issubset(embedded_ids):
+        return False
+    if manifest_chunk_kinds is not None:
+        return all(
+            embedded_kinds.get(cid) == kind
+            for cid, kind in manifest_chunk_kinds.items()
+        )
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -838,6 +844,24 @@ def _read_manifest_chunk_ids(paper_id: str) -> list[str] | None:
         seen.add(cid)
         chunk_ids.append(cid)
     return chunk_ids
+
+
+def _read_manifest_chunk_kinds(paper_id: str) -> dict[str, str]:
+    """Read routing kinds from the small chunk manifest, without chunk bodies."""
+    path = CHUNKS_DIR / paper_id / "chunk_manifest.json"
+    try:
+        manifest = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError) as exc:
+        raise _ManifestCorruptError(
+            f"could not read chunk kinds for {paper_id}: {exc}"
+        ) from exc
+    result: dict[str, str] = {}
+    for entry in manifest.get("chunks", []):
+        cid, kind = entry.get("chunk_id"), entry.get("kind")
+        if not isinstance(cid, str) or not isinstance(kind, str):
+            raise _ManifestCorruptError(f"invalid chunk kind in manifest for {paper_id}")
+        result[cid] = kind
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -961,7 +985,9 @@ def _embed_paper_impl(paper_id: str, batch_size: int) -> EmbedStats:
         _append_embed_stats(stats)
         return stats
 
-    if _paper_is_up_to_date(paper_id, set(manifest_ids)):
+    if _paper_is_up_to_date(
+        paper_id, set(manifest_ids), _read_manifest_chunk_kinds(paper_id)
+    ):
         # Closes F3 + corrects F6 misleading-comment finding: the skip
         # path opens exactly two JSON files (manifest + sidecar). The
         # per-chunk JSONs are NOT opened. No NPZ open, no model load.

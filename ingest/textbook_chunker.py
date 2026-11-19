@@ -65,6 +65,7 @@ from ingest.chunker import (
 )
 from ingest.chunker_types import ChunkRecord
 from ingest.tokenizer import tokenize_body
+from server.application_paths import ApplicationPaths
 from tools._notebook_common import NotebookError, notebook_dir
 
 logger = logging.getLogger(__name__)
@@ -74,7 +75,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-NOTEBOOKS_BASE = REPO_ROOT / "var" / "arxmcp" / "notebooks"
+NOTEBOOKS_BASE = ApplicationPaths.resolve().notebooks
 
 #: Deliberately SEPARATE from ``chunker_types.CHUNKER_VERSION`` (the arXiv
 #: chunker version): a textbook-chunker change must NOT trigger arXiv

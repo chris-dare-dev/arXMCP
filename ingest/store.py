@@ -188,7 +188,7 @@ _ALLOWED_SOURCE_KINDS = frozenset({"arxiv", "textbook"})
 # and is accepted by ``_build_arrow_table`` — only non-None values
 # must be in this set. Domain mirrors the chunker_types.py descriptions.
 _ALLOWED_PARSER_USED = frozenset(
-    {"ar5iv", "latexml", "mineru+latexml", "mineru+markdown"}
+    {"ar5iv", "latexml", "mineru+latexml", "mineru+markdown", "pdftotext", "tex"}
 )
 
 
@@ -290,6 +290,11 @@ def load_embed_record(paper_id: str) -> EmbedRecord | None:
             f"sidecar at {sidecar_path} has malformed embedder_version: "
             f"{embedder_version!r}"
         )
+    embed_input_policy_version = sidecar.get("embed_input_policy_version")
+    if embed_input_policy_version is None:
+        embed_input_policy_version = "preamble-first-v1"
+    if not isinstance(embed_input_policy_version, str) or not embed_input_policy_version:
+        raise ValueError(f"invalid embedding input policy in {sidecar_path}")
     # ``allow_pickle=True`` is required because chunk_ids_* arrays use
     # ``dtype=object`` (numpy stores Python strings via pickle by default
     # in NPZ archives). Safe here because the file was produced by our
@@ -312,6 +317,7 @@ def load_embed_record(paper_id: str) -> EmbedRecord | None:
         chunk_ids_proof=chunk_ids_proof,
         embedding_proof=embedding_proof,
         embedder_version=embedder_version,
+        embed_input_policy_version=embed_input_policy_version,
     )
 
 
@@ -346,6 +352,11 @@ def load_embed_record(paper_id: str) -> EmbedRecord | None:
 #: prefix for continuity with the shipped migration; it is now the
 #: canonical "all post-v1 chunks columns" default map.
 _TEXTBOOK_MIGRATION_DEFAULTS: dict[str, str] = {
+    "embed_input_policy_version": "cast(NULL as string)",
+    "part_index": "cast(NULL as int)",
+    "part_count": "cast(NULL as int)",
+    "source_start": "cast(NULL as int)",
+    "source_end": "cast(NULL as int)",
     "source_kind": "cast('arxiv' as string)",
     "license": "cast('arxiv-license' as string)",
     "chapter": "cast(NULL as string)",
@@ -491,6 +502,11 @@ def _build_arrow_table(
 
     rows: list[dict] = []
     for chunk in chunks:
+        if chunk.truncated:
+            raise ValueError(
+                f"chunk {chunk.chunk_id} has truncated=true; "
+                "re-chunk the source with no-loss windows before storage"
+            )
         if chunk.body_tokens is None:
             # D8: body_tokens=None is a real bug (E02_S03 has shipped).
             raise ValueError(
@@ -582,6 +598,11 @@ def _build_arrow_table(
                 "embedding_eq": None,
                 "chunker_version": chunk.chunker_version,
                 "embedder_version": embeddings.embedder_version,
+                "embed_input_policy_version": embeddings.embed_input_policy_version,
+                "part_index": chunk.part_index,
+                "part_count": chunk.part_count,
+                "source_start": chunk.source_start,
+                "source_end": chunk.source_end,
                 "preamble_ref": chunk.preamble_ref,
                 # textbook-ingest-m2 columns. ``source_kind`` and
                 # ``license`` always populated from ChunkRecord defaults
@@ -739,6 +760,7 @@ def write_corpus_version_marker(
     embedder_version: str,
     paper_count: int,
     chunk_count: int,
+    embed_input_policy_version: str = "",
 ) -> None:
     """Atomically write ``corpus-version.json`` next to the LanceDB dataset.
 
@@ -820,6 +842,7 @@ def write_corpus_version_marker(
         "chunker_version": str(chunker_version),
         "created_at": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "embedder_version": str(embedder_version),
+        "embed_input_policy_version": str(embed_input_policy_version),
         "paper_count": int(paper_count),
         "version": int(version),
     }
@@ -846,6 +869,8 @@ def write_chunks(
     chunks: list[ChunkRecord],
     embeddings: EmbedRecord,
     lancedb_path: str | Path | None = None,
+    *,
+    build_indices: bool = True,
 ) -> int:
     """Upsert chunks + embeddings into the LanceDB ``chunks`` table.
 
@@ -930,7 +955,7 @@ def write_chunks(
         rows_updated = int(merge_result.num_updated_rows)
 
     # Refresh indices best-effort (logs warnings on individual failures).
-    indices_created = _create_indices(tbl)
+    indices_created = _create_indices(tbl) if build_indices else {}
 
     # Resolve the new dataset version. ``tbl.version`` is a stable
     # attribute since lancedb 0.6+; fall back to 0 if unavailable.
@@ -1033,6 +1058,7 @@ def write_chunks(
             version=dataset_version,
             chunker_version=CHUNKER_VERSION,
             embedder_version=embeddings.embedder_version,
+            embed_input_policy_version=embeddings.embed_input_policy_version,
             paper_count=paper_count,
             chunk_count=chunk_count,
         )

@@ -24,6 +24,7 @@ from pathlib import Path
 
 import pytest
 
+from ingest.chunker_types import CHUNKER_VERSION
 from server.documents_store import (
     DOCUMENTS_DB_FILENAME,
     RAW_SOURCE_STATUS_PRESENT,
@@ -241,7 +242,7 @@ class TestHappyPath:
         assert r_new.raw_source_sha256 and len(r_new.raw_source_sha256) == 64
         assert r_new.parse_artifact_sha256 and len(r_new.parse_artifact_sha256) == 64
         assert r_new.license_status == "not-allowlisted-open"
-        assert r_new.chunker_version == "v1.1"
+        assert r_new.chunker_version == CHUNKER_VERSION
         assert r_new.parser_used is None
         assert r_new.latexml_version is None
         assert r_new.status == "active"

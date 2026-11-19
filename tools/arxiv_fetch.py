@@ -671,6 +671,9 @@ def parse_with_latexml(
         str(main_tex.name),
         f"--dest={out_html}",
         "--format=html5",
+        # The Linux sandbox mounts source_dir read-only. Keep LaTeXML's log
+        # in the writable output directory so rendering can start.
+        f"--log={out_dir.resolve() / 'latexml.log'}",
     ]
     # E13_S03b — Threat 3 Phase 2 sandbox wiring. The ``.sb``
     # profile (macOS) needs a TMPDIR_SUBDIR path that exists; use

@@ -62,7 +62,7 @@ import pyarrow as pa
 # EMBEDDING_DIM is the single source of truth for the BGE-M3 hidden
 # size; it lives in ``ingest.embedder`` (alongside BGE_M3_COMMIT_SHA)
 # and is imported here to avoid a stray ``1024`` literal.
-from ingest.embedder import EMBEDDING_DIM
+from ingest.embedder import EMBED_INPUT_POLICY_VERSION, EMBEDDING_DIM
 
 # ---------------------------------------------------------------------------
 # Table identity
@@ -266,6 +266,13 @@ CHUNKS_SCHEMA_V1 = pa.schema(
         # ADVISORY: changes no serving behavior until the owner-gated m4
         # cutover. NULL exactly when ``source_revision_id`` is NULL.
         pa.field("license_ref", pa.utf8(), nullable=True),
+        # Bridgeland corpus repair: explicit embedding-input identity and
+        # lossless window provenance. Added at the tail for schema evolution.
+        pa.field("embed_input_policy_version", pa.utf8(), nullable=True),
+        pa.field("part_index", pa.int32(), nullable=True),
+        pa.field("part_count", pa.int32(), nullable=True),
+        pa.field("source_start", pa.int32(), nullable=True),
+        pa.field("source_end", pa.int32(), nullable=True),
     ]
 )
 
@@ -385,6 +392,7 @@ class EmbedRecord:
         default_factory=lambda: np.zeros((0, EMBEDDING_DIM), dtype=np.float32)
     )
     embedder_version: str = ""
+    embed_input_policy_version: str = EMBED_INPUT_POLICY_VERSION
 
     def __post_init__(self) -> None:
         # Lightweight sanity checks at construction time so a malformed

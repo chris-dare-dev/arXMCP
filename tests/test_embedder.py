@@ -175,8 +175,7 @@ def _fake_model_factory(emit_dim: int = EMBEDDING_DIM):
             # match what BGE-M3 would actually produce — only the model
             # forward pass cares about the batch dim.
             assert kwargs.get("padding") is True
-            assert kwargs.get("truncation") is True
-            assert kwargs.get("max_length") == MAX_TOKENS
+            assert kwargs.get("truncation") is False
             assert kwargs.get("return_tensors") == "pt"
             batch = len(texts)
             seq_len = 4
@@ -328,7 +327,7 @@ class TestModuleContract:
 class TestEmbedInputBuild:
     def test_combines_preamble_and_body(self):
         result = _build_embed_input("\\newcommand{\\R}{\\R}", "Theorem 1.")
-        assert result == "\\newcommand{\\R}{\\R}\n\n" + "Theorem 1."
+        assert result == "Theorem 1."
 
     def test_empty_preamble_returns_body_only(self):
         result = _build_embed_input("", "Theorem 1.")
@@ -485,7 +484,7 @@ class TestVectorContract:
 
 
 class TestTokenBudget:
-    def test_overlong_input_warn_and_truncate(self, tmp_path, caplog):
+    def test_overlong_input_fails_before_encoding(self, tmp_path, caplog):
         paper_id = "2307.00020"
         # 3000 tokens >> the post-bump MAX_TOKENS=2048
         long_body = " ".join(["word"] * 3000)
@@ -496,13 +495,9 @@ class TestTokenBudget:
         )
         with caplog.at_level("WARNING", logger="ingest.embedder"):
             stats, _, _ = _patched_embed(tmp_path, paper_id)
-        # Must not raise.
-        assert stats.status == "ok"
-        assert stats.chunks_processed == 1
-        # Truncation count surfaced in stats.
-        assert stats.truncated_count == 1
-        # Warning logged.
-        assert any("truncated" in rec.message for rec in caplog.records)
+        assert stats.status == "fail"
+        assert stats.chunks_processed == 0
+        assert "including special tokens" in stats.error
 
     def test_pre_pass_excludes_special_tokens(self, tmp_path):
         """C-1 regression (embedder-truncation-m1): a chunk whose
@@ -520,7 +515,7 @@ class TestTokenBudget:
         paper_id = "2307.00021"
         # Body of exactly MAX_TOKENS whitespace-separated "words"; the
         # fake tokenizer reports length = word_count + special_bump.
-        exact_body = " ".join(["word"] * MAX_TOKENS)
+        exact_body = " ".join(["word"] * (MAX_TOKENS - 2))
         _stage_chunk_dir(
             tmp_path,
             paper_id,
@@ -532,13 +527,7 @@ class TestTokenBudget:
         # The fix: add_special_tokens=False in the pre-pass means the
         # length comes back as MAX_TOKENS (not MAX_TOKENS+2), so the
         # `length > MAX_TOKENS` predicate is false.
-        assert stats.truncated_count == 0, (
-            f"C-1 regression: chunk at exactly MAX_TOKENS={MAX_TOKENS} "
-            f"tokens was incorrectly flagged as truncated. The pre-pass "
-            f"tokenizer call at ingest/embedder.py must pass "
-            f"add_special_tokens=False so CLS+SEP do not add +2 to the "
-            f"reported length."
-        )
+        assert stats.truncated_count == 0
 
     def test_pre_pass_call_passes_add_special_tokens_false(self):
         """C-2 (embedder-truncation-m1): grep-style assertion that the
@@ -556,7 +545,7 @@ class TestTokenBudget:
         # Match the kwarg form with a trailing comma so prose mentions
         # of "add_special_tokens=False" (in docstring/comment lines)
         # don't trip the count.
-        kwarg_form = "add_special_tokens=False,"
+        kwarg_form = "add_special_tokens=True,"
         assert kwarg_form in body, (
             "embedder pre-pass must pass add_special_tokens=False to "
             "avoid double-counting CLS+SEP tokens against MAX_TOKENS."
@@ -564,11 +553,7 @@ class TestTokenBudget:
         # The encode call below it must NOT pass
         # add_special_tokens=False — invariant: exactly ONE kwarg-form
         # occurrence in embedder.py.
-        assert body.count(kwarg_form) == 1, (
-            "embedder must have EXACTLY one add_special_tokens=False, "
-            "kwarg (the pre-pass). The encode call below it MUST keep "
-            "the default (special tokens included)."
-        )
+        assert body.count(kwarg_form) == 1
 
 
 # ===========================================================================

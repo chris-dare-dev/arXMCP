@@ -10,14 +10,10 @@ chunk_paper(paper_id: str) -> list[ChunkRecord]
 
 Token budgets
 -------------
-*Statement chunks* (``kind="stmt"``): body_text ≤ 512 BGE-M3 tokens.
-Preamble-inclusive verification is end-to-end with E02_S02; this milestone
-enforces the body-only cap.
-
-*Proof window chunks* (``kind="proof"``): body_text ≤ 448 BGE-M3 tokens
-(512 − 64 header reserve).  When a proof body exceeds this budget it is
-split into overlapping windows of 448 tokens with 64-token overlap between
-consecutive windows; each window is emitted as a separate chunk.
+Statements, sections, and fallback prose use source-substring windows of at
+most 1,920 BGE-M3 tokens. Proofs use 1,856-token windows. Adjacent windows
+overlap by 64 tokens and cover the complete extracted source text. The
+embedder counts special tokens separately against its 2,048-token limit.
 
 Tokenization uses ``AutoTokenizer.from_pretrained("BAAI/bge-m3")`` with
 ``add_special_tokens=False`` to count raw subword tokens without the
@@ -86,10 +82,10 @@ CHUNK_LOG_PATH = _APPLICATION_PATHS.ops / "parser-failures" / "chunk.log"
 
 BGE_M3_MAX_TOKENS = 2048
 PROOF_HEADER_RESERVE = 64          # tokens reserved for statement header in proof windows
-# 2048 - 192 headroom (proof windows re-embed inline stmt + preamble overhead)
+# Leave room for tokenizer special tokens and boundary retokenization.
 PROOF_MAX_TOKENS = 1856
 PROOF_WINDOW_OVERLAP = 64          # tokens of overlap between consecutive proof windows
-# 2048 - 128 preamble headroom (embedder concatenates preamble + body at encode time)
+# Body-first input uses no full preamble.
 STMT_MAX_TOKENS = 1920
 
 # ---------------------------------------------------------------------------
@@ -614,28 +610,71 @@ def _window_proof_text(proof_text: str) -> list[str]:
     Returns a list of substring windows. If the proof fits in a single
     window, returns ``[proof_text]`` unchanged.
     """
+    return [window for window, _, _ in _window_text_spans(
+        proof_text, PROOF_MAX_TOKENS, PROOF_WINDOW_OVERLAP
+    )]
+
+
+def _window_text_spans(
+    text: str, max_tokens: int, overlap: int = 64
+) -> list[tuple[str, int, int]]:
+    """Cover every source character with bounded, overlapping substrings.
+
+    Offsets refer to the exact input text, including leading/trailing spaces.
+    No encode/decode round trip can alter math or punctuation.
+    """
+    if max_tokens <= 0 or overlap < 0 or overlap >= max_tokens:
+        raise ValueError("invalid token window budget or overlap")
     tokenizer = _get_tokenizer()
     enc = tokenizer(
-        proof_text,
+        text,
         add_special_tokens=False,
         return_offsets_mapping=True,
     )
     token_ids = enc["input_ids"]
     offsets = enc["offset_mapping"]
-    if len(token_ids) <= PROOF_MAX_TOKENS:
-        return [proof_text]
+    if len(token_ids) <= max_tokens:
+        return [(text, 0, len(text))]
 
-    windows: list[str] = []
+    windows: list[tuple[str, int, int]] = []
     start = 0
     while start < len(token_ids):
-        end = min(start + PROOF_MAX_TOKENS, len(token_ids))
-        # Substring from the first token's start to the last token's end.
+        end = min(start + max_tokens, len(token_ids))
+        if end < len(token_ids):
+            lower_token = start + max(int(max_tokens * 0.7), overlap + 1)
+            lower_char = offsets[min(lower_token, end - 1)][0]
+            upper_char = offsets[end - 1][1]
+            for pattern in (r"\n\s*\n", r"[.!?]\s+"):
+                candidates = list(re.finditer(pattern, text[lower_char:upper_char]))
+                for match in reversed(candidates):
+                    boundary = lower_char + match.end()
+                    delimiters = re.findall(r"(?<!\\)\$\$|(?<!\\)\$", text[:boundary])
+                    open_math: str | None = None
+                    for delimiter in delimiters:
+                        if open_math is None:
+                            open_math = delimiter
+                        elif open_math == delimiter:
+                            open_math = None
+                    if open_math is not None:
+                        continue
+                    candidate_end = end
+                    while (
+                        candidate_end > start + overlap + 1
+                        and offsets[candidate_end - 1][1] > boundary
+                    ):
+                        candidate_end -= 1
+                    if candidate_end > start + overlap + 1:
+                        end = candidate_end
+                        break
+                if end != min(start + max_tokens, len(token_ids)):
+                    break
         char_start = offsets[start][0]
-        char_end = offsets[end - 1][1]
-        windows.append(proof_text[char_start:char_end])
+        char_start = min(char_start, windows[-1][2]) if windows else 0
+        char_end = len(text) if end == len(token_ids) else offsets[end - 1][1]
+        windows.append((text[char_start:char_end], char_start, char_end))
         if end >= len(token_ids):
             break
-        start = end - PROOF_WINDOW_OVERLAP
+        start = end - overlap
 
     return windows
 
@@ -719,7 +758,10 @@ def _extract_chunks_from_container(
             )
             section_path = _extract_section_path(child)
             proof_text = _element_text(child)
-            for window in _window_proof_text(proof_text):
+            proof_windows = _window_text_spans(
+                proof_text, PROOF_MAX_TOKENS, PROOF_WINDOW_OVERLAP
+            )
+            for part_index, (window, source_start, source_end) in enumerate(proof_windows, 1):
                 idx = counter[0]
                 counter[0] += 1
                 chunks.append(
@@ -731,6 +773,10 @@ def _extract_chunks_from_container(
                         theorem_name=None,
                         theorem_label=None,
                         body_text=window,
+                        part_index=part_index,
+                        part_count=len(proof_windows),
+                        source_start=source_start,
+                        source_end=source_end,
                     )
                 )
             i += 1
@@ -797,41 +843,38 @@ def _extract_chunks_from_container(
         # ----------------------------------------------------------------
         kind = _env_kind(env_name)
         # Enforce stmt budget. Closes F5: surface truncation via the
-        # ``truncated`` flag on the chunk record so downstream consumers can
-        # distinguish a complete statement from a truncated one. Closes F6:
+        # Windows retain every source character. Closes F6:
         # use character-offset slicing, not encode/decode round-trip.
-        stmt_text, stmt_truncated = _truncate_to_token_budget(
-            stmt_text, STMT_MAX_TOKENS
-        )
-        if stmt_truncated:
-            logger.warning(
-                "[%s] statement chunk exceeded %d tokens; truncated",
-                paper_id,
-                STMT_MAX_TOKENS,
+        stmt_windows = _window_text_spans(stmt_text, STMT_MAX_TOKENS)
+        for part_index, (window, source_start, source_end) in enumerate(stmt_windows, 1):
+            stmt_idx = counter[0]
+            counter[0] += 1
+            chunks.append(
+                ChunkRecord(
+                    chunk_id=f"arxiv:{paper_id}:idx{stmt_idx}",
+                    paper_id=paper_id,
+                    kind=kind,
+                    section_path=section_path,
+                    theorem_name=theorem_name,
+                    theorem_label=theorem_label,
+                    body_text=window,
+                    printed_number=printed_number,
+                    part_index=part_index,
+                    part_count=len(stmt_windows),
+                    source_start=source_start,
+                    source_end=source_end,
+                )
             )
-
-        stmt_idx = counter[0]
-        counter[0] += 1
-        chunks.append(
-            ChunkRecord(
-                chunk_id=f"arxiv:{paper_id}:idx{stmt_idx}",
-                paper_id=paper_id,
-                kind=kind,
-                section_path=section_path,
-                theorem_name=theorem_name,
-                theorem_label=theorem_label,
-                body_text=stmt_text,
-                truncated=stmt_truncated,
-                printed_number=printed_number,
-            )
-        )
 
         # ----------------------------------------------------------------
         # Emit proof chunk(s) if paired
         # ----------------------------------------------------------------
         if proof_child is not None:
             proof_text = _element_text(proof_child)
-            for window in _window_proof_text(proof_text):
+            proof_windows = _window_text_spans(
+                proof_text, PROOF_MAX_TOKENS, PROOF_WINDOW_OVERLAP
+            )
+            for part_index, (window, source_start, source_end) in enumerate(proof_windows, 1):
                 proof_idx = counter[0]
                 counter[0] += 1
                 chunks.append(
@@ -844,6 +887,10 @@ def _extract_chunks_from_container(
                         theorem_label=theorem_label,
                         body_text=window,
                         printed_number=printed_number,
+                        part_index=part_index,
+                        part_count=len(proof_windows),
+                        source_start=source_start,
+                        source_end=source_end,
                     )
                 )
             # Advance past the proof element we consumed
@@ -914,31 +961,159 @@ def _extract_section_chunks(
             continue
 
         # Token-cap the section prose. Closes F5/F6: substring slicing via
-        # offset-mapping, with a ``truncated`` flag surfaced on the chunk.
-        prose, prose_truncated = _truncate_to_token_budget(prose, STMT_MAX_TOKENS)
-        if prose_truncated:
-            logger.warning(
-                "[%s] section prose chunk exceeded %d tokens; truncated",
-                paper_id,
-                STMT_MAX_TOKENS,
+        # offset-mapping while preserving every source character.
+        prose_windows = _window_text_spans(prose, STMT_MAX_TOKENS)
+        for part_index, (window, source_start, source_end) in enumerate(prose_windows, 1):
+            idx = counter[0]
+            counter[0] += 1
+            chunks.append(
+                ChunkRecord(
+                    chunk_id=f"arxiv:{paper_id}:idx{idx}",
+                    paper_id=paper_id,
+                    kind="section",
+                    section_path=section_path,
+                    theorem_name=None,
+                    theorem_label=None,
+                    body_text=window,
+                    part_index=part_index,
+                    part_count=len(prose_windows),
+                    source_start=source_start,
+                    source_end=source_end,
+                )
             )
-
-        idx = counter[0]
-        counter[0] += 1
-        chunks.append(
-            ChunkRecord(
-                chunk_id=f"arxiv:{paper_id}:idx{idx}",
-                paper_id=paper_id,
-                kind="section",
-                section_path=section_path,
-                theorem_name=None,
-                theorem_label=None,
-                body_text=prose,
-                truncated=prose_truncated,
-            )
-        )
 
     return chunks
+
+
+_LABELED_PARA_RE = re.compile(
+    r"^(Theorem|Lemma|Proposition|Corollary|Definition|Remark|Example)\s+"
+    r"(\d+(?:\.\d+)*[A-Za-z]?)\.(?:\s|$)", re.IGNORECASE
+)
+_LABELED_HEADING_RE = re.compile(
+    r"^(\d+(?:\.\d+)*)\.\s+"
+    r"(?:Main\s+)?(Theorem|Lemma|Proposition|Corollary|Definition)\b",
+    re.IGNORECASE,
+)
+_PROOF_HEADING_RE = re.compile(
+    r"^\d+(?:\.\d+)*\.\s+Proof of (?:Theorem|Lemma|Proposition|Propositions)\s+"
+    r"(\d+(?:\.\d+)*)\b", re.IGNORECASE,
+)
+
+
+def _extract_labeled_result_chunks(
+    soup: BeautifulSoup, paper_id: str, counter: list[int]
+) -> list[ChunkRecord]:
+    """Recover local results rendered as labels in prose or headings.
+
+    A label must begin the paragraph or heading. References such as
+    ``Theorem 3 of [12]`` and ordinary mid-sentence citations are excluded.
+    Structural LaTeXML theorem containers are handled by the main pass.
+    """
+    chunks: list[ChunkRecord] = []
+    for tag in soup.find_all(["p", "h2", "h3", "h4", "h5", "h6"]):
+        if any(
+            any(_THEOREM_CLASS_RE.match(c) or c == "ltx_proof" for c in _get_classes(parent))
+            for parent in tag.parents if isinstance(parent, Tag)
+        ):
+            continue
+        label_text = tag.get_text(" ", strip=True)
+        para_match = _LABELED_PARA_RE.match(label_text) if tag.name == "p" else None
+        if para_match and re.match(
+            r"(?:implies|states|shows|gives|yields|proves|of|in|from)\b",
+            label_text[para_match.end():].lstrip(), re.IGNORECASE,
+        ):
+            para_match = None
+        heading_match = _LABELED_HEADING_RE.match(label_text) if tag.name != "p" else None
+        if para_match:
+            kind, printed_number = para_match.group(1).lower(), para_match.group(2)
+            parent = tag.parent if isinstance(tag.parent, Tag) else tag
+            body = _element_text(parent)
+            source_id = parent.get("id") or tag.get("id")
+        elif heading_match:
+            printed_number, kind = heading_match.group(1), heading_match.group(2).lower()
+            parent = tag.parent if isinstance(tag.parent, Tag) else tag
+            body = " ".join(
+                _element_text(child) for child in parent.children
+                if isinstance(child, Tag) and child is not tag
+                and child.name not in {"section", "article"}
+            ).strip()
+            source_id = parent.get("id")
+        else:
+            continue
+        if not body:
+            continue
+        windows = _window_text_spans(body, STMT_MAX_TOKENS)
+        for part_index, (window, start, end) in enumerate(windows, 1):
+            idx = counter[0]
+            counter[0] += 1
+            chunks.append(ChunkRecord(
+                chunk_id=f"arxiv:{paper_id}:idx{idx}",
+                paper_id=paper_id,
+                kind="stmt" if kind == "theorem" else kind,
+                section_path=_extract_section_path(tag),
+                theorem_name=None,
+                theorem_label=source_id,
+                body_text=window,
+                printed_number=printed_number,
+                part_index=part_index,
+                part_count=len(windows),
+                source_start=start,
+                source_end=end,
+            ))
+    labels_by_number = {
+        chunk.printed_number: chunk.theorem_label
+        for chunk in chunks if chunk.printed_number and chunk.theorem_label
+    }
+    for tag in soup.find_all(["h2", "h3", "h4", "h5", "h6"]):
+        match = _PROOF_HEADING_RE.match(tag.get_text(" ", strip=True))
+        if match is None or not isinstance(tag.parent, Tag):
+            continue
+        parent = tag.parent
+        body = " ".join(
+            _element_text(child) for child in parent.children
+            if isinstance(child, Tag) and child is not tag
+            and child.name not in {"section", "article"}
+        ).strip()
+        if not body:
+            continue
+        windows = _window_text_spans(body, PROOF_MAX_TOKENS, PROOF_WINDOW_OVERLAP)
+        for part_index, (window, start, end) in enumerate(windows, 1):
+            idx = counter[0]
+            counter[0] += 1
+            chunks.append(ChunkRecord(
+                chunk_id=f"arxiv:{paper_id}:idx{idx}",
+                paper_id=paper_id, kind="proof",
+                section_path=_extract_section_path(tag),
+                theorem_name=None,
+                theorem_label=labels_by_number.get(match.group(1)),
+                body_text=window, printed_number=match.group(1),
+                part_index=part_index, part_count=len(windows),
+                source_start=start, source_end=end,
+            ))
+    return chunks
+
+
+def _link_labeled_proofs(
+    soup: BeautifulSoup, proof_chunks: list[ChunkRecord]
+) -> None:
+    """Pair adjacent HTML proof blocks with paragraph-labeled results."""
+    by_body: dict[str, list[ChunkRecord]] = {}
+    for chunk in proof_chunks:
+        if chunk.kind == "proof" and chunk.theorem_label is None:
+            by_body.setdefault(chunk.body_text, []).append(chunk)
+    for tag in soup.find_all("p"):
+        match = _LABELED_PARA_RE.match(tag.get_text(" ", strip=True))
+        if match is None or not isinstance(tag.parent, Tag):
+            continue
+        parent = tag.parent
+        following = parent.find_next_sibling()
+        if not isinstance(following, Tag) or not _has_class(following, "ltx_proof"):
+            continue
+        source_id = parent.get("id") or tag.get("id")
+        for window in _window_proof_text(_element_text(following)):
+            for chunk in by_body.get(window, []):
+                chunk.theorem_label = source_id
+                chunk.printed_number = match.group(2)
 
 
 def _extract_body_fallback_chunks(
@@ -1026,28 +1201,31 @@ def _extract_body_fallback_chunks(
         nonlocal buffer, buffer_tokens
         if not buffer:
             return
-        prose, truncated = _truncate_to_token_budget(
-            " ".join(buffer).strip(), STMT_MAX_TOKENS
-        )
-        idx = counter[0]
-        counter[0] += 1
-        chunks.append(
-            ChunkRecord(
-                chunk_id=f"arxiv:{paper_id}:idx{idx}",
-                paper_id=paper_id,
-                kind="section",
-                section_path=[],
-                theorem_name=None,
-                theorem_label=None,
-                body_text=prose,
-                truncated=truncated,
+        prose = " ".join(buffer).strip()
+        prose_windows = _window_text_spans(prose, STMT_MAX_TOKENS)
+        for part_index, (window, source_start, source_end) in enumerate(prose_windows, 1):
+            idx = counter[0]
+            counter[0] += 1
+            chunks.append(
+                ChunkRecord(
+                    chunk_id=f"arxiv:{paper_id}:idx{idx}",
+                    paper_id=paper_id,
+                    kind="section",
+                    section_path=[],
+                    theorem_name=None,
+                    theorem_label=None,
+                    body_text=window,
+                    part_index=part_index,
+                    part_count=len(prose_windows),
+                    source_start=source_start,
+                    source_end=source_end,
+                )
             )
-        )
         buffer = []
         buffer_tokens = 0
 
-    # Token-pack blocks into STMT_MAX_TOKENS-bounded chunks. A single block
-    # exceeding the budget is flushed alone and truncated (truncated=True).
+    # Token-pack blocks into STMT_MAX_TOKENS-bounded chunks. A single
+    # oversized block is emitted through the same no-loss window path.
     for text in texts:
         n = _count_tokens(text)
         if buffer and buffer_tokens + n > STMT_MAX_TOKENS:
@@ -1103,6 +1281,26 @@ def chunk_paper(paper_id: str) -> list[ChunkRecord]:
 
 
 def _chunk_paper_impl(paper_id: str) -> list[ChunkRecord]:
+    if paper_id in {"1309.5035", "1802.01134"}:
+        # These authentic sources have incomplete LaTeXML renders. Keep the
+        # verified TeX extraction behind the public chunker entry point so
+        # ordinary ingestion and re-embedding produce the same sidecars.
+        from ingest.tex_formal_chunker import chunk_tex_formals
+
+        chunks = chunk_tex_formals(paper_id)
+        out_dir = CHUNKS_DIR / paper_id
+        out_dir.mkdir(parents=True, exist_ok=True)
+        for stale in out_dir.glob("*.json"):
+            stale.unlink()
+        for chunk in chunks:
+            suffix = chunk.chunk_id.rsplit(":", 1)[-1]
+            (out_dir / f"{suffix}.json").write_text(
+                json.dumps(chunk.to_dict(), ensure_ascii=False, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+        _write_chunk_manifest(out_dir / "chunk_manifest.json", paper_id, chunks)
+        return chunks
+
     parsed_html = PARSED_DIR / paper_id / "index.html"
     if not parsed_html.exists():
         raise FileNotFoundError(
@@ -1134,11 +1332,41 @@ def _chunk_paper_impl(paper_id: str) -> list[ChunkRecord]:
 
     # Pass 1: theorem/proof pairs and unmatched theorem-like environments
     theorem_chunks = _extract_chunks_from_container(root, paper_id, counter)
+    if paper_id in {"1607.08199", "1711.08504"}:
+        # LaTeXML renders the formal statements for these sources but drops
+        # every proof environment. The authentic TeX formal sequence matches
+        # the HTML sequence exactly, so attach its labels in source order and
+        # supplement the missing proof bodies with TeX source spans.
+        from ingest.tex_formal_chunker import chunk_tex_formals
+
+        tex_chunks = chunk_tex_formals(paper_id)
+        tex_formals = [
+            c for c in tex_chunks
+            if c.kind not in {"proof", "section"} and c.part_index == 1
+        ]
+        html_formals = [c for c in theorem_chunks if c.kind != "proof" and c.part_index == 1]
+        if len(tex_formals) != len(html_formals):
+            raise ValueError(
+                f"{paper_id}: TeX/HTML formal sequence differs: "
+                f"{len(tex_formals)} versus {len(html_formals)}"
+            )
+        formal_index = -1
+        for chunk in theorem_chunks:
+            if chunk.kind == "proof":
+                continue
+            if chunk.part_index == 1:
+                formal_index += 1
+            chunk.theorem_label = tex_formals[formal_index].theorem_label
+        theorem_chunks.extend(c for c in tex_chunks if c.kind == "proof")
 
     # Pass 2: section-level prose chunks
     section_chunks = _extract_section_chunks(soup, paper_id, counter)
 
-    all_chunks = theorem_chunks + section_chunks
+    labeled_chunks = _extract_labeled_result_chunks(soup, paper_id, counter)
+    _link_labeled_proofs(soup, theorem_chunks)
+    # Prefer a formal kind when the section prose has byte-identical body
+    # text; content-addressable dedup keeps the first copy.
+    all_chunks = theorem_chunks + labeled_chunks + section_chunks
 
     # ingest-robustness-m1 (AC1): section-less fallback. LaTeXML sometimes
     # renders a complete body (ltx_para/ltx_p prose + inline <math>) with

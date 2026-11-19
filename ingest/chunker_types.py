@@ -42,7 +42,7 @@ from dataclasses import dataclass, field
 # bump: every paper must be re-embedded from scratch and the
 # `tests/test_re_embed.py::TestChunkerVersionFreeze` regression
 # guard must be updated in the same PR.
-CHUNKER_VERSION = "v1.1"
+CHUNKER_VERSION = "v1.2"
 
 
 @dataclass
@@ -194,6 +194,10 @@ class ChunkRecord:
     # of ``_compute_chunk_id`` (which hashes only preamble + body_text),
     # so populating it never rotates a chunk_id.
     printed_number: str | None = field(default=None)
+    part_index: int = field(default=1)
+    part_count: int = field(default=1)
+    source_start: int | None = field(default=None)
+    source_end: int | None = field(default=None)
 
     def to_dict(self) -> dict:
         """Serialise to a JSON-safe dict with keys in sorted order."""
@@ -209,10 +213,14 @@ class ChunkRecord:
             "page_start": self.page_start,
             "paper_id": self.paper_id,
             "parser_used": self.parser_used,
+            "part_count": self.part_count,
+            "part_index": self.part_index,
             "preamble_ref": self.preamble_ref,
             "printed_number": self.printed_number,
             "section_path": self.section_path,
+            "source_end": self.source_end,
             "source_kind": self.source_kind,
+            "source_start": self.source_start,
             "textbook_slug": self.textbook_slug,
             "theorem_label": self.theorem_label,
             "theorem_name": self.theorem_name,

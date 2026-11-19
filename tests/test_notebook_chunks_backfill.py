@@ -644,6 +644,22 @@ class TestRealPreambleRoundTrip:
 # ---------------------------------------------------------------------------
 
 
+# The five source-truth-m2 columns the backfill adds, and the columns added to
+# the schema after them, which a pre-v2 table cannot have either.
+_V2_COLUMNS = frozenset(
+    {"source_revision_id", "source_span", "truncated", "printed_number", "license_ref"}
+)
+_POST_V2_COLUMNS = frozenset(
+    {
+        "embed_input_policy_version",
+        "part_index",
+        "part_count",
+        "source_start",
+        "source_end",
+    }
+)
+
+
 class TestMigrateThenHydrate:
     """M2 — every other backfill test builds via ``write_chunks`` (already at
     the 26-col schema), so ``_ensure_v2_columns`` returns ``[]`` and the
@@ -657,13 +673,15 @@ class TestMigrateThenHydrate:
         self, tmp_path: Path, base: Path, parsed_root: Path, paper_id: str, *, seed: int
     ) -> None:
         """Materialize the notebook's chunks table at the 21-col pre-source-
-        truth-m2 schema (``CHUNKS_SCHEMA_V1[:-5]``) holding real, HIT-
-        reproducible rows + embeddings — the live on-disk shape BEFORE the
-        backfill adds the five v2 columns.
+        truth-m2 schema holding real, HIT-reproducible rows + embeddings — the
+        live on-disk shape BEFORE the backfill adds the five v2 columns.
 
-        ``write_chunks`` always builds the full 26-col table, so harvest the
+        ``write_chunks`` always builds the full current table, so harvest the
         real rows + embeddings from a throwaway build and re-materialize the
-        21-col subset at the real notebook path (no ``drop_table`` needed)."""
+        21-col subset at the real notebook path (no ``drop_table`` needed).
+        The subset is chosen by column name, not position: columns added after
+        v2 are appended to the schema tail too, so slicing it would drop them
+        instead of the v2 five."""
         harvest = tmp_path / "harvest"
         _build_table_from_html(tmp_path, harvest, parsed_root, paper_id, seed=seed)
         full_rows = (
@@ -672,11 +690,14 @@ class TestMigrateThenHydrate:
             .to_arrow()
             .to_pylist()
         )
-        pre_v2_schema = pa.schema(list(CHUNKS_SCHEMA_V1)[:-5])
-        v2_cols = set(CHUNKS_SCHEMA_V1.names) - set(pre_v2_schema.names)
-        assert len(pre_v2_schema.names) == 21 and len(v2_cols) == 5
+        dropped = _V2_COLUMNS | _POST_V2_COLUMNS
+        pre_v2_schema = pa.schema(
+            [f for f in CHUNKS_SCHEMA_V1 if f.name not in dropped]
+        )
+        assert len(pre_v2_schema.names) == 21
+        assert dropped <= set(CHUNKS_SCHEMA_V1.names)
         pre_rows = [
-            {k: v for k, v in r.items() if k not in v2_cols} for r in full_rows
+            {k: v for k, v in r.items() if k not in dropped} for r in full_rows
         ]
         ldir = _lancedb_dir(base)
         ldir.mkdir(parents=True, exist_ok=True)

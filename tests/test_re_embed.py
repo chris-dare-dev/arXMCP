@@ -77,6 +77,7 @@ def _write_active_marker(
             {
                 "version": 7,
                 "embedder_version": embedder_version,
+                "embed_input_policy_version": "body-first-v1",
                 "chunker_version": CHUNKER_VERSION,
             },
             sort_keys=True,
@@ -309,7 +310,7 @@ class _WriteChunksSpy:
     def __init__(self):
         self.calls: list[tuple[list[ChunkRecord], EmbedRecord]] = []
 
-    def __call__(self, chunks, embeddings, lancedb_path=None):
+    def __call__(self, chunks, embeddings, lancedb_path=None, **kwargs):
         self.calls.append((list(chunks), embeddings))
         return 1  # synthetic version int
 
@@ -502,13 +503,53 @@ class TestResume:
                 resume=True,
             )
 
-        # AC2: chunks_skipped_resume == 5 (the 5 already-present ids)
-        assert summary.chunks_skipped_resume == 5
-        # The other 5 chunks were copied (their content is unchanged).
-        assert summary.chunks_copied == 5
-        # write_chunks called once (for the remaining 5 copy ids).
-        assert len(write_spy.calls) == 1
-        assert len(write_spy.calls[0][1].chunk_ids_stmt) == 5
+        # Resume replaces the paper so obsolete rows cannot survive.
+        assert summary.chunks_skipped_resume == 0
+        assert summary.chunks_copied == 10
+        assert len(write_spy.calls[0][1].chunk_ids_stmt) == 10
+
+    def test_resume_skips_identical_complete_paper(self, tmp_path):
+        from ingest.re_embed import _chunk_signature
+
+        active = tmp_path / "lancedb"
+        staging = tmp_path / "lancedb-staging"
+        _write_active_marker(active)
+        paper_id = "2401.00001"
+        chunk = _make_chunk(paper_id, f"arxiv:{paper_id}:{'1' * 16}")
+        write_spy = _WriteChunksSpy()
+        with (
+            patch("ingest.re_embed.chunk_paper", lambda _pid: [chunk]),
+            patch("ingest.re_embed._index_old_chunk_ids_by_paper",
+                  lambda _p: {paper_id: {chunk.chunk_id}}),
+            patch("ingest.re_embed._build_old_rows_index",
+                  lambda _p: {chunk.chunk_id: {"parser_used": "latexml"}}),
+            patch("ingest.re_embed._staging_paper_signatures",
+                  lambda _p: {paper_id: {_chunk_signature(chunk)}}),
+            patch("ingest.re_embed._check_staging_embedder_versions",
+                  lambda _p, _v: None),
+            patch("ingest.re_embed._delete_staging_paper_rows") as delete_rows,
+            patch("ingest.re_embed._process_paper") as process,
+            patch("ingest.re_embed.write_chunks", write_spy),
+        ):
+            summary = run_re_embed(
+                active_lancedb_path=active,
+                staging_lancedb_path=staging,
+                state_path=tmp_path / "state.json",
+                failures_path=tmp_path / "failures.jsonl",
+                resume=True,
+            )
+        assert summary.chunks_skipped_resume == 1
+        delete_rows.assert_not_called()
+        process.assert_not_called()
+        assert len(write_spy.calls) == 1  # final index build only
+
+    def test_resume_signature_checks_vector_route(self):
+        from ingest.re_embed import _chunk_signature
+
+        chunk = _make_chunk(
+            "2401.00001", "arxiv:2401.00001:" + "1" * 16, "proof"
+        )
+        assert _chunk_signature(chunk)[-2:] == (False, True)
 
 
 class TestSpaceMixingGuard:
@@ -619,7 +660,7 @@ class TestStateFile:
             )
         assert summary.papers_total == 1
         state = json.loads(state_path.read_text())
-        assert state["status"] == "complete"
+        assert state["status"] == "complete_with_failures"
         # Closes IS5: chunks_skipped_resume present in final state.
         assert state["chunks_skipped_resume"] == 0
 
@@ -790,7 +831,7 @@ class TestStagingSentinel:
         sentinel_path = staging / "re-embed-progress.json"
 
         # Capture the sentinel mid-run (between paper write calls).
-        def _capturing_write(chunks, embeddings, lancedb_path=None):
+        def _capturing_write(chunks, embeddings, lancedb_path=None, **kwargs):
             if sentinel_path.is_file():
                 observed_sentinels.append(
                     json.loads(sentinel_path.read_text())

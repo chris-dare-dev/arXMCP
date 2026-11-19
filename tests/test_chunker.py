@@ -159,7 +159,7 @@ class TestTwoTheoremGolden:
     def test_chunker_version_on_all_chunks(self, tmp_path):
         chunks = self._run(tmp_path)
         for chunk in chunks:
-            assert chunk.chunker_version == "v1.1"
+            assert chunk.chunker_version == "v1.2"
 
     def test_body_tokens_populated(self, tmp_path):
         # E02_S03 wired tokenize_body into _chunk_paper_impl. Every chunk's
@@ -315,7 +315,7 @@ class TestMultiKindEnvironments:
     def test_all_chunks_have_chunker_version(self, tmp_path):
         chunks = self._run(tmp_path)
         for chunk in chunks:
-            assert chunk.chunker_version == "v1.1"
+            assert chunk.chunker_version == "v1.2"
 
     def test_section_chunk_emitted(self, tmp_path):
         chunks = self._run(tmp_path)
@@ -1052,7 +1052,7 @@ class TestChunkRecord:
             theorem_label=None,
             body_text="text",
         )
-        assert record.chunker_version == "v1.1"
+        assert record.chunker_version == "v1.2"
 
     def test_to_dict_serialises_all_fields(self):
         record = ChunkRecord(
@@ -1072,7 +1072,7 @@ class TestChunkRecord:
         assert d["theorem_name"] == "Main"
         assert d["theorem_label"] == "main"
         assert d["body_text"] == "Proof text here."
-        assert d["chunker_version"] == "v1.1"
+        assert d["chunker_version"] == "v1.2"
 
 
 # ===========================================================================
@@ -1159,7 +1159,7 @@ class TestB2BudgetBumpTakesEffect:
     prefix.
 
     Both clauses of the AC are tested:
-      (a) emitted records carry chunker_version == "v1.1"
+      (a) emitted records carry chunker_version == "v1.2"
       (b) a chunk whose body would have been clipped at 512 now fits
           intact; its chunk_id matches the hash of the full body,
           differing from the hash of the 512-token-clipped prefix.
@@ -1220,9 +1220,9 @@ class TestB2BudgetBumpTakesEffect:
         )
         chunk = stmt_chunks[0]
 
-        # AC clause (a): chunker_version is "v1.1".
+        # AC clause (a): chunker_version is "v1.2".
         from ingest.chunker_types import CHUNKER_VERSION
-        assert chunk.chunker_version == "v1.1"
+        assert chunk.chunker_version == "v1.2"
         assert chunk.chunker_version == CHUNKER_VERSION
 
         # AC clause (b): the body survived intact (not clipped at 512).
@@ -1474,10 +1474,14 @@ class TestF5StmtTruncationFlag:
             chunks = chunk_paper(paper_id)
         stmts = [c for c in chunks if c.kind == "theorem" or c.kind == "stmt"]
         assert len(stmts) >= 1
-        # At least one stmt must be flagged truncated
-        assert any(c.truncated for c in stmts), (
-            f"long stmt must set truncated=True; got truncated values: "
-            f"{[c.truncated for c in stmts]}"
+        assert len(stmts) > 1
+        assert all(c.truncated is False for c in stmts)
+        assert [c.part_index for c in stmts] == list(range(1, len(stmts) + 1))
+        assert all(c.part_count == len(stmts) for c in stmts)
+        assert stmts[0].source_start == 0
+        assert all(
+            a.source_end >= b.source_start
+            for a, b in zip(stmts, stmts[1:], strict=False)
         )
 
     def test_normal_stmt_not_truncated(self, tmp_path):

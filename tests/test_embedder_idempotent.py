@@ -40,6 +40,7 @@ import pytest
 import ingest.embedder as embedder_mod
 from ingest.chunker_types import CHUNKER_VERSION
 from ingest.embedder import (
+    EMBED_INPUT_POLICY_VERSION,
     EMBEDDER_VERSION,
     EMBEDDING_DIM,
     EMBEDDINGS_MANIFEST_NAME,
@@ -569,9 +570,10 @@ class TestSidecarSchema:
         )
         raw = sidecar_path.read_text(encoding="utf-8")
         sidecar = json.loads(raw)
-        # Top-level keys are exactly the four expected, alphabetical.
+        # Top-level keys are alphabetical and include the input policy.
         assert list(sidecar.keys()) == [
             "chunker_version",
+            "embed_input_policy_version",
             "embedded_chunks",
             "embedder_version",
             "paper_id",
@@ -584,6 +586,7 @@ class TestSidecarSchema:
         # Values match the canonical constants.
         assert sidecar["chunker_version"] == EXPECTED_CHUNKER_VERSION
         assert sidecar["embedder_version"] == EMBEDDER_VERSION
+        assert sidecar["embed_input_policy_version"] == EMBED_INPUT_POLICY_VERSION
         assert sidecar["paper_id"] == paper_id
 
     def test_embedded_chunks_in_document_order(self, tmp_path):
@@ -690,6 +693,7 @@ class TestPaperUpToDateHelper:
                         }
                     ],
                     "embedder_version": EMBEDDER_VERSION,
+                    "embed_input_policy_version": EMBED_INPUT_POLICY_VERSION,
                     "paper_id": "2307.00171",
                 },
                 sort_keys=True,
@@ -717,6 +721,7 @@ class TestPaperUpToDateHelper:
                         }
                     ],
                     "embedder_version": EMBEDDER_VERSION,
+                    "embed_input_policy_version": EMBED_INPUT_POLICY_VERSION,
                     "paper_id": "2307.00172",
                 },
                 sort_keys=True,
@@ -749,6 +754,7 @@ class TestPaperUpToDateHelper:
                         }
                     ],
                     "embedder_version": EMBEDDER_VERSION,
+                    "embed_input_policy_version": EMBED_INPUT_POLICY_VERSION,
                     "paper_id": "2307.00173",
                 },
                 sort_keys=True,
@@ -758,6 +764,10 @@ class TestPaperUpToDateHelper:
         with patch("ingest.embedder.EMBEDDINGS_DIR", tmp_path):
             assert embedder_mod._paper_is_up_to_date(
                 "2307.00173", {"arxiv:2307.00173:" + "a" * 16}
+            )
+            assert not embedder_mod._paper_is_up_to_date(
+                "2307.00173", {"arxiv:2307.00173:" + "a" * 16},
+                {"arxiv:2307.00173:" + "a" * 16: "proof"},
             )
 
     def test_returns_false_when_npz_missing(self, tmp_path):
@@ -779,6 +789,7 @@ class TestPaperUpToDateHelper:
                         }
                     ],
                     "embedder_version": EMBEDDER_VERSION,
+                    "embed_input_policy_version": EMBED_INPUT_POLICY_VERSION,
                     "paper_id": "2307.00174",
                 },
                 sort_keys=True,
@@ -805,6 +816,7 @@ class TestPaperUpToDateHelper:
                     "chunker_version": EXPECTED_CHUNKER_VERSION,
                     "embedded_chunks": [{"kind": "stmt"}],  # no chunk_id!
                     "embedder_version": EMBEDDER_VERSION,
+                    "embed_input_policy_version": EMBED_INPUT_POLICY_VERSION,
                     "paper_id": "2307.00175",
                 },
                 sort_keys=True,
@@ -843,6 +855,7 @@ class TestPaperUpToDateHelper:
                         },
                     ],
                     "embedder_version": EMBEDDER_VERSION,
+                    "embed_input_policy_version": EMBED_INPUT_POLICY_VERSION,
                     "paper_id": "2307.00176",
                 },
                 sort_keys=True,

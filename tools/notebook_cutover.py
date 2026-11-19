@@ -40,6 +40,7 @@ restores the ones built for the restored version.
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import os
 import shutil
@@ -155,6 +156,8 @@ def perform_cutover(
     - staging dir missing → refuse (AC4).
     - staging has no ``corpus-version.json`` → refuse (AC4, incomplete
       re-embed).
+    - if a re-embed progress sentinel exists, it must report ``complete``
+      with zero failed papers.
     - staging ``corpus_version`` ≤ active version → refuse unless ``force``
       (AC3 downgrade guard). This comparison ASSUMES staging is a re-embed OF
       the same notebook's active dataset, so its MVCC version is monotonically
@@ -181,6 +184,17 @@ def perform_cutover(
             f"notebook {slug!r}: {STAGING_NAME} has no corpus-version.json "
             f"(incomplete re-embed); refusing to promote"
         )
+    progress = staging / "re-embed-progress.json"
+    if progress.is_file():
+        try:
+            progress_data = json.loads(progress.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            raise CutoverError(f"notebook {slug!r}: invalid re-embed progress sentinel") from exc
+        if (progress_data.get("status") != "complete"
+                or progress_data.get("papers_failed_count") != 0):
+            raise CutoverError(
+                f"notebook {slug!r}: staged re-embed is not complete without failures"
+            )
     staging_version = staging_info.version
 
     first_ingest = not active.exists()

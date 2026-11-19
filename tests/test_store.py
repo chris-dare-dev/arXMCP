@@ -149,7 +149,7 @@ class TestSchemaContract:
         # source-truth-m2 (chunks schema v2) appended 5 more
         # (source_revision_id, source_span, truncated, printed_number,
         # license_ref) -> 26.
-        assert len(CHUNKS_SCHEMA_V1) == 26
+        assert len(CHUNKS_SCHEMA_V1) == 31
 
     def test_column_names_in_brief_order(self):
         expected = [
@@ -186,6 +186,11 @@ class TestSchemaContract:
             "truncated",
             "printed_number",
             "license_ref",
+            "embed_input_policy_version",
+            "part_index",
+            "part_count",
+            "source_start",
+            "source_end",
         ]
         assert CHUNKS_SCHEMA_V1.names == expected
 
@@ -1075,7 +1080,7 @@ class TestSchemaMigrationGuard:
         # Re-open and assert the migrated table matches the canonical
         # schema: 14 legacy + 7 textbook-ingest-m2 + 5 source-truth-m2 = 26.
         tbl2 = db.open_table(CHUNKS_TABLE_NAME)
-        assert len(tbl2.schema.names) == len(CHUNKS_SCHEMA_V1.names) == 26
+        assert len(tbl2.schema.names) == len(CHUNKS_SCHEMA_V1.names) == 31
         for col in CHUNKS_SCHEMA_V1.names:
             assert col in tbl2.schema.names, f"column {col} missing post-migration"
 
@@ -1239,7 +1244,7 @@ class TestSchemaMigrationGuard:
         added = _migrate_chunks_schema_if_needed(tbl)
         assert added == []
         # Schema still has exactly the canonical column set (26).
-        assert len(tbl.schema.names) == len(CHUNKS_SCHEMA_V1.names) == 26
+        assert len(tbl.schema.names) == len(CHUNKS_SCHEMA_V1.names) == 31
 
     def test_migration_unhandled_column_raises(self, tmp_path):
         """A future schema column not in _TEXTBOOK_MIGRATION_DEFAULTS
@@ -1304,7 +1309,7 @@ class TestSchemaMigrationGuard:
         assert "future_m3_col" in added
         # The 12 post-v1 columns (7 textbook-ingest-m2 + 5 source-truth-m2)
         # + the simulated m3 column all landed on the 14-col legacy table.
-        assert len(added) == 13
+        assert len(added) == 18
         assert "future_m3_col" in tbl.schema.names
 
 
@@ -1806,7 +1811,7 @@ class TestSourceTruthM2SchemaMigration:
         holding one arXiv row, mirroring the live on-disk tables."""
         import lancedb
 
-        pre_v2_schema = pa.schema(list(CHUNKS_SCHEMA_V1)[:-5])
+        pre_v2_schema = pa.schema(list(CHUNKS_SCHEMA_V1)[:21])
         assert len(pre_v2_schema.names) == 21
         assert not any(c in pre_v2_schema.names for c in self._V2_COLUMNS)
         legacy_row = {
@@ -1851,7 +1856,7 @@ class TestSourceTruthM2SchemaMigration:
         write_chunks([new_chunk], new_embed, lancedb_path=tmp_path / "lancedb")
 
         tbl2 = db.open_table(CHUNKS_TABLE_NAME)
-        assert len(tbl2.schema.names) == 26
+        assert len(tbl2.schema.names) == 31
         for col in self._V2_COLUMNS:
             assert col in tbl2.schema.names, f"{col} missing post-migration"
 
@@ -1916,15 +1921,13 @@ class TestSourceTruthM2SchemaMigration:
         tbl2 = db.open_table(CHUNKS_TABLE_NAME)
         added = _migrate_chunks_schema_if_needed(tbl2)
         assert added == []
-        assert len(tbl2.schema.names) == len(CHUNKS_SCHEMA_V1.names) == 26
+        assert len(tbl2.schema.names) == len(CHUNKS_SCHEMA_V1.names) == 31
 
 
-class TestTruncatedPersistsRoundtrip:
-    """AC2 — ``truncated`` (previously dropped at ``_build_arrow_table``) and
-    the new ``printed_number`` now survive the LanceDB write→read round-trip.
-    No such store-level test existed before source-truth-m2."""
+class TestTruncatedWriteGuard:
+    """New writes reject shortened source text while retaining provenance."""
 
-    def test_truncated_and_printed_number_survive_roundtrip(self, tmp_path):
+    def test_truncated_rejected_and_printed_number_survives(self, tmp_path):
         import lancedb
 
         from ingest.store import write_chunks
@@ -1937,23 +1940,23 @@ class TestTruncatedPersistsRoundtrip:
         normal_chunk = _make_chunk(
             "2307.09999", "lemma", "an intact lemma", suffix="2" * 16
         )
-        # normal_chunk keeps the defaults: truncated=False, printed_number=None.
         chunks = [truncated_chunk, normal_chunk]
-        embeddings = _make_synthetic_embeddings(chunks, seed=81)
-        write_chunks(chunks, embeddings, lancedb_path=tmp_path / "lancedb")
+        with pytest.raises(ValueError, match="truncated=true"):
+            write_chunks(chunks, _make_synthetic_embeddings(chunks, seed=81),
+                         lancedb_path=tmp_path / "lancedb")
+
+        normal_chunk.printed_number = "3.1"
+        write_chunks([normal_chunk], _make_synthetic_embeddings([normal_chunk], seed=81),
+                     lancedb_path=tmp_path / "lancedb")
 
         db = lancedb.connect(str(tmp_path / "lancedb"))
         tbl = db.open_table(CHUNKS_TABLE_NAME)
         rows = {r["chunk_id"]: r for r in tbl.to_arrow().to_pylist()}
 
-        t = rows[truncated_chunk.chunk_id]
-        assert t["truncated"] is True
-        assert t["printed_number"] == "3.1"
         n = rows[normal_chunk.chunk_id]
         assert n["truncated"] is False
-        assert n["printed_number"] is None
+        assert n["printed_number"] == "3.1"
         # A plain new write leaves the three registry-derived columns NULL
         # (forward-wiring is a fast-follow; the backfill hydrates them).
         for col in ("source_revision_id", "source_span", "license_ref"):
-            assert t[col] is None
             assert n[col] is None

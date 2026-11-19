@@ -50,8 +50,8 @@ from ingest.bulk_ingest import DEFAULT_LANCEDB_STAGING_PATH
 from ingest.chunker import chunk_paper
 from ingest.chunker_types import CHUNKER_VERSION, ChunkRecord
 from ingest.derived_indexes import build_derived_indexes
-from ingest.embedder import EMBEDDER_VERSION, embed_paper
-from ingest.identifiers import is_valid_arxiv_paper_id, paper_id_from_chunk_id
+from ingest.embedder import EMBED_INPUT_POLICY_VERSION, EMBEDDER_VERSION, embed_paper
+from ingest.identifiers import is_valid_paper_id
 from ingest.schema import (
     CHUNKS_TABLE_NAME,
     EMBEDDING_DIM,
@@ -253,6 +253,81 @@ def _check_staging_embedder_versions(
             f"spaces). Drop the staging dataset and retry, OR change "
             f"the target embedder_version to match the existing rows."
         )
+    if "embed_input_policy_version" not in tbl.schema.names and tbl.count_rows():
+        raise RuntimeError("staging table predates embedding input policy tracking")
+    if "embed_input_policy_version" in tbl.schema.names:
+        policies = set(
+            tbl.to_arrow().column("embed_input_policy_version").to_pylist()
+        )
+        if policies and policies != {EMBED_INPUT_POLICY_VERSION}:
+            raise RuntimeError(
+                f"staging table contains input policies {policies!r}; "
+                f"expected {EMBED_INPUT_POLICY_VERSION!r}"
+            )
+
+
+def _delete_staging_paper_rows(staging_path: Path, paper_id: str) -> None:
+    """Replace a paper atomically at the row level on resume/retry."""
+    import lancedb
+
+    if not (staging_path / "chunks.lance").is_dir():
+        return
+    tbl = lancedb.connect(str(staging_path)).open_table(CHUNKS_TABLE_NAME)
+    safe_id = paper_id.replace("'", "''")
+    tbl.delete(f"paper_id = '{safe_id}'")
+
+
+def _staging_paper_signatures(staging_path: Path) -> dict[str, set[tuple]]:
+    """Read scalar chunk identity and provenance for a safe resume check."""
+    import lancedb
+
+    if not (staging_path / "chunks.lance").is_dir():
+        return {}
+    table = lancedb.connect(str(staging_path)).open_table(CHUNKS_TABLE_NAME)
+    columns = (
+        "chunk_id", "paper_id", "kind", "section_path", "theorem_name",
+        "theorem_label", "printed_number", "page_start", "page_end",
+        "part_index", "part_count", "source_start", "source_end",
+    )
+    result: dict[str, set[tuple]] = {}
+    for row in table.to_arrow().select(
+        [*columns, "embedding_stmt", "embedding_proof"]
+    ).to_pylist():
+        result.setdefault(row["paper_id"], set()).add(
+            tuple(
+                tuple(row[name]) if name == "section_path" else row[name]
+                for name in columns if name != "paper_id"
+            ) + (
+                row["embedding_stmt"] is not None,
+                row["embedding_proof"] is not None,
+            )
+        )
+    return result
+
+
+def _chunk_signature(chunk: ChunkRecord) -> tuple:
+    return (
+        chunk.chunk_id, chunk.kind, tuple(chunk.section_path),
+        chunk.theorem_name, chunk.theorem_label, chunk.printed_number,
+        chunk.page_start, chunk.page_end, chunk.part_index, chunk.part_count,
+        chunk.source_start, chunk.source_end,
+        chunk.kind != "proof", chunk.kind == "proof",
+    )
+
+
+def _active_input_policies(active_path: Path) -> set[str] | None:
+    """Read row policies when a real active table exists; None for test stubs."""
+    if not (active_path / "chunks.lance").is_dir():
+        return None
+    import lancedb
+
+    table = lancedb.connect(str(active_path)).open_table(CHUNKS_TABLE_NAME)
+    if "embed_input_policy_version" not in table.schema.names:
+        return {"preamble-first-v1"}
+    return {
+        policy or "preamble-first-v1"
+        for policy in table.to_arrow().column("embed_input_policy_version").to_pylist()
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -333,6 +408,7 @@ def _build_old_rows_index(active_lancedb_path: Path) -> dict[str, dict]:
             "embedding_proof",
             "embedder_version",
             "kind",
+            "parser_used",
         ]
     )
     out: dict[str, dict] = {}
@@ -341,14 +417,16 @@ def _build_old_rows_index(active_lancedb_path: Path) -> dict[str, dict]:
     proofs = arrow["embedding_proof"].to_pylist()
     versions = arrow["embedder_version"].to_pylist()
     kinds = arrow["kind"].to_pylist()
-    for cid, stmt, proof, ver, kind in zip(
-        ids, stmts, proofs, versions, kinds, strict=True
+    parsers = arrow["parser_used"].to_pylist()
+    for cid, stmt, proof, ver, kind, parser in zip(
+        ids, stmts, proofs, versions, kinds, parsers, strict=True
     ):
         out[cid] = {
             "embedding_stmt": stmt,
             "embedding_proof": proof,
             "embedder_version": ver,
             "kind": kind,
+            "parser_used": parser,
         }
     return out
 
@@ -466,14 +544,38 @@ class _PaperWorkPlan:
 
 
 def _plan_paper(
-    paper_id: str, old_chunk_ids_for_paper: set[str]
+    paper_id: str, old_chunk_ids_for_paper: set[str],
+    *, notebook_slug: str | None = None,
+    parser_used: str | None = None,
+    force_re_embed: bool = False,
 ) -> _PaperWorkPlan:
     """Re-chunk the paper, diff against the old chunk-id set."""
-    new_chunks = chunk_paper(paper_id)
+    if paper_id.startswith("textbook:"):
+        if notebook_slug is None:
+            raise ValueError(f"notebook slug required for {paper_id}")
+        from ingest.textbook_chunker import _flat_paper_id, _resolve_notebook_dir
+        notebook = _resolve_notebook_dir(notebook_slug)
+        pdftotext_source = notebook / "parsed" / _flat_paper_id(paper_id) / "_pdftotext"
+        if parser_used == "pdftotext" or pdftotext_source.is_dir():
+            from ingest.textbook_pdf_chunker import chunk_textbook_pdf
+            new_chunks = chunk_textbook_pdf(notebook_slug, paper_id)
+        elif parser_used == "mineru+markdown":
+            from ingest.textbook_markdown_chunker import chunk_textbook_markdown
+            new_chunks = chunk_textbook_markdown(notebook_slug, paper_id)
+        else:
+            from ingest.textbook_chunker import chunk_textbook
+            new_chunks = chunk_textbook(notebook_slug, paper_id)
+    else:
+        new_chunks = chunk_paper(paper_id)
+    if not new_chunks:
+        raise RuntimeError(f"chunker produced no chunks for {paper_id}")
     new_ids = {c.chunk_id for c in new_chunks}
     copy_ids, re_embed_ids, drop_ids = compute_diff(
         old_chunk_ids_for_paper, new_ids
     )
+    if force_re_embed:
+        copy_ids = set()
+        re_embed_ids = new_ids
     return _PaperWorkPlan(
         paper_id=paper_id,
         new_chunks=new_chunks,
@@ -527,19 +629,26 @@ def _process_paper(
         )
         copy_chunks = [by_id[cid] for cid in copy_pending]
         write_chunks(
-            copy_chunks, copy_record, lancedb_path=staging_lancedb_path
+            copy_chunks, copy_record, lancedb_path=staging_lancedb_path,
+            build_indices=False,
         )
 
     # --- Re-embed path ---------------------------------------------------
     if re_embed_pending:
-        embed_stats = embed_paper(plan.paper_id)
-        if embed_stats.status != "ok":
-            raise RuntimeError(
-                f"paper={plan.paper_id}: embedder returned status="
-                f"{embed_stats.status!r} ({embed_stats.error_class}): "
-                f"{embed_stats.error}"
-            )
-        full_record = load_embed_record(plan.paper_id)
+        if plan.paper_id.startswith("textbook:") or (
+            plan.new_chunks and plan.new_chunks[0].parser_used == "tex"
+        ):
+            from tools.notebook_textbook_ingest import _build_embed_record
+            full_record = _build_embed_record(plan.new_chunks)
+        else:
+            embed_stats = embed_paper(plan.paper_id)
+            if embed_stats.status != "ok":
+                raise RuntimeError(
+                    f"paper={plan.paper_id}: embedder returned status="
+                    f"{embed_stats.status!r} ({embed_stats.error_class}): "
+                    f"{embed_stats.error}"
+                )
+            full_record = load_embed_record(plan.paper_id)
         if full_record is None:
             raise RuntimeError(
                 f"paper={plan.paper_id}: embed_paper ok but no NPZ "
@@ -560,6 +669,7 @@ def _process_paper(
             re_embed_chunks,
             re_embed_record,
             lancedb_path=staging_lancedb_path,
+            build_indices=False,
         )
 
     return len(copy_pending), len(re_embed_pending), skipped
@@ -590,6 +700,7 @@ def _subset_embed_record(
         if proof_mask
         else np.zeros((0, EMBEDDING_DIM), dtype=np.float32),
         embedder_version=record.embedder_version,
+        embed_input_policy_version=record.embed_input_policy_version,
     )
 
 
@@ -610,17 +721,13 @@ def _index_old_chunk_ids_by_paper(
     # the chunk_id column on the loaded pyarrow.Table instead. The
     # full-table load is acceptable here because chunk_id is a short
     # utf8 column (16-32 bytes per row); a 10K-row table fits in ~1 MB.
-    arrow = tbl.to_arrow().select(["chunk_id"])
+    arrow = tbl.to_arrow().select(["chunk_id", "paper_id"])
     out: dict[str, set[str]] = {}
-    for cid in arrow["chunk_id"].to_pylist():
-        try:
-            pid = paper_id_from_chunk_id(cid)
-        except ValueError:
-            logger.warning(
-                "re_embed: malformed chunk_id in active LanceDB: %r",
-                cid,
-            )
-            continue
+    for cid, pid in zip(
+        arrow["chunk_id"].to_pylist(), arrow["paper_id"].to_pylist(), strict=True
+    ):
+        if not isinstance(pid, str) or not is_valid_paper_id(pid):
+            raise ValueError(f"invalid paper_id in active row {cid!r}: {pid!r}")
         out.setdefault(pid, set()).add(cid)
     return out
 
@@ -636,6 +743,7 @@ def run_re_embed(
     target_chunker_version: str = CHUNKER_VERSION,
     dry_run: bool = False,
     resume: bool = False,
+    notebook_slug: str | None = None,
 ) -> ReEmbedSummary:
     """Drive a partial re-embed of the corpus.
 
@@ -650,6 +758,16 @@ def run_re_embed(
 
     # Closes synthesis D6: read OLD_EMBEDDER_VERSION up front.
     old_embedder_version = _read_old_embedder_version(active_lancedb_path)
+    active_marker = json.loads(
+        (active_lancedb_path / CORPUS_VERSION_MARKER_NAME).read_text(encoding="utf-8")
+    )
+    old_input_policy = active_marker.get("embed_input_policy_version", "preamble-first-v1")
+    row_policies = _active_input_policies(active_lancedb_path)
+    force_re_embed = (
+        old_embedder_version != target_embedder_version
+        or old_input_policy != EMBED_INPUT_POLICY_VERSION
+        or (row_policies is not None and row_policies != {EMBED_INPUT_POLICY_VERSION})
+    )
     logger.info(
         "re_embed: OLD_EMBEDDER_VERSION=%s -> TARGET=%s",
         old_embedder_version, target_embedder_version,
@@ -669,18 +787,26 @@ def run_re_embed(
     # scan and the partial re-embed was O(N²) in I/O.
     old_rows_cache = _build_old_rows_index(active_lancedb_path)
 
-    work_papers = (
-        paper_ids
-        if paper_ids is not None
-        else sorted(old_by_paper.keys())
-    )
+    if paper_ids is not None:
+        work_papers = paper_ids
+    elif notebook_slug is not None:
+        from ingest.textbook_chunker import _resolve_notebook_dir
+        from tools._notebook_common import read_paper_ids_from_papers_txt
+        notebook = _resolve_notebook_dir(notebook_slug)
+        seeded = read_paper_ids_from_papers_txt(notebook / "papers.txt")
+        work_papers = sorted(set(old_by_paper) | set(seeded))
+    else:
+        work_papers = sorted(old_by_paper)
     # Validate every input paper_id at the input boundary.
     for pid in work_papers:
-        if not is_valid_arxiv_paper_id(pid):
+        if not is_valid_paper_id(pid):
             raise ValueError(f"invalid paper_id: {pid!r}")
+        if pid.startswith("textbook:") and notebook_slug is None:
+            raise ValueError(f"notebook_slug required for {pid!r}")
     summary.papers_total = len(work_papers)
 
-    already_in_staging = _staging_chunk_ids(staging_lancedb_path) if resume else set()
+    already_in_staging: set[str] = set()
+    staged_signatures = _staging_paper_signatures(staging_lancedb_path) if resume else {}
     summary.chunks_skipped_resume = 0  # accumulated below
 
     # Closes adversary F2 (synthesis D8): write the in-progress
@@ -721,7 +847,14 @@ def run_re_embed(
     for paper_id in work_papers:
         old_ids = old_by_paper.get(paper_id, set())
         try:
-            plan = _plan_paper(paper_id, old_ids)
+            parser_used = next(
+                (old_rows_cache[cid].get("parser_used") for cid in old_ids
+                 if cid in old_rows_cache), None
+            )
+            plan = _plan_paper(
+                paper_id, old_ids, notebook_slug=notebook_slug,
+                parser_used=parser_used, force_re_embed=force_re_embed,
+            )
         except Exception as exc:  # noqa: BLE001 — per-paper isolation
             logger.warning(
                 "re_embed: chunker failure on paper=%s: %s", paper_id, exc
@@ -740,8 +873,14 @@ def run_re_embed(
                 f"drop={len(plan.drop_ids)}"
             )
             continue
+        if resume and staged_signatures.get(paper_id) == {
+            _chunk_signature(chunk) for chunk in plan.new_chunks
+        }:
+            summary.chunks_skipped_resume += len(plan.new_chunks)
+            continue
 
         try:
+            _delete_staging_paper_rows(staging_lancedb_path, paper_id)
             copied, re_embedded, skipped = _process_paper(
                 plan,
                 active_lancedb_path=active_lancedb_path,
@@ -793,8 +932,23 @@ def run_re_embed(
             },
         )
 
+    if not dry_run and not summary.papers_failed:
+        # Per-paper writes deliberately skip expensive repeated HNSW builds.
+        # An empty write creates both indices once and advances the staging
+        # marker to their post-index MVCC version.
+        try:
+            write_chunks(
+                [], EmbedRecord(embedder_version=target_embedder_version),
+                lancedb_path=staging_lancedb_path, build_indices=True,
+            )
+        except Exception as exc:  # noqa: BLE001
+            summary.papers_failed.append("<index-finalize>")
+            summary.chunks_failed += 1
+            _append_failure(failures_path, "<index-finalize>", "index_failed", str(exc))
+
     # Before the terminal sentinel, so a staging dataset marked complete
-    # always carries the indexes built from its own chunks.
+    # always carries the indexes built from its own chunks. After the
+    # vector-index build, which advances the marker these are keyed to.
     if not dry_run and (staging_lancedb_path / CORPUS_VERSION_MARKER_NAME).is_file():
         build_derived_indexes(staging_lancedb_path)
 

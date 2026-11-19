@@ -202,7 +202,7 @@ class TestChunkerVersionConstant:
     PAPER_ID = "2307.00001"
 
     def test_constant_value(self):
-        assert CHUNKER_VERSION == "v1.1"
+        assert CHUNKER_VERSION == "v1.2"
 
     def test_every_chunk_has_version(self, tmp_path):
         chunks = _run_no_preamble(tmp_path, self.PAPER_ID)

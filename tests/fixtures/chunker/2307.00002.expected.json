@@ -1,6 +1,6 @@
 {
-  "chunk_count": 10,
-  "chunker_version": "v1.1",
+  "chunk_count": 11,
+  "chunker_version": "v1.2",
   "expected_chunk_ids": [
     "arxiv:2307.00002:3ec8b205c2b9bbe5",
     "arxiv:2307.00002:f980b16602aeb1e2",
@@ -11,17 +11,18 @@
     "arxiv:2307.00002:461d6ed9439f0ac9",
     "arxiv:2307.00002:e6fcc362e00b619f",
     "arxiv:2307.00002:af9b1a5891d0da2b",
+    "arxiv:2307.00002:fe3f15c4975e8ba8",
     "arxiv:2307.00002:6ab390d75924d00b"
   ],
   "kind_counts": {
-    "corollary": 1,
     "definition": 1,
-    "example": 1,
+    "remark": 2,
     "lemma": 1,
     "proof": 2,
-    "remark": 2,
-    "section": 1,
-    "stmt": 1
+    "corollary": 1,
+    "example": 1,
+    "stmt": 2,
+    "section": 1
   },
   "paper_id": "2307.00002"
 }

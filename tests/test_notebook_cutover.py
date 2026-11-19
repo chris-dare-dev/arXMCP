@@ -91,6 +91,19 @@ def test_cutover_swaps_and_backs_up(nb_base) -> None:
     assert (backups[0] / "_sentinel.txt").read_text() == "v369"
 
 
+def test_cutover_refuses_incomplete_reembed_sentinel(nb_base) -> None:
+    nb = nb_base / "demo-nb"
+    _write_lancedb(nb / "lancedb", version=369)
+    _write_lancedb(nb / "lancedb-staging", version=645)
+    (nb / "lancedb-staging" / "re-embed-progress.json").write_text(
+        json.dumps({"status": "in_progress", "papers_failed_count": 0}),
+        encoding="utf-8",
+    )
+    with pytest.raises(nc.CutoverError, match="not complete"):
+        nc.perform_cutover("demo-nb", base=nb_base)
+    assert (nb / "lancedb" / "_sentinel.txt").read_text() == "v369"
+
+
 def test_backup_retention_prunes_to_two(nb_base) -> None:
     """AC6: after repeated cutovers, at most N=2 lancedb-prev-* remain."""
     nb = nb_base / "demo-nb"
