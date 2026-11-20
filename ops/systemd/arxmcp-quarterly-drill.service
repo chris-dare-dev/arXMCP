@@ -3,7 +3,7 @@
 # the wrapper short-circuits unless within the 7-day lookahead
 # of the next quarter mark.
 Description=arXMCP quarterly drill reminder (writes flag 7d before next quarter mark)
-Documentation=https://github.com/chris-dare/arXMCP/blob/main/docs/ops/backup-restore.md
+Documentation=https://github.com/chris-dare-dev/arXMCP/blob/433ba41ba8710be74d6f99c627dce7d3b5383fca/docs/ops/backup-restore.md
 
 [Service]
 Type=oneshot

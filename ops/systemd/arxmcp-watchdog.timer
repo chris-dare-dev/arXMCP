@@ -9,7 +9,7 @@
 # 03:30 restic backup, so any quarantine flag set by the watchdog
 # is present when the backup snapshot is taken.
 Description=arXMCP drift watchdog eval — 02:30 UTC
-Documentation=https://github.com/chris-dare/arXMCP/blob/main/docs/ops/drift-watchdog.md
+Documentation=https://github.com/chris-dare-dev/arXMCP/blob/433ba41ba8710be74d6f99c627dce7d3b5383fca/docs/ops/drift-watchdog.md
 
 [Timer]
 OnCalendar=*-*-* 02:30:00 UTC
