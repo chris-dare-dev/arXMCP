@@ -74,7 +74,7 @@ _NL_PATTERN_RE: re.Pattern[str] = re.compile(
 #: Environment-variable name controlling sanitizer activation. Set to
 #: exactly ``"1"`` (the string, not the integer; any other value is
 #: treated as disabled). Documented in the audit doc.
-_SANITIZE_ENV_VAR = "ARXMCP_SANITIZE_RETRIEVED_CONTENT"
+SANITIZE_ENV_VAR = "ARXMCP_SANITIZE_RETRIEVED_CONTENT"
 
 #: Warn-once guard. The first call with sanitization enabled logs once;
 #: subsequent calls in the same process are silent. Same pattern as the
@@ -88,7 +88,7 @@ def is_sanitization_enabled() -> bool:
     variants like ``"true"`` or ``"yes"`` — returns False. The
     exact-string contract is intentional; see module docstring.
     """
-    return os.environ.get(_SANITIZE_ENV_VAR) == "1"
+    return os.environ.get(SANITIZE_ENV_VAR) == "1"
 
 
 def sanitize_retrieved_text(text: str | None) -> str:
