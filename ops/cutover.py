@@ -17,7 +17,9 @@ The activation is gated on FOUR criteria, ALL must pass:
 3. **E11_S01/S03 ingest complete** — `re-embed-state.json` (if
    it exists) reports `status="complete"` or
    `"complete_with_failures"`; the staging LanceDB at the
-   pinned version opens cleanly and has > 0 rows.
+   pinned version opens cleanly, has > 0 rows, and every ANN
+   vector column that holds vectors has an index covering every
+   row (:func:`verify_lancedb_integrity`).
 4. **Restore drill passed** — `restore-drill-passed.flag`
    exists, written by `ops/restore_drill.sh` after a successful
    restic restore + smoke check.
@@ -479,15 +481,72 @@ def check_criterion_2_watchdog(
 # LanceDB integrity verification (synthesis D1 §3)
 # ---------------------------------------------------------------------------
 
+#: The vector columns the server searches by ANN — the two that
+#: ``ingest.store._create_indices`` indexes. ``embedding_eq`` is reserved
+#: and always NULL on ``chunks``, so it is not checked.
+ANN_VECTOR_COLUMNS: tuple[str, ...] = ("embedding_stmt", "embedding_proof")
+
+
+def vector_index_gaps(tbl) -> list[str]:
+    """Describe each ANN vector column of ``tbl`` that no index fully covers.
+
+    A column that holds vectors needs an index with
+    ``num_unindexed_rows == 0``. A column with no vectors at all needs
+    none: ``_create_indices`` cannot train an index on it and skips it,
+    so an all-NULL ``embedding_proof`` is legitimate. Rows outside an
+    index are still found, by a flat scan, so a gap costs speed rather
+    than rows, and no other check in this gate would notice it.
+
+    ``tbl`` must be the version-pinned handle the server will serve:
+    ``list_indices()`` reports the indexes of the checked-out version.
+    Returns an empty list when every column is covered. Exceptions
+    propagate; the caller fails closed on them.
+    """
+    indices_by_column: dict[str, list[str]] = {}
+    for cfg in tbl.list_indices():
+        for column in cfg.columns:
+            indices_by_column.setdefault(column, []).append(cfg.name)
+    gaps: list[str] = []
+    for column in ANN_VECTOR_COLUMNS:
+        vectors = tbl.count_rows(f"{column} IS NOT NULL")
+        if vectors == 0:
+            continue
+        names = indices_by_column.get(column, [])
+        if not names:
+            gaps.append(f"{column} holds {vectors} vectors but has no index")
+            continue
+        shortfalls: list[str] = []
+        covered = False
+        for index_name in names:
+            stats = tbl.index_stats(index_name)
+            if stats is None:
+                shortfalls.append(f"{index_name} reports no stats")
+            elif stats.num_unindexed_rows > 0:
+                shortfalls.append(
+                    f"{index_name} misses {stats.num_unindexed_rows} rows"
+                )
+            else:
+                covered = True
+        if not covered:
+            gaps.extend(shortfalls)
+    return gaps
+
 
 def verify_lancedb_integrity(
     staging_path: Path = DEFAULT_LANCEDB_STAGING_PATH,
 ) -> CriterionResult:
-    """Open the staging chunks table and assert row count > 0.
+    """Open the staging chunks table at its pinned version; assert it
+    has rows and that its vector indexes cover every row.
 
     Replaces the brief's fictional `lancedb verify` CLI. Lazy-
     imports `server.corpus.open_chunks_table` so the cutover
     module is cheap to import for unit tests.
+
+    The index check matters because ``ingest.re_embed`` writes staging
+    without indexes and builds them once at the end, and C3 accepts
+    ``complete_with_failures``: a staging table whose build never ran
+    would otherwise be promoted, and every search would silently scan
+    flat. See :func:`vector_index_gaps`.
     """
     name = "LanceDB integrity (staging)"
     if not (staging_path / CORPUS_VERSION_MARKER_NAME).is_file():
@@ -516,6 +575,7 @@ def verify_lancedb_integrity(
             lancedb_path=staging_path, version=info.version
         )
         row_count = tbl.count_rows()
+        gaps = vector_index_gaps(tbl) if row_count else []
     except Exception as exc:  # noqa: BLE001 — integrity probe
         return CriterionResult(
             name=name,
@@ -528,10 +588,21 @@ def verify_lancedb_integrity(
             ok=False,
             reason="staging chunks table has zero rows",
         )
+    if gaps:
+        return CriterionResult(
+            name=name,
+            ok=False,
+            reason=(
+                f"staging v{info.version} vector indexes do not cover "
+                f"every row ({'; '.join(gaps)}); search would fall back "
+                f"to a flat scan. A finished re-embed run, including a "
+                f"--resume run, rebuilds them"
+            ),
+        )
     return CriterionResult(
         name=name,
         ok=True,
-        reason=f"chunks={row_count}",
+        reason=f"chunks={row_count}; vector indexes cover every row",
     )
 
 
@@ -1086,6 +1157,7 @@ if __name__ == "__main__":  # pragma: no cover
 
 
 __all__ = [
+    "ANN_VECTOR_COLUMNS",
     "CriterionResult",
     "CutoverError",
     "DEFAULT_AGGREGATE_EVAL_DIR",
@@ -1107,5 +1179,6 @@ __all__ = [
     "wait_for_promoted_server",
     "run_cutover",
     "run_post_activation_watchdog",
+    "vector_index_gaps",
     "verify_lancedb_integrity",
 ]

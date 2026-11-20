@@ -801,10 +801,16 @@ def run_re_embed(
             },
         )
 
-    if not dry_run and not summary.papers_failed:
+    if not dry_run and (staging_lancedb_path / CORPUS_VERSION_MARKER_NAME).is_file():
         # Per-paper writes deliberately skip expensive repeated HNSW builds.
         # An empty write creates both indices once and advances the staging
         # marker to their post-index MVCC version.
+        #
+        # This runs even when some papers failed: ``ops/cutover.py`` C3
+        # accepts ``complete_with_failures``, and its integrity probe refuses
+        # an unindexed staging table. The build covers whatever staging
+        # holds, which is what a cutover would serve. With no marker nothing
+        # was staged, and the empty write would only create an empty table.
         try:
             write_chunks(
                 [], EmbedRecord(embedder_version=target_embedder_version),

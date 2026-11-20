@@ -616,6 +616,26 @@ class TestStateFile:
         state = json.loads(state_path.read_text())
         assert state["status"] == "complete_with_failures"
 
+    def test_failed_paper_still_leaves_staging_indexed(self, tmp_path):
+        """A run with a failed paper ends ``complete_with_failures``, which
+        ``make cutover``'s C3 accepts. Its staging table must still carry the
+        vector indexes, or the cutover integrity probe refuses it."""
+        from ops.cutover import verify_lancedb_integrity
+
+        bad = "2401.00002"
+        chunks = [_make_chunk(PAPER, _cid(PAPER, i)) for i in range(3)]
+        active = _active(tmp_path, chunks)
+
+        summary, _ = _run(
+            tmp_path, active, {PAPER: chunks, bad: []}, paper_ids=[PAPER, bad],
+        )
+
+        assert summary.papers_failed == [bad]
+        state = json.loads((tmp_path / "state.json").read_text())
+        assert state["status"] == "complete_with_failures"
+        integrity = verify_lancedb_integrity(tmp_path / "staging")
+        assert integrity.ok is True, integrity.reason
+
 
 # ---------------------------------------------------------------------------
 # Input validation
