@@ -9,6 +9,7 @@ rows, and drives the async core directly via ``asyncio.run``.
 from __future__ import annotations
 
 import asyncio
+import threading
 import urllib.parse
 from pathlib import Path
 
@@ -75,6 +76,31 @@ async def _seed_store(
 
 
 class TestDiscoverHappyPath:
+    def test_the_arxiv_fetch_runs_off_the_event_loop(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        fetch_threads: list[threading.Thread] = []
+
+        def _fetch(url: str, contact_email: str | None = None) -> bytes:
+            fetch_threads.append(threading.current_thread())
+            return _feed(_THREE)
+
+        monkeypatch.setattr(_arxiv_api, "_fetch_url", _fetch)
+
+        async def _run() -> threading.Thread:
+            store = await _seed_store(tmp_path / "notebooks.db")
+            try:
+                await discover_for_notebook_async(
+                    store, "bridgeland", sleep=_NOOP_SLEEP,
+                )
+            finally:
+                await store.close()
+            return threading.current_thread()
+
+        loop_thread = asyncio.run(_run())
+        assert fetch_threads
+        assert all(t is not loop_thread for t in fetch_threads)
+
     def test_returns_new_and_dedups_existing(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
     ) -> None:

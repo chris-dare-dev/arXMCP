@@ -93,7 +93,10 @@ async def discover_for_notebook_async(
     # chars (m1) and quotes the phrase (injection-safe) — pass it through raw.
     keywords = nb.get("description") or ""
 
-    candidates = fetch_candidates(
+    # The arXiv fetch is blocking urllib with a 60 s timeout. Run it on a
+    # worker thread so the server's event loop keeps serving while it waits.
+    candidates = await asyncio.to_thread(
+        fetch_candidates,
         category,
         max_results,
         contact_email,

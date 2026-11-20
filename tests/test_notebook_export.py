@@ -111,7 +111,6 @@ class TestExportHappyPath:
         assert r.status_code == 200, r.text
         assert r.headers["content-type"] == "application/x-tar"
         assert 'filename="alpha-nb.tar"' in r.headers["content-disposition"]
-        assert int(r.headers["content-length"]) == len(r.content)
         with _open_tar(r.content) as tar:
             names = tar.getnames()
             assert "manifest.json" in names
@@ -164,6 +163,25 @@ class TestExportDeterminism:
         r2 = client.get("/ui/api/notebooks/det-nb/export")
         assert r1.status_code == 200 and r2.status_code == 200
         assert r1.content == r2.content
+
+
+    def test_streamed_members_round_trip_exactly(self, exp_client) -> None:
+        """The archive is streamed member by member; every member's bytes,
+        including ones that do not fill a tar block, come back intact."""
+        client, base = exp_client
+        _create_notebook(client, "big-nb")
+        bodies = {
+            "pdf/a.pdf": bytes(range(256)) * 4099,  # not a multiple of 512
+            "pdf/b.pdf": b"x" * 10241,
+            "ar5iv/c.html": b"<html>c</html>",
+        }
+        for rel, body in bodies.items():
+            _seed_asset(base, "big-nb", rel, body)
+        r = client.get("/ui/api/notebooks/big-nb/export")
+        assert r.status_code == 200
+        with _open_tar(r.content) as tar:
+            for rel, body in bodies.items():
+                assert _read_member(tar, f"big-nb/{rel}") == body
 
 
 class TestNoCrossNotebookLeak:
