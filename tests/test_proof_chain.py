@@ -455,6 +455,7 @@ def handler_resources(graph_corpus: dict):
     class _FakeResources:
         config = cfg
         corpus_info = _FakeCorpusInfo()
+        chunks_table = None
 
     set_resources(_FakeResources())
     try:
@@ -572,6 +573,7 @@ class TestHandlerEndToEnd:
         class _FakeResources:
             config = cfg
             corpus_info = _FakeCorpusInfo()
+            chunks_table = None
 
         set_resources(_FakeResources())
         try:
@@ -615,6 +617,7 @@ class TestHandlerEndToEnd:
         class _FakeResources:
             config = cfg
             corpus_info = _FakeCorpusInfo()
+            chunks_table = None
 
         set_resources(_FakeResources())
         try:

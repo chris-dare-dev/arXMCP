@@ -496,6 +496,57 @@ class TestE09S03RectificationGuards:
         assert by_pid[P_B] == f"arxiv:{P_B}:0000000000000001"
         assert by_pid[P_C] is None
 
+    def test_chunk_ids_come_from_the_pinned_table_not_the_tip(
+        self, kuzu_db: Path, tmp_path: Path
+    ):
+        """A cutover can move the dataset ahead of the version the server
+        pinned. The chunk_ids returned must come from the pinned table,
+        or get_chunk (which reads that table) cannot resolve them."""
+        import lancedb
+        import pyarrow as pa
+
+        from server.corpus import open_chunks_table
+
+        pinned_id = f"arxiv:{P_B}:0000000000000001"
+        tip_id = f"arxiv:{P_B}:0000000000000000"
+        lancedb_path = self._build_lancedb(
+            tmp_path,
+            rows=[{"chunk_id": pinned_id, "paper_id": P_B, "kind": "stmt"}],
+        )
+        pinned_version = lancedb.connect(str(lancedb_path)).open_table(
+            "chunks"
+        ).version
+        pinned = open_chunks_table(
+            lancedb_path=str(lancedb_path), version=pinned_version
+        )
+        # Next version: P_B's statement chunk is re-chunked under a new
+        # id that sorts first, so a tip read would pick it.
+        tip = lancedb.connect(str(lancedb_path)).open_table("chunks")
+        rechunked = tip.to_arrow()
+        rechunked = rechunked.set_column(
+            rechunked.schema.get_field_index("chunk_id"),
+            rechunked.schema.field("chunk_id"),
+            pa.array([tip_id]),
+        )
+        tip.delete(f"chunk_id = '{pinned_id}'")
+        tip.add(rechunked)
+
+        def _run_with(**kwargs):
+            result = _run(
+                cite_neighbors(
+                    CHUNK_A,
+                    depth=1,
+                    direction="cites",
+                    kuzudb_path=kuzu_db,
+                    lancedb_path=lancedb_path,
+                    **kwargs,
+                )
+            )
+            return {n.paper_id: n.chunk_id for n in result}[P_B]
+
+        assert _run_with() == tip_id
+        assert _run_with(chunks_table=pinned) == pinned_id
+
     def test_f3_cited_by_depth_2_arrow_reversal(self, kuzu_db: Path):
         """F3: depth=2 cited_by exercises the arrow-reversal in
         ``_build_query`` end-to-end. The fixture has only one
