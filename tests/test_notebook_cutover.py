@@ -31,6 +31,7 @@ Acceptance criteria → test:
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
 import pytest
@@ -451,15 +452,18 @@ def _seed_caches(nb: Path, *versions: int) -> None:
         (d / "chunk_ids.json").write_text("[]", encoding="utf-8")
 
 
-def test_cutover_drops_caches_keyed_by_the_promoted_version(nb_base) -> None:
+def test_cutover_drops_every_version_keyed_cache(nb_base) -> None:
     """A staging re-embedded from scratch restarts its version count, so the
-    promoted integer can equal one an earlier dataset was served at. The
-    Tier-1 cache (keys salted by that integer) and the BM25 dir named by it
-    are deleted; other BM25 versions are left alone."""
+    promoted integer can equal one an earlier dataset was served at, and the
+    new table's later writes climb into the old dataset's higher ``v<N>``
+    dirs, which ``build_bm25_index`` would skip as already built. The Tier-1
+    cache (keys salted by the integer) and EVERY BM25 version dir go; a
+    non-version entry stays."""
     nb = nb_base / "demo-nb"
     _write_lancedb(nb / "lancedb", version=1532)
     _write_lancedb(nb / "lancedb-staging", version=700)
-    _seed_caches(nb, 700, 1532)
+    _seed_caches(nb, 700, 701, 703, 1532)
+    (nb / "index" / "bm25" / "notes.txt").write_text("keep", encoding="utf-8")
 
     res = nc.perform_cutover("demo-nb", base=nb_base, force=True)
 
@@ -467,12 +471,53 @@ def test_cutover_drops_caches_keyed_by_the_promoted_version(nb_base) -> None:
     assert not (nb / "cache" / "retrieval.db").exists()
     assert not (nb / "cache" / "retrieval.db-wal").exists()
     assert not (nb / "cache" / "retrieval.db-shm").exists()
-    assert not (nb / "index" / "bm25" / "v700").exists()
-    assert (nb / "index" / "bm25" / "v1532").is_dir()
+    for version in (700, 701, 703, 1532):
+        assert not (nb / "index" / "bm25" / f"v{version}").exists()
+    assert (nb / "index" / "bm25" / "notes.txt").is_file()
     assert sorted(res["invalidated_caches"]) == [
         "cache/retrieval.db", "cache/retrieval.db-shm", "cache/retrieval.db-wal",
-        "index/bm25/v700",
+        "index/bm25/v1532", "index/bm25/v700", "index/bm25/v701",
+        "index/bm25/v703",
     ]
+    # One spelling on every platform (CLAUDE.md §3 win32 portability).
+    assert not any("\\" in entry for entry in res["invalidated_caches"])
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="symlink creation needs privilege on win32")
+def test_cutover_unlinks_a_symlinked_version_dir_without_following(nb_base, tmp_path) -> None:
+    nb = nb_base / "demo-nb"
+    _write_lancedb(nb / "lancedb", version=5)
+    _write_lancedb(nb / "lancedb-staging", version=9)
+    outside = tmp_path / "outside-bm25"
+    outside.mkdir()
+    (outside / "chunk_ids.json").write_text("[]", encoding="utf-8")
+    (nb / "index" / "bm25").mkdir(parents=True)
+    (nb / "index" / "bm25" / "v9").symlink_to(outside, target_is_directory=True)
+
+    res = nc.perform_cutover("demo-nb", base=nb_base)
+
+    assert not (nb / "index" / "bm25" / "v9").exists()
+    assert (outside / "chunk_ids.json").is_file()
+    assert "index/bm25/v9" in res["invalidated_caches"]
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="symlink creation needs privilege on win32")
+def test_cutover_refuses_to_clear_a_symlinked_bm25_root(nb_base, tmp_path) -> None:
+    """Clearing a symlinked root would delete outside the notebook. The swap
+    has committed, so the operator is told what to clear."""
+    nb = nb_base / "demo-nb"
+    _write_lancedb(nb / "lancedb", version=5)
+    _write_lancedb(nb / "lancedb-staging", version=9)
+    outside = tmp_path / "outside-root"
+    (outside / "v9").mkdir(parents=True)
+    (nb / "index").mkdir(parents=True)
+    (nb / "index" / "bm25").symlink_to(outside, target_is_directory=True)
+
+    with pytest.raises(nc.CutoverError, match="symlink"):
+        nc.perform_cutover("demo-nb", base=nb_base)
+
+    assert (outside / "v9").is_dir()
+    assert (nb / "lancedb" / "_sentinel.txt").read_text() == "v9"
 
 
 def test_cutover_with_no_caches_reports_none(nb_base) -> None:
@@ -502,13 +547,14 @@ def test_rollback_drops_caches_keyed_by_the_restored_version(nb_base) -> None:
     _write_lancedb(nb / "lancedb", version=369)
     _write_lancedb(nb / "lancedb-staging", version=369)
     nc.perform_cutover("demo-nb", base=nb_base, force=True)
-    _seed_caches(nb, 369)
+    _seed_caches(nb, 369, 372)
 
     res = nc.perform_rollback("demo-nb", base=nb_base)
 
     assert not (nb / "cache" / "retrieval.db").exists()
     assert not (nb / "index" / "bm25" / "v369").exists()
-    assert "index/bm25/v369" in res["invalidated_caches"]
+    assert not (nb / "index" / "bm25" / "v372").exists()
+    assert {"index/bm25/v369", "index/bm25/v372"} <= set(res["invalidated_caches"])
 
 
 def test_cache_delete_failure_is_reported_after_the_swap(nb_base, monkeypatch) -> None:
@@ -539,3 +585,18 @@ def test_main_tells_the_operator_to_start_not_restart(nb_base, capsys) -> None:
     assert "deleted version-keyed caches" in out
     assert "START the arxmcp-server" in out
     assert "serving the pre-cutover data" not in out
+
+
+def _makefile_text() -> str:
+    return (Path(__file__).resolve().parent.parent / "Makefile").read_text(
+        encoding="utf-8"
+    )
+
+
+def test_makefile_recipe_does_not_say_the_cutover_builds_bm25() -> None:
+    text = _makefile_text()
+    start = text.index("\nnotebook-cutover:\n")
+    block = text[start:text.index("tools.notebook_cutover", start)]
+    assert "building the staging BM25" not in block
+    assert "BM25 is not built here" in block
+    assert "re-embed-runbook" in block

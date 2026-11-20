@@ -811,6 +811,21 @@ class TestStagingSentinel:
 # ---------------------------------------------------------------------------
 
 
+class TestMakefileReEmbedAllRotationNote:
+    """chunk-module-m2 rectify: the ``re-embed-all`` comment must not send
+    the one-time id rotation down the all-datasets path; its ``--dry-run``
+    only lists datasets and cannot run the runbook's reembed=0 check."""
+
+    def test_re_embed_all_points_the_rotation_at_the_runbook(self):
+        text = (
+            Path(__file__).resolve().parent.parent / "Makefile"
+        ).read_text(encoding="utf-8")
+        start = text.index("\nre-embed-all:\n")
+        block = text[start:text.index("\n\n", start + 1)]
+        assert "re-embed-runbook" in block
+        assert "run this once per chunker-bump" not in block
+
+
 class TestMakefileReEmbedArgsNote:
     """Closes IS1: the new `re-embed:` target documents the
     word-split hazard on $(ARGS) like the `ingest:` target does."""
@@ -898,6 +913,22 @@ class TestCliNotebook:
         re_embed._cli(["--notebook", "demo-nb", "--lancedb-staging-path", str(staging)])
 
         assert calls[0]["staging_lancedb_path"] == staging
+
+    def test_paper_ids_file_scopes_a_notebook_run(self, monkeypatch, tmp_path):
+        # The rotation runbook scopes a notebook run to the active table's
+        # own papers: without the file, papers.txt entries that never
+        # ingested join the run and fail it (chunk-module-m2 rectify).
+        re_embed, calls = self._capture(monkeypatch, tmp_path)
+        ids = tmp_path / "rotation-papers.txt"
+        ids.write_text("2401.00001\n# comment\n\ntextbook:abc\n", encoding="utf-8")
+
+        assert re_embed._cli(
+            ["--notebook", "demo-nb", "--paper-ids-file", str(ids), "--dry-run"]
+        ) == 0
+
+        (call,) = calls
+        assert call["paper_ids"] == ["2401.00001", "textbook:abc"]
+        assert call["notebook_slug"] == "demo-nb"
 
     def test_without_notebook_the_shared_defaults_hold(self, monkeypatch, tmp_path):
         from ingest.bulk_ingest import DEFAULT_LANCEDB_STAGING_PATH
@@ -1159,8 +1190,8 @@ class TestOneTimeIdRotation:
         stale_bm25 = nb / "index" / "bm25" / f"v{staging_version}"
         stale_bm25.mkdir(parents=True)
         (stale_bm25 / "chunk_ids.json").write_text(json.dumps(sorted(stored)))
-        kept_bm25 = nb / "index" / "bm25" / f"v{active_version}"
-        kept_bm25.mkdir(parents=True)
+        old_bm25 = nb / "index" / "bm25" / f"v{active_version}"
+        old_bm25.mkdir(parents=True)
 
         with pytest.raises(nc.CutoverError, match="--force"):
             nc.perform_cutover(ROT_SLUG, base=base)
@@ -1174,10 +1205,12 @@ class TestOneTimeIdRotation:
         assert not (cache / "retrieval.db").exists()
         assert not (cache / "retrieval.db-wal").exists()
         assert not stale_bm25.exists()
-        assert kept_bm25.is_dir()
+        # The old dataset's own BM25 dir goes too: the new table's version
+        # climbs toward it on later writes (chunk-module-m2 rectify).
+        assert not old_bm25.exists()
         assert sorted(result["invalidated_caches"]) == sorted([
             "cache/retrieval.db", "cache/retrieval.db-wal",
-            f"index/bm25/v{staging_version}",
+            f"index/bm25/v{staging_version}", f"index/bm25/v{active_version}",
         ])
 
     def test_a_changed_body_still_reaches_the_embedder(self, tmp_path):

@@ -402,12 +402,16 @@ re-embed-all:
 	@# embedder-truncation-m1 — notebook-aware re-embed driver.
 	@# Discovers every LanceDB dataset under var/arxmcp/notebooks/
 	@# (plus the shared corpus if non-empty) and invokes the single-
-	@# path re_embed driver against each. Required after CHUNKER_VERSION
-	@# bumps or token-budget changes that mandate corpus-wide rebuilds.
-	@#
-	@# Operator workflow: run this once per chunker-bump; expect a
-	@# multi-hour run for >10K chunks at the post-bump 2048-token
-	@# budget. ARGS forwards to the driver (e.g. ARGS="--dry-run").
+	@# path re_embed driver against each, for token-budget or embedder
+	@# changes that mandate corpus-wide rebuilds (embedder-truncation-m1:
+	@# expect a multi-hour run for >10K chunks when vectors change).
+	@# Since chunk-module-m1 reuse is by identity, so a chunker bump that
+	@# changes no body only copies vectors. For the one-time
+	@# chunk-module-m2 id rotation use `make re-embed
+	@# ARGS="--notebook=<slug>"` one notebook at a time, per
+	@# docs/ops/re-embed-runbook.md, not this target: ARGS="--dry-run"
+	@# here only lists datasets and cannot run that procedure's
+	@# per-paper reembed=0 check. ARGS forwards to the driver.
 	@#
 	@# NOTE on ARGS: paths inside ARGS must not contain spaces —
 	@# Make's shell expansion splits at whitespace before argparse
@@ -458,7 +462,8 @@ notebook-cutover:
 	@# Promotes each notebook's re-embedded var/arxmcp/notebooks/<slug>/
 	@# lancedb-staging to the live lancedb/ via an atomic two-rename swap
 	@# (lancedb/ -> lancedb-prev-<ts>/, lancedb-staging/ -> lancedb/),
-	@# building the staging BM25 index first and keeping N=2 backups.
+	@# keeping N=2 backups. BM25 is not built here; a fork-C server builds
+	@# it for the new version on startup.
 	@#
 	@# MEASURE-THEN-PROMOTE: run your pre/post comparison BEFORE this —
 	@# cutover destroys the side-by-side (old active vs new staging).
@@ -469,8 +474,9 @@ notebook-cutover:
 	@# STOP the server before a cutover and START it after. An open
 	@# table does not serve the old data across the swap: its reads
 	@# fail (lancedb 0.30.2, Linux; chunk-module-m2). The cutover
-	@# deletes the Tier-1 cache and BM25 dir keyed by the version it
-	@# makes active, since a fresh staging restarts version numbering.
+	@# deletes the notebook's Tier-1 cache and every bm25/v<N> dir,
+	@# since a fresh staging restarts version numbering. Operator
+	@# workflow: see docs/ops/re-embed-runbook.md.
 	@#
 	@# NOTE on ARGS: paths inside ARGS must not contain spaces — Make's
 	@# shell expansion splits at whitespace before argparse sees them.

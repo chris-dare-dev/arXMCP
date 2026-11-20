@@ -74,7 +74,12 @@ from ingest.bulk_ingest import (
 )
 from ingest.derived_indexes import build_derived_indexes
 from ingest.identifiers import is_valid_arxiv_paper_id
-from ingest.store import CORPUS_VERSION_MARKER_NAME, refuse_stale_chunker_rows
+from ingest.store import (
+    CORPUS_VERSION_MARKER_NAME,
+    STALE_CHUNKER_EXIT_CODE,
+    StaleChunkerRowsError,
+    refuse_stale_chunker_rows,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -721,6 +726,14 @@ def run_delta(
     if sleep_between_pages is None:
         sleep_between_pages = _politeness_sleep_since
 
+    # chunk-module-m2: never re-chunk in place across a chunker version.
+    # Refuse BEFORE the harvest: harvest_set persists last_harvest_date
+    # after every page, so a refusal after it would spend the window it
+    # fetched and never ingest it. A dry run writes nothing, so it is
+    # not refused.
+    if not dry_run:
+        refuse_stale_chunker_rows(lancedb_staging_path)
+
     # Clear any stale budget-breach sentinel BEFORE early-returning
     # on dry-run (closes F11): the operator may be running a smoke
     # test after a real breach and the sentinel should reflect the
@@ -789,9 +802,6 @@ def run_delta(
             print(f"{record.paper_id}\t{record.set_spec}\t{tag}")
         # Don't touch the state file on dry-run.
         return summary
-
-    # chunk-module-m2: never re-chunk in place across a chunker version.
-    refuse_stale_chunker_rows(lancedb_staging_path)
 
     for record in all_records:
         if record.deleted:
@@ -950,13 +960,20 @@ def _cli(argv: list[str]) -> int:
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
 
-    summary = run_delta(
-        from_date=args.from_date,
-        until_date=args.until_date,
-        lancedb_staging_path=args.lancedb_staging_path,
-        state_path=args.state_file,
-        dry_run=args.dry_run,
-    )
+    try:
+        summary = run_delta(
+            from_date=args.from_date,
+            until_date=args.until_date,
+            lancedb_staging_path=args.lancedb_staging_path,
+            state_path=args.state_file,
+            dry_run=args.dry_run,
+        )
+    except StaleChunkerRowsError as exc:
+        # A refusal, not a crash: no traceback in the journal, and its
+        # own exit code. Nothing was harvested or written (run_delta
+        # refuses before the harvest).
+        print(f"error: {exc}", file=sys.stderr)
+        return STALE_CHUNKER_EXIT_CODE
     rate_token = (
         ""
         if args.dry_run

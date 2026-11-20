@@ -720,6 +720,14 @@ class StaleChunkerRowsError(RuntimeError):
     """A write target holds arXiv rows another chunker version wrote."""
 
 
+#: Exit code the ingest CLIs (``ingest.bulk_ingest``, ``ingest.oai_delta``,
+#: ``tools/notebook_ingest.py``) return when they refuse a target with
+#: :class:`StaleChunkerRowsError`. A refusal is a state the operator must act
+#: on (rotate the table, ``docs/ops/re-embed-runbook.md``), not a fault, so it
+#: does not share exit 1 with a failed paper; 2 is argparse's usage error.
+STALE_CHUNKER_EXIT_CODE = 3
+
+
 def refuse_stale_chunker_rows(
     lancedb_path: str | Path, *, chunker_version: str = CHUNKER_VERSION
 ) -> None:

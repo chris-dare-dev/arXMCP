@@ -820,6 +820,31 @@ class TestChunkerVersionGuard:
     ``/ui/`` console) would ``merge_insert`` new-id rows beside the old ones,
     because ``write_chunks`` has no delete arm."""
 
+    def test_cli_reports_a_refusal_with_its_own_exit_code(
+        self, tmp_path, monkeypatch, capsys
+    ):
+        # A refusal is not a crash: one "error:" line, no traceback, and
+        # exit 3 rather than the failure exit 1 (chunk-module-m2 rectify).
+        import ingest.bulk_ingest as bulk
+        from ingest.store import STALE_CHUNKER_EXIT_CODE, StaleChunkerRowsError
+
+        ids = tmp_path / "ids.txt"
+        ids.write_text("2401.00001\n", encoding="utf-8")
+
+        def _refuse(*_a, **_k):
+            raise StaleChunkerRowsError("rotate it first (re-embed-runbook)")
+
+        monkeypatch.setattr(bulk, "run_bulk_ingest", _refuse)
+        code = bulk._cli([
+            "--paper-ids-file", str(ids),
+            "--lancedb-staging-path", str(tmp_path / "lancedb"),
+        ])
+
+        assert code == STALE_CHUNKER_EXIT_CODE == 3
+        err = capsys.readouterr().err
+        assert "error: rotate it first" in err
+        assert "Traceback" not in err
+
     def test_the_hazard_is_real(self, tmp_path):
         # Why the guard exists: the same body under a rotated id doubles.
         path = tmp_path / "lancedb"

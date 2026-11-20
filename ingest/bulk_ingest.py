@@ -75,6 +75,8 @@ from ingest.embedder import embed_paper
 from ingest.identifiers import is_valid_arxiv_paper_id
 from ingest.store import (
     DEFAULT_LANCEDB_PATH,
+    STALE_CHUNKER_EXIT_CODE,
+    StaleChunkerRowsError,
     WapGateError,
     load_embed_record,
     refuse_stale_chunker_rows,
@@ -585,13 +587,18 @@ def _cli(argv: list[str]) -> int:
         f"loaded {len(paper_ids)} paper ids from {args.paper_ids_file}"
     )
 
-    summary = run_bulk_ingest(
-        paper_ids,
-        lancedb_staging_path=args.lancedb_staging_path,
-        ar5iv_cache_dir=args.ar5iv_cache_dir,
-        limit=args.limit,
-        dry_run=args.dry_run,
-    )
+    try:
+        summary = run_bulk_ingest(
+            paper_ids,
+            lancedb_staging_path=args.lancedb_staging_path,
+            ar5iv_cache_dir=args.ar5iv_cache_dir,
+            limit=args.limit,
+            dry_run=args.dry_run,
+        )
+    except StaleChunkerRowsError as exc:
+        # A refusal, not a crash: no traceback, and its own exit code.
+        print(f"error: {exc}", file=sys.stderr)
+        return STALE_CHUNKER_EXIT_CODE
     # Closes F5: dry-run never actually queries ar5iv, so an
     # ar5iv_rate of 0.0 against an empty local cache would be
     # misleading. Omit the rate from the dry-run summary.

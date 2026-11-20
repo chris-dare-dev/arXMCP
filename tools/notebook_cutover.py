@@ -48,8 +48,8 @@ retrieval cache (``<notebook>/cache/retrieval.db``, keys salted with the
 version) lives outside the dataset and is keyed only by that integer; left in
 place it would serve result lists naming chunk ids the new table does not
 hold. It is a rebuildable cache, so after the swap commits
-:func:`_invalidate_version_keyed_caches` deletes it, along with any
-``index/bm25/v<N>`` for that version still outside the dataset. A shared
+:func:`_invalidate_version_keyed_caches` deletes it, along with every
+``index/bm25/v<N>`` dir still outside the dataset. A shared
 (fork-A) server's Tier-1 cache can hold rows for this notebook too; it is not
 in the notebook dir, so the operator deletes it while the server is stopped.
 """
@@ -166,15 +166,23 @@ def _prune_backups(nb: Path, retention: int = BACKUP_RETENTION) -> list[str]:
 _SQLITE_SUFFIXES = ("", "-wal", "-shm", "-journal")
 
 
-def _invalidate_version_keyed_caches(nb: Path, version: int | None) -> list[str]:
-    """Delete the notebook's caches keyed by the version a swap made active.
+def _invalidate_version_keyed_caches(nb: Path) -> list[str]:
+    """Delete the notebook's caches keyed by a bare version integer.
 
     Runs after a swap has committed. Deletes ``cache/retrieval.db`` (and its
     WAL siblings) whole, because every row in it belongs to this notebook and
     a key salted with a reused version integer is indistinguishable from a
-    live one, plus ``index/bm25/v<version>`` if present. Returns the removed
-    paths relative to ``nb``. Raises ``OSError`` on a delete failure; the
-    caller reports it, since a swap that left a stale cache needs an operator.
+    live one. Deletes every ``index/bm25/v<N>`` entry too, not only the one
+    for the version just made active: none was built from the newly active
+    dataset (a cutover never builds BM25), and any of them can alias a version
+    that dataset reaches on later writes. A symlinked ``v<N>`` entry is
+    unlinked, never followed; a symlinked ``index/bm25`` root is refused,
+    because clearing it would delete outside the notebook.
+
+    Returns the removed paths relative to ``nb``, with ``/`` separators on
+    every platform. Raises ``OSError`` on a delete failure or a symlinked
+    root; the caller reports it, since a swap that left a stale cache needs
+    an operator.
     """
     removed: list[str] = []
     cache_db = nb / "cache" / "retrieval.db"
@@ -182,12 +190,20 @@ def _invalidate_version_keyed_caches(nb: Path, version: int | None) -> list[str]
         path = cache_db.with_name(cache_db.name + suffix)
         if path.is_file():
             path.unlink()
-            removed.append(str(path.relative_to(nb)))
-    if version is not None:
-        bm25_dir = nb / "index" / "bm25" / f"v{version}"
-        if bm25_dir.is_dir() and not bm25_dir.is_symlink():
-            shutil.rmtree(bm25_dir)
-            removed.append(str(bm25_dir.relative_to(nb)))
+            removed.append(path.relative_to(nb).as_posix())
+    bm25_root = nb / "index" / "bm25"
+    if bm25_root.is_symlink():
+        raise OSError(f"{bm25_root} is a symlink; not following it")
+    if bm25_root.is_dir():
+        for entry in sorted(bm25_root.iterdir()):
+            name = entry.name
+            if not (name.startswith("v") and name[1:].isdigit()):
+                continue
+            if entry.is_symlink() or not entry.is_dir():
+                entry.unlink()
+            else:
+                shutil.rmtree(entry)
+            removed.append(entry.relative_to(nb).as_posix())
     return removed
 
 
@@ -215,8 +231,8 @@ def perform_cutover(
     - first-ingest case (no active dir): promote staging with NO backup.
 
     Then perform the two-rename swap with an EXDEV guard +
-    rollback-on-step-2-failure, invalidate the caches keyed by the promoted
-    version (:func:`_invalidate_version_keyed_caches`), and prune backups to
+    rollback-on-step-2-failure, invalidate every cache keyed by a bare
+    version integer (:func:`_invalidate_version_keyed_caches`), and prune backups to
     ``N=2`` (prune failure is non-fatal — the swap already committed).
     """
     validate_slug(slug)  # Threat-1 boundary, before any path construction.
@@ -296,20 +312,19 @@ def perform_cutover(
             ) from exc
         backup_name = backup.name
 
-    # chunk-module-m2: the swap has COMMITTED. Drop the caches keyed by the
-    # version integer just made active; a stale one would serve another
-    # dataset's chunk ids (Tier-1) or block startup (BM25). A failure here is
-    # NOT swallowed: the promotion stands, but the operator must clear the
-    # named path before starting the server.
+    # chunk-module-m2: the swap has COMMITTED. Drop the caches keyed by a bare
+    # version integer; a stale one would serve another dataset's chunk ids
+    # (Tier-1) or block startup (BM25). A failure here is NOT swallowed: the
+    # promotion stands, but the operator must clear the named paths before
+    # starting the server.
     try:
-        invalidated = _invalidate_version_keyed_caches(nb, staging_version)
+        invalidated = _invalidate_version_keyed_caches(nb)
     except OSError as exc:
         raise CutoverError(
             f"notebook {slug!r}: promoted v{staging_version}, but could not "
             f"delete its version-keyed caches ({exc}). Delete "
-            f"{nb / 'cache' / 'retrieval.db'}* and "
-            f"{nb / 'index' / 'bm25' / f'v{staging_version}'} before starting "
-            f"the server."
+            f"{nb / 'cache' / 'retrieval.db'}* and every "
+            f"{nb / 'index' / 'bm25'}/v<N> before starting the server."
         ) from exc
 
     # F2 (FM-3): the swap has COMMITTED. Pruning old backups is best-effort —
@@ -377,17 +392,15 @@ def perform_rollback(slug: str, *, base: Path | None = None) -> dict:
             f"notebook {slug!r}: rollback failed at step 2 ({exc}); restored"
         ) from exc
     # chunk-module-m2: a rollback is a swap too. While the demoted dataset
-    # was active, its caches were written under ITS version, which can equal
-    # the restored one after a forced cutover.
-    restored_info = read_corpus_version(active)
-    restored_version = restored_info.version if restored_info is not None else None
+    # was active, its caches were written under ITS versions, which can equal
+    # the restored dataset's after a forced cutover.
     try:
-        invalidated = _invalidate_version_keyed_caches(nb, restored_version)
+        invalidated = _invalidate_version_keyed_caches(nb)
     except OSError as exc:
         raise CutoverError(
             f"notebook {slug!r}: rolled back to {latest.name}, but could not "
             f"delete its version-keyed caches ({exc}); delete "
-            f"{nb / 'cache' / 'retrieval.db'}* and the matching "
+            f"{nb / 'cache' / 'retrieval.db'}* and every "
             f"{nb / 'index' / 'bm25'}/v<N> before starting the server."
         ) from exc
     return {
