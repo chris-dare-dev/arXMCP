@@ -91,6 +91,15 @@ def _markdown_path(nb_dir: Path, paper_id: str) -> Path:
             f"no MinerU markdown under {base}/**/auto/*.md; run the PDF "
             f"parse (MinerU) for {paper_id!r} first."
         )
+    # Several markdowns under one paper usually means an old parse sits
+    # beside a new one. Chunking them all would duplicate the book, and
+    # picking one could pick the stale copy, so refuse and name them.
+    if len(mds) > 1:
+        listed = ", ".join(str(p.relative_to(base)) for p in mds)
+        raise ValueError(
+            f"{len(mds)} MinerU markdowns under {base} for {paper_id!r} "
+            f"({listed}); remove all but the parse to ingest."
+        )
     return mds[0]
 
 

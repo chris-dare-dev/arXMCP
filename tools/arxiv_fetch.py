@@ -41,6 +41,9 @@ MAX_503_BACKOFF_SECONDS = 300.0
 #: Configurable via ARXMCP_LATEXML_TIMEOUT_S at module load.
 LATEXML_TIMEOUT_SECONDS = 300
 
+#: Environment variable that overrides :data:`LATEXML_TIMEOUT_SECONDS`.
+LATEXML_TIMEOUT_ENV: str = "ARXMCP_LATEXML_TIMEOUT_S"
+
 #: Bounds on the configurable LaTeXML timeout (inclusive). LaTeXML is faster
 #: than MinerU, so the floor is lower (30s) than MinerU's 60s; the 30-min cap
 #: covers the slowest real renders observed.
@@ -57,17 +60,11 @@ def _parse_latexml_timeout_from_env() -> float:
     returns :data:`LATEXML_TIMEOUT_SECONDS`, so behavior is unchanged unless
     an operator opts in.
 
-    ``ARXMCP_LATEXML_TIMEOUT_S`` is an ingest/CLI-only variable: it is read
-    here at import. It is registered in ``server/main.py``'s
-    ``_KNOWN_INGEST_ENV_VARS`` so the server's strict unknown-``ARXMCP_*`` scan
-    emits a TAILORED hint (names this CLI render path; tells the operator to
-    unset it for the server) — the server still REJECTS it by design, exactly
-    like ``ARXMCP_CONTACT_EMAIL``. The CLI ingest path
-    (``tools/notebook_textbook_ingest`` / ``ingest/textbook_renderer``) does
-    not load ``server/config``, so it consumes the var without tripping the
-    scan.
+    Both the ingest CLIs and the server read it: the console's PDF upload
+    renders through ``ingest/textbook_renderer`` inside the server process,
+    so the server's unknown-``ARXMCP_*`` scan accepts this name.
     """
-    raw = os.environ.get("ARXMCP_LATEXML_TIMEOUT_S", "").strip()
+    raw = os.environ.get(LATEXML_TIMEOUT_ENV, "").strip()
     if not raw:
         return float(LATEXML_TIMEOUT_SECONDS)
     try:

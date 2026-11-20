@@ -44,6 +44,12 @@ logger = logging.getLogger(__name__)
 #: decompression-bomb scenarios. Linux-only — see _RLIMIT_AS_PLATFORM.
 _MINERU_RLIMIT_AS_BYTES: int = 4 * 1024 * 1024 * 1024  # 4 GB
 
+#: Environment variables this module reads. The server's startup scan
+#: imports these names, because the console's PDF upload runs this parse
+#: inside the server process.
+MINERU_BIN_ENV: str = "ARXMCP_MINERU_BIN"
+MINERU_TIMEOUT_ENV: str = "ARXMCP_MINERU_TIMEOUT_S"
+
 #: Default wall-clock cap. 30 min covers Bourbaki-grade textbooks on
 #: M2-class hardware (~1-3 pages/sec). Configurable via
 #: ARXMCP_MINERU_TIMEOUT_S env var at module load (60–3600 inclusive).
@@ -121,7 +127,7 @@ def _parse_timeout_from_env() -> int:
     out-of-[_TIMEOUT_MIN_S, _TIMEOUT_MAX_S] with an explicit
     RuntimeError, NOT a silent clamp. Empty / unset uses the default.
     """
-    raw = os.environ.get("ARXMCP_MINERU_TIMEOUT_S", "").strip()
+    raw = os.environ.get(MINERU_TIMEOUT_ENV, "").strip()
     if not raw:
         return _DEFAULT_TIMEOUT_S
     try:
@@ -223,7 +229,7 @@ def _resolve_mineru_binary(explicit: str | None = None) -> str:
                 f"not point to a file."
             )
         return explicit
-    env_path = os.environ.get("ARXMCP_MINERU_BIN", "").strip()
+    env_path = os.environ.get(MINERU_BIN_ENV, "").strip()
     if env_path:
         if not Path(env_path).is_file():
             raise RuntimeError(

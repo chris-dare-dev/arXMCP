@@ -229,6 +229,34 @@ class TestErrorEnvelopeAndRouting:
         # tmp_path has no parsed/**/auto/*.md -> _markdown_path raises -> caught.
         assert mod.chunk_textbook_markdown(SLUG, "textbook:nope") == []
 
+    def test_several_markdowns_for_one_paper_are_refused(
+        self, monkeypatch, tmp_path, caplog
+    ) -> None:
+        import ingest.textbook_markdown_chunker as mod
+        from ingest.textbook_chunker import _flat_paper_id
+
+        base = tmp_path / "parsed" / _flat_paper_id(PID)
+        for parse in ("old_mineru", "new_mineru"):
+            auto = base / parse / "book" / "auto"
+            auto.mkdir(parents=True)
+            (auto / "book.md").write_text("# Chapter\n\nText.\n")
+        monkeypatch.setattr(mod, "_resolve_notebook_dir", lambda slug: tmp_path)
+
+        assert mod.chunk_textbook_markdown(SLUG, PID) == []
+        assert "2 MinerU markdowns" in caplog.text
+        assert "old_mineru" in caplog.text and "new_mineru" in caplog.text
+
+    def test_one_markdown_is_chunked(self, monkeypatch, tmp_path) -> None:
+        import ingest.textbook_markdown_chunker as mod
+        from ingest.textbook_chunker import _flat_paper_id
+
+        auto = tmp_path / "parsed" / _flat_paper_id(PID) / "p_mineru" / "auto"
+        auto.mkdir(parents=True)
+        (auto / "book.md").write_text("# Chapter\n\nSome text here.\n")
+        monkeypatch.setattr(mod, "_resolve_notebook_dir", lambda slug: tmp_path)
+
+        assert mod.chunk_textbook_markdown(SLUG, PID)
+
     def test_non_utf8_markdown_returns_empty_not_raises(
         self, monkeypatch, tmp_path
     ) -> None:

@@ -83,6 +83,7 @@ if TYPE_CHECKING:
 from fastapi import FastAPI
 from prometheus_client import make_asgi_app
 
+from ingest.textbook_parser import MINERU_BIN_ENV, MINERU_TIMEOUT_ENV
 from server import session
 from server.config import Config
 from server.health import (
@@ -92,7 +93,9 @@ from server.health import (
     router as health_router,
 )
 from server.model_loader import TRUST_REMOTE_CODE_ENV
+from server.observability.sanitize import SANITIZE_ENV_VAR
 from server.resources import Resources
+from tools.arxiv_fetch import LATEXML_TIMEOUT_ENV
 
 logger = logging.getLogger(__name__)
 
@@ -323,31 +326,6 @@ _KNOWN_INGEST_ENV_VARS: dict[str, str] = {
         "ingest/graph_ingest.py) for the arXiv polite-pool User-Agent. "
         "Unset it for the server."
     ),
-    "ARXMCP_LATEXML_TIMEOUT_S": (
-        "is NOT a server config var; it is read at import by the "
-        "textbook-ingest CLI path (tools/arxiv_fetch.py "
-        "parse_with_latexml + ingest/textbook_renderer.py "
-        "render_mineru_to_html) to cap the LaTeXML render wall-clock "
-        "for math-dense PDFs. The server never invokes LaTeXML. "
-        "Unset it for the server."
-    ),
-    # ingest-robustness-m1 AC3: MinerU is a textbook/PDF ingest-side concern
-    # (ingest/textbook_parser.py). The server never invokes MinerU. Prefer
-    # persisting the binary path via `make init MINERU_BIN=…` (operator_settings)
-    # over exporting the env var, so `make up` never trips the unknown-var scan.
-    "ARXMCP_MINERU_BIN": (
-        "is NOT a server config var; it is read at parse time by the "
-        "textbook/PDF ingest path (ingest/textbook_parser.py "
-        "_resolve_mineru_binary) to locate the mineru CLI. Prefer persisting "
-        "it via `make init MINERU_BIN=<abs path>` (operator_settings) so no "
-        "export is needed. Unset it for the server."
-    ),
-    "ARXMCP_MINERU_TIMEOUT_S": (
-        "is NOT a server config var; it is read at import by the "
-        "textbook/PDF ingest path (ingest/textbook_parser.py) to cap the "
-        "MinerU parse wall-clock. The server never invokes MinerU. "
-        "Unset it for the server."
-    ),
 }
 
 
@@ -411,8 +389,36 @@ def _format_unknown_arxmcp_env_var(
 
 #: ``ARXMCP_*`` variables the server process reads straight from the
 #: environment rather than through ``Config``. Each name is imported from
-#: the module that reads it, so the two cannot drift apart.
-_DIRECT_SERVER_ENV_VARS: frozenset[str] = frozenset({TRUST_REMOTE_CODE_ENV})
+#: the module that reads it, so the two cannot drift apart. The MinerU and
+#: LaTeXML names are here because the console's PDF upload parses and
+#: renders inside the server process.
+_DIRECT_SERVER_ENV_VARS: frozenset[str] = frozenset({
+    TRUST_REMOTE_CODE_ENV,
+    SANITIZE_ENV_VAR,
+    MINERU_BIN_ENV,
+    MINERU_TIMEOUT_ENV,
+    LATEXML_TIMEOUT_ENV,
+})
+
+#: ``ARXMCP_*`` variables that belong to the test suite and the ops
+#: scripts. The server never reads them, and none can be mistaken for a
+#: server setting, so the scan lets them through: an operator who exported
+#: one in the same shell can still start the server. ``ops/`` is not an
+#: importable package, so its names are listed here rather than imported.
+_TOOLING_ENV_PREFIXES: tuple[str, ...] = ("ARXMCP_RUN_",)
+_TOOLING_ENV_VARS: frozenset[str] = frozenset({
+    "ARXMCP_EVAL_REGRESSION_THRESHOLD_PCT",
+    "ARXMCP_PY",
+    "ARXMCP_RESTIC_CHECK",
+    "ARXMCP_RESTORE_DRILL_PATH",
+    "ARXMCP_UV",
+})
+
+
+def _is_tooling_env_var(env_name: str) -> bool:
+    return env_name in _TOOLING_ENV_VARS or env_name.startswith(
+        _TOOLING_ENV_PREFIXES
+    )
 
 
 def _scan_unknown_arxmcp_env_vars(config: Config) -> None:
@@ -424,7 +430,8 @@ def _scan_unknown_arxmcp_env_vars(config: Config) -> None:
     scan walks ``os.environ`` and accepts a name only if it is a
     ``Config`` field (derived from ``Config.model_fields``, so a new
     field extends it automatically) or one of
-    :data:`_DIRECT_SERVER_ENV_VARS`. Rejected names get a hint: a
+    :data:`_DIRECT_SERVER_ENV_VARS`, and ignores the test and ops names
+    in :func:`_is_tooling_env_var`. Rejected names get a hint: a
     tailored one for known ingest-tool vars, a close-match suggestion
     for typos, or the three nearest declared names.
     """
@@ -434,7 +441,9 @@ def _scan_unknown_arxmcp_env_vars(config: Config) -> None:
     unknown = sorted(
         env_name
         for env_name in os.environ
-        if env_name.startswith("ARXMCP_") and env_name not in declared
+        if env_name.startswith("ARXMCP_")
+        and env_name not in declared
+        and not _is_tooling_env_var(env_name)
     )
     if not unknown:
         return

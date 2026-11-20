@@ -237,6 +237,7 @@ def _edge_kind_for_result(direction: Direction, rels: list[dict[str, Any]]) -> s
 def _lookup_chunk_ids_for_papers(
     paper_ids: set[str],
     lancedb_path: str | Path | None,
+    chunks_table: Any | None = None,
 ) -> dict[str, str | None]:
     """Map ``paper_id`` → representative ``chunk_id`` (or ``None``).
 
@@ -252,10 +253,10 @@ def _lookup_chunk_ids_for_papers(
     best-effort and the docstring on the dataclass explains the
     semantic.
 
-    When ``lancedb_path`` is ``None`` or the path doesn't exist (e.g.
-    in unit tests that exercise the graph-only path), every paper
-    maps to ``None``. This keeps the function callable without
-    LanceDB present.
+    ``chunks_table`` is read when given; otherwise ``lancedb_path`` is
+    opened at its latest version. When neither is usable (e.g. in unit
+    tests that exercise the graph-only path), every paper maps to
+    ``None``. This keeps the function callable without LanceDB present.
 
     Returns a dict containing every requested ``paper_id`` (defensive:
     a missing key in the caller would silently produce ``None``).
@@ -263,20 +264,23 @@ def _lookup_chunk_ids_for_papers(
     out: dict[str, str | None] = {pid: None for pid in paper_ids}
     if not paper_ids:
         return out
-    if lancedb_path is None:
-        return out
-    path = Path(lancedb_path)
-    if not path.exists():
-        return out
+    if chunks_table is not None:
+        table = chunks_table
+    else:
+        if lancedb_path is None:
+            return out
+        path = Path(lancedb_path)
+        if not path.exists():
+            return out
 
-    # Local import to avoid pulling lancedb / pyarrow on the cold path
-    # (e.g. tests that don't need the chunk-id lookup).
-    from server.corpus import open_chunks_table
+        # Local import to avoid pulling lancedb / pyarrow on the cold
+        # path (e.g. tests that don't need the chunk-id lookup).
+        from server.corpus import open_chunks_table
 
-    try:
-        table = open_chunks_table(lancedb_path=str(path), version=None)
-    except FileNotFoundError:
-        return out
+        try:
+            table = open_chunks_table(lancedb_path=str(path), version=None)
+        except FileNotFoundError:
+            return out
 
     ids_csv = ",".join(f"'{_escape_sql(pid)}'" for pid in sorted(paper_ids))
     kinds_csv = ",".join(f"'{k}'" for k in _REPRESENTATIVE_KIND_PRIORITY)
@@ -327,6 +331,7 @@ async def cite_neighbors(
     max_results: int = DEFAULT_MAX_RESULTS,
     kuzudb_path: str | Path = DEFAULT_KUZUDB_PATH,
     lancedb_path: str | Path | None = None,
+    chunks_table: Any | None = None,
 ) -> list[CitationNeighbor]:
     """Return citation neighbors of ``chunk_id`` up to ``depth`` hops.
 
@@ -357,6 +362,11 @@ async def cite_neighbors(
             ``None`` means "no chunk-id lookup; every result has
             ``chunk_id=None``" — useful for graph-only callers and
             for unit tests that don't materialize a LanceDB table.
+        chunks_table: an open LanceDB ``chunks`` table. When given, it
+            is used instead of opening ``lancedb_path``. The server
+            passes the table it pinned at startup, so every returned
+            ``chunk_id`` resolves through ``get_chunk``; opening the path
+            would read the latest version, which can be ahead of it.
 
     Returns: a list of ``CitationNeighbor``, ordered by
     ``(hop_distance ASC, paper_id ASC)``.
@@ -416,7 +426,10 @@ async def cite_neighbors(
     # query. Out-of-corpus papers map to None (AC#7).
     candidate_paper_ids = {pid for pid, _ in capped}
     chunk_id_map = await asyncio.to_thread(
-        _lookup_chunk_ids_for_papers, candidate_paper_ids, lancedb_path
+        _lookup_chunk_ids_for_papers,
+        candidate_paper_ids,
+        lancedb_path,
+        chunks_table,
     )
 
     return [

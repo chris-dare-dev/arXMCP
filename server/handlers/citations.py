@@ -96,7 +96,8 @@ async def handle_cite_neighbors(
     # from Config via the Resources singleton — never from the agent's
     # JSON arguments. The agent controls only chunk_id/direction/
     # depth/limit (all validated above / by Pydantic).
-    config = get_resources().config
+    resources = get_resources()
+    config = resources.config
     kuzu_path = config.kuzu_path
 
     neighbors: list[dict[str, Any]] = []
@@ -113,6 +114,9 @@ async def handle_cite_neighbors(
                 max_results=limit,
                 kuzudb_path=str(kuzu_path),
                 lancedb_path=str(config.lancedb_path),
+                # Resolve chunk_ids at the corpus version every other
+                # handler reads, so get_chunk finds each one.
+                chunks_table=resources.chunks_table,
             )
         except RuntimeError as exc:
             # The Kùzu path exists but is not a queryable graph — a

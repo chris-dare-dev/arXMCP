@@ -403,41 +403,53 @@ class TestConfigValidation:
         with pytest.raises(ValueError, match="ARXMCP_CONTACT_EMAIL"):
             _scan_unknown_arxmcp_env_vars(cfg)
 
-    def test_latexml_timeout_env_var_rejected(self, monkeypatch):
-        """textbook-render-robustness-m1 F5: ``ARXMCP_LATEXML_TIMEOUT_S`` is an
-        ingest/CLI-only var (read by ``tools/arxiv_fetch.py`` /
-        ``ingest/textbook_renderer.py`` to cap the LaTeXML render). Like
-        ``ARXMCP_CONTACT_EMAIL`` it is registered in ``_KNOWN_INGEST_ENV_VARS``
-        for a TAILORED hint, but the server still REJECTS it by design. Pins
-        that the carve-out message names the LaTeXML render path."""
+    @pytest.mark.parametrize(
+        ("var", "value"),
+        [
+            # The console's PDF upload parses and renders inside the
+            # server, so these knobs must be settable for `make up`.
+            ("ARXMCP_MINERU_BIN", "/opt/mineru/bin/mineru"),
+            ("ARXMCP_MINERU_TIMEOUT_S", "3600"),
+            ("ARXMCP_LATEXML_TIMEOUT_S", "900"),
+            # The documented way to turn the retrieval sanitizer on.
+            ("ARXMCP_SANITIZE_RETRIEVED_CONTENT", "1"),
+        ],
+    )
+    def test_env_vars_the_server_reads_are_accepted(
+        self, monkeypatch, var, value
+    ):
         from server.main import _scan_unknown_arxmcp_env_vars
 
-        monkeypatch.setenv("ARXMCP_LATEXML_TIMEOUT_S", "900")
-        cfg = Config()
-        with pytest.raises(ValueError, match="ARXMCP_LATEXML_TIMEOUT_S") as exc:
-            _scan_unknown_arxmcp_env_vars(cfg)
+        monkeypatch.setenv(var, value)
+        _scan_unknown_arxmcp_env_vars(Config())
+
+    @pytest.mark.parametrize(
+        "var",
+        [
+            "ARXMCP_RUN_REAL_MINERU",
+            "ARXMCP_RUN_FULL_CORPUS_TESTS",
+            "ARXMCP_EVAL_REGRESSION_THRESHOLD_PCT",
+            "ARXMCP_UV",
+        ],
+    )
+    def test_test_and_ops_env_vars_do_not_block_startup(
+        self, monkeypatch, var
+    ):
+        from server.main import _scan_unknown_arxmcp_env_vars
+
+        monkeypatch.setenv(var, "1")
+        _scan_unknown_arxmcp_env_vars(Config())
+
+    def test_typo_is_still_rejected_beside_tooling_vars(self, monkeypatch):
+        from server.main import _scan_unknown_arxmcp_env_vars
+
+        monkeypatch.setenv("ARXMCP_RUN_REAL_MINERU", "1")
+        monkeypatch.setenv("ARXMCP_BIND_HOTS", "127.0.0.1")
+        with pytest.raises(ValueError) as exc:
+            _scan_unknown_arxmcp_env_vars(Config())
         msg = str(exc.value)
-        assert "LaTeXML" in msg or "render" in msg
-
-    def test_mineru_env_vars_rejected(self, monkeypatch):
-        """ingest-robustness-m1 M1: ARXMCP_MINERU_BIN / ARXMCP_MINERU_TIMEOUT_S
-        are ingest-only (read by ingest/textbook_parser.py for the MinerU
-        Stage-1 parse). Like the other ingest vars they are registered in
-        _KNOWN_INGEST_ENV_VARS for a TAILORED hint, but the server still REJECTS
-        them by design. Pins that each carve-out message names the var + the
-        MinerU/textbook ingest path — a typo or removed key would silently
-        regress the friendly hint to a generic close-match suggestion, the exact
-        operator footgun AC3 exists to prevent."""
-        from server.main import _scan_unknown_arxmcp_env_vars
-
-        for var in ("ARXMCP_MINERU_BIN", "ARXMCP_MINERU_TIMEOUT_S"):
-            monkeypatch.setenv(var, "x")
-            cfg = Config()
-            with pytest.raises(ValueError, match=var) as exc:
-                _scan_unknown_arxmcp_env_vars(cfg)
-            msg = str(exc.value)
-            assert "MinerU" in msg or "mineru" in msg or "textbook" in msg
-            monkeypatch.delenv(var, raising=False)
+        assert "ARXMCP_BIND_HOTS" in msg
+        assert "ARXMCP_RUN_REAL_MINERU" not in msg
 
 
 # ===========================================================================
