@@ -426,8 +426,8 @@ def run_watchdog(
     to substitute the live retrieval pipeline. Signature:
     ``compute_eval(*, fixture, corpus_version, lancedb_staging_path,
     rerank_enabled) -> (per_query_rows: list[dict], rerank_enabled:
-    bool)``. The default (lazy import) wires the real
-    ``_run_hybrid_against_corpus`` from the existing test harness.
+    bool)``. The default runs the real pipeline through
+    :func:`ops.retrieval_eval.run_hybrid_against_corpus`.
     """
     started = time.monotonic()
 
@@ -692,26 +692,18 @@ def _default_compute_eval(
     staging LanceDB at the pinned ``corpus_version`` and return
     per-query rows + the final rerank-enabled flag.
 
-    Closes adversary F1: previously this function raised
-    ``NotImplementedError`` and the CLI crashed against any
-    populated fixture. Now wired to the existing harness's
-    ``_run_hybrid_against_corpus`` from
-    ``tests/eval/test_retrieval_quality.py`` (which already lives
-    pytest-free at function level).
+    Scores through :func:`ops.retrieval_eval.run_hybrid_against_corpus`,
+    the same harness ``make eval`` uses.
 
     **Requires a live BGE-M3 model.** This function is only
     invoked from the CLI; tests substitute ``compute_eval`` via
     the ``run_watchdog(compute_eval=...)`` seam. Lazy-imports the
     server stack so the watchdog module remains cheap to import.
     """
-    import asyncio  # noqa: PLC0415
-
+    from ops.retrieval_eval import run_hybrid_against_corpus  # noqa: PLC0415
     from server.config import Config  # noqa: PLC0415
     from server.corpus import open_chunks_table  # noqa: PLC0415
     from server.query_encoder import encode_query  # noqa: PLC0415
-    from tests.eval.test_retrieval_quality import (  # noqa: PLC0415
-        _run_hybrid_against_corpus,
-    )
 
     # Build a Config with the requested rerank flag. Mirrors the
     # E07_S04 eval harness path so a watchdog run sees the same
@@ -727,21 +719,13 @@ def _default_compute_eval(
         version=corpus_version,
     )
 
-    # The harness's _run_hybrid_against_corpus signature requires
-    # an async `encode_query` callable. The server's
-    # query_encoder.encode_query is already async.
-    rows = _run_hybrid_against_corpus(
+    rows = run_hybrid_against_corpus(
         fixture.get("queries", []),
         tbl,
         encode_query,
         corpus_version=corpus_version,
         rerank_enabled=cfg.enable_rerank,
     )
-    # Defensive: close the asyncio event loop set up inside
-    # _run_hybrid_against_corpus. The helper manages its own
-    # loop via ``loop.run_until_complete``; this comment is here
-    # to document the asyncio import above as load-bearing.
-    del asyncio
     return rows, cfg.enable_rerank
 
 
