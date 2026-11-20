@@ -52,6 +52,9 @@ class _RecordingTable:
     def search(self, *args: Any, **kwargs: Any) -> _RecordingQuery:
         return _RecordingQuery(self._inner.search(*args, **kwargs), self.scans)
 
+    def count_rows(self, *args: Any, **kwargs: Any) -> int:
+        return self._inner.count_rows(*args, **kwargs)
+
 
 @pytest.fixture
 def chunks(tmp_path: Path):
@@ -100,6 +103,42 @@ def test_reply_is_built_from_a_projected_scan(chunks: _RecordingTable) -> None:
     assert sorted(chunks.scans[0]) == [
         "chunker_version", "embedder_version", "section_path",
     ]
+
+
+def test_a_paper_past_the_old_row_cap_is_counted_in_full(
+    tmp_path: Path,
+) -> None:
+    n = 10_050
+    rows = [
+        {"chunk_id": f"textbook:big:{i:016x}", "paper_id": "textbook:big",
+         "kind": "stmt", "section_path": [f"Ch {i % 12}"],
+         "chunker_version": "tmd0.1", "embedder_version": "ev-3",
+         "source_kind": "textbook"}
+        for i in range(n)
+    ]
+    path = build_synthetic_lancedb(tmp_path / "lancedb", rows)
+
+    class _Config:
+        result_byte_cap = 256 * 1024
+
+    class _CorpusInfo:
+        version = 1
+
+    class _Resources:
+        config = _Config()
+        corpus_info = _CorpusInfo()
+        chunks_table = lancedb.connect(str(path)).open_table("chunks")
+        paper_metadata_store = None
+
+    set_resources(_Resources())  # type: ignore[arg-type]
+    try:
+        reply = asyncio.run(handle_get_paper(paper_id="textbook:big"))
+    finally:
+        reset_resources_for_tests()
+
+    assert reply["found"] is True
+    assert reply["paper"]["chunk_count"] == n
+    assert reply["paper"]["section_count"] == 12
 
 
 def test_unknown_paper_still_reports_not_found(chunks: _RecordingTable) -> None:

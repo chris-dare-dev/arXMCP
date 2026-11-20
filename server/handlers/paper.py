@@ -160,15 +160,12 @@ async def handle_get_paper(
     # LanceDB has no group-by, so pull the paper's rows and aggregate
     # here. Only the columns read below: without a select, every row
     # carries both 1024-float embedding columns and the full body text.
-    arrow = (
-        r.chunks_table.search()
-        .where(f"paper_id = '{_escape(paper_id)}'", prefilter=True)
-        .select(_PAPER_CHUNK_COLUMNS)
-        .limit(10000)
-        .to_arrow()
-    )
+    # The count comes first and sets the limit, so a book with many
+    # chunks is counted and summarised in full rather than at a cap.
+    paper_filter = f"paper_id = '{_escape(paper_id)}'"
+    chunk_count = r.chunks_table.count_rows(paper_filter)
 
-    if arrow.num_rows == 0:
+    if chunk_count == 0:
         return envelope(_cap(
             {
                 "found": False,
@@ -177,6 +174,14 @@ async def handle_get_paper(
                 "paper_id": paper_id,
             }
         ))
+
+    arrow = (
+        r.chunks_table.search()
+        .where(paper_filter, prefilter=True)
+        .select(_PAPER_CHUNK_COLUMNS)
+        .limit(chunk_count)
+        .to_arrow()
+    )
 
     section_first = set()
     for sp in arrow.column("section_path").to_pylist():
@@ -189,7 +194,7 @@ async def handle_get_paper(
         "abstract": None,
         "authors": None,
         "categories": None,
-        "chunk_count": arrow.num_rows,
+        "chunk_count": chunk_count,
         "chunker_version": chunker_versions[0] if chunker_versions else None,
         "embedder_version": embedder_versions[0] if embedder_versions else None,
         "paper_id": paper_id,
