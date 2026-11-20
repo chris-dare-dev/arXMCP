@@ -44,7 +44,12 @@ if ! command -v flock >/dev/null 2>&1; then
 fi
 
 LOCK_PATH="${REPO_ROOT}/var/arxmcp/ops/.cutover.lock"
+# The watchdog cron writes reports into the directory cutover's
+# post-activation gate reads, so cutover also holds the watchdog's lock:
+# the two never run at the same time.
+WATCHDOG_LOCK_PATH="${REPO_ROOT}/var/arxmcp/ops/.watchdog.lock"
 mkdir -p "$(dirname "${LOCK_PATH}")"
 
 exec flock -n "${LOCK_PATH}" \
+    flock -n "${WATCHDOG_LOCK_PATH}" \
     "${UV_BIN}" run python -m ops.cutover "$@"

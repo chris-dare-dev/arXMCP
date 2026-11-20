@@ -524,7 +524,10 @@ class TestRunCutover:
                     "LanceDB integrity (staging)", True, "stub"
                 ),
             ),
-            patch("ops.cutover.poll_readyz", return_value=True),
+            patch(
+                "ops.cutover.wait_for_promoted_server",
+                return_value=(True, 42),
+            ) as wait,
         ):
             rc = run_cutover(
                 active_path=active,
@@ -538,6 +541,7 @@ class TestRunCutover:
                 skip_post_activation=True,
             )
         assert rc == 0
+        assert wait.call_args.kwargs["expected_version"] == 42
         # Swap completed: active now has the staging data + marker.
         assert (active / "NEW-data").is_file()
         marker = json.loads((active / "corpus-version.json").read_text())
@@ -669,26 +673,31 @@ class TestPostActivationAbsoluteFloor:
         # threshold).
         report_dir = tmp_path / "eval-reports"
         report_dir.mkdir()
-        (report_dir / "corpus_v42-20260515T000000.json").write_text(
-            json.dumps(
-                {
-                    "corpus_version": 42,
-                    "ndcg5_mean": 0.75,
-                    "alert_triggered": False,
-                    "timestamp": "2026-05-15T00:00:00Z",
-                }
-            )
-        )
 
         class _FakeCompleted:
             returncode = 0
             stderr = ""
 
+        def _runner(*_args, **_kw):
+            # The watchdog subprocess writes its report during the run.
+            (report_dir / "corpus_v42-20260515T000000.json").write_text(
+                json.dumps(
+                    {
+                    "corpus_version": 42,
+                    "ndcg5_mean": 0.75,
+                    "alert_triggered": False,
+                    "timestamp": "2026-05-15T00:00:00Z",
+                }
+                )
+            )
+            return _FakeCompleted()
+
         r = run_post_activation_watchdog(
+            corpus_version=42,
             active_path=tmp_path / "lancedb",
             report_dir=report_dir,
             ndcg5_min=0.80,
-            runner=lambda *_args, **_kw: _FakeCompleted(),
+            runner=_runner,
         )
         assert r.ok is False
         assert "0.7500" in r.reason or "< 0.8" in r.reason
@@ -698,26 +707,31 @@ class TestPostActivationAbsoluteFloor:
 
         report_dir = tmp_path / "eval-reports"
         report_dir.mkdir()
-        (report_dir / "corpus_v42-20260515T000000.json").write_text(
-            json.dumps(
-                {
-                    "corpus_version": 42,
-                    "ndcg5_mean": 0.85,
-                    "alert_triggered": False,
-                    "timestamp": "2026-05-15T00:00:00Z",
-                }
-            )
-        )
 
         class _FakeCompleted:
             returncode = 0
             stderr = ""
 
+        def _runner(*_args, **_kw):
+            # The watchdog subprocess writes its report during the run.
+            (report_dir / "corpus_v42-20260515T000000.json").write_text(
+                json.dumps(
+                    {
+                    "corpus_version": 42,
+                    "ndcg5_mean": 0.85,
+                    "alert_triggered": False,
+                    "timestamp": "2026-05-15T00:00:00Z",
+                }
+                )
+            )
+            return _FakeCompleted()
+
         r = run_post_activation_watchdog(
+            corpus_version=42,
             active_path=tmp_path / "lancedb",
             report_dir=report_dir,
             ndcg5_min=0.80,
-            runner=lambda *_args, **_kw: _FakeCompleted(),
+            runner=_runner,
         )
         assert r.ok is True
 
@@ -729,6 +743,7 @@ class TestPostActivationAbsoluteFloor:
             stderr = "synthetic failure"
 
         r = run_post_activation_watchdog(
+            corpus_version=42,
             active_path=tmp_path / "lancedb",
             report_dir=tmp_path / "missing",
             ndcg5_min=0.80,
@@ -745,9 +760,16 @@ class TestPostActivationAbsoluteFloor:
 
         report_dir = tmp_path / "eval-reports"
         report_dir.mkdir()
-        (report_dir / "corpus_v42-20260515T000000.json").write_text(
-            json.dumps(
-                {
+
+        class _FakeCompleted:
+            returncode = 0
+            stderr = ""
+
+        def _runner(*_args, **_kw):
+            # The watchdog subprocess writes its report during the run.
+            (report_dir / "corpus_v42-20260515T000000.json").write_text(
+                json.dumps(
+                    {
                     "corpus_version": 42,
                     "ndcg5_mean": None,
                     "alert_triggered": False,
@@ -755,18 +777,16 @@ class TestPostActivationAbsoluteFloor:
                     "query_count": 4,
                     "timestamp": "2026-05-15T00:00:00Z",
                 }
+                )
             )
-        )
-
-        class _FakeCompleted:
-            returncode = 0
-            stderr = ""
+            return _FakeCompleted()
 
         r = run_post_activation_watchdog(
+            corpus_version=42,
             active_path=tmp_path / "lancedb",
             report_dir=report_dir,
             ndcg5_min=0.80,
-            runner=lambda *_args, **_kw: _FakeCompleted(),
+            runner=_runner,
         )
         assert r.ok is True
         assert "underpowered" in r.reason
@@ -806,3 +826,177 @@ class TestBackupWrapperRectifications:
         assert "partial" in text
         # Restic exit 3 specifically called out.
         assert "-eq 3" in text
+
+
+# ---------------------------------------------------------------------------
+# The server answering after a swap must be serving the promoted corpus
+# ---------------------------------------------------------------------------
+
+
+class _FakeHttp:
+    """Answers /readyz with 200 and /status with a scripted version."""
+
+    def __init__(self, versions: list[int]) -> None:
+        self._versions = versions
+
+    def __call__(self, url, **_kw):  # noqa: ANN001
+        outer = self
+
+        class _Resp:
+            status = 200
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def read(self) -> bytes:
+                version = (
+                    outer._versions.pop(0)
+                    if len(outer._versions) > 1
+                    else outer._versions[0]
+                )
+                return json.dumps(
+                    {"checks": {"corpus:version": [{"observedValue": version}]}}
+                ).encode()
+
+        return _Resp()
+
+
+class _Clock:
+    def __init__(self) -> None:
+        self.now = 0.0
+
+    def monotonic(self) -> float:
+        return self.now
+
+    def sleep(self, seconds: float) -> None:
+        self.now += seconds
+
+
+class TestWaitForPromotedServer:
+    def test_a_server_still_on_the_old_corpus_does_not_pass(self):
+        from ops.cutover import wait_for_promoted_server
+
+        clock = _Clock()
+        ok, seen = wait_for_promoted_server(
+            expected_version=42,
+            total_timeout=20.0,
+            interval=5.0,
+            sleep=clock.sleep,
+            monotonic=clock.monotonic,
+            urlopen=_FakeHttp([7]),
+        )
+        assert (ok, seen) == (False, 7)
+
+    def test_passes_once_the_restarted_server_reports_the_promoted_version(self):
+        from ops.cutover import wait_for_promoted_server
+
+        clock = _Clock()
+        ok, seen = wait_for_promoted_server(
+            expected_version=42,
+            total_timeout=60.0,
+            interval=5.0,
+            sleep=clock.sleep,
+            monotonic=clock.monotonic,
+            urlopen=_FakeHttp([7, 7, 42]),
+        )
+        assert (ok, seen) == (True, 42)
+
+    def test_run_cutover_fails_when_the_old_server_keeps_answering(
+        self, tmp_path, capsys
+    ):
+        active = tmp_path / "lancedb"
+        _write_marker(active, version=7)
+        staging = tmp_path / "lancedb-staging"
+        _write_marker(staging, version=42)
+        eval_dir = tmp_path / "eval"
+        _write_aggregate(eval_dir, version=7, ndcg5=0.85)
+        reports = tmp_path / "eval-reports"
+        _write_watchdog_report(reports, version=42, ndcg5=0.83)
+        state = tmp_path / "re-embed-state.json"
+        _write_re_embed_state(state, "complete")
+        drill = tmp_path / "restore-drill-passed.flag"
+        _write_drill_flag(drill)
+
+        with (
+            patch(
+                "ops.cutover.verify_lancedb_integrity",
+                return_value=CriterionResult(
+                    "LanceDB integrity (staging)", True, "stub"
+                ),
+            ),
+            patch(
+                "ops.cutover.wait_for_promoted_server",
+                return_value=(False, 7),
+            ),
+            patch("ops.cutover.run_post_activation_watchdog") as post,
+        ):
+            rc = run_cutover(
+                active_path=active,
+                staging_path=staging,
+                rollback_path=tmp_path / "lancedb-prev",
+                aggregate_dir=eval_dir,
+                watchdog_report_dir=reports,
+                quarantine_flag_path=tmp_path / "no-quarantine.flag",
+                re_embed_state_path=state,
+                restore_drill_flag_path=drill,
+            )
+        assert rc == 1
+        assert "serving corpus_v7, not the promoted corpus_v42" in capsys.readouterr().out
+        post.assert_not_called()
+
+
+class TestPostActivationReadsItsOwnReport:
+    @staticmethod
+    def _report(report_dir: Path, version: int, ndcg5: float) -> Path:
+        path = report_dir / f"corpus_v{version}-20260515T000000.json"
+        path.write_text(
+            json.dumps(
+                {"corpus_version": version, "ndcg5_mean": ndcg5,
+                 "alert_triggered": False}
+            )
+        )
+        return path
+
+    class _Completed:
+        returncode = 0
+        stderr = ""
+
+    def test_a_report_written_before_the_run_is_not_used(self, tmp_path):
+        from ops.cutover import run_post_activation_watchdog
+
+        report_dir = tmp_path / "eval-reports"
+        report_dir.mkdir()
+        stale = self._report(report_dir, 42, 0.95)
+        os.utime(stale, (1000.0, 1000.0))
+
+        r = run_post_activation_watchdog(
+            corpus_version=42,
+            active_path=tmp_path / "lancedb",
+            report_dir=report_dir,
+            runner=lambda *_a, **_k: self._Completed(),
+            wall_clock=lambda: 2000.0,
+        )
+        assert r.ok is False
+        assert "wrote no report for corpus_v42" in r.reason
+
+    def test_a_report_for_another_version_is_not_used(self, tmp_path):
+        from ops.cutover import run_post_activation_watchdog
+
+        report_dir = tmp_path / "eval-reports"
+        report_dir.mkdir()
+
+        def _runner(*_a, **_k):
+            # The nightly watchdog's report for some other tree.
+            self._report(report_dir, 41, 0.95)
+            return self._Completed()
+
+        r = run_post_activation_watchdog(
+            corpus_version=42,
+            active_path=tmp_path / "lancedb",
+            report_dir=report_dir,
+            runner=_runner,
+        )
+        assert r.ok is False
