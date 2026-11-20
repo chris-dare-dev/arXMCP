@@ -1,4 +1,4 @@
-"""Standalone metric functions for the E05 eval harness.
+"""Retrieval-quality metrics for the eval harness and the drift watchdog.
 
 Two pure, dependency-free functions:
 
@@ -6,7 +6,7 @@ Two pure, dependency-free functions:
   ``k``, **plain (Järvelin–Kekäläinen 2002) form**: ``DCG@k = Σ rel_i
   / log2(i+1)`` for ``i`` in ``1..k``. NOT the Burges (2005) form
   used by :func:`sklearn.metrics.ndcg_score` (``2^rel - 1``); the
-  brief AC unambiguously specifies the plain form.
+  plain form is the one the eval thresholds were set against.
 
 - :func:`recall_at_k` — Fraction of grade-3 chunks for a query that
   appear in the top-``k`` retrieved list. Brief: *"fraction of
@@ -17,7 +17,7 @@ Two pure, dependency-free functions:
 ``1.0``) when the denominator is zero. ``nDCG`` returns 0.0 when the
 ideal-DCG is 0.0 (a query with no positive-relevance chunks);
 ``recall`` returns 0.0 when the relevant set is empty. The fixture
-contract (E05_S01 AC-2) forbids the empty-relevant case at curation
+contract forbids the empty-relevant case at curation
 time, but these standalone functions cannot assume the AC and must
 handle the case explicitly.
 
@@ -27,14 +27,8 @@ that the retrieval-quality test calls with ``ndcg5_mean`` and
 ``AssertionError`` so the failure surface is searchable.
 
 **No filesystem touch, no network, no model load.** Every function
-operates on Python lists / numbers; unit tests in
-:mod:`tests.eval.test_metrics` exercise them with hand-built inputs.
-
-TODO(E11_S04): the drift watchdog is the first non-test consumer of
-this module. If a non-test path needs ``ndcg_at_k`` or ``recall_at_k``,
-relocate this module to a top-level ``eval/`` package and update the
-import path in this file's docstring + the watchdog. The current
-``tests/eval/`` placement matches the brief verbatim.
+operates on Python lists / numbers. The module lives in ``ops`` because
+the drift watchdog, which ships with the server, needs it.
 """
 
 from __future__ import annotations
@@ -46,7 +40,7 @@ from collections.abc import Iterable, Sequence
 # Constants
 # ---------------------------------------------------------------------------
 
-#: The "highly relevant" grade per the brief and per E05_S01's AC-2.
+#: The "highly relevant" grade of the fixture's 0-3 relevance scale.
 #: Recall denominator is ``|chunks where relevance == HIGHLY_RELEVANT|``;
 #: any future bump (e.g. switching to a 0–4 scale) would update this
 #: single constant rather than a literal scattered through the file.
@@ -115,8 +109,8 @@ def ndcg_at_k(
     ``relevance_by_chunk_id`` (sorted descending, padded with zeros
     if fewer than ``k`` chunks are graded).
 
-    **Duplicates in `retrieved_chunk_ids[:k]` are rejected** (closes
-    F1 from the E05_S02 critique). Without rejection, a caller
+    **Duplicates in `retrieved_chunk_ids[:k]` are rejected.** Without
+    rejection, a caller
     accidentally passing the same chunk_id at two ranks would
     double-count its gain into DCG while iDCG (which uses the
     relevance multiset, not the retrieved positions) would not see
@@ -189,7 +183,7 @@ def recall_at_k(
     Only grade-3 chunks count toward both numerator and denominator.
     Grade-1 and grade-2 chunks are ignored for Recall (they DO
     contribute to nDCG via :func:`ndcg_at_k`). This asymmetry is
-    intentional per the brief: Recall measures coverage of the
+    intentional: Recall measures coverage of the
     *primary* answers, nDCG measures the full graded ranking.
     """
     if not isinstance(k, int) or isinstance(k, bool) or k < 1:
@@ -219,13 +213,8 @@ def recall_at_k(
 def assert_threshold(ndcg5_mean: float, ndcg_min: float) -> None:
     """Raise :class:`ThresholdNotMetError` if ``ndcg5_mean < ndcg_min``.
 
-    Used by the retrieval-quality test as the AC1/AC2 enforcement
-    helper. Factored out as a standalone function so it has its own
-    unit test (``test_metrics.py::TestThresholdCheck``) — the brief
-    AC2 explicitly requires that the threshold-failure path is
-    verified in test, but no real corpus exists at Tier-0 to produce
-    a low-nDCG run on demand. This helper is the unit-testable
-    boundary.
+    A standalone function so the failure path can be tested without a
+    corpus that produces a low-nDCG run on demand.
     """
     if not isinstance(ndcg_min, (int, float)) or isinstance(ndcg_min, bool):
         raise ValueError(

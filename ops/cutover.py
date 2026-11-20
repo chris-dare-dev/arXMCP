@@ -97,6 +97,7 @@ DEFAULT_RESTORE_DRILL_FLAG_PATH: Path = (
 
 #: Default /readyz URL.
 DEFAULT_READYZ_URL: str = "http://127.0.0.1:7733/readyz"
+DEFAULT_STATUS_URL: str = "http://127.0.0.1:7733/status"
 
 #: AC4: /readyz must return 200 within 60 seconds.
 DEFAULT_READYZ_TIMEOUT_SECONDS: float = 60.0
@@ -180,10 +181,19 @@ def check_criterion_3_re_embed_state(
 # ---------------------------------------------------------------------------
 
 
+#: The drill runs quarterly, with a reminder in the week before each
+#: quarter mark. A pass older than one quarter plus that week no longer
+#: says anything about whether today's backups restore.
+RESTORE_DRILL_MAX_AGE_DAYS: int = 100
+
+
 def check_criterion_4_restore_drill(
     flag_path: Path = DEFAULT_RESTORE_DRILL_FLAG_PATH,
+    *,
+    now=None,  # noqa: ANN001
+    max_age_days: int = RESTORE_DRILL_MAX_AGE_DAYS,
 ) -> CriterionResult:
-    """Verify the restore drill ran successfully."""
+    """Verify a restore drill passed within the last quarter."""
     name = "C4: restore drill passed"
     if not flag_path.is_file():
         return CriterionResult(
@@ -208,10 +218,39 @@ def check_criterion_4_restore_drill(
             ok=False,
             reason=f"smoke_check={smoke!r} (expected 'passed')",
         )
+    restored_at = payload.get("restored_at")
+    try:
+        when = _dt.datetime.strptime(
+            str(restored_at), "%Y-%m-%dT%H:%M:%SZ"
+        ).replace(tzinfo=_dt.UTC)
+    except ValueError:
+        return CriterionResult(
+            name=name,
+            ok=False,
+            reason=(
+                f"restored_at={restored_at!r} in {flag_path} is not a UTC "
+                f"timestamp; rerun ops/restore_drill.sh"
+            ),
+        )
+    current = now if now is not None else _dt.datetime.now(_dt.UTC)
+    age_days = (current - when).total_seconds() / 86400.0
+    if age_days > max_age_days:
+        return CriterionResult(
+            name=name,
+            ok=False,
+            reason=(
+                f"last drill passed {age_days:.0f} days ago "
+                f"(restored_at={restored_at}); the limit is "
+                f"{max_age_days} days. Rerun ops/restore_drill.sh"
+            ),
+        )
     return CriterionResult(
         name=name,
         ok=True,
-        reason=f"snapshot_id={payload.get('snapshot_id', '?')}",
+        reason=(
+            f"snapshot_id={payload.get('snapshot_id', '?')}, "
+            f"{age_days:.0f} days ago"
+        ),
     )
 
 
@@ -636,6 +675,68 @@ def poll_readyz(
     return False
 
 
+def _readyz_ok(url: str, *, timeout: float, urlopen) -> bool:  # noqa: ANN001
+    try:
+        with urlopen(url, timeout=timeout) as response:  # noqa: S310
+            return response.status == 200
+    except (urllib.error.URLError, OSError):
+        return False
+
+
+def served_corpus_version(
+    *,
+    url: str = DEFAULT_STATUS_URL,
+    timeout: float = 5.0,
+    urlopen=urllib.request.urlopen,
+) -> int | None:
+    """The corpus version the running server reports at ``/status``.
+
+    ``None`` when the server does not answer or the body has no version.
+    """
+    try:
+        with urlopen(url, timeout=timeout) as response:  # noqa: S310
+            body = json.loads(response.read().decode("utf-8"))
+    except (urllib.error.URLError, OSError, ValueError):
+        return None
+    try:
+        value = body["checks"]["corpus:version"][0]["observedValue"]
+    except (KeyError, IndexError, TypeError):
+        return None
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
+def wait_for_promoted_server(
+    *,
+    expected_version: int,
+    readyz_url: str = DEFAULT_READYZ_URL,
+    status_url: str = DEFAULT_STATUS_URL,
+    total_timeout: float = DEFAULT_READYZ_TIMEOUT_SECONDS,
+    interval: float = 5.0,
+    sleep=time.sleep,
+    monotonic=time.monotonic,
+    urlopen=urllib.request.urlopen,
+) -> tuple[bool, int | None]:
+    """Wait until the server is ready AND serving ``expected_version``.
+
+    A ready answer alone proves nothing after a swap: a server that was
+    never restarted still answers 200 while serving the old dataset,
+    which is now the rollback copy. The server pins its corpus version at
+    startup and reports it at ``/status``, so the check waits for that
+    number to become the promoted one.
+
+    Returns ``(ok, last_seen_version)``.
+    """
+    deadline = monotonic() + total_timeout
+    seen: int | None = None
+    while monotonic() < deadline:
+        if _readyz_ok(readyz_url, timeout=interval, urlopen=urlopen):
+            seen = served_corpus_version(url=status_url, urlopen=urlopen)
+            if seen == expected_version:
+                return True, seen
+        sleep(interval)
+    return False, seen
+
+
 # ---------------------------------------------------------------------------
 # Post-activation watchdog (AC5)
 # ---------------------------------------------------------------------------
@@ -643,10 +744,12 @@ def poll_readyz(
 
 def run_post_activation_watchdog(
     *,
+    corpus_version: int,
     active_path: Path = DEFAULT_LANCEDB_PATH,
     report_dir: Path = DEFAULT_WATCHDOG_REPORT_DIR,
     ndcg5_min: float = NDCG5_MIN,
     runner=subprocess.run,
+    wall_clock=time.time,
 ) -> CriterionResult:
     """Invoke `python -m ops.watchdog_eval` against the now-
     active LanceDB. AC5: nDCG@5 ≥ 0.80 on 200K corpus.
@@ -660,6 +763,10 @@ def run_post_activation_watchdog(
     pass condition.
     """
     name = "AC5: post-activation watchdog"
+    # The nightly watchdog writes into the same directory. Only a report
+    # for the promoted version, written during this run, is ours. The
+    # one-second margin covers filesystems with coarse mtimes.
+    started = wall_clock() - 1.0
     completed = runner(
         [
             sys.executable,
@@ -681,10 +788,7 @@ def run_post_activation_watchdog(
                 f"stderr={completed.stderr.strip()[:200]}"
             ),
         )
-    # F2 fix: read the freshly-written report and check the
-    # absolute floor. The watchdog writes
-    # corpus_v<N>-<ts>.json into report_dir; we pick the
-    # most-recently-modified file as the run we just executed.
+    # Read the report this run wrote and check the absolute floor.
     if not report_dir.is_dir():
         return CriterionResult(
             name=name,
@@ -694,10 +798,11 @@ def run_post_activation_watchdog(
                 f"{report_dir} is missing"
             ),
         )
+    prefix = f"corpus_v{corpus_version}-"
     candidates = sorted(
         (p for p in report_dir.iterdir()
-         if p.is_file() and p.name.startswith("corpus_v")
-         and p.suffix == ".json"),
+         if p.is_file() and p.name.startswith(prefix)
+         and p.suffix == ".json" and p.stat().st_mtime >= started),
         key=lambda p: p.stat().st_mtime,
     )
     if not candidates:
@@ -705,8 +810,8 @@ def run_post_activation_watchdog(
             name=name,
             ok=False,
             reason=(
-                f"watchdog reported exit 0 but no report files "
-                f"found in {report_dir}"
+                f"watchdog reported exit 0 but wrote no report for "
+                f"corpus_v{corpus_version} in {report_dir}"
             ),
         )
     latest = candidates[-1]
@@ -771,6 +876,7 @@ def run_cutover(
     re_embed_state_path: Path = DEFAULT_RE_EMBED_STATE_PATH,
     restore_drill_flag_path: Path = DEFAULT_RESTORE_DRILL_FLAG_PATH,
     readyz_url: str = DEFAULT_READYZ_URL,
+    status_url: str = DEFAULT_STATUS_URL,
     readyz_timeout: float = DEFAULT_READYZ_TIMEOUT_SECONDS,
     dry_run: bool = False,
     skip_post_activation: bool = False,
@@ -814,6 +920,11 @@ def run_cutover(
         print("DRY RUN: all criteria pass; not performing swap")
         return 0
 
+    # Criterion 2 has already checked that the marker holds an int.
+    promoted_version = json.loads(staging_marker.read_text(encoding="utf-8"))[
+        "version"
+    ]
+
     print("Performing atomic directory swap...")
     perform_directory_swap(
         active_path=active_path,
@@ -823,20 +934,33 @@ def run_cutover(
     print(f"Swap complete. Old active saved to {rollback_path}.")
 
     print(
-        "Operator action required: restart the MCP server before "
-        "the next check."
+        "Operator action required: restart the MCP server now."
     )
     print(
-        f"Then this script will poll {readyz_url} for "
-        f"{readyz_timeout:.0f}s..."
+        f"Waiting up to {readyz_timeout:.0f}s for {readyz_url} to be "
+        f"ready and {status_url} to report corpus_v{promoted_version}..."
     )
-    if not poll_readyz(url=readyz_url, total_timeout=readyz_timeout):
-        print(
-            f"WARNING: /readyz did not return 200 within "
-            f"{readyz_timeout:.0f}s. Inspect server logs."
-        )
+    ok, seen = wait_for_promoted_server(
+        expected_version=promoted_version,
+        readyz_url=readyz_url,
+        status_url=status_url,
+        total_timeout=readyz_timeout,
+    )
+    if not ok:
+        if seen is None:
+            print(
+                f"FAILED: no ready server reported a corpus version within "
+                f"{readyz_timeout:.0f}s. Inspect server logs."
+            )
+        else:
+            print(
+                f"FAILED: the server is serving corpus_v{seen}, not the "
+                f"promoted corpus_v{promoted_version}. It was probably not "
+                f"restarted. Restart it and rerun the post-activation "
+                f"check, or run --rollback."
+            )
         return 1
-    print("/readyz returned 200")
+    print(f"Server is ready and serving corpus_v{promoted_version}")
 
     if skip_post_activation:
         print(
@@ -845,7 +969,11 @@ def run_cutover(
         return 0
 
     print("Running post-activation watchdog...")
-    post = run_post_activation_watchdog(active_path=active_path)
+    post = run_post_activation_watchdog(
+        corpus_version=promoted_version,
+        active_path=active_path,
+        report_dir=watchdog_report_dir,
+    )
     marker = "PASS" if post.ok else "FAIL"
     print(f"  [{marker}] {post.name}: {post.reason}")
     return 0 if post.ok else 1
@@ -899,6 +1027,11 @@ def _cli(argv: list[str]) -> int:
         default=DEFAULT_READYZ_URL,
     )
     parser.add_argument(
+        "--status-url",
+        default=DEFAULT_STATUS_URL,
+        help="Where the server reports the corpus version it serves.",
+    )
+    parser.add_argument(
         "--readyz-timeout",
         default=DEFAULT_READYZ_TIMEOUT_SECONDS,
         type=float,
@@ -941,6 +1074,7 @@ def _cli(argv: list[str]) -> int:
         staging_path=args.lancedb_staging_path,
         rollback_path=args.rollback_path,
         readyz_url=args.readyz_url,
+        status_url=args.status_url,
         readyz_timeout=args.readyz_timeout,
         dry_run=args.dry_run,
         skip_post_activation=args.skip_post_activation,
@@ -969,6 +1103,8 @@ __all__ = [
     "perform_directory_swap",
     "perform_rollback",
     "poll_readyz",
+    "served_corpus_version",
+    "wait_for_promoted_server",
     "run_cutover",
     "run_post_activation_watchdog",
     "verify_lancedb_integrity",

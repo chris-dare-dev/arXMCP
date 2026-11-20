@@ -1,4 +1,4 @@
-"""Unit tests for ``tests/eval/metrics.py`` (E05_S02).
+"""Unit tests for ``ops/eval_metrics.py``.
 
 The retrieval-quality test (``test_retrieval_quality.py``) skips on a
 cold-start dev box, so the metric functions need their own self-
@@ -25,7 +25,7 @@ import math
 
 import pytest
 
-from tests.eval.metrics import (
+from ops.eval_metrics import (
     HIGHLY_RELEVANT_GRADE,
     ThresholdNotMetError,
     _mean,
@@ -415,7 +415,7 @@ class TestScoreAndWrite:
         integration of ``assert_threshold`` into the actual harness
         (the original critique was that the helper was tested in
         isolation but the integration was unverified)."""
-        from tests.eval.metrics import ThresholdNotMetError
+        from ops.eval_metrics import ThresholdNotMetError
         from tests.eval.test_retrieval_quality import score_and_write
 
         rows = self._synthetic_rows(

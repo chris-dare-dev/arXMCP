@@ -853,3 +853,29 @@ class TestShellWrapperFlockGuard:
             encoding="utf-8"
         )
         assert "command -v flock" in text
+
+
+def test_the_watchdog_harness_imports_without_the_test_tree() -> None:
+    """An installed wheel has neither ``tests`` nor ``pytest``; the
+    watchdog's scoring path must not need either."""
+    import subprocess
+    import sys
+
+    code = (
+        "import sys\n"
+        "sys.modules['tests'] = None\n"
+        "sys.modules['pytest'] = None\n"
+        "import ops.watchdog_eval\n"
+        "from ops.retrieval_eval import run_hybrid_against_corpus\n"
+        "from ops.eval_metrics import ndcg_at_k\n"
+        "print('ok')\n"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", code],
+        capture_output=True,
+        text=True,
+        check=False,
+        cwd=Path(__file__).resolve().parent.parent,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "ok"

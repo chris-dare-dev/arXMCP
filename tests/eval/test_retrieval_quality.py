@@ -44,7 +44,7 @@ skip-on-cold-start protocol keeps cycle time fast.
 
 **See also.**
 
-- ``tests/eval/metrics.py`` — pure ``ndcg_at_k`` / ``recall_at_k`` /
+- ``ops/eval_metrics.py`` — pure ``ndcg_at_k`` / ``recall_at_k`` /
   ``assert_threshold`` (unit-tested in ``tests/eval/test_metrics.py``).
 - ``server/query_encoder.py`` — async ``encode_query`` (E03_S03).
 - ``server/corpus.py`` — ``open_chunks_table`` + ``read_corpus_version``
@@ -65,11 +65,16 @@ from pathlib import Path
 import pytest
 
 from ingest.schema import EMBEDDING_COLUMN_NAMES
-from tests.eval.metrics import (
+from ops.eval_metrics import (
     _mean,
     assert_threshold,
     ndcg_at_k,
     recall_at_k,
+)
+from ops.retrieval_eval import (
+    FINAL_TOP_K,
+    NDCG_K,
+    run_hybrid_against_corpus,
 )
 
 # ---------------------------------------------------------------------------
@@ -90,13 +95,6 @@ EVAL_OPS_DIR = REPO_ROOT / "var" / "arxmcp" / "ops" / "eval"
 #: issued (one per column), top-k results are merged and sorted by
 #: score, deduped by chunk_id, and the top 10 are taken."
 PER_COLUMN_TOP_K = 10
-
-#: Final cutoff (after dedup) used for both Recall@k and the
-#: retrieved-chunk-ids written to the per-query JSONL.
-FINAL_TOP_K = 10
-
-#: Cutoff for nDCG.
-NDCG_K = 5
 
 #: The two embedding columns to search. Imported from
 #: :data:`ingest.schema.EMBEDDING_COLUMN_NAMES` per F3 of the E05_S02
@@ -129,7 +127,7 @@ def test_retrieval_quality(
     The body is split into helpers:
     - :func:`_run_queries_against_corpus` runs the dense-only ANN loop
       (the original E05_S02 path; default).
-    - :func:`_run_hybrid_against_corpus` runs the FULL 3-phase
+    - :func:`ops.retrieval_eval.run_hybrid_against_corpus` runs the FULL 3-phase
       pipeline (BM25 → ANN+RRF → optional Rerank) when ``--hybrid``
       is passed (E07_S04). Records per-phase latency for the
       ``LATENCY_P95_MAX_SECONDS`` AC.
@@ -212,7 +210,7 @@ def test_retrieval_quality(
 
     if hybrid:
         # E07_S04: full BM25 → ANN+RRF → optional Rerank pipeline.
-        per_query_rows = _run_hybrid_against_corpus(
+        per_query_rows = run_hybrid_against_corpus(
             queries, tbl, encode_query,
             corpus_version=corpus_version,
             rerank_enabled=rerank,
@@ -325,197 +323,6 @@ def _run_queries_against_corpus(
         loop.close()
 
 
-def _run_hybrid_against_corpus(
-    queries: list[dict],
-    tbl,  # noqa: ANN001
-    encode_query,  # noqa: ANN001
-    *,
-    corpus_version: int,
-    rerank_enabled: bool,
-) -> list[dict]:
-    """Run the full 3-phase hybrid pipeline (E07_S04).
-
-    Per-query stages:
-      1. BM25 (Phase 1, E07_S01) — top-200 candidates
-      2. dual-ANN + RRF (Phase 2, E07_S02) — fuse with BM25 list,
-         take top-50
-      3. optional cross-encoder rerank (Phase 3, E07_S03) — top-K
-         (here ``FINAL_TOP_K = 10``)
-
-    Per the E07_S04 synthesis D1, this orchestrator lives in the
-    eval test (NOT in `server/handlers/search.py`). The brief
-    deliverables list omits handler modifications; E08 (agent
-    runtime) will lift this into the handler when the live server
-    serves hybrid retrieval.
-
-    **Latency instrumentation (D6).** Records per-phase elapsed
-    time per query: ``bm25_ms``, ``ann_ms``, ``rerank_ms``,
-    ``total_ms``. Aggregated to p50 / p95 by :func:`score_and_write`.
-
-    **Encode dedup (D8).** Calls ``encode_query`` once for the
-    ``query_vec`` (passed to RerankPhase). ``ANNPhase.query`` ALSO
-    calls ``encode_query`` internally — the singleflight in
-    ``server.query_encoder`` collapses the duplicate to one forward
-    pass.
-
-    **Phantom-id contract.** Both ANN and Rerank tolerate phantom
-    chunk_ids (E07_S02 F5, E07_S03 propagation). The eval doesn't
-    inject phantoms but documents the tolerance for future
-    maintainers.
-    """
-    import time as _time
-
-    from server.config import Config
-    from server.resources import Resources
-
-    # Build a Resources instance once for the whole run. Per
-    # synthesis D5 + D7, ``enable_rerank`` flag is passed to Config
-    # so the on/off behavior is determined at construction. We
-    # construct against the SAME corpus version the test pinned.
-    # F5 fix from the E07_S04 critique: catch ``pydantic.ValidationError``
-    # so an operator with stray ``ARXMCP_*`` env vars (e.g. an
-    # ``ARXMCP_BIND_HOST=0.0.0.0`` in their ``.envrc``) sees a clear
-    # diagnostic rather than a raw pydantic stack. The eval doesn't
-    # need ``bind_host`` etc. — only ``enable_rerank`` matters — but
-    # ``Config()`` reads ALL declared ARXMCP_* env vars at instantiation.
-    try:
-        cfg = Config(enable_rerank=rerank_enabled)
-    except Exception as exc:
-        pytest.fail(
-            f"Eval harness Config() failed; an ARXMCP_* env var in your "
-            f"shell may be invalid for the loopback / value-range "
-            f"validators. Original error:\n  {exc}\n\n"
-            f"To work around, unset the offending env var before running "
-            f"the eval (only ARXMCP_RUN_REAL_BGE_RERANKER and "
-            f"ARXMCP_LANCEDB_PATH are typically required)."
-        )
-
-    # F1 fix from the E07_S04 critique: explicit ``resources = None``
-    # sentinel so the ``finally`` block can skip shutdown when startup
-    # raised before binding the name. The previous broad
-    # ``contextlib.suppress(NameError, Exception)`` masked
-    # ``asyncio.TimeoutError`` and other shutdown failures.
-    resources = None
-    loop = asyncio.new_event_loop()
-    try:
-        # Resources.startup is async — drive on the same event loop
-        # we use for query encoding.
-        resources = loop.run_until_complete(Resources.startup(cfg))
-
-        per_query_rows: list[dict] = []
-        for query_idx, query in enumerate(queries):
-            try:
-                query_id = query["query_id"]
-                query_text = query["query_text"]
-                ground_truth = {
-                    entry["chunk_id"]: entry["relevance"]
-                    for entry in query["relevant_chunks"]
-                }
-            except (KeyError, TypeError) as exc:
-                pytest.fail(
-                    f"queries[{query_idx}] is malformed ({exc!r}); run "
-                    f"`python tools/validate_eval_fixtures.py` to "
-                    f"diagnose."
-                )
-
-            # ENCODE ONCE — used by RerankPhase. ANNPhase will encode
-            # again internally; the query_encoder singleflight
-            # collapses to one forward pass.
-            t_total_start = _time.monotonic()
-            query_vec = loop.run_until_complete(encode_query(query_text))
-
-            # PHASE 1: BM25 (sync, fast).
-            t_bm25_start = _time.monotonic()
-            bm25_candidates, _filter_warnings = (
-                resources.bm25_phase.query(query_text, top_n=200)
-            )
-            bm25_ms = (_time.monotonic() - t_bm25_start) * 1000.0
-
-            # PHASE 2: dual-ANN + RRF.
-            t_ann_start = _time.monotonic()
-            fused = loop.run_until_complete(
-                resources.ann_phase.query(
-                    query_text, bm25_candidates, top_n=50,
-                )
-            )
-            ann_ms = (_time.monotonic() - t_ann_start) * 1000.0
-
-            # PHASE 3: optional cross-encoder rerank. The off-path is
-            # a passthrough (synthesis D7); on-path scores all fused
-            # candidates and re-orders by sigmoid(logit).
-            t_rerank_start = _time.monotonic()
-            ranked = loop.run_until_complete(
-                resources.rerank_phase.rerank(
-                    query_text, query_vec, fused, top_k=FINAL_TOP_K,
-                )
-            )
-            rerank_ms = (_time.monotonic() - t_rerank_start) * 1000.0
-            total_ms = (_time.monotonic() - t_total_start) * 1000.0
-
-            retrieved_chunk_ids = [cid for cid, _score in ranked]
-            ndcg5 = ndcg_at_k(retrieved_chunk_ids, ground_truth, k=NDCG_K)
-            recall10 = recall_at_k(
-                retrieved_chunk_ids, ground_truth, k=FINAL_TOP_K
-            )
-
-            per_query_rows.append(
-                {
-                    "ndcg5": ndcg5,
-                    "query_id": query_id,
-                    "query_text": query_text,
-                    "recall10": recall10,
-                    "retrieved_chunk_ids": retrieved_chunk_ids,
-                    # Per-phase latency (E07_S04 D6). Floats; ms.
-                    "bm25_ms": bm25_ms,
-                    "ann_ms": ann_ms,
-                    "rerank_ms": rerank_ms,
-                    "total_ms": total_ms,
-                    # Pipeline identity for the report.
-                    "pipeline": (
-                        "hybrid+rerank" if rerank_enabled else "hybrid"
-                    ),
-                }
-            )
-        return per_query_rows
-    finally:
-        # F1 fix: narrow the shutdown error path. Skip when
-        # ``resources`` is unbound (startup raised); surface
-        # ``TimeoutError`` as a warning (don't mask it as a silent
-        # success). All other shutdown exceptions propagate so the
-        # operator sees real cleanup failures. F9 fix: drop the
-        # redundant ``NameError`` from the suppress list (handled
-        # by the ``is not None`` guard above).
-        if resources is not None:
-            try:
-                loop.run_until_complete(
-                    asyncio.wait_for(resources.shutdown(), timeout=30.0)
-                )
-            except TimeoutError:
-                # 30s drain budget exceeded — surface as a warning so
-                # ops can investigate without failing the eval (the
-                # query loop already finished).
-                import warnings as _warnings  # noqa: PLC0415
-
-                _warnings.warn(
-                    "Resources.shutdown exceeded the 30s drain budget "
-                    "during eval cleanup; the eval results are valid "
-                    "but the next process may inherit half-released "
-                    "handles.",
-                    stacklevel=2,
-                )
-        # F6 fix: reset the query-encoder singleflight registry so a
-        # downstream test in the same pytest session does not await a
-        # stale future bound to this now-closed loop. Mirrors
-        # tests/retrieval/test_ann.py:_reset_for_tests calls.
-        try:
-            from server import query_encoder as _qe  # noqa: PLC0415
-
-            _qe._reset_for_tests()
-        except ImportError:
-            pass
-        loop.close()
-
-
 def score_and_write(
     per_query_rows: list[dict],
     corpus_version: int,
@@ -532,7 +339,7 @@ def score_and_write(
     function with synthetic ``per_query_rows`` to confirm: (a) the
     JSONL + aggregate files land at the expected paths with the
     expected schema, and (b) ``ndcg5_mean < ndcg_min`` raises
-    :class:`tests.eval.metrics.ThresholdNotMetError`.
+    :class:`ops.eval_metrics.ThresholdNotMetError`.
 
     The aggregate file is the drift-detection baseline that E11_S04's
     watchdog will compare against on a schedule.
