@@ -5,7 +5,7 @@
 # week (Mon–Sun). The 06:00 slot lands AFTER the Sunday daily
 # delta (02:00) so the week's last failures are included.
 Description=arXMCP weekly parser-failures review — Sun 06:00 UTC
-Documentation=https://github.com/chris-dare/arXMCP/blob/main/docs/ops/parser-failure-review.md
+Documentation=https://github.com/chris-dare-dev/arXMCP/blob/433ba41ba8710be74d6f99c627dce7d3b5383fca/docs/ops/parser-failure-review.md
 
 [Timer]
 OnCalendar=Sun *-*-* 06:00:00 UTC

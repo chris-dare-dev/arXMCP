@@ -1,7 +1,7 @@
 [Unit]
 # E14_S04 — weekly parser-failures review service unit.
 Description=arXMCP weekly parser-failures review (aggregates parser-failures/*.{log,jsonl})
-Documentation=https://github.com/chris-dare/arXMCP/blob/main/docs/ops/parser-failure-review.md
+Documentation=https://github.com/chris-dare-dev/arXMCP/blob/433ba41ba8710be74d6f99c627dce7d3b5383fca/docs/ops/parser-failure-review.md
 
 [Service]
 Type=oneshot

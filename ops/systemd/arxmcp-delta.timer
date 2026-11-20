@@ -5,7 +5,7 @@
 # daily ops cadence (OAI-PMH window starts at 00:00 UTC; pipeline
 # writes by 04:00; restic at 04:10).
 Description=arXMCP OAI-PMH delta loop — nightly schedule
-Documentation=https://github.com/chris-dare/arXMCP/blob/main/docs/ops/delta-loop.md
+Documentation=https://github.com/chris-dare-dev/arXMCP/blob/433ba41ba8710be74d6f99c627dce7d3b5383fca/docs/ops/delta-loop.md
 
 [Timer]
 OnCalendar=*-*-* 02:00:00

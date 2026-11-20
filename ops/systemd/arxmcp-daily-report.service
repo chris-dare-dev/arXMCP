@@ -6,7 +6,7 @@
 #
 # Pairs with arxmcp-daily-report.timer for 05:00 UTC scheduling.
 Description=arXMCP daily ops metrics report (scrapes /metrics, renders markdown)
-Documentation=https://github.com/chris-dare/arXMCP/blob/main/docs/ops/daily-ops-cadence.md
+Documentation=https://github.com/chris-dare-dev/arXMCP/blob/433ba41ba8710be74d6f99c627dce7d3b5383fca/docs/ops/daily-ops-cadence.md
 Wants=network-online.target
 After=network-online.target
 

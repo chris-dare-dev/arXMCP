@@ -7,7 +7,7 @@
 # 14400s TimeoutStartSec on the backup service accommodates the
 # overlap if the pipeline runs long.
 Description=arXMCP restic nightly backup — schedule
-Documentation=https://github.com/chris-dare-dev/arXMCP/blob/main/docs/ops/backup-restore.md
+Documentation=https://github.com/chris-dare-dev/arXMCP/blob/433ba41ba8710be74d6f99c627dce7d3b5383fca/docs/ops/backup-restore.md
 
 [Timer]
 OnCalendar=*-*-* 03:30:00

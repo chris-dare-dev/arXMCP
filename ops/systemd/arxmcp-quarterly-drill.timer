@@ -7,7 +7,7 @@
 # monthly OnCalendar=*-01,04,07,10-* pattern (the 7-day lookahead
 # would clash with the monthly trigger semantics).
 Description=arXMCP quarterly drill reminder — daily 00:00 UTC, short-circuits when out of window
-Documentation=https://github.com/chris-dare/arXMCP/blob/main/docs/ops/backup-restore.md
+Documentation=https://github.com/chris-dare-dev/arXMCP/blob/433ba41ba8710be74d6f99c627dce7d3b5383fca/docs/ops/backup-restore.md
 
 [Timer]
 OnCalendar=*-*-* 00:00:00 UTC

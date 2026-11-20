@@ -6,7 +6,7 @@
 #
 # Pairs with arxmcp-backup.timer for nightly scheduling at 03:30.
 Description=arXMCP restic nightly backup
-Documentation=https://github.com/chris-dare-dev/arXMCP/blob/main/docs/ops/backup-restore.md
+Documentation=https://github.com/chris-dare-dev/arXMCP/blob/433ba41ba8710be74d6f99c627dce7d3b5383fca/docs/ops/backup-restore.md
 Wants=network-online.target
 After=network-online.target
 
