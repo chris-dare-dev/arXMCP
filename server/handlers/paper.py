@@ -36,6 +36,7 @@ When the paper_id is unknown, returns ``{found: false, ...}``.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Annotated, Any
 
@@ -163,7 +164,9 @@ async def handle_get_paper(
     # The count comes first and sets the limit, so a book with many
     # chunks is counted and summarised in full rather than at a cap.
     paper_filter = f"paper_id = '{_escape(paper_id)}'"
-    chunk_count = r.chunks_table.count_rows(paper_filter)
+    chunk_count, arrow = await asyncio.to_thread(
+        _paper_summary_rows, r.chunks_table, paper_filter
+    )
 
     if chunk_count == 0:
         return envelope(_cap(
@@ -174,14 +177,6 @@ async def handle_get_paper(
                 "paper_id": paper_id,
             }
         ))
-
-    arrow = (
-        r.chunks_table.search()
-        .where(paper_filter, prefilter=True)
-        .select(_PAPER_CHUNK_COLUMNS)
-        .limit(chunk_count)
-        .to_arrow()
-    )
 
     section_first = set()
     for sp in arrow.column("section_path").to_pylist():
@@ -248,6 +243,21 @@ async def handle_get_paper(
                 for a in capped_paper["authors"]
             ]
     return envelope(structured)
+
+
+def _paper_summary_rows(table: Any, paper_filter: str) -> tuple[int, Any]:
+    """The paper's chunk count and its summary columns, read off the loop."""
+    chunk_count = table.count_rows(paper_filter)
+    if chunk_count == 0:
+        return 0, None
+    arrow = (
+        table.search()
+        .where(paper_filter, prefilter=True)
+        .select(_PAPER_CHUNK_COLUMNS)
+        .limit(chunk_count)
+        .to_arrow()
+    )
+    return chunk_count, arrow
 
 
 def _escape(s: str) -> str:

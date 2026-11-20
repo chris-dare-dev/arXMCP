@@ -33,6 +33,7 @@ No re-implementation of either regex — both are shared with the
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import datetime as _dt
 import html
@@ -43,6 +44,7 @@ import os
 import re
 import sqlite3
 import tarfile
+from collections.abc import Iterator
 from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -59,7 +61,7 @@ from fastapi import (
     UploadFile,
     status,
 )
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from ingest.identifiers import is_valid_arxiv_paper_id, is_valid_paper_id
@@ -899,9 +901,8 @@ async def discover_papers(
     (XSS guard); arXiv failures and unconfigured notebooks return 4xx/502 (the
     panel's ``hx-on::response-error`` surfaces the detail) — never a 500.
     The route inherits ``SecFetchSite`` + ``OriginValidation`` on ``/ui/*``.
-    NOTE: the synchronous arXiv fetch briefly blocks the event loop — accepted
-    for the single-operator loopback console (``MAX_RESPONSE_BYTES`` caps the
-    response).
+    The arXiv fetch runs on a worker thread, so a slow arXiv does not
+    stall the MCP tools that share this event loop.
     """
     try:
         validate_slug(slug)
@@ -1483,8 +1484,10 @@ async def reconcile_marker(
         )
 
     # MVCC-pinned recount.
-    new_chunks, new_papers = _recount_notebook_lancedb(
-        nb_lance, version=old_info.version  # type: ignore[attr-defined]
+    new_chunks, new_papers = await asyncio.to_thread(
+        _recount_notebook_lancedb,
+        nb_lance,
+        version=old_info.version,  # type: ignore[attr-defined]
     )
     new_info = old_info.with_counts(  # type: ignore[attr-defined]
         chunk_count=new_chunks, paper_count=new_papers
@@ -1578,8 +1581,10 @@ async def notebook_health(
             detail="corpus-version.json is malformed; investigate",
         )
 
-    actual_chunks, actual_papers = _recount_notebook_lancedb(
-        nb_lance, version=info.version  # type: ignore[attr-defined]
+    actual_chunks, actual_papers = await asyncio.to_thread(
+        _recount_notebook_lancedb,
+        nb_lance,
+        version=info.version,  # type: ignore[attr-defined]
     )
     marker_chunks = info.chunk_count  # type: ignore[attr-defined]
     marker_papers = info.paper_count  # type: ignore[attr-defined]
@@ -1944,7 +1949,8 @@ async def upload_paper(
         # fast-first (magic-byte → polyglot tail → JS detection →
         # page-count) per the synthesis D5. Any rejection raises
         # HTTPException(415) with a vector-specific detail.
-        _run_pdf_preflight(content)
+        # A byte scan of up to 200 MB; keep it off the event loop.
+        await asyncio.to_thread(_run_pdf_preflight, content)
     elif not _is_html_bytes(content[:_MAGIC_SNIFF_BYTES]):
         # arxiv-kind notebook: m8 FM-2 magic-byte sniff for HTML.
         raise HTTPException(
@@ -2001,8 +2007,7 @@ async def upload_paper(
     # FM-5: atomic write. Write to .tmp, then os.replace() to the
     # final name so readers never see a partial file.
     try:
-        tmp_path.write_bytes(content)
-        os.replace(tmp_path, target_path)
+        await asyncio.to_thread(_write_atomically, tmp_path, target_path, content)
     except OSError as e:
         # Clean up the .tmp file if it survived.
         with contextlib.suppress(OSError):
@@ -2733,6 +2738,70 @@ def _iter_safe_export_members(
         yield member_name, data
 
 
+def _write_atomically(tmp_path: Path, target_path: Path, content: bytes) -> None:
+    tmp_path.write_bytes(content)
+    os.replace(tmp_path, target_path)
+
+
+class _ChunkSink:
+    """A write-only file object that hands out what was written so far.
+
+    ``tarfile`` writes into it; the export generator drains it after
+    each member, so the response streams instead of buffering the whole
+    archive.
+    """
+
+    def __init__(self) -> None:
+        self._parts: list[bytes] = []
+        self._position = 0
+
+    def write(self, data: bytes) -> int:
+        self._parts.append(bytes(data))
+        self._position += len(data)
+        return len(data)
+
+    def tell(self) -> int:
+        return self._position
+
+    def drain(self) -> bytes:
+        out = b"".join(self._parts)
+        self._parts.clear()
+        return out
+
+
+def _stream_export_tar(
+    nb_dir: Path, slug: str, manifest_bytes: bytes
+) -> Iterator[bytes]:
+    """Yield the export tar member by member.
+
+    A synchronous generator, so Starlette runs it on a worker thread and
+    the event loop is never blocked by the file reads. At most one member
+    is held in memory at a time.
+    """
+    sink = _ChunkSink()
+    with tarfile.open(
+        fileobj=sink, mode="w", format=tarfile.USTAR_FORMAT  # type: ignore[arg-type]
+    ) as tar:
+        # 1) manifest.json at the bundle root (top-level; restore reads
+        #    this before extracting the rest).
+        tar.addfile(
+            _make_deterministic_tarinfo("manifest.json", len(manifest_bytes)),
+            io.BytesIO(manifest_bytes),
+        )
+        yield sink.drain()
+        # 2) Asset files under ``<slug>/<rel>``. If the on-disk dir doesn't
+        #    exist yet (notebook created but never uploaded to), the export
+        #    is just the manifest — still a valid bundle.
+        if nb_dir.is_dir():
+            for member_name, data in _iter_safe_export_members(nb_dir, slug):
+                tar.addfile(
+                    _make_deterministic_tarinfo(member_name, len(data)),
+                    io.BytesIO(data),
+                )
+                yield sink.drain()
+    yield sink.drain()
+
+
 def _make_deterministic_tarinfo(name: str, size: int) -> tarfile.TarInfo:
     """A TarInfo with EVERY drift-prone field normalized (m6 D2).
 
@@ -2808,33 +2877,14 @@ async def export_notebook(
 
     manifest_bytes = _build_export_manifest(notebook, papers, slug)
 
-    buf = io.BytesIO()
-    with tarfile.open(
-        fileobj=buf, mode="w", format=tarfile.USTAR_FORMAT
-    ) as tar:
-        # 1) manifest.json at the bundle root (top-level; m7 reads this
-        #    before extracting the rest).
-        tar.addfile(
-            _make_deterministic_tarinfo("manifest.json", len(manifest_bytes)),
-            io.BytesIO(manifest_bytes),
-        )
-        # 2) Asset files under ``<slug>/<rel>``. If the on-disk dir doesn't
-        #    exist yet (notebook created but never uploaded to), the export
-        #    is just the manifest — still a valid bundle.
-        if nb_dir.is_dir():
-            for member_name, data in _iter_safe_export_members(nb_dir, slug):
-                tar.addfile(
-                    _make_deterministic_tarinfo(member_name, len(data)),
-                    io.BytesIO(data),
-                )
-
-    content = buf.getvalue()
-    return Response(
-        content=content,
+    # Streamed, so the archive (which can hold a notebook's LanceDB and
+    # 200 MB PDFs) is never built in memory. Its length is not known up
+    # front, so there is no Content-Length.
+    return StreamingResponse(
+        _stream_export_tar(nb_dir, slug, manifest_bytes),
         media_type="application/x-tar",
         headers={
             "Content-Disposition": f'attachment; filename="{slug}.tar"',
-            "Content-Length": str(len(content)),
         },
     )
 
