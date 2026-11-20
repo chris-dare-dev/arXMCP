@@ -25,12 +25,10 @@ Usage::
     uv run python -m tools.recover_preambles --notebook bridgeland-stability
     uv run python -m tools.recover_preambles --limit 5   # smoke test
 
-**Operator-warning on chunk_id rotation:** after the back-fill, the
-next ``make re-embed-all`` will detect that body+preamble of every
-back-filled paper now differs (because preamble is non-empty), so
-``re_embed`` produces ``re_embedded ≫ copied`` for the affected
-notebooks — 2-4 hours additional CPU. This is INTENDED behavior
-(LanceDB MVCC handles it cleanly).
+**No chunk id or vector changes.** Recovering a preamble only fills
+``preamble_ref``. An arXiv chunk id hashes the body only, and the
+``body-first-v1`` embedding input never includes the preamble, so a later
+``make re-embed-all`` copies every back-filled paper's vectors.
 
 Exit codes::
 

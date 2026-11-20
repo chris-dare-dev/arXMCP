@@ -425,6 +425,40 @@ def test_ingest_fails_when_notebook_dir_missing(notebooks_base: Path) -> None:
         notebook_ingest.run("does-not-exist")
 
 
+def test_ingest_refuses_a_table_another_chunker_wrote(
+    notebooks_base: Path, monkeypatch: pytest.MonkeyPatch, capsys
+) -> None:
+    """chunk-module-m2: the /ui/ console and `tools/notebook_ingest.py` write
+    the notebook's ACTIVE lancedb in place. Against a table holding v1.2
+    arXiv rows that would double every preamble-bearing chunk, so the run
+    exits 1 with a pointer to the rotation runbook and writes nothing."""
+    import lancedb
+    import pyarrow as pa
+
+    import ingest.bulk_ingest as bulk
+
+    nb = _seed_notebook(notebooks_base, "demo", ["2303.07061"], with_lancedb=False)
+    lancedb.connect(str(nb / "lancedb")).create_table(
+        "chunks",
+        data=pa.table({
+            "chunk_id": ["arxiv:2303.07061:" + "a" * 16],
+            "chunker_version": ["v1.2"],
+        }),
+    )
+
+    def _never(*_a, **_k):
+        raise AssertionError("no paper may be ingested into a refused table")
+
+    monkeypatch.setattr(bulk, "ingest_one_paper", _never)
+    monkeypatch.setattr(bulk, "build_derived_indexes", _never)
+
+    assert notebook_ingest.main(["demo"]) == 1
+    err = capsys.readouterr().err
+    assert "re-embed-runbook" in err and "v1.2" in err
+    table = lancedb.connect(str(nb / "lancedb")).open_table("chunks")
+    assert table.count_rows() == 1
+
+
 # ---------------------------------------------------------------------------
 # notebook_purge.py (AC #4, FM-1 cross-notebook, FM-8 pdf-deferred)
 # ---------------------------------------------------------------------------

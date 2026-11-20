@@ -441,6 +441,46 @@ class TestRunDelta:
         assert builds == [(staging, None)]
         assert _read_state(state_path)["last_successful_run_utc"]
 
+    def test_refuses_a_staging_table_another_chunker_wrote(self, tmp_path):
+        """chunk-module-m2: the delta loop writes its staging table in place,
+        so it refuses one holding arXiv rows another chunker version wrote,
+        before handing any record to the pipeline."""
+        import lancedb
+        import pyarrow as pa
+
+        from ingest.store import StaleChunkerRowsError
+
+        staging = tmp_path / "lancedb-staging"
+        lancedb.connect(str(staging)).create_table(
+            "chunks",
+            data=pa.table({
+                "chunk_id": ["arxiv:2401.00001:" + "a" * 16],
+                "chunker_version": ["v1.2"],
+            }),
+        )
+        fetcher = _MockFetcher([_final_page(["2401.00001"])])
+
+        def _never(*_a, **_k):
+            raise AssertionError("no record may reach the pipeline")
+
+        with (
+            patch("ingest.oai_delta.ingest_one_paper", _never),
+            pytest.raises(StaleChunkerRowsError, match="chunk-module-m2"),
+        ):
+            run_delta(
+                sets=("math:math:AG",),
+                from_date="2026-05-14",
+                until_date="2026-05-14",
+                lancedb_staging_path=staging,
+                state_path=tmp_path / "state.json",
+                log_path=tmp_path / "delta.log",
+                failures_path=tmp_path / "delta.jsonl",
+                timeout_flag_path=tmp_path / "timeout.flag",
+                ops_dir=tmp_path,
+                fetch_page=fetcher,
+                sleep_between_pages=lambda _t: None,
+            )
+
     def test_writes_ingest_summary_sentinel(self, tmp_path):
         """corpus-integrity-observability-e3 F3: run_delta writes the
         ingest-summary.json sentinel at end-of-run (AC2)."""

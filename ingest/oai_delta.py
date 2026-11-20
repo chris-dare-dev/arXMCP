@@ -74,7 +74,7 @@ from ingest.bulk_ingest import (
 )
 from ingest.derived_indexes import build_derived_indexes
 from ingest.identifiers import is_valid_arxiv_paper_id
-from ingest.store import CORPUS_VERSION_MARKER_NAME
+from ingest.store import CORPUS_VERSION_MARKER_NAME, refuse_stale_chunker_rows
 
 logger = logging.getLogger(__name__)
 
@@ -789,6 +789,9 @@ def run_delta(
             print(f"{record.paper_id}\t{record.set_spec}\t{tag}")
         # Don't touch the state file on dry-run.
         return summary
+
+    # chunk-module-m2: never re-chunk in place across a chunker version.
+    refuse_stale_chunker_rows(lancedb_staging_path)
 
     for record in all_records:
         if record.deleted:

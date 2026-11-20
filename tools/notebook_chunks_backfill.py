@@ -36,9 +36,12 @@ the same reason ``ingest.store`` must stay out of this import graph.
 **Abstention is first-class (CLAUDE.md §4.9).** A chunk whose ``chunk_id`` the
 current chunker does not reproduce (or whose paper's re-chunk raised, or whose
 parsed HTML is missing, or whose paper is unregistered / multi-row in the
-registry) gets ``source_span=null`` (and ``printed_number=null`` when the miss
-is HTML/chunk-id-shaped), counted AND listed by reason code in a per-notebook
-report, never a best-guess anchor and never a silent null. ``truncated`` is the
+registry) gets ``source_span=null``, counted AND listed by reason code in a
+per-notebook report, never a best-guess anchor and never a silent null. Its
+``printed_number`` keeps whatever the row already stored (the chunker wrote it
+at ingest): a miss means this run could not recompute it, not that it is
+wrong, so overwriting it with null would destroy data (chunk-module-m2). A
+miss on a row with no stored value stays null. ``truncated`` is the
 one column with no null path: exact on a chunk-id hit, else a safe-direction
 token recount (``kind="proof"`` is always False; every other kind is
 ``token_count >= STMT_MAX_TOKENS``).
@@ -62,6 +65,13 @@ debug hint, never a resolution key — spike-3) is emitted as ``""`` because a
 ``rev`` (registry cross-check) and ``txt`` (the authoritative
 NFC-normalized-body-text hash) are populated fully. Threading the element id
 through the chunker is a tracked follow-up, out of m2's 5-column scope.
+
+**Chunker version (chunk-module-m2).** The backfill reproduces chunk ids with
+THIS code's chunker, so against a table whose arXiv rows another chunker
+version wrote it would miss on every rotated row. It refuses such a table
+outright (``_refuse_stale_chunker_rows``); rotate the table through staging and
+cutover first (``docs/ops/re-embed-runbook.md``, "One-time id rotation"), then
+run the backfill.
 
 **SAFETY — never run against a live corpus table without owner OK.** Build and
 smoke-test only against a COPY of a notebook's ``lancedb`` dir (and its
@@ -102,7 +112,7 @@ from bs4 import BeautifulSoup, Tag
 # no embedder at module load (its tokenizer + BGE_M3_COMMIT_SHA imports are
 # function-local in ``_get_tokenizer``), so this import keeps the driver's
 # 0-re-embed guarantee structural.
-from ingest.chunk import ChunkRecord, _compute_chunk_id
+from ingest.chunk import CHUNKER_VERSION, ChunkRecord, _compute_chunk_id
 from ingest.chunker import (
     _THEOREM_CLASS_RE,
     PER_PAPER_FAILURE_EXCEPTIONS,
@@ -303,9 +313,9 @@ def _rechunk_paper(
 
     ``resolve_preamble`` is a test seam defaulting (in ``run``) to
     ``ingest.chunker._resolve_preamble_doc`` — the exact function the real
-    chunker uses, which for an already-ingested paper short-circuits to the
-    cached ``preamble.json`` (read-only) and returns ``None`` (empty preamble)
-    when raw ``.tex`` is absent, so re-chunk reproduces the original chunk_ids.
+    chunker uses. It only stamps ``preamble_ref``: under ADR rule 1 the
+    chunk id is ``sha256(NFC(body_text))``, so whether a preamble resolves
+    (and from which data root) cannot change which ids reproduce.
     """
     parsed_html = parsed_root / paper_id / "index.html"
     if not parsed_html.is_file():
@@ -329,15 +339,10 @@ def _rechunk_paper(
                 chunk.preamble_ref = preamble_doc.preamble_hash
         for chunk in all_chunks:
             chunk.body_tokens = tokenize_body(chunk.body_text)
-        preamble_text = (
-            preamble_doc.preamble_text if preamble_doc is not None else ""
-        )
 
         records: dict[str, ChunkRecord] = {}
         for chunk in all_chunks:
-            chunk.chunk_id = _compute_chunk_id(
-                paper_id, preamble_text, chunk.body_text
-            )
+            chunk.chunk_id = _compute_chunk_id(paper_id, chunk.body_text)
             # keep-first on a duplicate chunk_id, mirroring _chunk_paper_impl's
             # dedup of byte-identical content (BM25 + embeddings are identical
             # for identical content, so the drop is safe and deterministic).
@@ -433,6 +438,7 @@ class _NotebookReport:
     pn_unnumbered_f1: int = 0
     pn_uncomputable: int = 0
     pn_not_attempted: int = 0
+    pn_kept_on_miss: int = 0
 
     truncated_true: int = 0
     truncated_false: int = 0
@@ -471,7 +477,8 @@ def _print_report(report: _NotebookReport) -> None:
         f"numbered={report.pn_numbered} "
         f"unnumbered_f1={report.pn_unnumbered_f1} "
         f"uncomputable={report.pn_uncomputable} "
-        f"not_attempted={report.pn_not_attempted}"
+        f"not_attempted={report.pn_not_attempted} "
+        f"kept_on_miss={report.pn_kept_on_miss}"
     )
     print(
         "truncated: "
@@ -513,6 +520,42 @@ def _print_report(report: _NotebookReport) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Chunker-version refusal (chunk-module-m2)
+# ---------------------------------------------------------------------------
+
+
+def _refuse_stale_chunker_rows(
+    rows: list[dict], *, lancedb_dir: Path, slug: str
+) -> None:
+    """Refuse a table whose arXiv rows another chunker version wrote.
+
+    The backfill keys every patch on reproducing the stored ``chunk_id`` with
+    THIS code's chunker. Rows written by another ``CHUNKER_VERSION`` (v1.2
+    rows carry preamble-hashed ids, ADR rule 1) would all miss, so the run
+    would abstain on each of them. Textbook rows carry their own chunker
+    versions and are not checked. Same rule as
+    ``ingest.store.refuse_stale_chunker_rows``, applied to the rows this
+    driver has already read (it may not import ``ingest.store``).
+    """
+    stale = [
+        row
+        for row in rows
+        if str(row.get("chunk_id", "")).startswith("arxiv:")
+        and row.get("chunker_version") != CHUNKER_VERSION
+    ]
+    if stale:
+        versions = sorted({str(row.get("chunker_version")) for row in stale})
+        raise NotebookError(
+            f"notebook {slug!r}: {len(stale)} arXiv row(s) in {lancedb_dir} were "
+            f"chunked by chunker_version {versions} but this code is "
+            f"{CHUNKER_VERSION!r}, so the backfill would reproduce none of "
+            "their chunk ids. Rotate the table through staging and cutover "
+            "first (docs/ops/re-embed-runbook.md, 'One-time id rotation "
+            "(chunk-module-m2)'), then re-run the backfill."
+        )
+
+
+# ---------------------------------------------------------------------------
 # Core patch loop
 # ---------------------------------------------------------------------------
 
@@ -541,11 +584,18 @@ def _patch_notebook(
         )
     table = db.open_table(CHUNKS_TABLE_NAME)
 
+    # Refuse BEFORE any write, the schema migration included: a table another
+    # chunker version wrote would abstain on every rotated row.
+    rows = table.to_arrow().to_pylist()
+    _refuse_stale_chunker_rows(rows, lancedb_dir=lancedb_dir, slug=slug)
+
     report = _NotebookReport(slug=slug)
     report.columns_added = _ensure_v2_columns(table)
+    if report.columns_added:
+        # Re-read so every row dict carries the columns just added.
+        rows = table.to_arrow().to_pylist()
 
     registry = _load_registry(db_path)
-    rows = table.to_arrow().to_pylist()
     report.total_rows = len(rows)
 
     by_paper: dict[str, list[dict]] = defaultdict(list)
@@ -626,8 +676,16 @@ def _patch_notebook(
             else:
                 report.truncated_false += 1
 
-            # printed_number — from the fresh record on a hit, else null.
-            printed_number = rr.records[cid].printed_number if hit else None
+            # printed_number — from the fresh record on a hit. On a miss this
+            # run cannot recompute it, so the stored value (written by the
+            # chunker at ingest) stands; nulling it would destroy data the
+            # re-chunk merely failed to reproduce (chunk-module-m2).
+            if hit:
+                printed_number = rr.records[cid].printed_number
+            else:
+                printed_number = row.get("printed_number")
+                if printed_number is not None:
+                    report.pn_kept_on_miss += 1
 
             # source_span — only when the revision resolved AND we reproduced
             # the chunk_id; otherwise a counted, reason-coded abstention.
@@ -648,9 +706,11 @@ def _patch_notebook(
                 report.source_span_null_reasons[reason] += 1
                 report.source_span_null_list.append((cid, reason))
 
-            # printed_number classification for the report.
+            # printed_number classification for the report. A value kept on a
+            # miss was counted in pn_kept_on_miss above, not as numbered.
             if printed_number is not None:
-                report.pn_numbered += 1
+                if hit:
+                    report.pn_numbered += 1
             elif kind in ("proof", "section"):
                 report.pn_not_attempted += 1
             elif not hit:

@@ -44,6 +44,13 @@ marked sanity test gates on the operator's actual run.
 **Single-writer constraint** (`ingest/store.py:44-55`): the loop
 is sequential at the write boundary. No parallel ``write_chunks``
 calls.
+
+**Chunker-version guard (chunk-module-m2):** a run refuses, before
+its first write, a target whose arXiv rows another
+``CHUNKER_VERSION`` wrote (:func:`ingest.store.refuse_stale_chunker_rows`).
+Re-chunking such rows in place would leave every row whose id changed
+beside its replacement. The supported path is the re-embed driver into
+a fresh staging table, then a cutover.
 """
 
 from __future__ import annotations
@@ -70,6 +77,7 @@ from ingest.store import (
     DEFAULT_LANCEDB_PATH,
     WapGateError,
     load_embed_record,
+    refuse_stale_chunker_rows,
     write_chunks,
 )
 from server.application_paths import ApplicationPaths
@@ -417,6 +425,9 @@ def run_bulk_ingest(
             ar5iv_cache_dir=ar5iv_cache_dir,
             parsed_dir=parsed_dir,
         )
+
+    # chunk-module-m2: never re-chunk in place across a chunker version.
+    refuse_stale_chunker_rows(lancedb_staging_path)
 
     work = paper_ids if limit is None else paper_ids[:limit]
     summary = IngestSummary(papers_total=len(work))

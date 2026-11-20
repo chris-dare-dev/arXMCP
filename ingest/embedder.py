@@ -944,7 +944,7 @@ def _embed_paper_impl(paper_id: str, batch_size: int) -> EmbedStats:
     if truncated_total > 0:
         logger.warning(
             "[%s] %d / %d chunks had to be truncated to %d tokens "
-            "(preamble + body_text exceeded BGE-M3 max length); "
+            "(the embedding input exceeded BGE-M3 max length); "
             "consider tightening the chunker's body budget if frequent",
             paper_id,
             truncated_total,

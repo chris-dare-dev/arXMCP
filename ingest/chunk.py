@@ -1,9 +1,9 @@
 """The chunk: the one module that declares what a chunk is (chunk-module-m1).
 
-Terms follow ``.claude/CONTEXT.md``; the reuse rules are
-``.claude/docs/adr-chunk-identity-and-reuse.md`` (rules 2 and 3; rule 1 is
-the next milestone). Everything a caller needs to know about a chunk lives
-here and nowhere else:
+Terms follow ``.claude/CONTEXT.md``; the id and reuse rules are
+``.claude/docs/adr-chunk-identity-and-reuse.md`` (rules 2 and 3 landed in
+chunk-module-m1, rule 1 in chunk-module-m2). Everything a caller needs to
+know about a chunk lives here and nowhere else:
 
 - the record (:class:`ChunkRecord`) and :data:`CHUNKER_VERSION`;
 - the row of the LanceDB ``chunks`` table (:data:`CHUNKS_SCHEMA_V1`,
@@ -45,15 +45,21 @@ import pyarrow as pa
 #
 # **Schema-migration constraint (E11_S03).** The CANONICAL-BYTES
 # function :func:`_compute_chunk_id` below —
-# ``sha256(preamble_text + NFC(body_text))[:16]`` — must remain
+# ``sha256(position + NFC(body_text))[:16]``, with ``position`` empty
+# for every arXiv chunk except a TeX-chunker-owned paper's — must remain
 # byte-stable across CHUNKER_VERSION bumps: an edit rotates every
-# chunk_id even for byte-identical content. That is a SCHEMA migration,
-# NOT a chunker_version bump, and the
+# chunk_id even for byte-identical content. That is a SCHEMA migration
+# that needs this constant bumped in the same change, and the
 # ``tests/test_re_embed.py::TestChunkerVersionFreeze`` regression guard
-# must be updated in the same change. Vector reuse no longer depends on
-# the chunk id (ADR rule 2: it is keyed on the reuse identity below), so
-# a rotation costs a copy, not a re-embed.
-CHUNKER_VERSION = "v1.2"
+# re-pinned. Vector reuse no longer depends on the chunk id (ADR rule 2:
+# it is keyed on the reuse identity below), so the staging re-embed
+# copies a rotated chunk's vector instead of re-embedding it.
+#
+# v1.3 (chunk-module-m2, ADR rule 1): arXiv ids stopped hashing the
+# paper preamble. A table chunked by another version must be rotated
+# through staging and cutover, never re-ingested in place
+# (``ingest.store.refuse_stale_chunker_rows``).
+CHUNKER_VERSION = "v1.3"
 
 # BGE-M3's hidden size (XLM-RoBERTa-large backbone): the width of every
 # vector column in the chunks table. ``ingest.embedder`` and
@@ -86,12 +92,14 @@ class ChunkRecord:
     ----------
     chunk_id:
         Content-addressable identifier
-        ``arxiv:<paper_id>:<sha256(preamble_text + NFC(body_text))[:16]>``
-        for arXiv chunks (landed in E02_S04), or
-        ``textbook:<slug>:<sha256(...)[:16]>`` for textbook chunks
-        (textbook-ingest-m1 + m2). The 16-hex-char prefix is stable
-        across re-runs of the same paper and changes deterministically
-        when either the preamble or the body content changes.
+        ``arxiv:<paper_id>:<sha256(NFC(body_text))[:16]>`` for arXiv
+        chunks (ADR rule 1, chunk-module-m2; a TeX-chunker-owned paper
+        prefixes the body with its ``tex-offset:<n>`` position value), or
+        ``textbook:<slug>:<sha256(position + NFC(body_text))[:16]>`` for
+        textbook chunks (textbook-ingest-m1 + m2). The 16-hex-char suffix
+        is stable across re-runs of the same paper and changes
+        deterministically when the body content (or the position value)
+        changes; the paper preamble plays no part.
     paper_id:
         Canonical arXiv ID without version suffix (``2307.01156``)
         or textbook paper_id (``textbook:shimura-varieties``).
@@ -241,8 +249,8 @@ class ChunkRecord:
 # Chunk ids
 # ---------------------------------------------------------------------------
 #
-# The "preamble" slot is a position value, passed through byte-for-byte:
-# the arXiv HTML chunker passes the paper preamble (or ""), the TeX chunker
+# The position value is passed through byte-for-byte: the arXiv HTML
+# chunker and the backfill re-chunk pass none, the TeX chunker
 # ``tex-offset:<n>``, the textbook HTML chunker "", the textbook Markdown
 # chunker the raw ``"\x00".join(section_path)`` and the textbook PDF
 # chunker ``<paper_id>:page:<n>:offset:<m>``. Normalising or harmonising
@@ -253,29 +261,31 @@ class ChunkRecord:
 # ``ingest.chunker`` re-export): keep it byte-identical, docstring included.
 
 
-def _compute_chunk_id(paper_id: str, preamble_text: str, body_text: str) -> str:
-    """Return ``arxiv:<paper_id>:<sha256(preamble_text + NFC(body_text))[:16]>``.
+def _compute_chunk_id(paper_id: str, body_text: str, *, position: str = "") -> str:
+    """Return ``arxiv:<paper_id>:<sha256(position + NFC(body_text))[:16]>``.
 
-    The hash input is ``preamble_text + NFC(body_text)`` UTF-8-encoded.
-    ``preamble_text`` is already NFC (preamble.py applies F6's
-    normalization at extraction time); ``body_text`` is NFC-normalised
-    here for the hash but the stored ``chunk.body_text`` is left
-    unchanged. This is the same discipline ``tokenize_body`` uses.
+    ADR rule 1: an arXiv chunk id hashes the body only, so ``position``
+    defaults to ``""`` and the id is ``sha256(NFC(body_text))[:16]``.
+    It does not depend on the paper preamble, on whether preamble
+    extraction succeeded, or on the data root. ``body_text`` is
+    NFC-normalised here for the hash but the stored ``chunk.body_text``
+    is left unchanged. This is the same discipline ``tokenize_body`` uses.
 
-    The 16-hex-char prefix is 64 bits of entropy. At the project's 200K-
+    ``position`` is keyword-only and is a place in the source, never
+    context: only a TeX-chunker-owned paper passes one
+    (``tex-offset:<n>``), because the same short proof recurs at
+    different places in one source and both copies are kept. It is
+    hashed raw with no separator, so a TeX id is unchanged by rule 1.
+
+    The 16-hex-char suffix is 64 bits of entropy. At the project's 200K-
     paper end state (~20M chunks), the birthday-bound collision
     probability is ≈ 1.1×10⁻⁵ — negligible for a retrieval system, and
     we additionally fail loudly on any duplicate ``chunk_id`` per paper
     (see ``_chunk_paper_impl``).
-
-    When the per-paper preamble is missing (extraction failed; F3
-    fallback), ``preamble_text`` is ``""``. The hash then depends only
-    on ``body_text``, which still keeps the chunk_id content-addressable
-    and stable across re-runs of the same paper.
     """
     body_normalized = unicodedata.normalize("NFC", body_text)
     digest = hashlib.sha256(
-        (preamble_text + body_normalized).encode("utf-8")
+        (position + body_normalized).encode("utf-8")
     ).hexdigest()[:16]
     return f"arxiv:{paper_id}:{digest}"
 

@@ -28,9 +28,15 @@ limits work to chunks whose embedding input actually changed.
   ``var/arxmcp/index/lancedb-staging/``. The active
   ``corpus-version.json`` is NEVER touched.
 * **`--resume`:** a paper whose staged rows already equal what this
-  run would write (same chunk ids, scalar fields and reuse identities)
-  is skipped; any other paper's staged rows are replaced. No no-op flag
+  run would write (same chunk ids, chunker version, scalar fields and
+  reuse identities) is skipped; any other paper's staged rows are
+  replaced. A row a run under another ``CHUNKER_VERSION`` staged is
+  therefore rewritten, not kept (chunk-module-m2). No no-op flag
   (closes E11_S01 F3 lesson).
+* **One-time id rotation (chunk-module-m2):** ADR rule 1 changed every
+  preamble-bearing arXiv chunk id. Run with ``--notebook <slug>`` into a
+  fresh staging table, then cut over; the bodies are unchanged, so
+  every vector is copied. See ``docs/ops/re-embed-runbook.md``.
 """
 
 from __future__ import annotations
@@ -287,10 +293,13 @@ def _delete_staging_paper_rows(staging_path: Path, paper_id: str) -> None:
 
 
 #: Scalar columns a staged row must match for ``--resume`` to skip its paper.
+#: ``chunker_version`` is one of them: without it a row a run under another
+#: ``CHUNKER_VERSION`` staged, with an unchanged id, would be skipped and keep
+#: the old stamp (chunk-module-m2).
 _SIGNATURE_COLUMNS = (
-    "chunk_id", "kind", "section_path", "theorem_name", "theorem_label",
-    "printed_number", "page_start", "page_end", "part_index", "part_count",
-    "source_start", "source_end",
+    "chunk_id", "chunker_version", "kind", "section_path", "theorem_name",
+    "theorem_label", "printed_number", "page_start", "page_end",
+    "part_index", "part_count", "source_start", "source_end",
 )
 
 
@@ -327,7 +336,8 @@ def _chunk_signature(chunk: ChunkRecord, target_embedder_version: str) -> tuple:
     """The staged-row signature this run would write for ``chunk``."""
     chunk_route = route(chunk.kind)
     return (
-        chunk.chunk_id, chunk.kind, tuple(chunk.section_path),
+        chunk.chunk_id, chunk.chunker_version, chunk.kind,
+        tuple(chunk.section_path),
         chunk.theorem_name, chunk.theorem_label, chunk.printed_number,
         chunk.page_start, chunk.page_end, chunk.part_index, chunk.part_count,
         chunk.source_start, chunk.source_end,
@@ -892,32 +902,48 @@ def _cli(argv: list[str]) -> int:
         type=Path,
         help=(
             "Newline-separated paper-id list to scope the run. "
-            "Default: every paper in the active LanceDB."
+            "Default: every paper in the active LanceDB (plus the "
+            "notebook's papers.txt with --notebook)."
+        ),
+    )
+    parser.add_argument(
+        "--notebook",
+        default=None,
+        metavar="SLUG",
+        help=(
+            "Re-embed one notebook: its lancedb is the active source, its "
+            "lancedb-staging the write target and its ops/re-embed-state.json "
+            "the state file, unless the matching flag below is given. "
+            "Required for a dataset that holds textbook papers."
         ),
     )
     parser.add_argument(
         "--active-lancedb-path",
-        default=str(DEFAULT_LANCEDB_PATH),
+        default=None,
         type=Path,
         help=(
             f"Active LanceDB path (read-only source). Default: "
-            f"{DEFAULT_LANCEDB_PATH}."
+            f"{DEFAULT_LANCEDB_PATH}, or the notebook's lancedb."
         ),
     )
     parser.add_argument(
         "--lancedb-staging-path",
-        default=str(DEFAULT_LANCEDB_STAGING_PATH),
+        default=None,
         type=Path,
         help=(
             f"Staging LanceDB path (write target). Default: "
-            f"{DEFAULT_LANCEDB_STAGING_PATH}."
+            f"{DEFAULT_LANCEDB_STAGING_PATH}, or the notebook's "
+            f"lancedb-staging."
         ),
     )
     parser.add_argument(
         "--state-file",
-        default=str(DEFAULT_STATE_PATH),
+        default=None,
         type=Path,
-        help=f"State file path (default: {DEFAULT_STATE_PATH})",
+        help=(
+            f"State file path (default: {DEFAULT_STATE_PATH}, or the "
+            f"notebook's ops/re-embed-state.json)"
+        ),
     )
     parser.add_argument(
         "--target-embedder-version",
@@ -950,6 +976,23 @@ def _cli(argv: list[str]) -> int:
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
 
+    active_path = args.active_lancedb_path
+    staging_path = args.lancedb_staging_path
+    state_path = args.state_file
+    if args.notebook is not None:
+        # Late import: tools/ depends on ingest/, not the other way round
+        # at module load. notebook_dir validates the slug and refuses a
+        # symlinked or escaping notebook dir (Threat-1).
+        from tools._notebook_common import notebook_dir  # noqa: PLC0415
+
+        nb = notebook_dir(args.notebook)
+        active_path = active_path or nb / "lancedb"
+        staging_path = staging_path or nb / "lancedb-staging"
+        state_path = state_path or nb / "ops" / "re-embed-state.json"
+    active_path = active_path or DEFAULT_LANCEDB_PATH
+    staging_path = staging_path or DEFAULT_LANCEDB_STAGING_PATH
+    state_path = state_path or DEFAULT_STATE_PATH
+
     paper_ids: list[str] | None = None
     if args.paper_ids_file is not None:
         if not args.paper_ids_file.is_file():
@@ -964,12 +1007,13 @@ def _cli(argv: list[str]) -> int:
 
     summary = run_re_embed(
         paper_ids=paper_ids,
-        active_lancedb_path=args.active_lancedb_path,
-        staging_lancedb_path=args.lancedb_staging_path,
-        state_path=args.state_file,
+        active_lancedb_path=active_path,
+        staging_lancedb_path=staging_path,
+        state_path=state_path,
         target_embedder_version=args.target_embedder_version,
         dry_run=args.dry_run,
         resume=args.resume,
+        notebook_slug=args.notebook,
     )
     print(
         f"papers={summary.papers_total} "

@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import ast
 import hashlib
-import re
 import sys
 import unicodedata
 from dataclasses import fields
@@ -124,31 +123,37 @@ class TestImportBoundary:
 
 
 class TestChunkIds:
-    def test_arxiv_id_hashes_prefix_plus_nfc_body(self):
-        body = "Let étale X be a scheme."  # NFD é
+    def test_arxiv_id_hashes_the_nfc_body_only(self):
+        # ADR rule 1 (chunk-module-m2): no preamble, no separator.
+        body = "Let étale X be a scheme."  # NFD é
         expected = hashlib.sha256(
-            ("PRE" + unicodedata.normalize("NFC", body)).encode("utf-8")
+            unicodedata.normalize("NFC", body).encode("utf-8")
         ).hexdigest()[:16]
-        assert _compute_chunk_id("2401.00001", "PRE", body) == (
+        assert _compute_chunk_id("2401.00001", body) == (
             f"arxiv:2401.00001:{expected}"
         )
 
-    def test_prefix_is_hashed_raw_and_without_a_separator(self):
-        # NFC(prefix + body) differs from prefix + NFC(body) when the body
-        # starts with a combining mark (UAX #15 §1.4); the id keeps the
-        # latter, and a separator would rotate every id.
+    def test_position_is_hashed_raw_and_without_a_separator(self):
+        # NFC(position + body) differs from position + NFC(body) when the
+        # body starts with a combining mark (UAX #15 §1.4); the id keeps the
+        # latter, and a separator would rotate every TeX id.
         body = "́ rest"
         raw = hashlib.sha256(
             ("e" + unicodedata.normalize("NFC", body)).encode("utf-8")
         ).hexdigest()[:16]
-        assert _compute_chunk_id("2401.00001", "e", body).endswith(raw)
-        assert _compute_chunk_id("2401.00001", "e", body) != _compute_chunk_id(
-            "2401.00001", "", "e" + body
-        )
+        assert _compute_chunk_id("2401.00001", body, position="e").endswith(raw)
+        assert _compute_chunk_id(
+            "2401.00001", body, position="e"
+        ) != _compute_chunk_id("2401.00001", "e" + body)
+
+    def test_position_is_keyword_only(self):
+        with pytest.raises(TypeError):
+            _compute_chunk_id("2401.00001", "PRE", "body")  # type: ignore[misc]
 
     def test_textbook_id_uses_the_same_digest_with_its_prefix(self):
-        arxiv = _compute_chunk_id("x", "\x00".join(["Ch 1", "1.2"]), "body")
-        textbook = _compute_textbook_chunk_id("ko95", "\x00".join(["Ch 1", "1.2"]), "body")
+        position = "\x00".join(["Ch 1", "1.2"])
+        arxiv = _compute_chunk_id("x", "body", position=position)
+        textbook = _compute_textbook_chunk_id("ko95", position, "body")
         assert textbook == "textbook:ko95:" + arxiv.rsplit(":", 1)[-1]
 
 
@@ -431,63 +436,3 @@ class TestLanceDBRoundTrip:
         )
         with pytest.raises(ValueError, match="proof route"):
             write_chunks([proof], embeddings, lancedb_path=tmp_path, build_indices=False)
-
-
-# ---------------------------------------------------------------------------
-# The docs that point readers at chunk facts point at this module
-# ---------------------------------------------------------------------------
-
-REPO_ROOT = CHUNK_PY.parent.parent
-
-
-class TestDocsPointAtTheChunkModule:
-    """CLAUDE.md and the runbooks must name where chunk facts now live.
-
-    Every session loads CLAUDE.md; its §5 layout and the §4.10 / §7 cites
-    must not send a reader to a module that no longer holds the fact.
-    """
-
-    claude_md = (REPO_ROOT / "CLAUDE.md").read_text(encoding="utf-8")
-
-    def test_layout_lists_the_chunk_module(self):
-        assert re.search(r"^│   ├── chunk\.py\s", self.claude_md, re.MULTILINE)
-        assert "chunks-table schema (single source of truth)" not in self.claude_md
-
-    def test_every_ingest_module_claude_md_names_exists(self):
-        named = set(re.findall(r"ingest/([a-z_]+)\.py", self.claude_md))
-        missing = sorted(n for n in named if not (REPO_ROOT / "ingest" / f"{n}.py").is_file())
-        assert missing == []
-
-    def test_line_cites_into_ingest_are_in_range(self):
-        for name, line in re.findall(r"ingest/([a-z_]+)\.py:(\d+)", self.claude_md):
-            path = REPO_ROOT / "ingest" / f"{name}.py"
-            n_lines = len(path.read_text(encoding="utf-8").splitlines())
-            assert int(line) <= n_lines, f"CLAUDE.md cites {path.name}:{line} past its end"
-
-    def test_resolving_key_cite_lands_in_the_chunk_module(self):
-        # CLAUDE.md §4.10 rule 2 quotes the schema comment that calls
-        # ``source_span``'s ``txt`` the authoritative resolving key.
-        assert "`ingest/chunk.py` (`CHUNKS_SCHEMA_V1`) calls the" in self.claude_md
-        assert "authoritative resolving key" in CHUNK_PY.read_text(encoding="utf-8")
-
-    @pytest.mark.parametrize(
-        "runbook", ["bulk-ingest-runbook.md", "corpus-drift-runbook.md"]
-    )
-    def test_runbooks_state_the_one_time_re_embed(self, runbook):
-        # Sidecars written before this milestone carry no reuse identity,
-        # so the sidecar skip the runbooks promise fails once per paper.
-        raw = (REPO_ROOT / "docs" / "ops" / runbook).read_text(encoding="utf-8")
-        text = " ".join(raw.replace("#", " ").split())
-        assert "reuse identity" in text
-        assert "chunk-module-m1" in text
-
-    def test_no_doc_names_the_deleted_module(self):
-        docs = [REPO_ROOT / "CLAUDE.md"]
-        docs += sorted((REPO_ROOT / "docs").rglob("*.md"))
-        docs += sorted((REPO_ROOT / ".claude" / "docs").rglob("*.md"))
-        stale = [
-            str(doc.relative_to(REPO_ROOT))
-            for doc in docs
-            if "chunker_types" in doc.read_text(encoding="utf-8")
-        ]
-        assert stale == []

@@ -89,13 +89,13 @@ help:
 	@echo "  make re-embed    Run the partial re-embed driver"
 	@echo "  make re-embed-all Re-embed every LanceDB dataset (shared + notebook-scoped; embedder-truncation-m1)"
 	@echo "  make ingest-recover-preambles  Back-fill raw .tex + preamble.json for ar5iv-only papers (notebook-preamble-recovery-m1)"
-	@echo "                                 NOTE: triggers chunk_id rotation; follow with make re-embed-all"
 	@echo "  make watchdog    Run the drift watchdog against staging"
 	@echo "  make cutover     Activate the staging corpus as the new active"
 	@echo "  make notebook-cutover       Promote notebook lancedb-staging -> lancedb (notebook-cutover-m1)"
 	@echo "                              DEFAULT: ALL promotable notebooks; scope with ARGS='--notebook=<slug>'."
 	@echo "                              Rollback: ARGS='--rollback --notebook=<slug>' (single-level). MEASURE first;"
-	@echo "                              RESTART the server after (it holds an open handle on the old inode)."
+	@echo "                              STOP the server before, START it after (an open table's reads fail across the swap)."
+	@echo "                              Deletes the notebook's Tier-1 retrieval cache after the swap."
 	@echo "  make daily-report           Scrape /metrics and write the daily ops report"
 	@echo "  make parser-failures-report Roll up parser-failures/*.{log,jsonl} into the weekly review"
 	@echo "  make sbom        Generate CycloneDX SBOMs + grype scan (into var/sbom/)"
@@ -355,12 +355,15 @@ Try: make delta PYTHON=python3.$(MIN_PY_MINOR)'"
 
 re-embed:
 	@# E11_S03 — partial re-embed driver. Reads the active LanceDB,
-	@# re-chunks every paper with the current chunker_version, diffs
-	@# the new chunk-id set against the old, copies unchanged
-	@# embeddings from the old LanceDB version, and re-runs the
-	@# embedder only for new/changed chunks. Writes to the staging
+	@# re-chunks every paper with the current chunker_version, copies
+	@# the stored vector of every new chunk whose reuse identity
+	@# (embedding input, embedder version, policy, route) matches a
+	@# stored row (chunk-module-m1; the chunk id plays no part), and
+	@# re-runs the embedder only for the rest. Writes to the staging
 	@# LanceDB; active corpus-version.json is NEVER advanced (that
-	@# is E11_S05's atomic cutover).
+	@# is E11_S05's atomic cutover). ARGS="--notebook=<slug>" re-embeds
+	@# one notebook (its lancedb -> its lancedb-staging); the one-time
+	@# chunk-module-m2 id rotation runs this way.
 	@#
 	@# NOTE on ARGS: paths inside ARGS must not contain spaces —
 	@# Make's shell expansion splits at whitespace before argparse
@@ -380,11 +383,9 @@ ingest-recover-preambles:
 	@#
 	@# ARXMCP_CONTACT_EMAIL is optional contact information for the User-Agent.
 	@#
-	@# OPERATOR WARNING: after this completes, the next `make re-embed-all`
-	@# will detect that body+preamble of every back-filled paper now
-	@# differs (preamble bytes flow into the chunk_id hash), so re_embed
-	@# produces re_embedded ≫ copied for the affected notebooks —
-	@# expect 2-4 hours additional CPU. This is INTENDED (AC5).
+	@# Recovering a preamble changes no chunk id (since chunk-module-m2
+	@# an arXiv id hashes the body only) and no vector (body-first-v1
+	@# never embeds the preamble); it only fills preamble_ref.
 	@#
 	@# NOTE on ARGS: paths inside ARGS must not contain spaces. Use
 	@# `ARGS="--notebook=<slug>"` to scope to one notebook's papers.txt;
@@ -465,8 +466,11 @@ notebook-cutover:
 	@# ARGS="--notebook=<slug>". Rollback: ARGS="--rollback
 	@# --notebook=<slug>". Downgrade override: add --force.
 	@#
-	@# RESTART the server after a cutover — it holds an open LanceDB
-	@# handle on the old inode and serves stale data until restarted.
+	@# STOP the server before a cutover and START it after. An open
+	@# table does not serve the old data across the swap: its reads
+	@# fail (lancedb 0.30.2, Linux; chunk-module-m2). The cutover
+	@# deletes the Tier-1 cache and BM25 dir keyed by the version it
+	@# makes active, since a fresh staging restarts version numbering.
 	@#
 	@# NOTE on ARGS: paths inside ARGS must not contain spaces — Make's
 	@# shell expansion splits at whitespace before argparse sees them.

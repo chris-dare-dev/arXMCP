@@ -15,7 +15,7 @@ custom ``\\newtheorem`` environments). For those the only remaining
 signal is ``section_path``, and *it is not sufficient to order chunks
 within a section*: the chunker assigns a monotonic ``idx<N>`` while
 walking the document, then **discards it** — ``ingest/chunker.py``
-rewrites every id to the content hash ``sha256(preamble + body)[:16]``
+rewrites every id to the content hash ``sha256(NFC(body))[:16]``
 before the record is written. No column of ``CHUNKS_SCHEMA_V1`` records
 document position. So for two unlabeled theorems in one section, "the
 adjacent proof" is not computable from served data.

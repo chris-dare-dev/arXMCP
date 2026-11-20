@@ -159,7 +159,7 @@ class TestTwoTheoremGolden:
     def test_chunker_version_on_all_chunks(self, tmp_path):
         chunks = self._run(tmp_path)
         for chunk in chunks:
-            assert chunk.chunker_version == "v1.2"
+            assert chunk.chunker_version == "v1.3"
 
     def test_body_tokens_populated(self, tmp_path):
         # E02_S03 wired tokenize_body into _chunk_paper_impl. Every chunk's
@@ -315,7 +315,7 @@ class TestMultiKindEnvironments:
     def test_all_chunks_have_chunker_version(self, tmp_path):
         chunks = self._run(tmp_path)
         for chunk in chunks:
-            assert chunk.chunker_version == "v1.2"
+            assert chunk.chunker_version == "v1.3"
 
     def test_section_chunk_emitted(self, tmp_path):
         chunks = self._run(tmp_path)
@@ -1052,7 +1052,7 @@ class TestChunkRecord:
             theorem_label=None,
             body_text="text",
         )
-        assert record.chunker_version == "v1.2"
+        assert record.chunker_version == "v1.3"
 
     def test_to_dict_serialises_all_fields(self):
         record = ChunkRecord(
@@ -1072,7 +1072,7 @@ class TestChunkRecord:
         assert d["theorem_name"] == "Main"
         assert d["theorem_label"] == "main"
         assert d["body_text"] == "Proof text here."
-        assert d["chunker_version"] == "v1.2"
+        assert d["chunker_version"] == "v1.3"
 
 
 # ===========================================================================
@@ -1151,7 +1151,7 @@ class TestB2BudgetBumpTakesEffect:
     actually rotates chunk_ids of previously-truncated chunks.
 
     The chunk_id is body-content-addressable
-    (``sha256(preamble_text + NFC(body_text))[:16]``) — it is NOT
+    (``sha256(NFC(body_text))[:16]`` since chunk-module-m2) — it is NOT
     version-keyed. The post-bump test must therefore prove that a
     body whose token count is between the old budget (512) and the
     new budget (2048) now flows through unclipped, and its chunk_id
@@ -1159,7 +1159,7 @@ class TestB2BudgetBumpTakesEffect:
     prefix.
 
     Both clauses of the AC are tested:
-      (a) emitted records carry chunker_version == "v1.2"
+      (a) emitted records carry chunker_version == "v1.3"
       (b) a chunk whose body would have been clipped at 512 now fits
           intact; its chunk_id matches the hash of the full body,
           differing from the hash of the 512-token-clipped prefix.
@@ -1220,9 +1220,9 @@ class TestB2BudgetBumpTakesEffect:
         )
         chunk = stmt_chunks[0]
 
-        # AC clause (a): chunker_version is "v1.2".
+        # AC clause (a): chunker_version is CHUNKER_VERSION ("v1.3").
         from ingest.chunk import CHUNKER_VERSION
-        assert chunk.chunker_version == "v1.2"
+        assert chunk.chunker_version == "v1.3"
         assert chunk.chunker_version == CHUNKER_VERSION
 
         # AC clause (b): the body survived intact (not clipped at 512).
@@ -1239,9 +1239,7 @@ class TestB2BudgetBumpTakesEffect:
         # with any future hash-fn changes. (_compute_chunk_id returns
         # the full ``arxiv:<paper_id>:<hex16>`` form, not just the hash.)
         from ingest.chunker import _compute_chunk_id
-        expected_id_full = _compute_chunk_id(
-            self.PAPER_ID, "", chunk.body_text
-        )
+        expected_id_full = _compute_chunk_id(self.PAPER_ID, chunk.body_text)
         assert chunk.chunk_id == expected_id_full, (
             f"chunk_id mismatch:\n"
             f"  emitted: {chunk.chunk_id}\n"
@@ -1252,7 +1250,7 @@ class TestB2BudgetBumpTakesEffect:
         # proving the budget bump rotated the id deterministically.
         full_tokens = chunk.body_text.split()
         clipped_prefix = " ".join(full_tokens[:512])
-        clipped_id = _compute_chunk_id(self.PAPER_ID, "", clipped_prefix)
+        clipped_id = _compute_chunk_id(self.PAPER_ID, clipped_prefix)
         assert chunk.chunk_id != clipped_id, (
             "B-2 invariant violated: the post-bump chunk_id equals the "
             "hash of a 512-token-clipped prefix — the budget bump did "

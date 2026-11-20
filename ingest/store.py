@@ -712,6 +712,69 @@ def write_corpus_version_marker(
 
 
 # ---------------------------------------------------------------------------
+# In-place write guard (chunk-module-m2)
+# ---------------------------------------------------------------------------
+
+
+class StaleChunkerRowsError(RuntimeError):
+    """A write target holds arXiv rows another chunker version wrote."""
+
+
+def refuse_stale_chunker_rows(
+    lancedb_path: str | Path, *, chunker_version: str = CHUNKER_VERSION
+) -> None:
+    """Refuse an in-place write into a table another chunker version wrote.
+
+    :func:`write_chunks` upserts by ``chunk_id`` and its ``merge_insert``
+    has no delete arm, so re-chunking a paper in place leaves every row
+    whose id changed beside its replacement. A chunker version bump can
+    change ids (v1.3 dropped the preamble from arXiv ids, ADR rule 1) or
+    bodies, so a table whose arXiv rows another version wrote must be
+    re-chunked through a fresh staging table and a cutover, never written
+    in place. This runs once per run, before the first write, from the
+    in-place ingest paths (:func:`ingest.bulk_ingest.run_bulk_ingest`,
+    which ``make ingest``, ``tools/notebook_ingest.py`` and the ``/ui/``
+    console reach, and :func:`ingest.oai_delta.run_delta`).
+
+    A missing or empty table passes. Textbook rows carry their own chunker
+    versions and are not checked. The check reads the rows, not the
+    ``corpus-version.json`` marker: a textbook ingest restamps the marker
+    with this code's version without touching a single arXiv row.
+    """
+    path = Path(lancedb_path)
+    if not (path / f"{CHUNKS_TABLE_NAME}.lance").is_dir():
+        return
+    import lancedb  # noqa: PLC0415
+
+    table = lancedb.connect(str(path)).open_table(CHUNKS_TABLE_NAME)
+    safe_version = chunker_version.replace("'", "''")
+    stale_filter = (
+        "chunk_id LIKE 'arxiv:%' AND (chunker_version IS NULL "
+        f"OR chunker_version != '{safe_version}')"
+    )
+    stale = table.count_rows(stale_filter)
+    if not stale:
+        return
+    sample = (
+        table.search()
+        .where(stale_filter)
+        .select(["chunker_version"])
+        .limit(1000)
+        .to_list()
+    )
+    found = sorted({str(row["chunker_version"]) for row in sample})
+    raise StaleChunkerRowsError(
+        f"refusing to write into {path}: {stale} arXiv row(s) there were "
+        f"chunked by another chunker_version (seen: {found}), and this code "
+        f"is {chunker_version!r}. Writing in place would leave each re-chunked "
+        "row beside its replacement (merge_insert has no delete arm). "
+        "Re-chunk through a fresh staging table and a cutover instead: "
+        "docs/ops/re-embed-runbook.md, 'One-time id rotation "
+        "(chunk-module-m2)'."
+    )
+
+
+# ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
@@ -1065,9 +1128,11 @@ __all__ = [
     "CORPUS_VERSION_MARKER_NAME",
     "DEFAULT_LANCEDB_PATH",
     "STORE_STATS_PATH",
+    "StaleChunkerRowsError",
     "WapGateError",
     "WriteStats",
     "load_embed_record",
+    "refuse_stale_chunker_rows",
     "write_chunks",
     "write_corpus_version_marker",
 ]
