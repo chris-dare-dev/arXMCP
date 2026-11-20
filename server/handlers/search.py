@@ -69,6 +69,7 @@ messages array, not MCP tool results).
 
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import Annotated, Any, Literal
 
@@ -819,11 +820,11 @@ async def handle_search_papers(
                 f"({clause})" for clause in predicate_clauses
             )
             search_q = search_q.where(combined_predicate, prefilter=True)
-        arrow = (
-            search_q
-            .limit(k * 5 if level != "theorem" else k)  # over-fetch for dedup
-            .to_arrow()
+        search_q = search_q.limit(
+            k * 5 if level != "theorem" else k  # over-fetch for dedup
         )
+        # The ANN query blocks; run it off the shared event loop.
+        arrow = await asyncio.to_thread(search_q.to_arrow)
     rows = _arrow_to_rows(arrow)
 
     # Aggregate per level.

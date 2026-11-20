@@ -28,6 +28,7 @@ has no accepted-and-ignored argument left.
 
 from __future__ import annotations
 
+import asyncio
 import sys
 from typing import Annotated, Any
 
@@ -113,6 +114,17 @@ async def handle_get_chunk(
             )
 
     r = get_resources()
+    # The row fetch and the proof-linkage queries are blocking LanceDB
+    # reads; the server runs one event loop for every tool, the console
+    # and the health probes, so they run on a worker thread.
+    return await asyncio.to_thread(
+        _get_chunks, r, ids, batch, include_referenced
+    )
+
+
+def _get_chunks(
+    r: Any, ids: list[str], batch: bool, include_referenced: bool
+) -> dict[str, Any]:
     row_map = _fetch_chunk_rows(r, ids)
     if not batch:
         return envelope(
@@ -155,6 +167,10 @@ async def read_chunk_in_full(chunk_id: str) -> dict[str, Any]:
             f"chunk_id {chunk_id!r} does not match arxiv:<paper_id>:<16-hex> format"
         )
     r = get_resources()
+    return await asyncio.to_thread(_read_chunk_in_full, r, chunk_id)
+
+
+def _read_chunk_in_full(r: Any, chunk_id: str) -> dict[str, Any]:
     row = _fetch_chunk_rows(r, [chunk_id]).get(chunk_id)
     return envelope(
         _build_chunk_result(chunk_id, row, False, r, byte_cap=sys.maxsize)

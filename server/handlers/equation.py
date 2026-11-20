@@ -30,6 +30,7 @@ for minutes.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from importlib.metadata import PackageNotFoundError, version
 from typing import Annotated, Any
@@ -108,7 +109,9 @@ async def handle_find_equation(
             alpha=alpha,
         )
         try:
-            hits = index.query(ted_input, query_vec, k)
+            # Tree-edit-distance scoring and its LanceDB reads are CPU
+            # and I/O bound; keep them off the shared event loop.
+            hits = await asyncio.to_thread(index.query, ted_input, query_vec, k)
         except (ValueError, RecursionError) as exc:
             # The parsed input could not be turned into a usable tree —
             # degrade to dense-only rather than 5xx. Two sources:
@@ -291,13 +294,10 @@ async def _dense_only(
     dense-only answer still says whether a conversion was tried and why
     it did not carry (m4).
     """
-    arrow = (
-        r.chunks_table.search(
-            query_vec, vector_column_name="embedding_stmt"
-        )
-        .limit(k)
-        .to_arrow()
-    )
+    query = r.chunks_table.search(
+        query_vec, vector_column_name="embedding_stmt"
+    ).limit(k)
+    arrow = await asyncio.to_thread(query.to_arrow)
     rows: list[dict[str, Any]] = []
     cids = arrow.column("chunk_id").to_pylist()
     paper_ids = arrow.column("paper_id").to_pylist()

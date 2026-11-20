@@ -34,6 +34,7 @@ can format from ``display_name``).
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Annotated, Any
 
@@ -202,6 +203,36 @@ def _row_to_match(row: TheoremRow) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
+_FALLBACK_COLUMNS = ["chunk_id", "paper_id", "theorem_name", "section_path"]
+
+
+def _scan_named_rows(table: Any, paper_id: str | None) -> Any:
+    """The rows that carry a theorem name, four columns of each.
+
+    Runs on a worker thread: on a large corpus this is still a big read,
+    and the server's single event loop also serves every other tool and
+    the health probes. The filter keeps it to named rows (and to one
+    paper when asked), and the projection keeps the two 1024-float
+    vector columns out of it.
+    """
+    where = "theorem_name IS NOT NULL"
+    if paper_id is not None:
+        escaped = paper_id.replace("'", "''")
+        where = f"{where} AND paper_id = '{escaped}'"
+    expected = table.count_rows(where)
+    query = table.search().where(where, prefilter=True).select(_FALLBACK_COLUMNS)
+    arrow = query.limit(max(expected, 1)).to_arrow()
+    if arrow.num_rows != expected:
+        # `chunks_table` is pinned to one corpus version, so a concurrent
+        # ingest cannot shorten this scan; a short read means the read
+        # failed. Refuse rather than report "no such lemma" for one that
+        # exists.
+        raise RuntimeError(
+            "lemma fallback scan came back short at a pinned corpus version"
+        )
+    return arrow
+
+
 async def _in_memory_scan_fallback(
     r: Any, name: str, paper_id: str | None, k: int
 ) -> dict[str, Any]:
@@ -212,27 +243,7 @@ async def _in_memory_scan_fallback(
     ``retrieval_mode="in_memory_scan_fallback"`` so callers can
     detect the degraded path.
     """
-    # #496: project at the scanner. `LanceTable.to_arrow()` takes no arguments
-    # in lancedb 0.30.x, so the previous shape materialized all 14 columns --
-    # including two 1024-float vector columns, ~14 KB/row -- and then read four
-    # of them. On a production-scale corpus an ordinary request down this
-    # fallback path was a multi-gigabyte allocation. Projected, it is ~14 B/row.
-    from server.corpus import project_columns  # noqa: PLC0415
-
-    wanted = ["chunk_id", "paper_id", "theorem_name", "section_path"]
-    arrow = project_columns(
-        r.chunks_table, wanted, expected_rows=r.chunks_table.count_rows()
-    )
-    if arrow is None:
-        # `chunks_table` is opened at a PINNED version (`resources.py` ->
-        # `open_chunks_table_with_fallback(version=...)`), so a scan cannot
-        # come back short because of a concurrent ingest; a short read here
-        # means the read itself failed. Refuse rather than answer from a
-        # partial scan, which would render as "no such lemma" for a lemma
-        # that exists -- a wrong answer stated confidently.
-        raise RuntimeError(
-            "lemma fallback scan came back short at a pinned corpus version"
-        )
+    arrow = await asyncio.to_thread(_scan_named_rows, r.chunks_table, paper_id)
     chunk_ids = arrow.column("chunk_id").to_pylist()
     paper_ids = arrow.column("paper_id").to_pylist()
     theorem_names = arrow.column("theorem_name").to_pylist()

@@ -32,6 +32,7 @@ bootstrap path.
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import logging
 from typing import Annotated, Any
@@ -162,7 +163,7 @@ async def handle_get_definitions(
     # thousand for highly notational hep-th papers), so loading all
     # paper-scoped rows then paginating in Python is correct, simple
     # and bounded.
-    rows = _load_paper_rows(table, paper_id)
+    rows = await asyncio.to_thread(_load_paper_rows, table, paper_id)
 
     if term is not None:
         matched = _term_lookup(rows, term)
