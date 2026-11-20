@@ -181,10 +181,19 @@ def check_criterion_3_re_embed_state(
 # ---------------------------------------------------------------------------
 
 
+#: The drill runs quarterly, with a reminder in the week before each
+#: quarter mark. A pass older than one quarter plus that week no longer
+#: says anything about whether today's backups restore.
+RESTORE_DRILL_MAX_AGE_DAYS: int = 100
+
+
 def check_criterion_4_restore_drill(
     flag_path: Path = DEFAULT_RESTORE_DRILL_FLAG_PATH,
+    *,
+    now=None,  # noqa: ANN001
+    max_age_days: int = RESTORE_DRILL_MAX_AGE_DAYS,
 ) -> CriterionResult:
-    """Verify the restore drill ran successfully."""
+    """Verify a restore drill passed within the last quarter."""
     name = "C4: restore drill passed"
     if not flag_path.is_file():
         return CriterionResult(
@@ -209,10 +218,39 @@ def check_criterion_4_restore_drill(
             ok=False,
             reason=f"smoke_check={smoke!r} (expected 'passed')",
         )
+    restored_at = payload.get("restored_at")
+    try:
+        when = _dt.datetime.strptime(
+            str(restored_at), "%Y-%m-%dT%H:%M:%SZ"
+        ).replace(tzinfo=_dt.UTC)
+    except ValueError:
+        return CriterionResult(
+            name=name,
+            ok=False,
+            reason=(
+                f"restored_at={restored_at!r} in {flag_path} is not a UTC "
+                f"timestamp; rerun ops/restore_drill.sh"
+            ),
+        )
+    current = now if now is not None else _dt.datetime.now(_dt.UTC)
+    age_days = (current - when).total_seconds() / 86400.0
+    if age_days > max_age_days:
+        return CriterionResult(
+            name=name,
+            ok=False,
+            reason=(
+                f"last drill passed {age_days:.0f} days ago "
+                f"(restored_at={restored_at}); the limit is "
+                f"{max_age_days} days. Rerun ops/restore_drill.sh"
+            ),
+        )
     return CriterionResult(
         name=name,
         ok=True,
-        reason=f"snapshot_id={payload.get('snapshot_id', '?')}",
+        reason=(
+            f"snapshot_id={payload.get('snapshot_id', '?')}, "
+            f"{age_days:.0f} days ago"
+        ),
     )
 
 

@@ -100,14 +100,19 @@ def _write_re_embed_state(path: Path, status: str) -> None:
     )
 
 
-def _write_drill_flag(path: Path, smoke_check: str = "passed") -> None:
+def _write_drill_flag(
+    path: Path, smoke_check: str = "passed", *, days_ago: float = 3.0
+) -> None:
+    import datetime as _dt
+
+    restored_at = _dt.datetime.now(_dt.UTC) - _dt.timedelta(days=days_ago)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
         json.dumps(
             {
                 "smoke_check": smoke_check,
                 "snapshot_id": "abc12345",
-                "restored_at": "2026-05-15T00:00:00Z",
+                "restored_at": restored_at.strftime("%Y-%m-%dT%H:%M:%SZ"),
             },
             sort_keys=True,
         ),
@@ -1000,3 +1005,30 @@ class TestPostActivationReadsItsOwnReport:
             runner=_runner,
         )
         assert r.ok is False
+
+
+class TestRestoreDrillFreshness:
+    def test_a_drill_from_last_week_passes(self, tmp_path):
+        from ops.cutover import check_criterion_4_restore_drill
+
+        flag = tmp_path / "restore-drill-passed.flag"
+        _write_drill_flag(flag, days_ago=7)
+        assert check_criterion_4_restore_drill(flag).ok is True
+
+    def test_a_drill_older_than_a_quarter_fails(self, tmp_path):
+        from ops.cutover import check_criterion_4_restore_drill
+
+        flag = tmp_path / "restore-drill-passed.flag"
+        _write_drill_flag(flag, days_ago=400)
+        r = check_criterion_4_restore_drill(flag)
+        assert r.ok is False
+        assert "400 days ago" in r.reason
+
+    def test_a_flag_without_a_timestamp_fails(self, tmp_path):
+        from ops.cutover import check_criterion_4_restore_drill
+
+        flag = tmp_path / "restore-drill-passed.flag"
+        flag.write_text(json.dumps({"smoke_check": "passed"}))
+        r = check_criterion_4_restore_drill(flag)
+        assert r.ok is False
+        assert "restored_at" in r.reason
