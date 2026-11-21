@@ -52,6 +52,7 @@ class _FakeResources:
             start if start is not None else time.time() - 3600
         )
         self.config = SimpleNamespace(data_dir=data_dir, ops_dir=ops_dir)
+        self.bm25_phase_state = "disabled"
 
     def is_resource_warm(self, name: str) -> bool:
         if name in ("embedder", "lancedb"):

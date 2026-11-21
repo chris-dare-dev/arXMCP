@@ -936,7 +936,7 @@ class TestResourcesIntegration:
         qe_mod._get_tokenizer = lambda: object()
         try:
             lancedb_path, _version = _seeded_lancedb
-            cfg = Config(lancedb_path=lancedb_path)
+            cfg = Config(lancedb_path=lancedb_path, bm25_phase="on")
             r = asyncio.run(Resources.startup(cfg))
             assert r.bm25_phase is not None
             assert r.bm25_phase.corpus_size > 0

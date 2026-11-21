@@ -96,6 +96,7 @@ def test_readyz_names_the_cold_embedder_mid_startup(tmp_path, monkeypatch):
     assert mid.json() == {
         "status": "not_ready",
         "warm": {"embedder": False, "lancedb": True, "reranker": False},
+        "bm25_phase": "disabled",
     }
     assert after.status_code == 200, after.json()
     assert after.json()["warm"] == {

@@ -322,6 +322,7 @@ class TestReadinessTransition:
         assert r.json() == {
             "status": "not_ready",
             "warm": {"embedder": False, "lancedb": False, "reranker": False},
+            "bm25_phase": "disabled",
         }
 
 
@@ -756,7 +757,7 @@ class TestNotebookConfig:
         CorpusNotIngestedError and /readyz would be 503."""
         nb_lancedb = notebooks_base / "demo-nb" / "lancedb"
         nb_version = _seed_corpus(nb_lancedb)
-        cfg = Config(notebook="demo-nb")
+        cfg = Config(notebook="demo-nb", bm25_phase="on")
         # Routing took effect at config-load.
         assert cfg.lancedb_path == nb_lancedb.resolve()
 
@@ -773,7 +774,8 @@ class TestNotebookConfig:
             assert resources.config.lancedb_path == nb_lancedb.resolve()
             assert resources.chunks_table.count_rows() == 2
 
-            # Startup auto-builds the missing index inside the served dataset.
+            # With the phase on, startup auto-builds the missing index
+            # inside the served dataset.
             import ingest.bm25_indexer as bm25_mod  # noqa: PLC0415
 
             nb_bm25_pkl = (

@@ -304,6 +304,7 @@ class TestReadyzDegradedReasons:
                 reason=reason, fallback_version=7, original_version=7,
             ),
             is_resource_warm=lambda name: True,
+            bm25_phase_state="disabled",
             startup_chunk_count=30,
             corpus_info=SimpleNamespace(chunk_count=10),
         )
