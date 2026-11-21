@@ -26,6 +26,12 @@ import pytest
 from ingest import textbook_parser
 from ingest.textbook_parser import MinerUResult
 from ingest.textbook_renderer import RenderResult
+from server.notebooks_store import (
+    SCHEMA_VERSION,
+    NotebooksStore,
+    ParseMetrics,
+    open_sync,
+)
 from server.parse_tracker import (
     PARSE_ERROR_TAIL_MAX_BYTES,
     ParseTaskTracker,
@@ -199,6 +205,9 @@ class TestParseTaskTrackerSurface:
         assert last_call.kwargs["parsed_html_path"] == str(
             render_result.output_html_path,
         )
+        assert last_call.kwargs["metrics"] == ParseMetrics(
+            latex_errors=0, mineru_wall_s=5.0, render_wall_s=2.0,
+        )
 
     def test_mineru_failure_records_parse_status_failed(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
@@ -232,6 +241,8 @@ class TestParseTaskTrackerSurface:
         assert "boom" in call.kwargs["parse_error"]
         # HTML escape applied — no raw < in stored error.
         assert "<" not in call.kwargs["parse_error"]
+        # Nothing was measured, and an earlier parse's numbers are cleared.
+        assert call.kwargs["metrics"] == ParseMetrics()
 
     def test_renderer_failure_records_parse_status_failed(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
@@ -268,6 +279,8 @@ class TestParseTaskTrackerSurface:
         call = store.update_parse_status.call_args
         assert call.args[1] == "failed"
         assert "latexmlc failed" in call.kwargs["parse_error"]
+        # MinerU finished before the render failed; its wall clock is kept.
+        assert call.kwargs["metrics"] == ParseMetrics(mineru_wall_s=5.0)
 
     def test_shutdown_with_no_tasks(self) -> None:
         async def _run() -> None:
@@ -593,6 +606,8 @@ class TestShutdownRecordsWhatHappened:
         assert status == "failed"
         assert "rendering was skipped" in error
         assert rendered == []
+        metrics = store.update_parse_status.call_args.kwargs["metrics"]
+        assert metrics == ParseMetrics(mineru_wall_s=5.0)
 
     def test_render_finishing_within_the_grace_is_recorded_complete(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
@@ -663,3 +678,163 @@ class TestShutdownRecordsWhatHappened:
         assert status == "failed"
         assert "abandoned at daemon shutdown" in error
         assert "rendering" in error
+
+
+# ---------------------------------------------------------------------------
+# Parse measurements persist on the notebook row
+# ---------------------------------------------------------------------------
+
+
+def _open_store_with_textbook(db_path: Path, slug: str = "tb") -> NotebooksStore:
+    async def _open() -> NotebooksStore:
+        store = await NotebooksStore.open(db_path)
+        await store.create_notebook(
+            slug=slug, display_name=slug, lancedb_path=f"/x/{slug}",
+            created_at="2026-01-01T00:00:00+00:00",
+            notebook_kind="textbook", parse_status="pending",
+        )
+        return store
+    return asyncio.run(_open())
+
+
+class TestParseMetricsPersistence:
+    """The measurements of a finished parse are stored, not just logged."""
+
+    def test_tracker_persists_measurements_of_a_clean_parse(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from ingest import textbook_renderer
+
+        render_result = dataclasses.replace(
+            _make_render_result(tmp_path), latex_error_annotations=4000,
+        )
+        monkeypatch.setattr(
+            textbook_parser, "run_mineru_sandboxed",
+            lambda pdf_path, output_dir: _make_mineru_result(tmp_path),
+        )
+        monkeypatch.setattr(
+            textbook_renderer, "render_mineru_to_html",
+            lambda r, p, pid: render_result,
+        )
+
+        async def _run() -> tuple[dict[str, str] | None, ParseMetrics | None]:
+            store = await NotebooksStore.open(tmp_path / "notebooks.db")
+            try:
+                await store.create_notebook(
+                    slug="tb", display_name="tb", lancedb_path="/x/tb",
+                    created_at="2026-01-01T00:00:00+00:00",
+                    notebook_kind="textbook", parse_status="pending",
+                )
+                await store.update_parse_status("tb", store.PARSE_STATUS_RUNNING)
+                await ParseTaskTracker().start_parse(
+                    slug="tb", pdf_path=tmp_path / "x.pdf",
+                    paper_id="textbook:x", output_dir=tmp_path / "out",
+                    parsed_dir=tmp_path / "parsed", store=store,
+                )
+                return await store.get_notebook("tb"), await store.get_parse_metrics("tb")
+            finally:
+                await store.close()
+
+        row, metrics = asyncio.run(_run())
+        assert row is not None and row["parse_status"] == "complete"
+        assert metrics == ParseMetrics(
+            latex_errors=4000, mineru_wall_s=5.0, render_wall_s=2.0,
+        )
+
+    def test_metrics_round_trip_and_none_writes_null(self, tmp_path: Path) -> None:
+        store = _open_store_with_textbook(tmp_path / "notebooks.db")
+
+        async def _run() -> list[ParseMetrics | None]:
+            try:
+                seen = [await store.get_parse_metrics("tb")]
+                await store.update_parse_status(
+                    "tb", store.PARSE_STATUS_COMPLETE,
+                    metrics=ParseMetrics(3, 12.5, 1.25),
+                )
+                seen.append(await store.get_parse_metrics("tb"))
+                # Omitting metrics on a non-running write leaves them alone.
+                await store.update_parse_status("tb", store.PARSE_STATUS_COMPLETE)
+                seen.append(await store.get_parse_metrics("tb"))
+                await store.update_parse_status(
+                    "tb", store.PARSE_STATUS_FAILED,
+                    metrics=ParseMetrics(mineru_wall_s=7.0),
+                )
+                seen.append(await store.get_parse_metrics("tb"))
+                seen.append(await store.get_parse_metrics("no-such-slug"))
+                return seen
+            finally:
+                await store.close()
+
+        assert asyncio.run(_run()) == [
+            ParseMetrics(),
+            ParseMetrics(3, 12.5, 1.25),
+            ParseMetrics(3, 12.5, 1.25),
+            ParseMetrics(mineru_wall_s=7.0),
+            None,
+        ]
+
+    def test_starting_a_parse_clears_the_last_ones_measurements(
+        self, tmp_path: Path,
+    ) -> None:
+        store = _open_store_with_textbook(tmp_path / "notebooks.db")
+
+        async def _run() -> ParseMetrics | None:
+            try:
+                await store.update_parse_status(
+                    "tb", store.PARSE_STATUS_COMPLETE,
+                    metrics=ParseMetrics(3, 12.5, 1.25),
+                )
+                await store.update_parse_status(
+                    "tb", store.PARSE_STATUS_RUNNING, parse_error="",
+                )
+                return await store.get_parse_metrics("tb")
+            finally:
+                await store.close()
+
+        assert asyncio.run(_run()) == ParseMetrics()
+
+    def test_orphan_sweep_clears_measurements(self, tmp_path: Path) -> None:
+        store = _open_store_with_textbook(tmp_path / "notebooks.db")
+
+        async def _run() -> ParseMetrics | None:
+            try:
+                await store.update_parse_status(
+                    "tb", store.PARSE_STATUS_RUNNING,
+                    metrics=ParseMetrics(3, 12.5, 1.25),
+                )
+                assert await store.mark_orphaned_parses_failed("restarted") == 1
+                return await store.get_parse_metrics("tb")
+            finally:
+                await store.close()
+
+        assert asyncio.run(_run()) == ParseMetrics()
+
+    def test_v7_database_migrates_with_rows_unmeasured(self, tmp_path: Path) -> None:
+        db_path = tmp_path / "notebooks.db"
+        conn = open_sync(db_path)
+        try:
+            conn.execute(
+                "INSERT INTO notebooks (slug, lancedb_path, created_at, "
+                "notebook_kind, parse_status) "
+                "VALUES ('old', '/x', '2026-01-01', 'textbook', 'complete')"
+            )
+            # Wind the file back to v7 as it was before these columns.
+            for column in (
+                "parse_latex_errors", "parse_mineru_wall_s", "parse_render_wall_s",
+            ):
+                conn.execute(f"ALTER TABLE notebooks DROP COLUMN {column}")
+            conn.execute("PRAGMA user_version = 7")
+        finally:
+            conn.close()
+
+        conn = open_sync(db_path)
+        try:
+            version = conn.execute("PRAGMA user_version").fetchone()[0]
+            row = conn.execute(
+                "SELECT parse_status, parse_latex_errors, parse_mineru_wall_s, "
+                "parse_render_wall_s FROM notebooks WHERE slug = 'old'"
+            ).fetchone()
+        finally:
+            conn.close()
+        assert version == SCHEMA_VERSION
+        assert row == ("complete", None, None, None)

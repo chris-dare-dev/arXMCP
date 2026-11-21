@@ -1500,6 +1500,12 @@ class TestV6ToV7Migration:
                 conn.execute(
                     "INSERT INTO formal_releases VALUES ('legacy-v6', 'r', 'v1')"
                 )
+                # Columns added after v7 did not exist in a v6 file.
+                for column in (
+                    "parse_latex_errors", "parse_mineru_wall_s",
+                    "parse_render_wall_s",
+                ):
+                    conn.execute(f"ALTER TABLE notebooks DROP COLUMN {column}")
                 conn.execute("PRAGMA user_version = 6")
                 conn.commit()
             finally:
@@ -1521,7 +1527,7 @@ class TestV6ToV7Migration:
             return version, tables, slugs
 
         version, tables, slugs = asyncio.run(_seed_v6_then_open())
-        assert version == SCHEMA_VERSION == 7
+        assert version == SCHEMA_VERSION
         assert "formal_releases" not in tables
         assert slugs == ["legacy-v6"], "the notebook row must survive the bump"
 

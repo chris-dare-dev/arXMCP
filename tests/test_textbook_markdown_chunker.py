@@ -288,5 +288,8 @@ class TestErrorEnvelopeAndRouting:
         )
         assert called == ["markdown"]
         called.clear()
-        nti.ingest_textbook_paper(SLUG, "textbook:x", dry_run=True)  # default
+        nti.ingest_textbook_paper(SLUG, "textbook:x", chunker="html", dry_run=True)
         assert called == ["html"]
+        called.clear()
+        nti.ingest_textbook_paper(SLUG, "textbook:x", dry_run=True)  # default
+        assert called == ["markdown"]

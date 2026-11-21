@@ -308,16 +308,18 @@ def _scrub_subprocess_env(output_dir: Path) -> dict[str, str]:
 class MinerUResult:
     """Frozen result of a sandboxed MinerU invocation.
 
-    ``markdown_path`` and ``content_list_path`` resolve to existing
-    files under ``output_dir`` after the subprocess exits 0; consumers
-    (m6's LaTeXML re-render) work from these paths.
+    ``markdown_path`` resolves to an existing file under ``output_dir``
+    after the subprocess exits 0; the LaTeXML re-render works from it.
+    ``content_list_path`` is MinerU's page-metadata sidecar when one sits
+    beside the markdown, else ``None``. Nothing downstream needs it, so
+    its absence never fails a parse.
 
     ``stdout`` and ``stderr`` are tail-truncated to the last 8 KB
     (_OUTPUT_TAIL_BYTES); the full streams are NOT retained.
     """
     output_dir: Path
     markdown_path: Path
-    content_list_path: Path
+    content_list_path: Path | None
     stdout: str
     stderr: str
     wall_clock_s: float
@@ -343,17 +345,23 @@ def _locate_outputs(
     pdf_stem: str,
     *,
     written_after: float | None = None,
-) -> tuple[Path, Path]:
-    """Find the markdown + content_list.json that MinerU produced.
+) -> tuple[Path, Path | None]:
+    """Find the markdown MinerU produced, and its content_list.json if any.
 
     MinerU 3.2.0 with ``-b pipeline -m auto`` produces:
         output_dir/<pdf_stem>/auto/<pdf_stem>.md
         output_dir/<pdf_stem>/auto/<pdf_stem>_content_list.json
 
-    Probe the documented path first, fall back to a glob, and raise
-    RuntimeError if no markdown is found. The fallback only accepts an
-    md + content_list pair that shares a parent directory, never files
-    from different parse subdirectories.
+    The markdown is the only output the pipeline consumes, so only its
+    absence is fatal. The sidecar is returned when it shares the
+    markdown's parent directory, never from a different parse
+    subdirectory; otherwise it is ``None`` and a warning is logged.
+
+    Selection order: the documented path; then the first markdown, in
+    sorted order, that has a paired sidecar; then, among unpaired
+    markdown, the documented path, a file named after the PDF, or the
+    only candidate. More than one unpaired candidate with nothing to
+    choose between them raises rather than guessing.
 
     ``written_after`` is a wall-clock time: files modified before it are
     ignored. The scratch directory is reused for every parse of the same
@@ -366,12 +374,15 @@ def _locate_outputs(
             path.stat().st_mtime >= written_after for path in paths
         )
 
+    def paired(md: Path) -> Path | None:
+        cl = md.with_name(f"{md.stem}_content_list.json")
+        return cl if cl.is_file() and fresh(cl) else None
+
     direct_md = output_dir / pdf_stem / "auto" / f"{pdf_stem}.md"
-    direct_cl = (
-        output_dir / pdf_stem / "auto" / f"{pdf_stem}_content_list.json"
-    )
-    if direct_md.is_file() and direct_cl.is_file() and fresh(direct_md, direct_cl):
-        return direct_md, direct_cl
+    if direct_md.is_file() and fresh(direct_md):
+        direct_cl = paired(direct_md)
+        if direct_cl is not None:
+            return direct_md, direct_cl
 
     all_md = sorted(output_dir.rglob("*.md"))
     md_candidates = [md for md in all_md if fresh(md)]
@@ -389,15 +400,27 @@ def _locate_outputs(
             f"MinerU output-tree convention may have changed."
         )
     for md in md_candidates:
-        cl = md.with_name(f"{md.stem}_content_list.json")
-        if cl.is_file() and fresh(cl):
+        cl = paired(md)
+        if cl is not None:
             return md, cl
-    raise RuntimeError(
-        f"MinerU exited 0 and produced markdown candidates "
-        f"({[str(p.relative_to(output_dir)) for p in md_candidates]!r}) "
-        f"but no paired _content_list.json in the same parent dir for "
-        f"any of them. Output tree partial — the renderer cannot consume it."
+
+    if direct_md in md_candidates:
+        chosen = [direct_md]
+    else:
+        chosen = [md for md in md_candidates if md.stem == pdf_stem] or md_candidates
+    if len(chosen) != 1:
+        raise RuntimeError(
+            f"MinerU exited 0 and produced {len(chosen)} markdown "
+            f"candidates ({[str(p.relative_to(output_dir)) for p in chosen]!r}) "
+            f"with no _content_list.json beside any of them to tell "
+            f"which belongs to this parse."
+        )
+    logger.warning(
+        "textbook_parser: no _content_list.json beside %s; continuing "
+        "without it (nothing downstream reads it)",
+        chosen[0].relative_to(output_dir),
     )
+    return chosen[0], None
 
 
 # ---------------------------------------------------------------------------
@@ -527,7 +550,7 @@ def run_mineru_sandboxed(
         - Binary missing (clearer message than FileNotFoundError).
         - Out-of-range timeout.
         - Subprocess exits nonzero (with stderr tail in message).
-        - Output tree missing markdown or content_list (FM-4).
+        - Output tree missing markdown, or ambiguous without a sidecar (FM-4).
     subprocess.TimeoutExpired
         Wall timeout fired and process-group was killed.
     """

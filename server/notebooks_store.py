@@ -43,6 +43,7 @@ mirrors the milestone brief's deletion semantics (resolved 2026-05-21).
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import html
 import logging
 import sqlite3
@@ -90,7 +91,30 @@ logger = logging.getLogger(__name__)
 #: v6→v7 drops ``formal_releases`` again: the release pin and the formal
 #: resources were removed. Its rows were never user-authored state, since
 #: each was re-derived from a sibling repo's git tag.
-SCHEMA_VERSION: int = 7
+#:
+#: v7→v8 is ADDITIVE: three nullable columns on ``notebooks`` keep the
+#: quality measurements of the last finished textbook parse (see
+#: :class:`ParseMetrics`). NULL means "not measured", never zero, so
+#: existing rows backfill to NULL with no DEFAULT.
+SCHEMA_VERSION: int = 8
+
+
+@dataclasses.dataclass(frozen=True)
+class ParseMetrics:
+    """What the last finished textbook parse measured about itself.
+
+    Each field is ``None`` when that stage did not run to completion, so
+    a parse whose MinerU stage succeeded and whose render failed still
+    reports its MinerU wall clock.
+
+    ``latex_errors`` counts LaTeXML's per-equation ``ltx_ERROR``
+    annotations in the rendered HTML: a book can parse ``complete`` and
+    still have badly broken math, and this is the number that says so.
+    """
+
+    latex_errors: int | None = None
+    mineru_wall_s: float | None = None
+    render_wall_s: float | None = None
 
 
 def _migrate(conn: sqlite3.Connection, version: int, *statements: str) -> None:
@@ -341,7 +365,25 @@ def open_sync(db_path: Path) -> sqlite3.Connection:
     # v6 -> v7: the release pin was removed, and nothing reads this table.
     if current_version < 7:
         _migrate(conn, 7, "DROP TABLE IF EXISTS formal_releases")
+    # v7 -> v8: ADDITIVE. The last finished parse's measurements; see
+    # ``ParseMetrics``. Nullable with no DEFAULT: NULL is "not measured".
+    if current_version < 8:
+        _migrate(
+            conn,
+            8,
+            "ALTER TABLE notebooks ADD COLUMN parse_latex_errors INTEGER",
+            "ALTER TABLE notebooks ADD COLUMN parse_mineru_wall_s REAL",
+            "ALTER TABLE notebooks ADD COLUMN parse_render_wall_s REAL",
+        )
     return conn
+
+
+#: SET clauses for the :class:`ParseMetrics` columns, in field order.
+_METRIC_ASSIGNMENTS: tuple[str, ...] = (
+    "parse_latex_errors = ?",
+    "parse_mineru_wall_s = ?",
+    "parse_render_wall_s = ?",
+)
 
 
 class NotebooksStore:
@@ -812,6 +854,7 @@ class NotebooksStore:
         *,
         parse_error: str | None = None,
         parsed_html_path: str | None = None,
+        metrics: ParseMetrics | None = None,
     ) -> bool:
         """Update the parse-status columns for a notebook.
 
@@ -819,6 +862,11 @@ class NotebooksStore:
         so callers can update one column without disturbing the others;
         ``None`` leaves the existing value untouched. Returns ``True``
         if a row was updated, ``False`` if the slug is unknown.
+
+        ``metrics``, when given, replaces all three measurement columns,
+        a ``None`` field writing NULL. When omitted they are left alone,
+        except that moving a row to ``running`` clears them: they
+        describe a finished parse, and the one now starting has not.
 
         textbook-ingest-m6 contract: the route layer pre-escapes
         ``parse_error`` content (the storage layer is the single
@@ -837,6 +885,17 @@ class NotebooksStore:
                 if parsed_html_path is not None:
                     sets.append("parsed_html_path = ?")
                     params.append(parsed_html_path)
+                if metrics is None and status == self.PARSE_STATUS_RUNNING:
+                    written: ParseMetrics | None = ParseMetrics()
+                else:
+                    written = metrics
+                if written is not None:
+                    sets.extend(_METRIC_ASSIGNMENTS)
+                    params.extend((
+                        written.latex_errors,
+                        written.mineru_wall_s,
+                        written.render_wall_s,
+                    ))
                 params.append(slug)
                 cur = self._conn.execute(
                     f"UPDATE notebooks SET {', '.join(sets)} WHERE slug = ?",
@@ -844,6 +903,26 @@ class NotebooksStore:
                 )
                 return cur.rowcount > 0
             return await asyncio.to_thread(_update)
+
+    async def get_parse_metrics(self, slug: str) -> ParseMetrics | None:
+        """Return the last finished parse's measurements, or ``None`` if
+        the slug is unknown. A notebook never parsed gets all-``None``.
+        """
+        async with self._lock:
+            def _query() -> ParseMetrics | None:
+                row = self._conn.execute(
+                    "SELECT parse_latex_errors, parse_mineru_wall_s, "
+                    "parse_render_wall_s FROM notebooks WHERE slug = ?",
+                    (slug,),
+                ).fetchone()
+                if row is None:
+                    return None
+                return ParseMetrics(
+                    latex_errors=row[0],
+                    mineru_wall_s=row[1],
+                    render_wall_s=row[2],
+                )
+            return await asyncio.to_thread(_query)
 
     async def has_running_parse(self, slug: str) -> bool:
         """Cross-restart fallback for the 409 collision check.
@@ -894,14 +973,18 @@ class NotebooksStore:
         async with self._lock:
             def _update() -> int:
                 safe_message = html.escape(message)
+                # The measurement columns still describe the parse before
+                # the orphaned one; a failed row must not carry them.
                 cur = self._conn.execute(
                     "UPDATE notebooks SET "
                     "  parse_status = ?, "
-                    "  parse_error = ? "
+                    "  parse_error = ?, "
+                    f"  {', '.join(_METRIC_ASSIGNMENTS)} "
                     "WHERE parse_status = ?",
                     (
                         self.PARSE_STATUS_FAILED,
                         safe_message,
+                        None, None, None,
                         self.PARSE_STATUS_RUNNING,
                     ),
                 )
@@ -911,6 +994,7 @@ class NotebooksStore:
 
 __all__ = [
     "NotebooksStore",
+    "ParseMetrics",
     "SCHEMA_VERSION",
     "open_sync",
 ]

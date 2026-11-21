@@ -4,16 +4,16 @@ textbook-ingest-m12 — closes the e4 OUTCOME end-to-end (textbook chunks
 returned by ``search_papers``) and the follow-up tracked at
 ``chris-dare-dev/arXMCP#8``.
 
-``ingest.textbook_chunker.chunk_textbook(slug, paper_id)`` renders + chunks
-a textbook PDF into :class:`~ingest.chunk.ChunkRecord` objects (and
-writes per-chunk JSONs) but does NOT write LanceDB. This driver is the
-missing embed -> write tail::
+The textbook chunkers turn a parsed PDF into
+:class:`~ingest.chunk.ChunkRecord` objects but do NOT write LanceDB. This
+driver is the missing embed -> write tail::
 
-    chunk_textbook(slug, paper_id)            -> list[ChunkRecord]
+    chunk_textbook_markdown(slug, paper_id)   -> list[ChunkRecord]
       _build_embed_record(chunks)             -> EmbedRecord   (BGE-M3 dual-column)
       write_chunks(chunks, rec, lancedb_path) -> per-notebook LanceDB
 
-so a textbook chunk becomes retrievable via ``search_papers`` against that
+(``--chunker html`` uses ``chunk_textbook`` instead), so a textbook
+chunk becomes retrievable via ``search_papers`` against that
 notebook (``ARXMCP_NOTEBOOK=<slug>`` process-level, or
 ``filters.notebook=<slug>`` per-call) with ``filters.source_kind="textbook"``.
 
@@ -164,7 +164,7 @@ def ingest_textbook_paper(
     batch_size: int = EMBED_BATCH_DEFAULT,
     encoder: EncoderFn = _encode_batch,
     dry_run: bool = False,
-    chunker: str = "html",
+    chunker: str = "markdown",
     build_indices: bool = True,
 ) -> dict[str, Any]:
     """Chunk -> embed -> write ONE textbook paper into the notebook LanceDB.
@@ -173,11 +173,14 @@ def ingest_textbook_paper(
     per-notebook LanceDB (``notebook_lancedb_path(slug)``) — never the global
     ``DEFAULT_LANCEDB_PATH`` (m12 FM-3).
 
-    ``chunker`` selects the chunking strategy: ``"html"`` (default) reads the
-    LaTeXML-rendered ``index.html`` via :func:`chunk_textbook`; ``"markdown"``
-    reads the MinerU markdown directly via :func:`chunk_textbook_markdown`
-    (finer, captures all content, no LaTeXML render —
-    textbook-markdown-chunker-m1).
+    ``chunker`` selects the chunking strategy: ``"markdown"`` (default) reads
+    the MinerU markdown directly via :func:`chunk_textbook_markdown` (finer,
+    captures all content, no LaTeXML render); ``"html"`` reads the
+    LaTeXML-rendered ``index.html`` via :func:`chunk_textbook`, which drops
+    prose outside section divs and yields nothing when LaTeXML aborts.
+
+    The write replaces the paper's chunk set, so re-ingesting a paper with
+    the other chunker leaves only the new chunker's rows.
     """
     chunk_fn = (
         chunk_textbook_markdown if chunker == "markdown" else chunk_textbook
@@ -222,7 +225,7 @@ def run(
     *,
     batch_size: int = EMBED_BATCH_DEFAULT,
     dry_run: bool = False,
-    chunker: str = "html",
+    chunker: str = "markdown",
 ) -> int:
     """Ingest each textbook ``paper_id`` into the notebook LanceDB.
 
@@ -285,11 +288,12 @@ def main(argv: list[str] | None = None) -> int:
         help="chunk only; skip embed + LanceDB write",
     )
     parser.add_argument(
-        "--chunker", choices=("html", "markdown"), default="html",
+        "--chunker", choices=("html", "markdown"), default="markdown",
         help=(
-            "chunking strategy: 'html' (default) reads the LaTeXML-rendered "
-            "index.html; 'markdown' reads the MinerU markdown directly "
-            "(finer, captures all content, no LaTeXML render)."
+            "chunking strategy: 'markdown' (default) reads the MinerU "
+            "markdown directly (finer, captures all content, no LaTeXML "
+            "render); 'html' reads the LaTeXML-rendered index.html. "
+            "Re-ingesting a paper with the other chunker replaces its rows."
         ),
     )
     args = parser.parse_args(argv)
