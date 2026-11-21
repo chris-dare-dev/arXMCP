@@ -66,6 +66,7 @@ from ingest.application_paths import ApplicationPaths
 # it in this module's namespace (tests patch ``ingest.chunker._compute_chunk_id``
 # and ``TestChunkerVersionFreeze`` pins its source through this re-export).
 from ingest.chunk import CHUNKER_VERSION, ChunkRecord, _compute_chunk_id
+from ingest.hidden_text import count_by_kind, scan_hidden_text
 from ingest.tokenizer import tokenize_body
 
 if TYPE_CHECKING:
@@ -1317,6 +1318,18 @@ def _chunk_paper_impl(paper_id: str, parsed_dir: Path | None) -> list[ChunkRecor
 
     body = soup.find("body")
     root: Tag = body if isinstance(body, Tag) else soup  # type: ignore[assignment]
+
+    # Warn only: hidden text is reported for review and still chunked, so
+    # chunk bodies and ids do not depend on the scan. The counts are logged,
+    # never the text, which is untrusted.
+    hidden = scan_hidden_text(root)
+    if hidden:
+        logger.warning(
+            "[%s] hidden-text scan: %d element(s) carry invisible text %s",
+            paper_id,
+            len(hidden),
+            count_by_kind(hidden),
+        )
 
     counter = [0]
 
