@@ -13,7 +13,7 @@ apply to ``api.openalex.org``, ``inspirehep.net``, or
 ``oaipmh.arxiv.org`` — those use the default system trust store via
 their own host-specific fetch sites.
 
-**Bundle.** The vendored bundle at ``infra/ca/arxiv-ca-bundle.pem``
+**Bundle.** The vendored bundle at ``server/ca/arxiv-ca-bundle.pem``
 ships ISRG Root X1 only — the Let's Encrypt root that arxiv.org and
 ar5iv.labs.arxiv.org chain to. Let's Encrypt leaf certs rotate every
 60-90 days but the root rotates rarely (X1 is valid until 2035-06-04).
@@ -48,14 +48,12 @@ if TYPE_CHECKING:
     from server.config import Config
 
 
-#: The vendored bundle's canonical location. ``server/ssl_pin.py`` →
-#: ``parents[1]`` is the repo root; resolve absolutely so callers in
-#: any cwd see the same path.
+#: The vendored bundle's canonical location. It sits inside the
+#: ``server`` package and ships as package data, so the same path
+#: resolves in a source checkout and in an installed wheel. Resolved
+#: absolutely so callers in any cwd see the same path.
 VENDORED_ARXIV_CA_BUNDLE: Path = (
-    Path(__file__).resolve().parents[1]
-    / "infra"
-    / "ca"
-    / "arxiv-ca-bundle.pem"
+    Path(__file__).resolve().parent / "ca" / "arxiv-ca-bundle.pem"
 )
 
 
@@ -124,7 +122,7 @@ def arxiv_ssl_context_from_env() -> ssl.SSLContext | None:
     A missing or unparseable bundle raises rather than degrading to
     the system trust store.
     """
-    from server.config import Config  # noqa: PLC0415 — only this entry point needs it
+    from server.config import Config  # noqa: PLC0415 — server.config imports this module
 
     return build_arxiv_ssl_context(Config())
 

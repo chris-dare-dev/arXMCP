@@ -233,6 +233,7 @@ class TestPackageDataCoversEveryDataFile:
         for package, filename in [
             ("server", "router_patterns.yaml"),
             ("server.schemas", "search_papers_result.json"),
+            ("server.ca", "arxiv-ca-bundle.pem"),
             ("tools", "seed-papers.txt"),
             ("ops", "cutover.sh"),
             ("ops", "restic-env.sh.template"),
