@@ -14,29 +14,29 @@ from __future__ import annotations
 import os
 import sys
 
-# E08_S03: faiss-cpu (Tier-2 cache) and PyTorch (BGE-M3 embedder)
-# both link against an OpenMP runtime. On macOS, importing both in
-# the same process can produce "OMP: Error #15: Initializing
-# libomp.dylib, but found libiomp5.dylib already initialized" which
-# manifests as a SIGSEGV in pytest. The documented Intel-MKL
-# workaround is to set ``KMP_DUPLICATE_LIB_OK=TRUE`` BEFORE either
-# library is imported. Set it at conftest module load (which fires
-# before any test-file imports) so the env var is in place even
-# when test files are collected before the test session starts.
+# faiss-cpu (Tier-2 cache) and PyTorch (BGE-M3 embedder) each ship an
+# OpenMP runtime. In a macOS venv, importing both into one process can
+# abort with "OMP: Error #15: Initializing libomp.dylib, but found
+# libiomp5.dylib already initialized", which pytest shows as a SIGSEGV.
+# The documented workaround is ``KMP_DUPLICATE_LIB_OK=TRUE``, set before
+# either library is imported, so it is set at conftest load, before any
+# test file is collected.
 #
-# This is a TEST-ONLY workaround. Production deployments use a
-# Linux container where the same OpenMP loader handles both libs
-# without conflict.
+# It is set on macOS ONLY. No server process ever has it: not ``make
+# up``, not the Linux container, not the desktop child, which refuses
+# it outright. Setting it everywhere would hide a reintroduced
+# duplicate-OpenMP load from the whole suite. Elsewhere the suite runs
+# as production does, and
+# ``tests/test_server_startup_without_kmp_flag.py`` boots the server in
+# a child process with the flag removed on every platform.
 #
-# F10 fix from the E08_S03 critique: ``os.environ.setdefault`` would
-# leak the env var into every subprocess pytest spawns AND would
-# survive past the pytest session. We now use ``setdefault`` so a
-# pre-existing operator setting wins, AND a session-finish hook
-# clears it if WE were the one that set it. The brief "test-only"
-# label is now backed by a finalizer.
+# A pre-existing operator setting wins, and ``pytest_sessionfinish``
+# clears the flag again if this module set it, so it does not outlive
+# the session.
 _KMP_KEY = "KMP_DUPLICATE_LIB_OK"
-_KMP_WAS_PRESET_BY_USER = _KMP_KEY in os.environ
-os.environ.setdefault(_KMP_KEY, "TRUE")
+_KMP_SET_HERE = sys.platform == "darwin" and _KMP_KEY not in os.environ
+if _KMP_SET_HERE:
+    os.environ[_KMP_KEY] = "TRUE"
 
 import pytest  # noqa: E402
 
@@ -84,15 +84,14 @@ def pytest_runtest_logreport(report: pytest.TestReport) -> None:
 
 
 def pytest_sessionfinish(session, exitstatus) -> None:  # noqa: ARG001
-    """F10 fix from the E08_S03 critique: clear KMP_DUPLICATE_LIB_OK
-    at session end if WE set it (a pre-existing operator setting is
-    preserved). Closes the "leaks into subprocesses" concern by
-    bounding the env var's lifetime to the pytest session.
+    """Clear KMP_DUPLICATE_LIB_OK at session end if this module set it
+    (a pre-existing operator setting is preserved), bounding its
+    lifetime to the pytest session.
 
     Also fails the session when the desktop conformance gate skipped
     anything (desktop-distribution-m5 critique H3).
     """
-    if not _KMP_WAS_PRESET_BY_USER:
+    if _KMP_SET_HERE:
         os.environ.pop(_KMP_KEY, None)
     if _DESKTOP_GATE_SKIPS:
         skipped = sorted(set(_DESKTOP_GATE_SKIPS))

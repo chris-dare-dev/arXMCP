@@ -68,7 +68,7 @@ def _driver():
 
 def _frozen_env(tmp_path: Path) -> dict[str, str]:
     """Explicit minimal env for frozen-executable launches: never inherit the
-    test runner's environment (conftest sets KMP_DUPLICATE_LIB_OK session-wide,
+    test runner's environment (conftest sets KMP_DUPLICATE_LIB_OK on macOS,
     which the desktop launch contract forbids)."""
     home = tmp_path / "home"
     tmpdir = tmp_path / "tmp"
