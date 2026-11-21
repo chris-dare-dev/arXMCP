@@ -78,6 +78,7 @@ from ingest.store import (
     CORPUS_VERSION_MARKER_NAME,
     STALE_CHUNKER_EXIT_CODE,
     StaleChunkerRowsError,
+    refresh_indices,
     refuse_stale_chunker_rows,
 )
 
@@ -640,6 +641,7 @@ def _feed_record_to_pipeline(
         lancedb_staging_path=lancedb_staging_path,
         ar5iv_cache_dir=ar5iv_cache_dir,
         parsed_dir=parsed_dir,
+        build_indices=False,
     )
     if outcome.chunks_written == 0:
         _log_parser_failure(outcome, failures_path)
@@ -833,6 +835,7 @@ def run_delta(
     # as done, so a cutover never promotes chunks without them.
     changed = summary.records_ingested or summary.records_deleted
     if changed and (lancedb_staging_path / CORPUS_VERSION_MARKER_NAME).is_file():
+        refresh_indices(lancedb_staging_path)
         build_derived_indexes(lancedb_staging_path)
 
     summary.elapsed_seconds = time.monotonic() - started

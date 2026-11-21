@@ -18,10 +18,11 @@ updates its row in place (no duplicates). LanceDB returns a new
 dataset version per write — the writer surfaces that integer to the
 caller for downstream MVCC pinning (E04_S02).
 
-**HNSW + scalar indices.** After every successful write the writer
+**HNSW + scalar indices.** A write with ``build_indices`` (the default)
 calls ``create_index`` on ``embedding_stmt`` and ``embedding_proof``
 with ``HnswSq(m=16, ef_construction=200)``, plus a scalar index on
-``paper_id``. LanceDB IVF-HNSW with ``num_partitions=1`` (the
+``paper_id``. Per-paper drivers skip that and call
+:func:`refresh_indices` once per run. LanceDB IVF-HNSW with ``num_partitions=1`` (the
 auto-promoted value for small corpora) does NOT require the 256-row
 IVF training threshold — the integration test on 10 rows succeeds.
 Each call is wrapped in ``try/except`` so a future LanceDB API
@@ -498,10 +499,9 @@ def _count_non_null(tbl, column: str) -> int:
     valid state (e.g. a paper with only stmt chunks has zero
     ``embedding_proof`` rows) — not an error.
     """
-    arrow_tbl = tbl.to_arrow()
-    if arrow_tbl.num_rows == 0:
-        return 0
-    return arrow_tbl.num_rows - arrow_tbl.column(column).null_count
+    # A filtered count, not ``to_arrow()``: the latter reads both 1024-float
+    # vector columns of every row to learn one null count.
+    return tbl.count_rows(f"{column} IS NOT NULL")
 
 
 def _create_indices(tbl) -> dict[str, bool]:
@@ -790,6 +790,40 @@ def refuse_stale_chunker_rows(
 
 
 # ---------------------------------------------------------------------------
+# Distinct paper_id set, carried between writes
+# ---------------------------------------------------------------------------
+
+#: The distinct ``paper_id`` set of each dataset this process last wrote,
+#: keyed by resolved dataset path, with the identity of the table state it
+#: describes. Every write needs the paper count for the marker; scanning
+#: the ``paper_id`` column for it costs O(rows) per write, so a run of P
+#: per-paper writes would cost O(P * rows). A set is only reused while the
+#: table is the one this process left: same ``chunks.lance`` directory
+#: (a cutover renames another dataset into the path, and that one may be
+#: at the same version number) and same version (any other write moves it).
+_PAPER_IDS: dict[str, tuple[tuple[int, int, int], set[str]]] = {}
+
+
+def _table_state(target_path: Path, tbl) -> tuple[int, int, int]:
+    st = os.stat(target_path / f"{CHUNKS_TABLE_NAME}.lance")
+    return (st.st_dev, st.st_ino, int(getattr(tbl, "version", 0) or 0))
+
+
+def _scan_paper_ids(tbl, chunk_count: int) -> set[str]:
+    # Function-local for the same circular-import reason as
+    # ``read_corpus_version`` (see the module-level NB).
+    from server.corpus import project_column  # noqa: PLC0415
+
+    projected = project_column(tbl, "paper_id", expected_rows=chunk_count)
+    if projected is None:
+        # Short read: fall back rather than write a marker with a
+        # paper_count computed off a partial scan — an under-counted
+        # marker is exactly the bug class this marker exists to avoid.
+        projected = tbl.to_arrow().column("paper_id").to_pylist()
+    return set(projected)
+
+
+# ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
@@ -805,8 +839,11 @@ def write_chunks(
 
     Creates the table on first call (with the v1 schema from
     :mod:`ingest.schema`); subsequent calls upsert via
-    ``merge_insert(on="chunk_id")``. After every successful write,
-    refreshes the HNSW + scalar indices.
+    ``merge_insert(on="chunk_id")``. With ``build_indices`` (the default)
+    it then rebuilds the HNSW + scalar indices over the whole table. A
+    driver that writes one paper per call passes ``build_indices=False``
+    and calls :func:`refresh_indices` once after its loop: a rebuild per
+    paper makes a P-paper run cost O(P * rows).
 
     Returns the LanceDB dataset version number written by this call.
     Callers can pin this version later via ``open_table(...,
@@ -860,6 +897,8 @@ def write_chunks(
             schema=CHUNKS_SCHEMA_V1,
             storage_options=LANCE_STORAGE_OPTIONS,
         )
+    paper_ids_key = str(target_path.resolve())
+    state_before_write = _table_state(target_path, tbl)
 
     # Idempotent upsert by chunk_id (D5). LanceDB's merge_insert
     # accepts either a PyArrow Table or a list of dicts; we pass the
@@ -948,11 +987,8 @@ def write_chunks(
     # multi-paper run AND the per-call write stays crash-safe + correct for
     # single-call callers (notebook ingest, tests). `version` is still the
     # post-index `tbl.version`; WriteStats.chunk_count stays per-batch (separate
-    # concern). The distinct scan materializes only the paper_id column — cheap
-    # at the seed/notebook scale that runs this path today; the O(N)-per-call
-    # cost would only matter on a 200K-paper bulk run (scoped-out E11/E12), where
-    # a caller-maintained running set is the documented escalation.
-    # NB lancedb 0.30.x: `to_arrow()` takes no kwargs — project via `.select`.
+    # concern). The distinct paper_id set comes from ``_PAPER_IDS`` when this
+    # process made the previous write, so only the first write of a run scans.
     try:
         # F4 (corpus-integrity-observability-m1 critique): these counts are read
         # off the SAME `tbl` handle that pinned `dataset_version` above, under the
@@ -965,23 +1001,14 @@ def write_chunks(
         # count through WriteStats so callers can accumulate run-level
         # chunks_written for ingest-summary.json without an extra count_rows().
         stats.total_rows_after_commit = chunk_count
-        # Projected at the SCANNER, not after materializing every column
-        # (issue #447). `to_arrow().select([...])` reads both 1024-float
-        # vector columns to keep one string column — ~14 KB/row measured
-        # against ~14 B/row. This runs on EVERY marker write, so the ingest
-        # path was paying it per commit.
-        # Function-local for the same circular-import reason as
-        # ``read_corpus_version`` above (see the module-level NB).
-        from server.corpus import project_column  # noqa: PLC0415
-
-        projected = project_column(tbl, "paper_id", expected_rows=chunk_count)
-        if projected is None:
-            # Short read: fall back rather than write a marker with a
-            # paper_count computed off a partial scan — an under-counted
-            # marker is exactly the #429 bug class this marker exists to
-            # avoid.
-            projected = tbl.to_arrow().column("paper_id").to_pylist()
-        paper_count = len(set(projected))
+        cached = _PAPER_IDS.get(paper_ids_key)
+        if cached is not None and cached[0] == state_before_write:
+            paper_ids = cached[1]
+            paper_ids.update(c.paper_id for c in chunks)
+        else:
+            _PAPER_IDS.pop(paper_ids_key, None)
+            paper_ids = _scan_paper_ids(tbl, chunk_count)
+        paper_count = len(paper_ids)
         write_corpus_version_marker(
             target_path,
             version=dataset_version,
@@ -1006,6 +1033,7 @@ def write_chunks(
                 "paper_count": paper_count,
             },
         )
+        _PAPER_IDS[paper_ids_key] = (_table_state(target_path, tbl), paper_ids)
         marker_write_failed = False
     except Exception as exc:
         # corpus-integrity-completion-e1 rect F3: record that the
@@ -1132,6 +1160,49 @@ def write_chunks(
     return dataset_version
 
 
+def refresh_indices(lancedb_path: str | Path) -> int | None:
+    """Rebuild the vector + scalar indices once, after a run of writes.
+
+    The per-paper drivers write with ``build_indices=False`` and call this
+    after their loop. It commits through :func:`write_chunks` with no rows,
+    so the marker moves to the post-index version (readers pinned to it
+    get indexed ANN) and the write-audit gate runs as on any other write.
+    The marker's embedder and input-policy versions are carried over.
+
+    Returns the post-index dataset version, or ``None`` when there is
+    nothing to index: no table, or a table without a marker. Every
+    committed write leaves a marker, so the second is a table no write
+    reached (a bare ``create_table``); the versions to stamp on it would
+    have to be guessed.
+    """
+    from server.corpus import read_corpus_version  # noqa: PLC0415
+
+    path = Path(lancedb_path)
+    if not (path / f"{CHUNKS_TABLE_NAME}.lance").is_dir():
+        return None
+    marker = read_corpus_version(path)
+    if marker is None:
+        logger.warning(
+            "not refreshing indices at %s: the chunks table has no "
+            "corpus-version.json marker",
+            path,
+        )
+        return None
+    # The typed view drops the policy field; read it off the file.
+    raw = json.loads((path / CORPUS_VERSION_MARKER_NAME).read_text("utf-8"))
+    return write_chunks(
+        [],
+        EmbedRecord(
+            embedder_version=marker.embedder_version,
+            embed_input_policy_version=str(
+                raw.get("embed_input_policy_version", "")
+            ),
+        ),
+        lancedb_path=path,
+        build_indices=True,
+    )
+
+
 # Closes F11 from the E04_S01 critique: ``_atomic_write_json`` was
 # dead code on land. Removed; if a future side-file needs atomic
 # writes, copy the pattern from ``ingest.preamble._write_preamble_json``
@@ -1147,6 +1218,7 @@ __all__ = [
     "WapGateError",
     "WriteStats",
     "load_embed_record",
+    "refresh_indices",
     "refuse_stale_chunker_rows",
     "write_chunks",
     "write_corpus_version_marker",

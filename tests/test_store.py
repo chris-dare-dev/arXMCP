@@ -446,6 +446,107 @@ class TestIndices:
         assert "paper_id" in index_columns
 
 
+def _open_chunks(path):
+    import lancedb
+
+    return lancedb.connect(str(path)).open_table(CHUNKS_TABLE_NAME)
+
+
+def _marker(path) -> dict:
+    return json.loads((path / "corpus-version.json").read_text())
+
+
+def _paper_chunks(paper_id: str, n: int = 2) -> list[ChunkRecord]:
+    return [
+        _make_chunk(paper_id, kind, f"{paper_id} body {i}")
+        for i, kind in zip(range(n), ["lemma", "proof", "definition"], strict=False)
+    ]
+
+
+class TestDeferredIndexBuild:
+    """A per-paper run writes without indexes and builds them once."""
+
+    def test_unindexed_writes_then_one_refresh(self, tmp_path):
+        from ingest.store import refresh_indices, write_chunks
+
+        path = tmp_path / "lancedb"
+        for seed, pid in enumerate(["2307.00100", "2307.00101", "2307.00102"]):
+            chunks = _paper_chunks(pid)
+            write_chunks(
+                chunks, _make_synthetic_embeddings(chunks, seed=seed),
+                lancedb_path=path, build_indices=False,
+            )
+        assert _open_chunks(path).list_indices() == []
+
+        version = refresh_indices(path)
+
+        tbl = _open_chunks(path)
+        assert {idx.columns[0] for idx in tbl.list_indices()} == {
+            "embedding_stmt", "embedding_proof", "paper_id",
+        }
+        marker = _marker(path)
+        # Readers pin the marker; it must name the indexed version.
+        assert marker["version"] == version == tbl.version
+        assert marker["chunk_count"] == 6
+        assert marker["paper_count"] == 3
+        assert marker["embedder_version"] == EMBEDDER_VERSION
+
+    def test_refresh_without_a_table_is_a_no_op(self, tmp_path):
+        from ingest.store import refresh_indices
+
+        assert refresh_indices(tmp_path / "lancedb") is None
+        assert not (tmp_path / "lancedb").exists()
+
+
+class TestMarkerPaperCount:
+    """The marker's paper_count stays exact across a run of writes."""
+
+    def _write(self, path, pid, seed, **kw):
+        from ingest.store import write_chunks
+
+        chunks = _paper_chunks(pid)
+        return write_chunks(
+            chunks, _make_synthetic_embeddings(chunks, seed=seed),
+            lancedb_path=path, build_indices=False, **kw,
+        )
+
+    def test_counts_new_and_rewritten_papers(self, tmp_path):
+        path = tmp_path / "lancedb"
+        self._write(path, "2307.00100", 0)
+        self._write(path, "2307.00101", 1)
+        self._write(path, "2307.00100", 2)  # same paper again
+        assert _marker(path)["paper_count"] == 2
+
+    def test_sees_a_paper_written_through_another_handle(self, tmp_path):
+        from ingest.store import _build_arrow_table
+
+        path = tmp_path / "lancedb"
+        self._write(path, "2307.00100", 0)
+        other = _paper_chunks("2307.00101")
+        _open_chunks(path).add(
+            _build_arrow_table(other, _make_synthetic_embeddings(other, seed=1))
+        )
+        self._write(path, "2307.00102", 2)
+        assert _marker(path)["paper_count"] == 3
+
+    def test_sees_a_dataset_renamed_into_the_path(self, tmp_path):
+        # A cutover renames another dataset into the path; it can be at the
+        # same version number as the one this process last wrote there.
+        active = tmp_path / "active"
+        staging = tmp_path / "staging"
+        self._write(active, "2307.00100", 0)
+        self._write(active, "2307.00103", 3)
+        self._write(staging, "2307.00101", 1)
+        self._write(staging, "2307.00101", 2)
+        assert _open_chunks(active).version == _open_chunks(staging).version
+        active.rename(tmp_path / "rollback")
+        staging.rename(active)
+
+        self._write(active, "2307.00104", 4)
+
+        assert _marker(active)["paper_count"] == 2
+
+
 # ===========================================================================
 # TestEmbeddingRouting — embedding_eq always NULL; dual-column routing
 # ===========================================================================
