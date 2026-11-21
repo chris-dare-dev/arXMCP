@@ -109,6 +109,7 @@ from ingest.graph_ingest import (
 )
 from ingest.identifiers import is_valid_arxiv_paper_id
 from ingest.kuzudb_schema import apply_schema
+from server.application_paths import ApplicationPaths
 from tools.arxiv_fetch import (
     DEFAULT_503_BACKOFF_SECONDS,
     MAX_503_BACKOFF_SECONDS,
@@ -753,13 +754,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--checkpoint",
         type=Path,
-        default=Path("var/arxmcp/ops/inspire-ingest-checkpoint.json"),
+        default=ApplicationPaths.resolve().ops / "inspire-ingest-checkpoint.json",
         help="atomic-write checkpoint path (rewritten after each batch)",
     )
     parser.add_argument(
         "--kuzudb",
         type=Path,
-        default=Path("var/arxmcp/index/kuzu"),
+        default=ApplicationPaths.resolve().kuzu,
         help="Kùzu database file (default: var/arxmcp/index/kuzu)",
     )
     parser.add_argument(

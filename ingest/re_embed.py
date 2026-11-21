@@ -82,19 +82,20 @@ from ingest.store import (
     write_chunks,
 )
 from ingest.write_lock import exits_when_write_locked, holds_dataset_write_lock
+from server.application_paths import ApplicationPaths
 
 logger = logging.getLogger(__name__)
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
+_APPLICATION_PATHS = ApplicationPaths.resolve()
 
 #: Default state file location.
 DEFAULT_STATE_PATH: Path = (
-    REPO_ROOT / "var" / "arxmcp" / "ops" / "re-embed-state.json"
+    _APPLICATION_PATHS.ops / "re-embed-state.json"
 )
 
 #: Default per-paper failures JSONL.
 DEFAULT_FAILURES_PATH: Path = (
-    REPO_ROOT / "var" / "arxmcp" / "ops" / "parser-failures" / "re-embed.jsonl"
+    _APPLICATION_PATHS.ops / "parser-failures" / "re-embed.jsonl"
 )
 
 
@@ -1071,6 +1072,9 @@ def _cli(argv: list[str]) -> int:
     active_path = args.active_lancedb_path
     staging_path = args.lancedb_staging_path
     state_path = args.state_file
+    # A notebook's re-embed keeps its failures with the notebook, like its
+    # state, so one notebook's run never appends to another's log.
+    failures_path = DEFAULT_FAILURES_PATH
     if args.notebook is not None:
         # Late import: tools/ depends on ingest/, not the other way round
         # at module load. notebook_dir validates the slug and refuses a
@@ -1081,6 +1085,7 @@ def _cli(argv: list[str]) -> int:
         active_path = active_path or nb / "lancedb"
         staging_path = staging_path or nb / "lancedb-staging"
         state_path = state_path or nb / "ops" / "re-embed-state.json"
+        failures_path = nb / "ops" / "parser-failures" / "re-embed.jsonl"
     active_path = active_path or DEFAULT_LANCEDB_PATH
     staging_path = staging_path or DEFAULT_LANCEDB_STAGING_PATH
     state_path = state_path or DEFAULT_STATE_PATH
@@ -1102,6 +1107,7 @@ def _cli(argv: list[str]) -> int:
         active_lancedb_path=active_path,
         staging_lancedb_path=staging_path,
         state_path=state_path,
+        failures_path=failures_path,
         target_embedder_version=args.target_embedder_version,
         dry_run=args.dry_run,
         resume=args.resume,

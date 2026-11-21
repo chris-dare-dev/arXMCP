@@ -72,7 +72,6 @@ logger = logging.getLogger(__name__)
 # Paths + constants
 # ---------------------------------------------------------------------------
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
 NOTEBOOKS_BASE = ApplicationPaths.resolve().notebooks
 
 #: Deliberately SEPARATE from ``ingest.chunk.CHUNKER_VERSION`` (the arXiv

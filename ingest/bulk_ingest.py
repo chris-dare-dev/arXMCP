@@ -17,6 +17,25 @@ inside ``var/arxmcp/index/lancedb-staging/``. The server's
 active path), so it cannot accidentally pick up half-ingested
 data.
 
+**What staging does not isolate:** the per-paper intermediate trees
+(``corpus/parsed``, ``corpus/chunks``, ``corpus/embeddings``,
+``corpus/preamble``) are shared by every dataset's runs, on purpose.
+They are a per-paper cache, not a dataset's record. The parsed and raw
+trees are downloads, the same whichever dataset reads them. The chunk and
+embedding trees are what this code makes of those downloads: the same
+paper and code give the same files, each set is replaced through a
+temporary file and ``os.replace`` (two runs writing one paper concurrently
+each leave a whole set), and nothing reuses a set without checking it.
+The embedder re-encodes any paper whose sidecar records another chunker,
+embedder or input-policy version or other chunks, and the rows a run
+writes come from the embed step of that same run, never from the tree
+alone. An aborted run that leaves another code version's sets behind
+therefore costs a re-embed, not a wrong row. A tree per dataset would
+re-embed every paper once per notebook and per staging run. The ops
+files are per target where it matters: callers pass ``ops_dir``,
+``log_path`` and ``failures_path``, and a notebook's run keeps them in
+the notebook's ``ops/``.
+
 **Scope at v1 (per research synthesis D1):** This module ships
 the SCAFFOLDING — orchestrator + CLI. The actual ingest of the
 200K-paper corpus is a 1-2 day GPU run that requires a Bittorrent

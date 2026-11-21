@@ -32,10 +32,11 @@ from ingest.embedder import EMBED_BATCH_DEFAULT, _encode_batch
 from ingest.index_equations import open_or_create_equations_table
 from ingest.schema import EQUATIONS_SCHEMA_V1
 from ingest.write_lock import exits_when_write_locked, holds_dataset_write_lock
+from server.application_paths import ApplicationPaths
 
 logger = logging.getLogger(__name__)
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
+_APPLICATION_PATHS = ApplicationPaths.resolve()
 
 
 def _embedding_input(row: dict[str, Any]) -> str:
@@ -163,7 +164,7 @@ def _cli(argv: list[str]) -> int:
     )
     parser.add_argument(
         "--lancedb-path",
-        default=str(REPO_ROOT / "var" / "arxmcp" / "index" / "lancedb"),
+        default=str(_APPLICATION_PATHS.lancedb),
         help="LanceDB dataset root (default: var/arxmcp/index/lancedb)",
     )
     parser.add_argument(

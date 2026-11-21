@@ -30,6 +30,8 @@ from pathlib import Path
 
 import kuzu
 
+from server.application_paths import ApplicationPaths
+
 #: Schema version. Bump whenever ``SCHEMA_STATEMENTS`` mutates so
 #: callers (and downstream cache layers, e.g. ``cite_neighbors`` in
 #: E09_S03) can detect drift on an existing database. Any schema
@@ -200,7 +202,7 @@ def main() -> int:
     parser.add_argument(
         "--kuzudb",
         type=Path,
-        default=Path("var/arxmcp/index/kuzu"),
+        default=ApplicationPaths.resolve().kuzu,
         help="file the Kùzu database will own (default: var/arxmcp/index/kuzu)",
     )
     args = parser.parse_args()

@@ -118,8 +118,9 @@ def run(slug: str) -> int:
     ops_dir = nb_dir / "ops"
     ops_dir.mkdir(parents=True, exist_ok=True)
 
-    # Per-notebook log path under ops/ — keeps notebook ingest logs
-    # separate from the global var/arxmcp/ops/ingestion.log.
+    # Per-notebook log, failures and ingest-summary.json under the
+    # notebook's ops/, so one notebook's run never overwrites the summary
+    # the shared corpus's /metrics gauges read.
     log_path = ops_dir / "ingestion.log"
     failures_path = ops_dir / "parser-failures.jsonl"
 
@@ -132,6 +133,7 @@ def run(slug: str) -> int:
         lancedb_staging_path=lancedb_path,
         log_path=log_path,
         failures_path=failures_path,
+        ops_dir=ops_dir,
     )
     print(
         f"bulk_ingest: total={summary.papers_total} "
