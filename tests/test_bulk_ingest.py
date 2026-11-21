@@ -544,7 +544,7 @@ class TestPerPaperIsolation:
             )
 
     def test_a_raising_paper_is_recorded_and_the_run_continues(self, tmp_path):
-        def _write(chunks, record, *, lancedb_path, build_indices=True):
+        def _write(chunks, record, *, lancedb_path, **_kw):
             if _write.calls == 1:
                 _write.calls += 1
                 raise ValueError("chunk/vector misalignment")

@@ -204,9 +204,10 @@ def ingest_textbook_paper(
     embed_record = _build_embed_record(chunks, batch_size=batch_size, encoder=encoder)
     lancedb_path = notebook_lancedb_path(slug)
     lancedb_path.mkdir(parents=True, exist_ok=True)
+    # The paper's whole chunk set: rows a re-parse chunked away go.
     version = write_chunks(
         chunks, embed_record, lancedb_path=lancedb_path,
-        build_indices=build_indices,
+        build_indices=build_indices, replace_paper=True,
     )
     logger.info(
         "%s / %s -> %d chunks written to %s (notebook lancedb version=%d)",

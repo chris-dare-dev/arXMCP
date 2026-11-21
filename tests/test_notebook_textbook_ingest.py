@@ -178,12 +178,9 @@ class TestIngestTextbookPaper:
         captured: dict[str, Any] = {}
         real_write = driver.write_chunks
 
-        def _spy_write(chs, embeddings, *, lancedb_path=None, build_indices=True):
+        def _spy_write(chs, embeddings, *, lancedb_path=None, **kw):
             captured["lancedb_path"] = lancedb_path
-            return real_write(
-                chs, embeddings, lancedb_path=lancedb_path,
-                build_indices=build_indices,
-            )
+            return real_write(chs, embeddings, lancedb_path=lancedb_path, **kw)
 
         monkeypatch.setattr(driver, "write_chunks", _spy_write)
         return {"nb_lancedb": nb_lancedb, "captured": captured, "chunks": chunks}

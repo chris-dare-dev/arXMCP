@@ -36,8 +36,10 @@ is NOT advanced; activation is E11_S05's atomic cutover.
   flag file at ``var/arxmcp/ops/delta-timeout.flag``.
 - D11: NO filesystem touch file. The active marker is not
   touched; a manual server restart is the mechanism.
-- D12: ``<header status="deleted">`` records are logged and
-  skipped (no chunk/embed; existing chunks left alone).
+- D12: ``<header status="deleted">`` records are not chunked or
+  embedded; the paper is removed from the staging dataset
+  (:func:`ingest.store.delete_paper`), so the next cutover stops
+  serving it.
 - D13: ``papers``-table metadata upsert is deferred (no
   ``papers`` table populated at v1 of the project).
 
@@ -78,6 +80,7 @@ from ingest.store import (
     CORPUS_VERSION_MARKER_NAME,
     STALE_CHUNKER_EXIT_CODE,
     StaleChunkerRowsError,
+    delete_paper,
     refresh_indices,
     refuse_stale_chunker_rows,
 )
@@ -627,13 +630,15 @@ def _feed_record_to_pipeline(
 ) -> PaperOutcome | None:
     """Hand one harvested record off to ``ingest_one_paper``.
 
-    Withdrawn records (``deleted=True``) are logged and skipped per
-    synthesis D12 — existing chunks remain in place.
+    A withdrawn record (``deleted=True``) removes the paper from the
+    staging dataset instead and returns ``None``.
     """
     if record.deleted:
+        removed = delete_paper(lancedb_staging_path, record.paper_id)
         logger.info(
-            "oai_delta: paper=%s withdrawn (status=deleted); skipping chunk/embed",
+            "oai_delta: paper=%s withdrawn (status=deleted); removed %d chunk(s)",
             record.paper_id,
+            removed,
         )
         return None
     outcome = ingest_one_paper(

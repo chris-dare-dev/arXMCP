@@ -371,9 +371,10 @@ def ingest_one_paper(
         if embed_record is None:
             outcome.failure_reason = "embedder_produced_no_record"
             return outcome
+        # The paper's whole chunk set: rows a revision re-chunked away go.
         version = write_chunks(
             chunks, embed_record, lancedb_path=lancedb_staging_path,
-            build_indices=build_indices,
+            build_indices=build_indices, replace_paper=True,
         )
         outcome.chunks_written = len(chunks)
         logger.debug(

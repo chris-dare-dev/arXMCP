@@ -547,6 +547,149 @@ class TestMarkerPaperCount:
         assert _marker(active)["paper_count"] == 2
 
 
+def _write_paper(path, chunks, seed=0, **kw):
+    from ingest.store import write_chunks
+
+    return write_chunks(
+        chunks, _make_synthetic_embeddings(chunks, seed=seed),
+        lancedb_path=path, build_indices=False, **kw,
+    )
+
+
+def _chunk_ids(path, paper_id=None) -> set[str]:
+    tbl = _open_chunks(path)
+    rows = tbl.search().select(["chunk_id", "paper_id"]).limit(10_000).to_list()
+    return {r["chunk_id"] for r in rows if paper_id in (None, r["paper_id"])}
+
+
+class TestReplacePaper:
+    """A paper's re-write drops the rows its new chunk set no longer has."""
+
+    def test_rechunked_rows_replace_the_old_ones(self, tmp_path):
+        path = tmp_path / "lancedb"
+        v1 = [_make_chunk("2307.00100", "lemma", f"v1 body {i}") for i in range(3)]
+        other = _paper_chunks("2307.00101")
+        _write_paper(path, v1, replace_paper=True)
+        _write_paper(path, other, seed=1, replace_paper=True)
+
+        v2 = [v1[0], _make_chunk("2307.00100", "lemma", "v2 restructured")]
+        _write_paper(path, v2, seed=2, replace_paper=True)
+
+        assert _chunk_ids(path, "2307.00100") == {c.chunk_id for c in v2}
+        assert _chunk_ids(path, "2307.00101") == {c.chunk_id for c in other}
+        marker = _marker(path)
+        assert (marker["chunk_count"], marker["paper_count"]) == (4, 2)
+
+    def test_replace_holds_when_another_process_wrote_the_paper(self, tmp_path):
+        # The scan-free shortcut for new papers must not trust a stale set.
+        from ingest.store import _build_arrow_table
+
+        path = tmp_path / "lancedb"
+        _write_paper(path, _paper_chunks("2307.00101"))
+        old = [_make_chunk("2307.00100", "lemma", "old body")]
+        _open_chunks(path).add(
+            _build_arrow_table(old, _make_synthetic_embeddings(old, seed=1))
+        )
+        new = [_make_chunk("2307.00100", "lemma", "new body")]
+        _write_paper(path, new, seed=2, replace_paper=True)
+        assert _chunk_ids(path, "2307.00100") == {new[0].chunk_id}
+
+    def test_plain_write_keeps_the_old_rows(self, tmp_path):
+        path = tmp_path / "lancedb"
+        first = [_make_chunk("2307.00100", "lemma", "first")]
+        second = [_make_chunk("2307.00100", "lemma", "second")]
+        _write_paper(path, first)
+        _write_paper(path, second, seed=1)
+        assert len(_chunk_ids(path, "2307.00100")) == 2
+
+    @pytest.mark.parametrize("papers", [[], ["2307.00100", "2307.00101"]])
+    def test_needs_exactly_one_paper(self, tmp_path, papers):
+        chunks = [c for pid in papers for c in _paper_chunks(pid)]
+        with pytest.raises(ValueError, match="exactly one paper"):
+            _write_paper(tmp_path / "lancedb", chunks, replace_paper=True)
+
+
+class TestDeletePaper:
+    """A withdrawn paper leaves the chunks and every table derived from them."""
+
+    def _seed(self, path):
+        import dataclasses
+
+        import lancedb
+
+        withdrawn = [
+            dataclasses.replace(c, theorem_name="Withdrawn lemma")
+            for c in _paper_chunks("2307.00100", 3)
+        ]
+        _write_paper(path, withdrawn)
+        _write_paper(path, _paper_chunks("2307.00101"), seed=1)
+        db = lancedb.connect(str(path))
+        for name in ("definitions", "equations"):
+            db.create_table(name, pa.table({
+                "paper_id": ["2307.00100", "2307.00101"],
+                "row": ["withdrawn", "kept"],
+            }))
+        from ingest.index_theorem_names import build_theorem_names_index
+
+        build_theorem_names_index(path)
+
+    def _theorem_name_rows(self, path):
+        import asyncio
+
+        from ingest.index_theorem_names import default_db_path
+        from server.theorem_names_store import TheoremNamesStore
+
+        async def run():
+            store = await TheoremNamesStore.open(default_db_path(path))
+            try:
+                return await store.row_count()
+            finally:
+                await store.close()
+
+        return asyncio.run(run())
+
+    def test_removes_the_paper_everywhere(self, tmp_path):
+        import lancedb
+
+        from ingest.store import delete_paper
+
+        path = tmp_path / "lancedb"
+        self._seed(path)
+        assert self._theorem_name_rows(path) > 0
+
+        assert delete_paper(path, "2307.00100") == 3
+
+        assert _chunk_ids(path) == {c.chunk_id for c in _paper_chunks("2307.00101")}
+        db = lancedb.connect(str(path))
+        for name in ("definitions", "equations"):
+            assert db.open_table(name).to_arrow().column("row").to_pylist() == ["kept"]
+        assert self._theorem_name_rows(path) == 0
+        marker = _marker(path)
+        assert marker["version"] == _open_chunks(path).version
+        assert (marker["chunk_count"], marker["paper_count"]) == (2, 1)
+
+    def test_is_idempotent(self, tmp_path):
+        from ingest.store import delete_paper
+
+        path = tmp_path / "lancedb"
+        self._seed(path)
+        delete_paper(path, "2307.00100")
+        version = _marker(path)["version"]
+        assert delete_paper(path, "2307.00100") == 0
+        assert _marker(path)["version"] == version
+
+    def test_a_missing_dataset_is_a_no_op(self, tmp_path):
+        from ingest.store import delete_paper
+
+        assert delete_paper(tmp_path / "lancedb", "2307.00100") == 0
+
+    def test_rejects_a_malformed_id(self, tmp_path):
+        from ingest.store import delete_paper
+
+        with pytest.raises(ValueError):
+            delete_paper(tmp_path / "lancedb", "2307.00100' OR '1'='1")
+
+
 # ===========================================================================
 # TestEmbeddingRouting — embedding_eq always NULL; dual-column routing
 # ===========================================================================
