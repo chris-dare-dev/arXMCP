@@ -5,17 +5,13 @@ column is populated and whose ``mathml_tree_json`` column is NULL,
 parses the MathML into a :class:`zss.Node` tree, serializes the tree
 to JSON, and writes the result back to the table.
 
-**v1 scope reminder.** The brief frames E10_S03 as "build the
-equation similarity index"; in practice the corpus-level equation
-atom extraction step (LaTeXML HTML → ``equations`` rows) is deferred
-to a future milestone. At v1 this indexer is mainly exercised by
-tests and by hand-seeded fixtures — once a future milestone lands
-the extractor, this module is the second step of the chain and
-needs no changes.
+**Second step of two.** Bulk ingest and the OAI delta extract each
+paper's equations as they write its chunks
+(:mod:`ingest.extract_equations`), then run this indexer once at the
+end of the run, under the same dataset write lock.
 
-**Idempotent per row.** Re-running the indexer on a table that
-already has ``mathml_tree_json`` populated is a no-op; the WHERE
-predicate filters rows that need processing.
+**Idempotent per row.** Re-running the indexer on a table whose
+trees the running normalizer wrote is a no-op.
 
 **Concurrency.** Like the definitions indexer in
 :mod:`ingest.index_definitions`, concurrent invocations against the same
@@ -37,6 +33,7 @@ from ingest.schema import (
     EQUATIONS_SCHEMA_V1,
     EQUATIONS_TABLE_NAME,
     LANCE_STORAGE_OPTIONS,
+    add_missing_columns,
 )
 from ingest.write_lock import exits_when_write_locked, holds_dataset_write_lock
 from server.retrieval.equations import (
@@ -49,7 +46,8 @@ logger = logging.getLogger(__name__)
 
 
 def open_or_create_equations_table(lancedb_path: str | Path) -> Any:
-    """Open the ``equations`` table, creating it on first use.
+    """Open the ``equations`` table, creating it on first use, and add
+    any column :data:`EQUATIONS_SCHEMA_V1` has that it lacks.
 
     Returns a LanceDB ``Table`` handle. Mirrors the resilience
     pattern used by ``ingest/index_definitions.py``: try
@@ -70,7 +68,7 @@ def open_or_create_equations_table(lancedb_path: str | Path) -> Any:
 
     db = lancedb.connect(str(resolved))
     try:
-        return db.open_table(EQUATIONS_TABLE_NAME)
+        table = db.open_table(EQUATIONS_TABLE_NAME)
     except (ValueError, FileNotFoundError):
         # storage_options pins the on-disk Lance format (m2). See
         # ingest.schema.LANCE_STORAGE_OPTIONS for the rationale.
@@ -79,40 +77,44 @@ def open_or_create_equations_table(lancedb_path: str | Path) -> Any:
             schema=EQUATIONS_SCHEMA_V1,
             storage_options=LANCE_STORAGE_OPTIONS,
         )
+    # Every caller writes the table under the dataset write lock.
+    add_missing_columns(table, EQUATIONS_SCHEMA_V1, EQUATIONS_TABLE_NAME)
+    return table
 
 
 @holds_dataset_write_lock("lancedb_path")
 def index_equation_trees(
     lancedb_path: str | Path, *, rebuild: bool = False,
 ) -> dict[str, int]:
-    """Populate ``mathml_tree_json`` on every row that has a
-    ``mathml`` payload and a NULL ``mathml_tree_json``.
+    """Build ``mathml_tree_json`` for every row with a ``mathml``
+    payload whose tree is missing or was written by another normalizer.
 
-    With ``rebuild=True``, recompute the tree of every row with a
-    ``mathml`` payload, including ones that already have a tree. That is
-    the fix after :data:`MATHML_TREE_NORMALIZER_VERSION` changes, since a
-    stored tree is only comparable to a query tree built by the same
-    normalizer.
+    A stored tree is only comparable to a query tree built by the same
+    normalizer, so each row records the
+    :data:`MATHML_TREE_NORMALIZER_VERSION` that wrote its tree in
+    ``normalizer_version``, and a row whose version differs from the
+    running one (an older tree, or one from before the column existed)
+    is rebuilt. After a normalizer change a plain re-run brings the table
+    in line. With ``rebuild=True``, every row's tree is recomputed.
 
     Returns a counts dict ``{processed, updated, skipped, failed}``
-    so the caller (ops tooling or tests) can verify what landed.
+    so the caller (ops tooling or tests) can verify what landed. A
+    dataset with no ``equations`` table has nothing to index: every
+    count is 0 and no table is created.
 
     On a parse failure the row is left untouched and the failure is
     logged at WARNING. This lets a hand-crafted bad fixture surface
     in test logs without killing the whole indexer pass.
     """
+    counts = {"processed": 0, "updated": 0, "skipped": 0, "failed": 0}
+    if not (Path(lancedb_path) / f"{EQUATIONS_TABLE_NAME}.lance").is_dir():
+        return counts
     table = open_or_create_equations_table(lancedb_path)
     arrow = table.to_arrow()
-    counts = {"processed": 0, "updated": 0, "skipped": 0, "failed": 0}
 
     if arrow.num_rows == 0:
         return counts
 
-    # retrieval-unlocks-m4: stamp the normalizer version into the ops log.
-    # Stored trees are only comparable to a query tree built by the SAME
-    # normalizer, and nothing in the schema records which one wrote them —
-    # this line is the audit trail for "was this table indexed before or
-    # after the m4 canonicalization?".
     logger.info(
         "indexing equation trees with normalizer v%d (%d rows)",
         MATHML_TREE_NORMALIZER_VERSION,
@@ -126,7 +128,11 @@ def index_equation_trees(
         if not mathml:
             counts["skipped"] += 1
             continue
-        if row.get("mathml_tree_json") and not rebuild:
+        current = (
+            row.get("mathml_tree_json")
+            and row.get("normalizer_version") == MATHML_TREE_NORMALIZER_VERSION
+        )
+        if current and not rebuild:
             counts["skipped"] += 1
             continue
         try:
@@ -139,6 +145,7 @@ def index_equation_trees(
             counts["failed"] += 1
             continue
         row["mathml_tree_json"] = tree_to_json(tree)
+        row["normalizer_version"] = MATHML_TREE_NORMALIZER_VERSION
         new_rows.append(row)
         counts["updated"] += 1
 
@@ -191,10 +198,12 @@ def _cli(argv: list[str]) -> int:
     )
     parser.add_argument(
         "--rebuild", action="store_true",
-        help="recompute every tree, not only missing ones (needed after "
-        "the tree normalizer changes)",
+        help="recompute every tree, not only missing ones and ones "
+        "another tree normalizer wrote",
     )
     args = parser.parse_args(argv)
+    if not Path(args.lancedb_path).is_dir():
+        parser.error(f"no LanceDB dataset at {args.lancedb_path}")
     counts = index_equation_trees(args.lancedb_path, rebuild=args.rebuild)
     print(" ".join(f"{k}={v}" for k, v in counts.items()))
     return 0

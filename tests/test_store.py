@@ -1495,71 +1495,46 @@ class TestSchemaMigrationGuard:
         # Schema still has exactly the canonical column set.
         assert set(tbl.schema.names) == set(CHUNKS_SCHEMA_V1.names)
 
-    def test_migration_unhandled_column_raises(self, tmp_path):
-        """A future schema column not in _TEXTBOOK_MIGRATION_DEFAULTS
-        triggers a loud RuntimeError rather than silent skip.
-
-        Note (m2 rect F5): this test uses ``patch`` to simulate the
-        future-m3 negative branch. The mock surface
-        (``ingest.store.CHUNKS_SCHEMA_V1``) is intentionally the
-        module-level alias; a hypothetical store.py refactor that
-        re-imports CHUNKS_SCHEMA_V1 into a different namespace would
-        need to update this patch path in lockstep with the
-        sibling positive-branch test below.
-        """
+    def test_a_new_nullable_column_migrates_as_null(self, tmp_path):
+        """A column added to the schema reaches an existing table with no
+        migration code: its existing rows hold NULL in it."""
         from unittest.mock import patch
 
         from ingest.store import _migrate_chunks_schema_if_needed
 
-        # Simulate a future schema that includes an unknown column.
         future_schema = pa.schema(
-            [*CHUNKS_SCHEMA_V1, pa.field("future_m3_col", pa.utf8(), nullable=True)]
+            [*CHUNKS_SCHEMA_V1, pa.field("future_col", pa.int32(), nullable=True)]
         )
         _db, tbl = self._make_legacy_14col_table(tmp_path)
-        with (
-            patch("ingest.store.CHUNKS_SCHEMA_V1", future_schema),
-            pytest.raises(RuntimeError, match="future_m3_col"),
-        ):
-            _migrate_chunks_schema_if_needed(tbl)
-
-    def test_migration_extensible_with_new_default(self, tmp_path):
-        """m2 rect F5 positive-branch sibling.
-
-        When a future milestone (e.g. m3) lands a new chunks-table
-        column AND extends ``_TEXTBOOK_MIGRATION_DEFAULTS`` with a
-        matching SQL expression, the migration helper should add the
-        column cleanly. Asymmetric coverage with the negative-branch
-        test above ensures the trip-wire reminder is balanced.
-        """
-        from unittest.mock import patch
-
-        from ingest.store import (
-            _TEXTBOOK_MIGRATION_DEFAULTS,
-            _migrate_chunks_schema_if_needed,
-        )
-
-        future_schema = pa.schema(
-            [
-                *CHUNKS_SCHEMA_V1,
-                pa.field("future_m3_col", pa.utf8(), nullable=True),
-            ]
-        )
-        future_defaults = {
-            **_TEXTBOOK_MIGRATION_DEFAULTS,
-            "future_m3_col": "cast(NULL as string)",
-        }
-        _db, tbl = self._make_legacy_14col_table(tmp_path)
-        with (
-            patch("ingest.store.CHUNKS_SCHEMA_V1", future_schema),
-            patch("ingest.store._TEXTBOOK_MIGRATION_DEFAULTS", future_defaults),
-        ):
+        with patch("ingest.store.CHUNKS_SCHEMA_V1", future_schema):
             added = _migrate_chunks_schema_if_needed(tbl)
 
-        assert "future_m3_col" in added
-        # The 12 post-v1 columns (7 textbook-ingest-m2 + 5 source-truth-m2)
-        # + the simulated m3 column all landed on the 14-col legacy table.
-        assert len(added) == 18
-        assert "future_m3_col" in tbl.schema.names
+        assert added == [f.name for f in future_schema if f.name in added]
+        assert set(tbl.schema.names) == set(future_schema.names)
+        assert tbl.schema.field("future_col").nullable
+        rows = tbl.to_arrow().to_pylist()
+        assert rows and all(r["future_col"] is None for r in rows)
+        assert {r["license"] for r in rows} == {"arxiv-license"}
+
+    def test_a_required_column_with_no_value_is_refused(self, tmp_path):
+        """A required column the existing rows have no value for is
+        refused before the table changes."""
+        from unittest.mock import patch
+
+        from ingest.schema import SchemaEvolutionError
+        from ingest.store import _migrate_chunks_schema_if_needed
+
+        future_schema = pa.schema(
+            [*CHUNKS_SCHEMA_V1, pa.field("future_col", pa.utf8(), nullable=False)]
+        )
+        _db, tbl = self._make_legacy_14col_table(tmp_path)
+        before = list(tbl.schema.names)
+        with (
+            patch("ingest.store.CHUNKS_SCHEMA_V1", future_schema),
+            pytest.raises(SchemaEvolutionError, match="future_col"),
+        ):
+            _migrate_chunks_schema_if_needed(tbl)
+        assert list(tbl.schema.names) == before
 
 
 class TestParserUsedEnumGuard:

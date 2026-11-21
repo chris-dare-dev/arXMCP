@@ -9,38 +9,18 @@ re-declares a schema inline. This module keeps the table names
 pin, the ``definitions`` and ``equations`` schemas and
 :class:`EmbedRecord`.
 
-Schema mutations require a corresponding MVCC version bump. E04_S02
-shipped the ``corpus_version`` integer in ``corpus-version.json``;
-the schema version now ratchets via LanceDB's MVCC integer (written
-by every successful ``write_chunks`` call).
-
-**Existing-row migration shipped in textbook-ingest-m2** as
-:func:`ingest.store._migrate_chunks_schema_if_needed`. On every
-:func:`ingest.store.write_chunks` call, the helper reads
-``tbl.schema.names`` and calls ``tbl.add_columns(...)`` for each
-m2 column absent from the on-disk table. SQL backfills set
-``source_kind="arxiv"`` + ``license="arxiv-license"`` for every
-existing row (preserves ``WHERE license = 'arxiv-license'`` filter
-semantics on legacy rows — FM-6 from the m2 research synthesis);
-the four textbook-only columns and ``parser_used`` get NULL.
-Each ``add_columns`` is its own LanceDB MVCC version so a partial
-failure is recoverable: a retry recomputes ``missing = target
-- existing`` and finishes the remaining columns. Idempotent — once
-the chunks table is at the canonical 26-column shape, subsequent
-``write_chunks`` calls find no missing columns and the migration
-is a no-op (one ``tbl.schema.names`` read).
-
-**Chunks schema v2 shipped in source-truth-m2** appended five more
-``nullable=True`` columns after ``parser_used`` — ``source_revision_id``,
-``source_span`` (a JSON string, NOT a struct), ``truncated``,
-``printed_number`` and ``license_ref``. All five ride the SAME
-:func:`ingest.store._migrate_chunks_schema_if_needed` single-loop
-``add_columns`` mechanism (one ``cast(NULL as ...)`` default each) — no
-struct branch. ``truncated`` and ``printed_number`` are chunker-native
-(populated on every new write); the three registry-derived columns are
-hydrated on existing rows by the separately-invoked backfill
-``tools/notebook_chunks_backfill.py`` and stay NULL on a plain new write
-until that forward-wiring fast-follow lands.
+**Adding a column is declared here, not coded.** Every LanceDB table a
+dataset holds (``chunks``, ``definitions``, ``equations``) gains the
+columns its schema has and the on-disk table lacks when a writer opens it
+(:func:`add_missing_columns`). Existing rows get NULL in a nullable
+column, or the value :data:`PRE_COLUMN_VALUES` records for rows written
+before the column existed. A column that is neither nullable nor listed
+there cannot be added to existing rows honestly, and the writer refuses
+with :class:`SchemaEvolutionError` instead of inventing a value. Retyping,
+renaming or removing a column has no in-place path: build the dataset
+afresh in staging and cut over. BM25 and the theorem-name index are
+rebuilt from ``chunks`` for each corpus version, so they follow a
+``chunks`` change on the next index build.
 
 Column order follows the brief's table verbatim. PyArrow doesn't
 require a particular order for correctness, but a fixed source-literal
@@ -195,8 +175,81 @@ EQUATIONS_SCHEMA_V1 = pa.schema(
             pa.list_(pa.float32(), EMBEDDING_DIM),
             nullable=True,
         ),
+        # The tree normalizer version that wrote ``mathml_tree_json``:
+        # a stored tree is comparable only to a query tree the same
+        # normalizer built. NULL while the row has no tree.
+        pa.field("normalizer_version", pa.int32(), nullable=True),
     ]
 )
+
+
+# ---------------------------------------------------------------------------
+# Adding columns to an existing table
+# ---------------------------------------------------------------------------
+
+#: What a row written before a column existed holds in it, per table,
+#: for the columns where that is known and is not NULL. Every chunk
+#: written before ``source_kind`` and ``license`` existed is an arXiv
+#: chunk under the arXiv licence; leaving them NULL would drop those rows
+#: from ``WHERE license = 'arxiv-license'`` filters.
+PRE_COLUMN_VALUES: dict[str, dict[str, str]] = {
+    CHUNKS_TABLE_NAME: {"source_kind": "arxiv", "license": "arxiv-license"},
+}
+
+_SQL_TYPE_NAMES = {pa.utf8(): "string"}
+
+
+class SchemaEvolutionError(RuntimeError):
+    """The on-disk table lacks a column its schema has, and the existing
+    rows have no value to give it."""
+
+
+def _sql_default(column: pa.Field, value: str) -> str:
+    sql_type = _SQL_TYPE_NAMES.get(column.type)
+    if sql_type is None:
+        raise SchemaEvolutionError(
+            f"column {column.name!r} has a pre-column value but type "
+            f"{column.type}, which has no SQL form here"
+        )
+    literal = value.replace("'", "''")
+    return f"cast('{literal}' as {sql_type})"
+
+
+def add_missing_columns(tbl, schema: pa.Schema, table_name: str) -> list[str]:
+    """Add to ``tbl`` every column of ``schema`` it lacks, in schema order.
+
+    Existing rows get the column's :data:`PRE_COLUMN_VALUES` entry for
+    ``table_name``, or NULL when it has none and is nullable. Each added
+    column ends with the nullability ``schema`` declares, so a migrated
+    table and a fresh one have the same shape. Each addition is its own
+    table version, so a retry after a failure adds only what is still
+    missing. Returns the names added.
+
+    Raises :class:`SchemaEvolutionError`, before changing anything, when
+    a missing column is required and has no pre-column value.
+    """
+    on_disk = set(tbl.schema.names)
+    missing = [f for f in schema if f.name not in on_disk]
+    values = PRE_COLUMN_VALUES.get(table_name, {})
+    unfillable = [
+        f.name for f in missing if not f.nullable and f.name not in values
+    ]
+    if unfillable:
+        raise SchemaEvolutionError(
+            f"the {table_name} table lacks required columns {unfillable} "
+            "that its existing rows have no value for. Give each a "
+            "pre-column value in ingest.schema.PRE_COLUMN_VALUES, or "
+            "build the dataset afresh in staging and cut over."
+        )
+    for column in missing:
+        if column.name in values:
+            tbl.add_columns({column.name: _sql_default(column, values[column.name])})
+        else:
+            tbl.add_columns(column)
+        # A SQL default is typed non-nullable whatever the schema says.
+        if column.nullable and not tbl.schema.field(column.name).nullable:
+            tbl.alter_columns({"path": column.name, "nullable": True})
+    return [f.name for f in missing]
 
 
 # ---------------------------------------------------------------------------
@@ -360,5 +413,8 @@ __all__ = [
     "DEFINITIONS_TABLE_NAME",
     "EQUATIONS_SCHEMA_V1",
     "EQUATIONS_TABLE_NAME",
+    "PRE_COLUMN_VALUES",
     "EmbedRecord",
+    "SchemaEvolutionError",
+    "add_missing_columns",
 ]

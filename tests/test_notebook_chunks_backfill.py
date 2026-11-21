@@ -928,15 +928,12 @@ class TestSpanReattempt:
 
 
 def test_v2_defaults_match_store():
-    """L3 — ``backfill._V2_COLUMN_DEFAULTS`` deliberately re-mirrors the five
-    source-truth-m2 entries of ``ingest.store._TEXTBOOK_MIGRATION_DEFAULTS`` (to
-    keep the embedder out of the driver's import graph). Nothing else asserts
-    they stay equal, so a later single-map edit could silently diverge the
-    driver's self-contained migration from the store's. Importing
-    ``ingest.store`` in a TEST is fine (the 0-re-embed guarantee binds the
-    DRIVER's import graph, not the test's)."""
-    from ingest.store import _TEXTBOOK_MIGRATION_DEFAULTS
+    """``backfill._V2_COLUMN_DEFAULTS`` re-states, to keep the embedder out
+    of the driver's import graph, what the store's migration gives the
+    five schema-v2 columns: NULL of the column's type."""
+    from ingest.schema import CHUNKS_TABLE_NAME, PRE_COLUMN_VALUES
 
+    sql_types = {pa.utf8(): "string", pa.bool_(): "boolean"}
     v2 = backfill._V2_COLUMN_DEFAULTS
     assert set(v2) == {
         "source_revision_id",
@@ -945,12 +942,11 @@ def test_v2_defaults_match_store():
         "printed_number",
         "license_ref",
     }
-    for key in v2:
-        assert key in _TEXTBOOK_MIGRATION_DEFAULTS, f"{key} missing from store map"
-        assert v2[key] == _TEXTBOOK_MIGRATION_DEFAULTS[key], (
-            f"cast SQL drift for {key!r}: backfill={v2[key]!r} "
-            f"store={_TEXTBOOK_MIGRATION_DEFAULTS[key]!r}"
-        )
+    for key, sql in v2.items():
+        column = CHUNKS_SCHEMA_V1.field(key)
+        assert column.nullable
+        assert key not in PRE_COLUMN_VALUES[CHUNKS_TABLE_NAME]
+        assert sql == f"cast(NULL as {sql_types[column.type]})"
 
 
 # ---------------------------------------------------------------------------

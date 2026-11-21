@@ -63,6 +63,7 @@ from ingest.schema import (
     DEFINITIONS_SCHEMA_V1,
     DEFINITIONS_TABLE_NAME,
     LANCE_STORAGE_OPTIONS,
+    add_missing_columns,
 )
 from ingest.write_lock import exits_when_write_locked, holds_dataset_write_lock
 
@@ -301,7 +302,8 @@ def build_definitions_for_paper(paper_id: str) -> list[dict[str, str]]:
 def open_or_create_definitions_table(
     lancedb_path: str | Path,
 ) -> Any:
-    """Open the ``definitions`` table, creating it on first use.
+    """Open the ``definitions`` table, creating it on first use, and add
+    any column :data:`DEFINITIONS_SCHEMA_V1` has that it lacks.
 
     Returns a LanceDB ``Table`` handle. The path is resolved exactly
     like the chunks-table path in :mod:`server.corpus`; callers should
@@ -330,7 +332,7 @@ def open_or_create_definitions_table(
     # exist". This avoids the DeprecationWarning + the paginated-
     # API gotcha in one shot.
     try:
-        return db.open_table(DEFINITIONS_TABLE_NAME)
+        tbl = db.open_table(DEFINITIONS_TABLE_NAME)
     except (ValueError, FileNotFoundError):
         # storage_options pins the on-disk Lance format (m2). See
         # ingest.schema.LANCE_STORAGE_OPTIONS for the rationale.
@@ -339,6 +341,8 @@ def open_or_create_definitions_table(
             schema=DEFINITIONS_SCHEMA_V1,
             storage_options=LANCE_STORAGE_OPTIONS,
         )
+    add_missing_columns(tbl, DEFINITIONS_SCHEMA_V1, DEFINITIONS_TABLE_NAME)
+    return tbl
 
 
 def _table_has_any_rows_for_paper(tbl: Any, paper_id: str) -> bool:
