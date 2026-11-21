@@ -3,7 +3,8 @@
 Wires :attr:`server.config.Config.pin_arxiv_ca` into an
 :class:`ssl.SSLContext` consumer for the two arxiv-rooted fetch
 sites — ``ingest/ar5iv_fetch.py::try_cache`` and
-``tools/arxiv_fetch.py::fetch_eprint``. Closes Threat 7 mitigation #2
+``tools/arxiv_fetch.py::fetch_eprint``. Every production caller of
+those two functions passes :func:`arxiv_ssl_context_from_env`. Closes Threat 7 mitigation #2
 ("Pin known fingerprint of arxiv.org's certificate authority chain
 (rotated periodically)").
 
@@ -12,7 +13,7 @@ apply to ``api.openalex.org``, ``inspirehep.net``, or
 ``oaipmh.arxiv.org`` — those use the default system trust store via
 their own host-specific fetch sites.
 
-**Bundle.** The vendored bundle at ``infra/ca/arxiv-ca-bundle.pem``
+**Bundle.** The vendored bundle at ``server/ca/arxiv-ca-bundle.pem``
 ships ISRG Root X1 only — the Let's Encrypt root that arxiv.org and
 ar5iv.labs.arxiv.org chain to. Let's Encrypt leaf certs rotate every
 60-90 days but the root rotates rarely (X1 is valid until 2035-06-04).
@@ -47,14 +48,12 @@ if TYPE_CHECKING:
     from server.config import Config
 
 
-#: The vendored bundle's canonical location. ``server/ssl_pin.py`` →
-#: ``parents[1]`` is the repo root; resolve absolutely so callers in
-#: any cwd see the same path.
+#: The vendored bundle's canonical location. It sits inside the
+#: ``server`` package and ships as package data, so the same path
+#: resolves in a source checkout and in an installed wheel. Resolved
+#: absolutely so callers in any cwd see the same path.
 VENDORED_ARXIV_CA_BUNDLE: Path = (
-    Path(__file__).resolve().parents[1]
-    / "infra"
-    / "ca"
-    / "arxiv-ca-bundle.pem"
+    Path(__file__).resolve().parent / "ca" / "arxiv-ca-bundle.pem"
 )
 
 
@@ -111,8 +110,26 @@ def build_arxiv_ssl_context(config: Config) -> ssl.SSLContext | None:
     return ssl.create_default_context(cafile=str(bundle))
 
 
+def arxiv_ssl_context_from_env() -> ssl.SSLContext | None:
+    """Build the arxiv SSLContext from the process's ``ARXMCP_*`` env.
+
+    The entry point for fetch callers that run outside the server
+    process (bulk ingest, the seed and notebook fetch tools) and so
+    hold no :class:`~server.config.Config` of their own. Loads a fresh
+    ``Config()``, which applies the same fail-closed bundle validation
+    as server startup, and hands it to :func:`build_arxiv_ssl_context`:
+    ``None`` when the pin is off, the pinned context when it is on.
+    A missing or unparseable bundle raises rather than degrading to
+    the system trust store.
+    """
+    from server.config import Config  # noqa: PLC0415 — server.config imports this module
+
+    return build_arxiv_ssl_context(Config())
+
+
 __all__ = [
     "VENDORED_ARXIV_CA_BUNDLE",
+    "arxiv_ssl_context_from_env",
     "build_arxiv_ssl_context",
     "resolve_arxiv_ca_bundle",
 ]

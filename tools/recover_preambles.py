@@ -56,6 +56,7 @@ from ingest.preamble import (
     PER_PAPER_FAILURE_EXCEPTIONS as PREAMBLE_FAILURES,
 )
 from ingest.preamble import extract_preamble
+from server.ssl_pin import arxiv_ssl_context_from_env
 from tools._notebook_common import (
     CORPUS_PARSED_DIR,
     CORPUS_RAW_DIR,
@@ -143,7 +144,11 @@ def _fetch_raw_tex_with_503_backoff(paper_id: str) -> str:
     backoff = DEFAULT_503_BACKOFF_SECONDS
     while True:
         try:
-            fetch_eprint(paper_id, CORPUS_RAW_DIR)
+            fetch_eprint(
+                paper_id,
+                CORPUS_RAW_DIR,
+                ssl_context=arxiv_ssl_context_from_env(),
+            )
             return "ok"
         except urllib.error.HTTPError as exc:
             is_503 = exc.code == http.HTTPStatus.SERVICE_UNAVAILABLE.value

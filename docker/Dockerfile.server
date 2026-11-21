@@ -190,6 +190,13 @@ bad = {n: importlib.util.find_spec(n).origin \
        if not (importlib.util.find_spec(n).origin or '').startswith('/opt/venv/')}; \
 sys.exit(f'imports resolve outside /opt/venv: {bad}' if bad else 0)"
 
+# The pinned arxiv CA bundle ships inside the wheel as server/ca/ package
+# data. Building the pinned context from the installed copy proves
+# ARXMCP_PIN_ARXIV_CA=1 can start in this image.
+RUN ARXMCP_PIN_ARXIV_CA=1 python -c "import sys; \
+from server.ssl_pin import arxiv_ssl_context_from_env; \
+sys.exit(0 if arxiv_ssl_context_from_env() else 'pinned arxiv CA context did not build')"
+
 # Create the var/arxmcp tree. IS6: scope chown to /app/var only —
 # source tree stays root-owned (still readable to ``arxmcp``).
 RUN mkdir -p /app/var/arxmcp/index/lancedb \

@@ -99,7 +99,7 @@ help:
 	@echo "  make daily-report           Scrape /metrics and write the daily ops report"
 	@echo "  make parser-failures-report Roll up parser-failures/*.{log,jsonl} into the weekly review"
 	@echo "  make sbom        Generate CycloneDX SBOMs + grype scan (into var/sbom/)"
-	@echo "  make refresh-arxiv-ca       Re-download infra/ca/arxiv-ca-bundle.pem and verify against live arxiv hosts (E13_S07c)"
+	@echo "  make refresh-arxiv-ca       Re-download server/ca/arxiv-ca-bundle.pem and verify against live arxiv hosts (E13_S07c)"
 	@echo "  make wheel-check            Build the wheel, install it into a throwaway venv, assert ops/ + server/frontend/ + console scripts (issue #206; ~10s)"
 	@echo "  make wheel-check-full       Same, but an isolated venv with the REAL deps + an ARXMCP_BOOTSTRAP_MODE=1 boot polled at /healthz. Pre-publish gate (~4 min warm)"
 	@echo "  make desktop-conformance    Build the locked fixture sidecar, then run its Rust/Python contract and lifecycle gate with zero skips"
@@ -581,7 +581,7 @@ refresh-arxiv-ca:
 	@# (Threat 7 mitigation #2). Re-downloads the canonical Let's
 	@# Encrypt ISRG Root X1 PEM and verifies the resulting bundle
 	@# accepts the live arxiv.org cert chain BEFORE writing to
-	@# infra/ca/arxiv-ca-bundle.pem.
+	@# server/ca/arxiv-ca-bundle.pem.
 	@#
 	@# Cadence: ISRG Root X1 is valid until 2035-06-04. Roots
 	@# rotate rarely; intermediates rotate every 60-90 days but the
@@ -597,19 +597,19 @@ refresh-arxiv-ca:
 	@# failure and refresh manually if needed.
 	@command -v curl >/dev/null 2>&1 || { echo "ERROR: curl not found" >&2; exit 1; }
 	@command -v openssl >/dev/null 2>&1 || { echo "ERROR: openssl not found" >&2; exit 1; }
-	@mkdir -p infra/ca
+	@mkdir -p server/ca
 	@tmp=$$(mktemp); \
 		echo "Fetching ISRG Root X1 from letsencrypt.org..."; \
 		curl -fsSL https://letsencrypt.org/certs/isrgrootx1.pem -o $$tmp || { rm -f $$tmp; echo "ERROR: download failed" >&2; exit 1; }; \
 		echo "Verifying live arxiv.org cert chain against new bundle..."; \
-		openssl s_client -connect arxiv.org:443 -servername arxiv.org -CAfile $$tmp -verify_return_error </dev/null >/dev/null 2>&1 || { rm -f $$tmp; echo "ERROR: live arxiv.org cert does NOT verify against the new bundle. NOT writing infra/ca/arxiv-ca-bundle.pem." >&2; exit 1; }; \
+		openssl s_client -connect arxiv.org:443 -servername arxiv.org -CAfile $$tmp -verify_return_error </dev/null >/dev/null 2>&1 || { rm -f $$tmp; echo "ERROR: live arxiv.org cert does NOT verify against the new bundle. NOT writing server/ca/arxiv-ca-bundle.pem." >&2; exit 1; }; \
 		echo "Verifying live export.arxiv.org cert chain..."; \
-		openssl s_client -connect export.arxiv.org:443 -servername export.arxiv.org -CAfile $$tmp -verify_return_error </dev/null >/dev/null 2>&1 || { rm -f $$tmp; echo "ERROR: live export.arxiv.org cert does NOT verify against the new bundle. NOT writing infra/ca/arxiv-ca-bundle.pem." >&2; exit 1; }; \
+		openssl s_client -connect export.arxiv.org:443 -servername export.arxiv.org -CAfile $$tmp -verify_return_error </dev/null >/dev/null 2>&1 || { rm -f $$tmp; echo "ERROR: live export.arxiv.org cert does NOT verify against the new bundle. NOT writing server/ca/arxiv-ca-bundle.pem." >&2; exit 1; }; \
 		echo "Verifying live ar5iv.labs.arxiv.org cert chain..."; \
-		openssl s_client -connect ar5iv.labs.arxiv.org:443 -servername ar5iv.labs.arxiv.org -CAfile $$tmp -verify_return_error </dev/null >/dev/null 2>&1 || { rm -f $$tmp; echo "ERROR: live ar5iv.labs.arxiv.org cert does NOT verify against the new bundle. NOT writing infra/ca/arxiv-ca-bundle.pem." >&2; exit 1; }; \
-		mv $$tmp infra/ca/arxiv-ca-bundle.pem || { rm -f $$tmp; echo "ERROR: mv failed; bundle NOT updated (temp file removed)." >&2; exit 1; }; \
-		echo "OK: bundle refreshed at infra/ca/arxiv-ca-bundle.pem (all three hosts verified)."; \
-		echo "Review the diff and commit: git diff infra/ca/arxiv-ca-bundle.pem"
+		openssl s_client -connect ar5iv.labs.arxiv.org:443 -servername ar5iv.labs.arxiv.org -CAfile $$tmp -verify_return_error </dev/null >/dev/null 2>&1 || { rm -f $$tmp; echo "ERROR: live ar5iv.labs.arxiv.org cert does NOT verify against the new bundle. NOT writing server/ca/arxiv-ca-bundle.pem." >&2; exit 1; }; \
+		mv $$tmp server/ca/arxiv-ca-bundle.pem || { rm -f $$tmp; echo "ERROR: mv failed; bundle NOT updated (temp file removed)." >&2; exit 1; }; \
+		echo "OK: bundle refreshed at server/ca/arxiv-ca-bundle.pem (all three hosts verified)."; \
+		echo "Review the diff and commit: git diff server/ca/arxiv-ca-bundle.pem"
 
 
 # ============================================================================

@@ -38,6 +38,7 @@ from server.application_paths import (
 )
 from server.corpus_freshness import DEFAULT_FRESHNESS_INTERVAL_SECONDS
 from server.metrics_refresh import DEFAULT_REFRESH_INTERVAL_SECONDS
+from server.ssl_pin import VENDORED_ARXIV_CA_BUNDLE
 
 # ---------------------------------------------------------------------------
 # Module-level constants
@@ -499,7 +500,7 @@ class Config(BaseSettings):
     #: ``tools/arxiv_fetch.py::fetch_eprint`` — use an
     #: ``ssl.SSLContext`` built from a pinned CA bundle instead of
     #: the system trust store. The bundle defaults to the vendored
-    #: ISRG Root X1 PEM at ``infra/ca/arxiv-ca-bundle.pem``
+    #: ISRG Root X1 PEM at ``server/ca/arxiv-ca-bundle.pem``
     #: (arxiv.org and ar5iv chain to Let's Encrypt; pinning the root
     #: survives the 60-90-day intermediate rotation cadence). An
     #: operator-supplied alternative path is accepted via
@@ -522,7 +523,7 @@ class Config(BaseSettings):
 
     #: E13_S07c — operator override for the pinned CA bundle path.
     #: Default ``None`` means "use the vendored bundle at
-    #: ``infra/ca/arxiv-ca-bundle.pem``". A non-None value is taken
+    #: ``server/ca/arxiv-ca-bundle.pem``". A non-None value is taken
     #: verbatim (no path traversal, no envvar expansion); the
     #: validator below checks the resolved file exists.
     #:
@@ -748,7 +749,8 @@ class Config(BaseSettings):
 
         1. If :attr:`arxiv_ca_bundle_path` is set, take it verbatim.
         2. Otherwise, fall back to the vendored bundle at
-           ``infra/ca/arxiv-ca-bundle.pem`` relative to the repo root.
+           :data:`server.ssl_pin.VENDORED_ARXIV_CA_BUNDLE`, shipped
+           as package data.
 
         Raises ``ValueError`` if the resolved path does not point at
         a regular file. The exception fires at Config-load time
@@ -767,14 +769,7 @@ class Config(BaseSettings):
             resolved = self.arxiv_ca_bundle_path
             source = "ARXMCP_ARXIV_CA_BUNDLE_PATH"
         else:
-            # Vendored bundle lives at <repo_root>/infra/ca/.
-            # ``server/config.py`` → parents[1] is the repo root.
-            resolved = (
-                Path(__file__).resolve().parents[1]
-                / "infra"
-                / "ca"
-                / "arxiv-ca-bundle.pem"
-            )
+            resolved = VENDORED_ARXIV_CA_BUNDLE
             source = "vendored bundle"
         if not resolved.is_file():
             raise ValueError(

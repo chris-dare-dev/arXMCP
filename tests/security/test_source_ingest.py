@@ -709,14 +709,15 @@ class TestPinArxivCaWiring:
         passes, the factory layer must still raise if the bundle
         is missing at fetch time (e.g. deleted between startup and
         first fetch)."""
-        from server.ssl_pin import build_arxiv_ssl_context
+        from server.ssl_pin import (
+            VENDORED_ARXIV_CA_BUNDLE,
+            build_arxiv_ssl_context,
+        )
 
         # Build a valid bundle, then point Config at it, then delete.
         bundle = tmp_path / "tmp-bundle.pem"
         bundle.write_text(
-            (Path(__file__).resolve().parents[2]
-             / "infra" / "ca" / "arxiv-ca-bundle.pem")
-            .read_text(encoding="utf-8"),
+            VENDORED_ARXIV_CA_BUNDLE.read_text(encoding="utf-8"),
             encoding="utf-8",
         )
         monkeypatch.setenv("ARXMCP_PIN_ARXIV_CA", "1")

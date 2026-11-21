@@ -63,6 +63,9 @@ exclude = ["tools.desktop_lifecycle_spike*"]
 # data file cannot silently drop out of the wheel the same way.
 "server" = ["router_patterns.yaml"]
 "server.schemas" = ["*.json"]
+# The pinned arxiv CA bundle. Without it ARXMCP_PIN_ARXIV_CA=1 fails
+# Config validation on any install that is not a source checkout.
+"server.ca" = ["*.pem"]
 "ingest" = ["*.sh"]
 "tools" = ["*.sh", "seed-papers.txt"]
 # ops/: the operability layer — backup, cutover, restore drill, drift

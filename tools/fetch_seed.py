@@ -39,6 +39,7 @@ import urllib.error
 from dataclasses import dataclass
 from pathlib import Path
 
+from server.ssl_pin import arxiv_ssl_context_from_env
 from tools.arxiv_fetch import (
     DEFAULT_503_BACKOFF_SECONDS,
     MAX_503_BACKOFF_SECONDS,
@@ -113,7 +114,9 @@ def fetch_with_backoff(
 
     while True:
         try:
-            result = fetch_eprint(paper_id, raw_dir)
+            result = fetch_eprint(
+                paper_id, raw_dir, ssl_context=arxiv_ssl_context_from_env()
+            )
             elapsed = time.monotonic() - request_start
             return (
                 Outcome(paper_id=paper_id, success=True, message="fetched", elapsed_s=elapsed),

@@ -22,6 +22,7 @@ import urllib.error
 from pathlib import Path
 
 from server.application_paths import ApplicationPaths
+from server.ssl_pin import arxiv_ssl_context_from_env
 
 logger = logging.getLogger("notebook_common")
 
@@ -302,7 +303,12 @@ def fetch_raw_tex_if_missing(
     from tools.arxiv_fetch import fetch_eprint  # noqa: PLC0415
 
     try:
-        fetch_eprint(paper_id, raw_dir, contact_email=contact_email)
+        fetch_eprint(
+            paper_id,
+            raw_dir,
+            contact_email=contact_email,
+            ssl_context=arxiv_ssl_context_from_env(),
+        )
     except urllib.error.HTTPError as exc:
         # 404 (withdrawn), 503 (rate limit), and friends. Caller may
         # implement retry/backoff above; the inline notebook path
