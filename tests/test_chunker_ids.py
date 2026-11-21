@@ -1,15 +1,16 @@
 """Tests for E02_S04: content-addressable ``chunk_id`` and version stamping.
 
 Regression guards from Phase 3 critique:
-* F1 (HIGH) — cleanup-before-collision-abort: ``TestF1FailureLeavesEmptyDir``
+* A failed re-chunk keeps the previous chunk set:
+  ``TestFailedRechunkKeepsPreviousSet``
 * F2 (MEDIUM) — duplicate-content de-dup vs collision raise:
   ``TestF2DuplicateContentDeduped`` and ``TestF2CollisionRaises``
 * F4 (MEDIUM) — single-source-of-truth scan:
   ``TestSingleVersionDefinition::test_v1_0_literal_count_in_ingest_package``
 * F5 (MEDIUM) — fresh-Python-process determinism:
   ``TestF5FreshProcessDeterminism``
-* F6 (LOW) — .tmp cleanup: ``TestF1FailureLeavesEmptyDir`` covers it
-  by extension since cleanup runs unconditionally at function entry
+* Leftover .tmp files are removed by the next successful run:
+  ``TestFailedRechunkKeepsPreviousSet``
 * F7, F8 (LOW) — docstring drift: see ``ingest/chunker.py`` and
   ``ingest/chunker_types.py`` updated docstrings.
 
@@ -581,66 +582,101 @@ class TestSingleVersionDefinition:
 # ===========================================================================
 
 
-class TestF1FailureLeavesEmptyDir:
-    """F1 (HIGH): a per-paper failure (e.g. duplicate-chunk_id raise)
-    must NOT leave stale chunk JSONs or chunk_manifest.json on disk
-    from a prior run. The fix moved the cleanup glob to the top of
-    ``_chunk_paper_impl`` so any subsequent failure leaves the directory
-    empty rather than retaining the previous corpus.
-    """
+def _chunk_files(chunks_dir: Path) -> dict[str, bytes]:
+    return {p.name: p.read_bytes() for p in sorted(chunks_dir.iterdir())}
+
+
+def _listed_files_present(chunks_dir: Path) -> bool:
+    manifest = json.loads((chunks_dir / "chunk_manifest.json").read_text())
+    return all(
+        (chunks_dir / f"{e['chunk_id'].rsplit(':', 1)[-1]}.json").is_file()
+        for e in manifest["chunks"]
+    )
+
+
+class TestFailedRechunkKeepsPreviousSet:
+    """A re-chunk that fails part-way leaves the previous chunk set, its
+    manifest and every file the manifest lists, exactly as it was."""
 
     PAPER_ID = "2307.00001"
 
-    def test_failure_clears_prior_artifacts(self, tmp_path):
-        # Stage: pre-populate the chunks dir with stale artifacts that
-        # mimic a prior chunker run.
-        chunks_dir = tmp_path / "chunks" / self.PAPER_ID
-        chunks_dir.mkdir(parents=True)
-        stale_chunk = chunks_dir / "deadbeefdeadbeef.json"
-        stale_chunk.write_text('{"stale": true}', encoding="utf-8")
-        stale_manifest = chunks_dir / "chunk_manifest.json"
-        stale_manifest.write_text('{"stale": true}', encoding="utf-8")
-        stale_tmp = chunks_dir / "chunk_manifest.json.123.abc.tmp"
-        stale_tmp.write_text('{"stale-tmp": true}', encoding="utf-8")
-
-        # Patch _compute_chunk_id to ALWAYS raise so the chunker fails
-        # mid-_chunk_paper_impl (after cleanup, before write).
-        def boom(*args, **kwargs):
-            raise RuntimeError("simulated mid-run failure")
-
+    def _first_run(self, tmp_path: Path) -> tuple[Path, Path, dict[str, bytes]]:
+        assert _run_no_preamble(tmp_path, self.PAPER_ID)
         parsed_dir = tmp_path / "parsed"
-        paper_parsed = parsed_dir / self.PAPER_ID
-        paper_parsed.mkdir(parents=True)
-        shutil.copy(
-            FIXTURE_DIR / self.PAPER_ID / "index.html",
-            paper_parsed / "index.html",
-        )
+        chunks_dir = tmp_path / "chunks" / self.PAPER_ID
+        return parsed_dir, chunks_dir, _chunk_files(chunks_dir)
 
+    def _rerun(self, tmp_path: Path, parsed_dir: Path, failure_patch) -> list:
         with (
             patch("ingest.chunker.PARSED_DIR", parsed_dir),
             patch("ingest.chunker.CHUNKS_DIR", tmp_path / "chunks"),
             patch("ingest.chunker._resolve_preamble_doc", return_value=None),
-            patch("ingest.chunker._compute_chunk_id", side_effect=boom),
+            failure_patch,
         ):
-            # chunk_paper catches RuntimeError? No — only
-            # PER_PAPER_FAILURE_EXCEPTIONS (OSError/ValueError/FileNotFoundError).
-            # RuntimeError will propagate. We don't care about the return
-            # value here; we care about the directory state.
-            import contextlib
-            with contextlib.suppress(RuntimeError):
-                chunk_paper(self.PAPER_ID)
+            return chunk_paper(self.PAPER_ID)
 
-        # All three stale artifacts must be gone — cleanup ran at
-        # function entry, before the simulated failure.
-        assert not stale_chunk.exists(), (
-            "stale chunk JSON survived cleanup-before-failure"
+    def test_failure_during_chunk_assembly_keeps_previous_set(self, tmp_path):
+        parsed_dir, chunks_dir, before = self._first_run(tmp_path)
+
+        def collide(*args, **kwargs):
+            raise ValueError("SHA-256 prefix collision")
+
+        result = self._rerun(
+            tmp_path, parsed_dir,
+            patch("ingest.chunker._compute_chunk_id", side_effect=collide),
         )
-        assert not stale_manifest.exists(), (
-            "stale chunk_manifest.json survived cleanup-before-failure"
+
+        assert result == []
+        assert _chunk_files(chunks_dir) == before
+
+    def test_failure_before_the_manifest_swap_keeps_previous_manifest(self, tmp_path):
+        parsed_dir, chunks_dir, before = self._first_run(tmp_path)
+        manifest_before = before["chunk_manifest.json"]
+
+        result = self._rerun(
+            tmp_path, parsed_dir,
+            patch(
+                "ingest.chunker._write_chunk_manifest",
+                side_effect=OSError("disk full"),
+            ),
         )
-        assert not stale_tmp.exists(), (
-            "stale .tmp file survived cleanup-before-failure (F6)"
+
+        assert result == []
+        assert (chunks_dir / "chunk_manifest.json").read_bytes() == manifest_before
+        assert _listed_files_present(chunks_dir)
+        assert list(chunks_dir.glob("*.tmp")) == []
+
+    def test_failure_while_writing_chunk_files_keeps_previous_set(self, tmp_path):
+        parsed_dir, chunks_dir, before = self._first_run(tmp_path)
+        real_write_text = Path.write_text
+        calls = {"n": 0}
+
+        def fail_on_second_write(self, *args, **kwargs):
+            calls["n"] += 1
+            if calls["n"] == 2:
+                raise OSError("disk full")
+            return real_write_text(self, *args, **kwargs)
+
+        result = self._rerun(
+            tmp_path, parsed_dir,
+            patch.object(Path, "write_text", fail_on_second_write),
         )
+
+        assert result == []
+        assert _chunk_files(chunks_dir) == before
+
+    def test_successful_rerun_removes_files_the_new_manifest_drops(self, tmp_path):
+        parsed_dir, chunks_dir, _before = self._first_run(tmp_path)
+        orphan = chunks_dir / "deadbeefdeadbeef.json"
+        orphan.write_text('{"stale": true}', encoding="utf-8")
+        leftover_tmp = chunks_dir / "chunk_manifest.json.123.abc.tmp"
+        leftover_tmp.write_text("{}", encoding="utf-8")
+
+        chunks = _run_no_preamble(tmp_path, self.PAPER_ID)
+
+        expected = {f"{c.chunk_id.rsplit(':', 1)[-1]}.json" for c in chunks}
+        expected.add("chunk_manifest.json")
+        assert {p.name for p in chunks_dir.iterdir()} == expected
 
 
 class TestF2DuplicateContentDeduped:
