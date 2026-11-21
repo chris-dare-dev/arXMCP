@@ -423,11 +423,38 @@ class TestLocateOutputs:
         with pytest.raises(RuntimeError, match="no .md file found"):
             _locate_outputs(tmp_path, "doc")
 
-    def test_no_content_list_raises(self, tmp_path: Path) -> None:
-        # .md present, content_list missing.
-        self._make_outputs(tmp_path, "doc", with_cl=False)
-        # Glob fallback finds the .md but then complains about cl.
-        with pytest.raises(RuntimeError, match="content_list"):
+    def test_missing_content_list_is_not_fatal(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        # Good markdown, no sidecar: the parse proceeds without it.
+        md, _ = self._make_outputs(tmp_path, "doc", with_cl=False)
+        with caplog.at_level("WARNING", logger="ingest.textbook_parser"):
+            rmd, rcl = _locate_outputs(tmp_path, "doc")
+        assert rmd == md
+        assert rcl is None
+        assert "no _content_list.json" in caplog.text
+
+    def test_renamed_content_list_is_not_fatal(self, tmp_path: Path) -> None:
+        # A sidecar under a name the pairing does not recognise.
+        md, _ = self._make_outputs(tmp_path, "doc", with_cl=False)
+        (md.parent / "doc.content_list.json").write_text("[]")
+        assert _locate_outputs(tmp_path, "doc") == (md, None)
+
+    def test_unpaired_glob_fallback_prefers_pdf_stem(self, tmp_path: Path) -> None:
+        md, _ = self._make_outputs(
+            tmp_path, "doc", with_cl=False, parse_method="txt",
+        )
+        other = tmp_path / "aaa"
+        other.mkdir()
+        (other / "notes.md").write_text("# other\n")
+        assert _locate_outputs(tmp_path, "doc") == (md, None)
+
+    def test_ambiguous_unpaired_markdown_raises(self, tmp_path: Path) -> None:
+        for name in ("a", "b"):
+            d = tmp_path / name
+            d.mkdir()
+            (d / f"{name}.md").write_text("# x\n")
+        with pytest.raises(RuntimeError, match="2 markdown candidates"):
             _locate_outputs(tmp_path, "doc")
 
     def test_empty_dir_raises(self, tmp_path: Path) -> None:
@@ -445,8 +472,8 @@ class TestLocateOutputs:
         dir_b = tmp_path / "dirB"
         dir_b.mkdir()
         (dir_b / "y_content_list.json").write_text("[]")
-        with pytest.raises(RuntimeError, match="no paired"):
-            _locate_outputs(tmp_path, "doc")
+        # The lone markdown is used; dirB's sidecar is never borrowed.
+        assert _locate_outputs(tmp_path, "doc") == (dir_a / "x.md", None)
 
     def test_glob_fallback_finds_first_paired(self, tmp_path: Path) -> None:
         """When multiple md files exist, return the FIRST one whose
@@ -579,6 +606,7 @@ class TestRunMineruSandboxedSurface:
         assert isinstance(result, MinerUResult)
         assert result.output_dir == out_dir
         assert result.markdown_path.is_file()
+        assert result.content_list_path is not None
         assert result.content_list_path.is_file()
         assert result.stdout == "loaded"
         assert result.wall_clock_s >= 0
@@ -859,6 +887,26 @@ class TestReparseIgnoresEarlierOutput:
 
         assert result.markdown_path.read_text() == "# New book\n"
 
+    def test_run_without_content_list_succeeds(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        pdf, out_dir = self._earlier_parse(tmp_path)
+        monkeypatch.setenv("ARXMCP_MINERU_BIN", _create_fake_bin(tmp_path))
+        proc = _fake_proc()
+
+        def mineru_writes_markdown_only(*args, **kwargs):
+            auto = out_dir / "book" / "auto"
+            (auto / "book_content_list.json").unlink()
+            (auto / "book.md").write_text("# New book\n")
+            return ("", "")
+
+        proc.communicate.side_effect = mineru_writes_markdown_only
+        with patch.object(subprocess, "Popen", return_value=proc):
+            result = run_mineru_sandboxed(pdf, out_dir, timeout_s=60)
+
+        assert result.markdown_path.read_text() == "# New book\n"
+        assert result.content_list_path is None
+
 
 def _create_fake_bin(tmp_path: Path) -> str:
     bin_path = tmp_path / "fake_mineru"
@@ -950,6 +998,7 @@ class TestRealMineru:
         result = run_mineru_sandboxed(pdf, out_dir, timeout_s=1800)
         assert isinstance(result, MinerUResult)
         assert result.markdown_path.is_file()
+        assert result.content_list_path is not None
         assert result.content_list_path.is_file()
         assert result.markdown_path.stat().st_size > 0
         assert result.wall_clock_s > 0
