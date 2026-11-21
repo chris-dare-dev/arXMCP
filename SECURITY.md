@@ -75,7 +75,7 @@ Enforced at config-parse time, request-handling time, or via the test suite.
 | **Response body cap** — 256 KB inline; `resource_link` for larger payloads. | `server/main.py::BodySizeCapMiddleware`, `server/tools.py::enforce_byte_cap` |
 | **Per-session retrieval caps** — 3 `search_papers` + 4 `get_chunk` per `Mcp-Session-Id`. | `server/middleware.py::SessionCapMiddleware`, `server/session.py` |
 | **`paper_id` / `chunk_id` regex validation** before any I/O on every tool input. | `ingest/identifiers.py` + per-handler validation |
-| **safetensors-only model loading** — pickle `.bin` weights refused (Threat 6). | `ingest/embedder.py` |
+| **safetensors-only loading for the reranker** — BGE-reranker-v2-m3 loads with `use_safetensors=True` and a snapshot holding pickle `.bin` weights is refused (Threat 6). The BGE-M3 embedder is **not** covered: its pinned revision ships only `pytorch_model.bin`, so it loads pickle weights, guarded by the commit-SHA pin and `trust_remote_code` off by default. | `server/resources.py::_load_reranker_or_raise`, `server/model_loader.py::assert_no_bin_in_snapshot`; `ingest/embedder.py` |
 | **TLS verification on** for every outbound HTTP call (no opt-out). | `urllib.request.urlopen` defaults |
 | **Response size cap** on external fetches (OpenAlex / INSPIRE / arXiv). | per-source `*_MAX_RESPONSE_BYTES` constants |
 | **Loopback-only shim egress** — refuses non-loopback hosts. | `shim/arxmcp_shim.py` |
