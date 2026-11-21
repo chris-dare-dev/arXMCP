@@ -9,6 +9,11 @@ Thin wrapper that:
 3. ``run_bulk_ingest`` has already built the dataset's BM25, definitions,
    theorem-name and equation indexes inside it, so a cutover or rollback
    moves them with the chunks.
+4. Hydrates arXiv metadata (title, authors, abstract, …) for the run's
+   papers into the notebook's ``paper_metadata.db``. Best effort: an
+   arXiv outage leaves rows missing and the exit code untouched;
+   ``tools/notebook_metadata_backfill.py`` repairs them later.
+   ``--no-metadata`` skips this step for offline runs.
 
 The brief's ``ARXMCP_LANCEDB_PATH=...`` wording was wrong — that's the
 SERVER's env var, not a bulk_ingest one. ``bulk_ingest`` uses the
@@ -17,7 +22,7 @@ Python keyword. See synthesis "Disagreement 4" resolution.
 
 Usage:
 
-    uv run python tools/notebook_ingest.py <slug>
+    uv run python tools/notebook_ingest.py <slug> [--no-metadata]
 
 Exit codes:
     0 — every paper ingested and the dataset's indexes were built
@@ -33,6 +38,7 @@ import argparse
 import json
 import logging
 import sys
+from pathlib import Path
 
 from ingest.bm25_indexer import resolve_bm25_root
 from ingest.bulk_ingest import run_bulk_ingest
@@ -44,6 +50,7 @@ from ingest.notebooks import (
 )
 from ingest.store import STALE_CHUNKER_EXIT_CODE, StaleChunkerRowsError
 from ingest.write_lock import exits_when_write_locked
+from tools import notebook_metadata_backfill
 
 logger = logging.getLogger("notebook_ingest")
 
@@ -93,8 +100,43 @@ def _read_corpus_version(lancedb_path) -> int:
     return version
 
 
-def run(slug: str) -> int:
-    """Pure function — returns exit code. Tests call this directly."""
+def _hydrate_metadata(slug: str, nb_dir: Path, paper_ids: list[str]) -> None:
+    """Hydrate metadata for ``paper_ids``; never raise.
+
+    The chunks and indexes are already committed when this runs, so a
+    metadata failure must not change the ingest's outcome — it only
+    leaves rows for the backfill CLI to fill in.
+    """
+    repair = f"tools/notebook_metadata_backfill.py {slug}"
+    try:
+        result = notebook_metadata_backfill.hydrate_paper_ids(nb_dir, paper_ids)
+    except Exception:
+        logger.warning(
+            "metadata hydration failed; the ingest is unaffected — run %s",
+            repair,
+            exc_info=True,
+        )
+        print(f"metadata: failed — run {repair}", file=sys.stderr)
+        return
+    print(
+        f"metadata: hydrated={len(result.hydrated)} "
+        f"skipped={len(result.skipped)} "
+        f"missing={len(result.missing)}"
+    )
+    if result.missing:
+        reasons = ", ".join(f"{pid} ({why})" for pid, why in result.missing)
+        print(
+            f"metadata missing for {len(result.missing)} paper(s): {reasons} "
+            f"— run {repair} once arXiv is reachable",
+            file=sys.stderr,
+        )
+
+
+def run(slug: str, *, hydrate_metadata: bool = True) -> int:
+    """Pure function — returns exit code. Tests call this directly.
+
+    ``hydrate_metadata=False`` skips the arXiv metadata step.
+    """
     validate_slug(slug)
     nb_dir = notebook_dir(slug)
     if not nb_dir.exists():
@@ -170,6 +212,9 @@ def run(slug: str) -> int:
             file=sys.stderr,
         )
 
+    if hydrate_metadata:
+        _hydrate_metadata(slug, nb_dir, paper_ids)
+
     return 0 if summary.papers_failed == 0 else 1
 
 
@@ -187,6 +232,11 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         "--print-runtime-paths",
         action="store_true",
         help="print installed ingest writer paths as JSON and exit",
+    )
+    parser.add_argument(
+        "--no-metadata",
+        action="store_true",
+        help="skip hydrating arXiv metadata after the ingest (offline runs)",
     )
     parser.add_argument(
         "--log-level",
@@ -211,7 +261,7 @@ def main(argv: list[str] | None = None) -> int:
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
     try:
-        return run(args.slug)
+        return run(args.slug, hydrate_metadata=not args.no_metadata)
     except StaleChunkerRowsError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return STALE_CHUNKER_EXIT_CODE
