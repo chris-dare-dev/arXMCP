@@ -54,6 +54,8 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from server.notebooks_store import ParseMetrics
+
 if TYPE_CHECKING:
     from ingest.textbook_parser import MinerUResult
     from server.notebooks_store import NotebooksStore
@@ -271,6 +273,7 @@ class ParseTaskTracker:
     @staticmethod
     async def _record_complete(
         store: NotebooksStore, slug: str, html_path_str: str,
+        metrics: ParseMetrics,
     ) -> None:
         """Write ``complete``, retrying a transient failure."""
         for delay in (*_COMPLETE_WRITE_RETRY_DELAYS_S, None):
@@ -280,6 +283,7 @@ class ParseTaskTracker:
                     store.PARSE_STATUS_COMPLETE,
                     parse_error="",
                     parsed_html_path=html_path_str,
+                    metrics=metrics,
                 )
                 return
             except Exception:
@@ -333,9 +337,18 @@ class ParseTaskTracker:
         try:
             stop = threading.Event()
             stage = ["MinerU"]
+            # Set by the worker thread once MinerU returns, so a render
+            # failure still records how long MinerU took.
+            mineru_done: list[MinerUResult] = []
+
+            def _partial_metrics() -> ParseMetrics:
+                if not mineru_done:
+                    return ParseMetrics()
+                return ParseMetrics(mineru_wall_s=mineru_done[0].wall_clock_s)
 
             def _work() -> tuple[MinerUResult, Any]:
                 mineru = textbook_parser.run_mineru_sandboxed(pdf_path, output_dir)
+                mineru_done.append(mineru)
                 if stop.is_set():
                     raise _StoppedBeforeRender(
                         "MinerU finished, rendering was skipped",
@@ -359,6 +372,7 @@ class ParseTaskTracker:
                             "abandoned at daemon shutdown while "
                             f"{stage[0]} was still running; any output it "
                             "writes afterwards is not recorded",
+                            metrics=_partial_metrics(),
                         )
                         raise
                     interrupted = True
@@ -371,6 +385,7 @@ class ParseTaskTracker:
                         )
                         await self._record_failed(
                             store, slug, f"stopped at daemon shutdown: {detail}",
+                            metrics=_partial_metrics(),
                         )
                         raise asyncio.CancelledError from e
                     logger.exception(
@@ -378,6 +393,7 @@ class ParseTaskTracker:
                     )
                     await self._record_failed(
                         store, slug, f"{type(e).__name__}: {e}",
+                        metrics=_partial_metrics(),
                     )
                     return
 
@@ -385,9 +401,14 @@ class ParseTaskTracker:
             # ``var/arxmcp/``-relative form. Storing the absolute path
             # would leak the operator's home dir through the
             # /parse-status JSON.
+            metrics = ParseMetrics(
+                latex_errors=render_result.latex_error_annotations,
+                mineru_wall_s=mineru_result.wall_clock_s,
+                render_wall_s=render_result.wall_clock_s,
+            )
             try:
                 html_path_str = redact_html_path(render_result.output_html_path)
-                await self._record_complete(store, slug, html_path_str)
+                await self._record_complete(store, slug, html_path_str, metrics)
             except Exception as e:  # noqa: BLE001
                 # The HTML is on disk, but a row left ``running`` would
                 # block every later upload to this notebook, so settle
@@ -400,6 +421,7 @@ class ParseTaskTracker:
                     store, slug,
                     "parse finished but recording it failed: "
                     f"{type(e).__name__}: {e}",
+                    metrics=metrics,
                 )
                 return
             logger.info(
@@ -417,8 +439,13 @@ class ParseTaskTracker:
     @staticmethod
     async def _record_failed(
         store: NotebooksStore, slug: str, message: str,
+        *, metrics: ParseMetrics | None = None,
     ) -> None:
         """Write a terminal ``failed`` row; a failed write is logged.
+
+        ``metrics`` is whatever the parse measured before it failed;
+        omitted, every measurement is written as not measured, so a
+        failed row never carries an earlier parse's numbers.
 
         The startup orphan sweep still covers a row this cannot write.
         """
@@ -427,6 +454,7 @@ class ParseTaskTracker:
                 slug,
                 store.PARSE_STATUS_FAILED,
                 parse_error=_format_parse_error(message),
+                metrics=metrics if metrics is not None else ParseMetrics(),
             )
         except Exception:  # noqa: BLE001
             logger.exception(
