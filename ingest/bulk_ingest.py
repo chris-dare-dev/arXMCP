@@ -124,6 +124,10 @@ class PaperOutcome:
     chunks_written: int = 0
     elapsed_seconds: float = 0.0
     failure_reason: str | None = None
+    #: Whether re-running the paper later may succeed without any other
+    #: change (for example ar5iv answered 429 or 503). Only meaningful
+    #: when ``failure_reason`` is set.
+    retriable: bool = False
 
 
 @dataclass
@@ -159,6 +163,7 @@ def _log_parser_failure(
         "paper_id": outcome.paper_id,
         "parsers_tried": outcome.parsers_tried,
         "failure_reason": outcome.failure_reason,
+        "retriable": outcome.retriable,
         "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     }
     with failures_path.open("a", encoding="utf-8") as fh:
@@ -248,8 +253,7 @@ def _parse_via_ar5iv(
 def _has_local_parsed_html(paper_id: str, parsed_dir: Path) -> bool:
     """Return True if a parsed HTML file exists for the paper.
 
-    The chunker reads from
-    ``var/arxmcp/corpus/parsed/<paper_id>/index.html``. v1's
+    The chunker reads ``<parsed_dir>/<paper_id>/index.html``. v1's
     LaTeXML-fallback path assumes the operator has already
     run ``tools/arxiv_fetch.py`` (or similar) to produce this
     file. Bulk ingest does NOT itself fetch raw .tex or invoke
@@ -323,6 +327,7 @@ def ingest_one_paper(
 
     try:
         # Step 1: ar5iv.
+        ar5iv_result: Ar5ivResult | None = None
         if not skip_ar5iv:
             outcome.parsers_tried.append("ar5iv")
             ar5iv_result = _parse_via_ar5iv(
@@ -339,11 +344,18 @@ def ingest_one_paper(
             outcome.parsers_tried.append("latexml")
             if _has_local_parsed_html(paper_id, parsed_dir):
                 outcome.parser_used = "latexml"
-            else:
+            elif ar5iv_result is None:
                 outcome.failure_reason = "no_parsed_html"
                 return outcome
+            else:
+                # Keep the ar5iv reason so the failures log separates a
+                # paper ar5iv has no render for from a rate limit or an
+                # outage that a later run would get past.
+                outcome.failure_reason = f"no_parsed_html:ar5iv_{ar5iv_result.reason}"
+                outcome.retriable = ar5iv_result.retriable
+                return outcome
         # Step 3: chunk + embed + store.
-        chunks = chunk_paper(paper_id)
+        chunks = chunk_paper(paper_id, parsed_dir=parsed_dir)
         if not chunks:
             # ingest-robustness-m1 (AC4): distinguish a structurally
             # unchunkable render (math, but no sections/theorems, and no
@@ -548,11 +560,9 @@ def _cli(argv: list[str]) -> int:
         type=Path,
         help=f"ar5iv on-disk cache (default: {DEFAULT_AR5IV_CACHE_DIR})",
     )
-    # Closes F2: --parsed-dir was a CLI footgun. The chunker reads
-    # from a hardcoded module-level PARSED_DIR; honoring the CLI
-    # override at the ar5iv-write step but ignoring it at the chunker
-    # step caused silent "chunker_returned_empty" failures. The
-    # parsed-dir is now fixed at ``ingest.chunker.PARSED_DIR``.
+    # No --parsed-dir flag: the CLI fetches into and chunks from the
+    # default parsed tree. Python callers may pass ``parsed_dir``, which
+    # reaches both the ar5iv write and the chunker read.
     parser.add_argument(
         "--limit",
         type=int,

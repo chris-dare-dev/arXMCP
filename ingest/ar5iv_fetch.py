@@ -18,14 +18,23 @@ CPU: the ar5iv-first ladder is the load-bearing ingest strategy.
   (so re-runs skip the network call).
 * HTTP 200 with empty/error body — treat as miss (ar5iv error
   banner has no ``<math``).
-* HTTP 404 / 503 / 429 → cache miss; caller falls back to local
+* HTTP 429 / 503 → retried up to :data:`AR5IV_MAX_ATTEMPTS` times in
+  all, waiting the server's ``Retry-After`` (seconds) or an exponential
+  backoff from :data:`AR5IV_RETRY_BACKOFF_SECONDS`, whichever is longer.
+  A requested wait above :data:`AR5IV_MAX_RETRY_WAIT_SECONDS` ends the
+  retries at once. If every attempt is refused, the result is a miss.
+* HTTP 404 and other responses → cache miss; caller falls back to local
   LaTeXML on the .tex source.
-* Network timeout / connection error → cache miss (do NOT retry;
-  ar5iv is a static CDN, a transient failure is unlikely to
-  resolve quickly).
+* Network timeout / connection error → cache miss, not retried here.
 
-**No rate limiting.** ar5iv is a CDN-fronted static cache. The
-5-second timeout is the only safety; no inter-request sleep.
+Every miss carries ``retriable``: ``True`` when the same request may
+succeed later (429, 5xx, timeout, connection error), ``False`` when the
+answer is permanent for this render (404 and other 4xx, a 200 without
+MathML, an oversized body, an off-domain redirect).
+
+**No inter-request sleep.** ar5iv is a CDN-fronted static cache. The
+5-second timeout bounds each attempt; the only waits are the 429/503
+retries above.
 
 **Politeness contract is separate from arxiv.org.** The 3-second
 ``POLITENESS_SLEEP_SECONDS`` discipline from `tools/arxiv_fetch.py`
@@ -39,6 +48,7 @@ from __future__ import annotations
 import logging
 import re
 import ssl
+import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
@@ -47,6 +57,7 @@ from pathlib import Path
 from ingest.chunker import STRUCTURE_SIGNAL_CLASSES
 from ingest.identifiers import is_valid_arxiv_paper_id
 from server.application_paths import ApplicationPaths
+from tools.arxiv_fetch import parse_retry_after
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +73,20 @@ AR5IV_BASE_URL: str = "https://ar5iv.labs.arxiv.org/html"
 #: Per-request timeout. ar5iv is a CDN; <1s is typical; 5s catches
 #: slow nodes without hanging the cron forever.
 AR5IV_TIMEOUT_SECONDS: float = 5.0
+
+#: Total attempts for one paper when ar5iv answers 429 or 503.
+AR5IV_MAX_ATTEMPTS: int = 3
+
+#: Wait before the first retry; doubles for each later one. A larger
+#: ``Retry-After`` from the server takes precedence.
+AR5IV_RETRY_BACKOFF_SECONDS: float = 2.0
+
+#: Longest single wait the fetcher will sleep. A ``Retry-After`` above
+#: this ends the retries so one paper cannot stall a bulk run.
+AR5IV_MAX_RETRY_WAIT_SECONDS: float = 60.0
+
+#: Statuses that are retried in place.
+_RETRIED_STATUSES: frozenset[int] = frozenset({429, 503})
 
 #: Threat 7 — content-length sanity cap: a single paper with a
 #: source over 100 MB is suspicious. The cap
@@ -103,7 +128,26 @@ class Ar5ivResult:
     hit: bool
     cache_path: Path | None       # populated on hit; None on miss
     parsed_path: Path | None      # populated on hit; None on miss
-    reason: str                   # "ok" / "404" / "timeout" / "no_math" / etc.
+    reason: str                   # "ok" / "http_404" / "timeout_or_network" / etc.
+    #: On a miss, whether the same request may succeed later. Always
+    #: ``False`` on a hit.
+    retriable: bool = False
+
+
+def _is_retriable_status(code: int) -> bool:
+    return code == 429 or 500 <= code <= 599
+
+
+def _retry_wait(exc: urllib.error.HTTPError, attempt: int, max_attempts: int) -> float | None:
+    """Seconds to wait before retrying ``exc``, or ``None`` to stop."""
+    if exc.code not in _RETRIED_STATUSES or attempt >= max_attempts:
+        return None
+    floor = AR5IV_RETRY_BACKOFF_SECONDS * 2 ** (attempt - 1)
+    header = exc.headers.get("Retry-After") if exc.headers is not None else None
+    wait = parse_retry_after(header, floor)
+    if wait > AR5IV_MAX_RETRY_WAIT_SECONDS:
+        return None
+    return wait
 
 
 # ---------------------------------------------------------------------------
@@ -119,6 +163,7 @@ def try_cache(
     timeout_seconds: float = AR5IV_TIMEOUT_SECONDS,
     user_agent: str = "arxmcp-ingest/0.1",
     ssl_context: ssl.SSLContext | None = None,
+    max_attempts: int = AR5IV_MAX_ATTEMPTS,
 ) -> Ar5ivResult:
     """Fetch ``paper_id`` from ar5iv; on hit, write the HTML to the
     canonical parsed path so the chunker's HTML walk picks it up.
@@ -141,6 +186,9 @@ def try_cache(
     :class:`ssl.SSLContext` built via
     :func:`server.ssl_pin.build_arxiv_ssl_context` to pin the
     bundle. Threaded into ``urllib.request.urlopen(context=...)``.
+
+    ``max_attempts`` bounds the requests made for one paper when ar5iv
+    answers 429 or 503 (see the module docstring).
     """
     if not is_valid_arxiv_paper_id(paper_id):
         raise ValueError(
@@ -167,97 +215,109 @@ def try_cache(
     request = urllib.request.Request(
         url, headers={"User-Agent": user_agent, "Accept": "text/html"}
     )
-    try:
-        with urllib.request.urlopen(  # noqa: S310 — fixed https URL
-            request, timeout=timeout_seconds, context=ssl_context
-        ) as response:
-            status = response.status
-            # E13_S07 Threat 7: pre-read Content-Length sanity check.
-            # When the server announces an oversized body, refuse
-            # before any bytes are buffered. The header is advisory
-            # (RFC 9110 § 8.6 — may be absent or wrong) so this is
-            # belt + braces with the read-cap below.
-            declared = response.headers.get("Content-Length")
-            if declared is not None:
-                try:
-                    declared_int = int(declared)
-                except (TypeError, ValueError):
-                    declared_int = -1
-                if declared_int > AR5IV_MAX_RESPONSE_BYTES:
+    for attempt in range(1, max(max_attempts, 1) + 1):
+        try:
+            with urllib.request.urlopen(  # noqa: S310 — fixed https URL
+                request, timeout=timeout_seconds, context=ssl_context
+            ) as response:
+                status = response.status
+                # E13_S07 Threat 7: pre-read Content-Length sanity check.
+                # When the server announces an oversized body, refuse
+                # before any bytes are buffered. The header is advisory
+                # (RFC 9110 § 8.6 — may be absent or wrong) so this is
+                # belt + braces with the read-cap below.
+                declared = response.headers.get("Content-Length")
+                if declared is not None:
+                    try:
+                        declared_int = int(declared)
+                    except (TypeError, ValueError):
+                        declared_int = -1
+                    if declared_int > AR5IV_MAX_RESPONSE_BYTES:
+                        logger.warning(
+                            "ar5iv: Content-Length %d > cap %d for %s; "
+                            "treating as miss (Threat 7)",
+                            declared_int,
+                            AR5IV_MAX_RESPONSE_BYTES,
+                            paper_id,
+                        )
+                        return Ar5ivResult(
+                            paper_id=paper_id,
+                            hit=False,
+                            cache_path=None,
+                            parsed_path=None,
+                            reason="oversized_content_length",
+                        )
+                # E13_S07: read at most cap+1 bytes; treat any
+                # over-cap actual read as a lie / missing-header attack
+                # and refuse. This bounds memory to ~100 MB worst case
+                # even when the header is missing or wrong.
+                body_bytes = response.read(AR5IV_MAX_RESPONSE_BYTES + 1)
+                if len(body_bytes) > AR5IV_MAX_RESPONSE_BYTES:
                     logger.warning(
-                        "ar5iv: Content-Length %d > cap %d for %s; "
-                        "treating as miss (Threat 7)",
-                        declared_int,
-                        AR5IV_MAX_RESPONSE_BYTES,
+                        "ar5iv: response body for %s exceeded cap %d "
+                        "(Content-Length=%r); treating as miss (Threat 7)",
                         paper_id,
+                        AR5IV_MAX_RESPONSE_BYTES,
+                        declared,
                     )
                     return Ar5ivResult(
                         paper_id=paper_id,
                         hit=False,
                         cache_path=None,
                         parsed_path=None,
-                        reason="oversized_content_length",
+                        reason="oversized_body",
                     )
-            # E13_S07: read at most cap+1 bytes; treat any
-            # over-cap actual read as a lie / missing-header attack
-            # and refuse. This bounds memory to ~100 MB worst case
-            # even when the header is missing or wrong.
-            body_bytes = response.read(AR5IV_MAX_RESPONSE_BYTES + 1)
-            if len(body_bytes) > AR5IV_MAX_RESPONSE_BYTES:
+                # Closes F9: ``urllib.request.urlopen`` silently follows
+                # 3xx redirects to any host. ar5iv is a static CDN that
+                # doesn't redirect, so a redirect off-domain is either a
+                # CDN misconfiguration or an active attack. Reject the
+                # response to keep egress pinned to ar5iv.labs.arxiv.org.
+                response_url = response.url
+            if not response_url.startswith(AR5IV_BASE_URL + "/"):
                 logger.warning(
-                    "ar5iv: response body for %s exceeded cap %d "
-                    "(Content-Length=%r); treating as miss (Threat 7)",
-                    paper_id,
-                    AR5IV_MAX_RESPONSE_BYTES,
-                    declared,
+                    "ar5iv: response redirected off %s for %s -> %s; "
+                    "treating as miss",
+                    AR5IV_BASE_URL, paper_id, response_url,
                 )
                 return Ar5ivResult(
                     paper_id=paper_id,
                     hit=False,
                     cache_path=None,
                     parsed_path=None,
-                    reason="oversized_body",
+                    reason="unexpected_redirect",
                 )
-            # Closes F9: ``urllib.request.urlopen`` silently follows
-            # 3xx redirects to any host. ar5iv is a static CDN that
-            # doesn't redirect, so a redirect off-domain is either a
-            # CDN misconfiguration or an active attack. Reject the
-            # response to keep egress pinned to ar5iv.labs.arxiv.org.
-            response_url = response.url
-        if not response_url.startswith(AR5IV_BASE_URL + "/"):
-            logger.warning(
-                "ar5iv: response redirected off %s for %s -> %s; "
-                "treating as miss",
-                AR5IV_BASE_URL, paper_id, response_url,
+        except urllib.error.HTTPError as exc:
+            wait = _retry_wait(exc, attempt, max_attempts)
+            if wait is not None:
+                logger.info(
+                    "ar5iv: HTTP %d for %s; retrying in %.1fs (attempt %d of %d)",
+                    exc.code, paper_id, wait, attempt + 1, max_attempts,
+                )
+                time.sleep(wait)
+                continue
+            logger.info(
+                "ar5iv: HTTP %d for %s (miss; falling back)",
+                exc.code, paper_id,
             )
             return Ar5ivResult(
                 paper_id=paper_id,
                 hit=False,
                 cache_path=None,
                 parsed_path=None,
-                reason="unexpected_redirect",
+                reason=f"http_{exc.code}",
+                retriable=_is_retriable_status(exc.code),
             )
-    except urllib.error.HTTPError as exc:
-        logger.info(
-            "ar5iv: HTTP %d for %s (miss; falling back)",
-            exc.code, paper_id,
-        )
-        return Ar5ivResult(
-            paper_id=paper_id,
-            hit=False,
-            cache_path=None,
-            parsed_path=None,
-            reason=f"http_{exc.code}",
-        )
-    except (TimeoutError, urllib.error.URLError) as exc:
-        logger.info("ar5iv: network error for %s: %s", paper_id, exc)
-        return Ar5ivResult(
-            paper_id=paper_id,
-            hit=False,
-            cache_path=None,
-            parsed_path=None,
-            reason="timeout_or_network",
-        )
+        except (TimeoutError, urllib.error.URLError) as exc:
+            logger.info("ar5iv: network error for %s: %s", paper_id, exc)
+            return Ar5ivResult(
+                paper_id=paper_id,
+                hit=False,
+                cache_path=None,
+                parsed_path=None,
+                reason="timeout_or_network",
+                retriable=True,
+            )
+        break
 
     if status != 200:
         return Ar5ivResult(
@@ -266,6 +326,7 @@ def try_cache(
             cache_path=None,
             parsed_path=None,
             reason=f"http_{status}",
+            retriable=_is_retriable_status(status),
         )
 
     body = body_bytes.decode("utf-8", errors="replace")
@@ -325,6 +386,9 @@ def try_cache(
 
 __all__ = [
     "AR5IV_BASE_URL",
+    "AR5IV_MAX_ATTEMPTS",
+    "AR5IV_MAX_RETRY_WAIT_SECONDS",
+    "AR5IV_RETRY_BACKOFF_SECONDS",
     "AR5IV_TIMEOUT_SECONDS",
     "Ar5ivResult",
     "DEFAULT_AR5IV_CACHE_DIR",

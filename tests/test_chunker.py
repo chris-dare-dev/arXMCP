@@ -1380,6 +1380,41 @@ class TestF3StaleFileCleanup:
         assert not sentinel.exists(), "stale idx99.json must be removed on re-run"
 
 
+class TestParsedDirArgument:
+    """``chunk_paper(parsed_dir=...)`` reads the paper from that tree."""
+
+    PAPER_ID = "2307.00001"
+
+    def test_reads_html_from_the_given_parsed_dir(self, tmp_path):
+        parsed_dir = tmp_path / "elsewhere" / "parsed"
+        (parsed_dir / self.PAPER_ID).mkdir(parents=True)
+        (parsed_dir / self.PAPER_ID / "index.html").write_bytes(
+            (FIXTURE_DIR / self.PAPER_ID / "index.html").read_bytes()
+        )
+        with (
+            patch("ingest.chunker.PARSED_DIR", tmp_path / "default-parsed"),
+            patch("ingest.chunker.CHUNKS_DIR", tmp_path / "chunks"),
+            patch("ingest.chunker._resolve_preamble_doc", return_value=None),
+        ):
+            chunks = chunk_paper(self.PAPER_ID, parsed_dir=parsed_dir)
+
+        assert chunks
+        assert (tmp_path / "chunks" / self.PAPER_ID / "chunk_manifest.json").is_file()
+
+    def test_default_reads_the_module_parsed_dir(self, tmp_path):
+        parsed_dir = tmp_path / "parsed"
+        (parsed_dir / self.PAPER_ID).mkdir(parents=True)
+        (parsed_dir / self.PAPER_ID / "index.html").write_bytes(
+            (FIXTURE_DIR / self.PAPER_ID / "index.html").read_bytes()
+        )
+        with (
+            patch("ingest.chunker.PARSED_DIR", parsed_dir),
+            patch("ingest.chunker.CHUNKS_DIR", tmp_path / "chunks"),
+            patch("ingest.chunker._resolve_preamble_doc", return_value=None),
+        ):
+            assert chunk_paper(self.PAPER_ID)
+
+
 class TestF4SectionDocumentOrder:
     """F4 (HIGH): section chunks emitted in document order, not class-bucketed."""
 
@@ -1540,7 +1575,7 @@ class TestF7TSVLogSanitization:
         chunks_dir.mkdir()
         parsed_dir.mkdir()
 
-        def raise_with_tabs(_paper_id):
+        def raise_with_tabs(_paper_id, _parsed_dir):
             raise OSError("error\twith\ttabs\nand\nnewlines")
 
         with (
@@ -1566,7 +1601,7 @@ class TestF8ProgrammerBugsPropagate:
         chunks_dir.mkdir()
         parsed_dir.mkdir()
 
-        def raise_attr(_paper_id):
+        def raise_attr(_paper_id, _parsed_dir):
             raise AttributeError("simulated programmer bug")
 
         with (
@@ -1583,7 +1618,7 @@ class TestF8ProgrammerBugsPropagate:
         chunks_dir.mkdir()
         parsed_dir.mkdir()
 
-        def raise_value(_paper_id):
+        def raise_value(_paper_id, _parsed_dir):
             raise ValueError("simulated parser failure")
 
         with (

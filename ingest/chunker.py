@@ -2,8 +2,9 @@
 
 Public API
 ----------
-chunk_paper(paper_id: str) -> list[ChunkRecord]
-    Walk ``var/arxmcp/corpus/parsed/<paper_id>/index.html``, extract all
+chunk_paper(paper_id: str, *, parsed_dir: Path | None = None) -> list[ChunkRecord]
+    Walk ``<parsed_dir>/<paper_id>/index.html`` (``parsed_dir`` defaults to
+    ``var/arxmcp/corpus/parsed``), extract all
     theorem, proof, definition, section, and similar environments, and return
     a list of :class:`~ingest.chunk.ChunkRecord` objects.  Output
     JSON files are written to ``var/arxmcp/corpus/chunks/<paper_id>/``.
@@ -46,6 +47,7 @@ across hosts (F3 closure documents this asymmetry).
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import os
@@ -1243,13 +1245,20 @@ def _extract_body_fallback_chunks(
 # ---------------------------------------------------------------------------
 
 
-def chunk_paper(paper_id: str) -> list[ChunkRecord]:
+def chunk_paper(
+    paper_id: str, *, parsed_dir: Path | None = None
+) -> list[ChunkRecord]:
     """Chunk one paper and write output JSON files.
 
     Parameters
     ----------
     paper_id:
         Canonical arXiv ID, e.g. ``"2307.01156"``.
+    parsed_dir:
+        Root of the parsed-HTML tree; the paper is read from
+        ``<parsed_dir>/<paper_id>/index.html``. Defaults to
+        :data:`PARSED_DIR`. Pass the same directory the HTML was fetched
+        into (for example ``ingest.ar5iv_fetch.try_cache(parsed_dir=...)``).
 
     Returns
     -------
@@ -1259,8 +1268,10 @@ def chunk_paper(paper_id: str) -> list[ChunkRecord]:
 
     Side effects
     ------------
-    Writes ``var/arxmcp/corpus/chunks/<paper_id>/<chunk_idx>.json`` for each
-    chunk.  Creates the directory if it does not exist.
+    Writes ``var/arxmcp/corpus/chunks/<paper_id>/<hash16>.json`` for each
+    chunk plus ``chunk_manifest.json``.  Creates the directory if it does not
+    exist.  The previous chunk set is replaced only once the new one is
+    complete; a failed run leaves it as it was.
     """
     # Closes F2: validate paper_id before any path concat or logging.
     # Validation runs OUTSIDE the per-paper exception envelope so an invalid
@@ -1270,7 +1281,7 @@ def chunk_paper(paper_id: str) -> list[ChunkRecord]:
 
     start = time.monotonic()
     try:
-        return _chunk_paper_impl(paper_id)
+        return _chunk_paper_impl(paper_id, parsed_dir)
     except PER_PAPER_FAILURE_EXCEPTIONS as exc:
         # Closes F8: catch only the resilience-pattern exception set, NOT a
         # bare `except Exception`. Programmer bugs (AttributeError, KeyError,
@@ -1281,7 +1292,7 @@ def chunk_paper(paper_id: str) -> list[ChunkRecord]:
         return []
 
 
-def _chunk_paper_impl(paper_id: str) -> list[ChunkRecord]:
+def _chunk_paper_impl(paper_id: str, parsed_dir: Path | None) -> list[ChunkRecord]:
     if paper_id in {"1309.5035", "1802.01134"}:
         # These authentic sources have incomplete LaTeXML renders. Keep the
         # verified TeX extraction behind the public chunker entry point so
@@ -1289,20 +1300,11 @@ def _chunk_paper_impl(paper_id: str) -> list[ChunkRecord]:
         from ingest.tex_formal_chunker import chunk_tex_formals
 
         chunks = chunk_tex_formals(paper_id)
-        out_dir = CHUNKS_DIR / paper_id
-        out_dir.mkdir(parents=True, exist_ok=True)
-        for stale in out_dir.glob("*.json"):
-            stale.unlink()
-        for chunk in chunks:
-            suffix = chunk.chunk_id.rsplit(":", 1)[-1]
-            (out_dir / f"{suffix}.json").write_text(
-                json.dumps(chunk.to_dict(), ensure_ascii=False, sort_keys=True) + "\n",
-                encoding="utf-8",
-            )
-        _write_chunk_manifest(out_dir / "chunk_manifest.json", paper_id, chunks)
+        _write_chunk_set(CHUNKS_DIR / paper_id, paper_id, chunks)
         return chunks
 
-    parsed_html = PARSED_DIR / paper_id / "index.html"
+    parsed_root = PARSED_DIR if parsed_dir is None else parsed_dir
+    parsed_html = parsed_root / paper_id / "index.html"
     if not parsed_html.exists():
         raise FileNotFoundError(
             f"parsed HTML not found at {parsed_html}; "
@@ -1314,20 +1316,6 @@ def _chunk_paper_impl(paper_id: str) -> list[ChunkRecord]:
 
     body = soup.find("body")
     root: Tag = body if isinstance(body, Tag) else soup  # type: ignore[assignment]
-
-    # Closes F1 (HIGH): cleanup MUST happen before any chunk assembly
-    # so a downstream failure (e.g. duplicate-chunk_id raise) leaves the
-    # directory empty rather than retaining stale per-chunk JSONs and a
-    # stale chunk_manifest.json from a previous run. The previous
-    # arrangement performed cleanup just before the JSON write loop, so
-    # an early-exit path silently preserved the prior corpus state.
-    # Also extends the *.json sweep to *.tmp (closes F6).
-    out_dir = CHUNKS_DIR / paper_id
-    out_dir.mkdir(parents=True, exist_ok=True)
-    for stale in out_dir.glob("*.json"):
-        stale.unlink()
-    for stale in out_dir.glob("*.tmp"):
-        stale.unlink()
 
     counter = [0]
 
@@ -1442,27 +1430,9 @@ def _chunk_paper_impl(paper_id: str) -> list[ChunkRecord]:
         deduped_chunks.append(chunk)
     all_chunks = deduped_chunks
 
-    # Write output JSON. Cleanup happened at the top of this function
-    # (closes F1); here we only write the new chunk set + manifest.
-    for chunk in all_chunks:
-        # Filename is the 16-char hash suffix of chunk_id (the part after
-        # the last colon). Avoids colon-in-filename portability issues
-        # and aligns the on-disk artifact with its content-addressable
-        # identity.
-        hash_suffix = chunk.chunk_id.rsplit(":", 1)[-1]
-        out_path = out_dir / f"{hash_suffix}.json"
-        out_path.write_text(
-            json.dumps(chunk.to_dict(), ensure_ascii=False, sort_keys=True) + "\n",
-            encoding="utf-8",
-        )
-
-    # E02_S04: write the per-paper chunk manifest after all chunk JSONs
-    # have landed. Used by the eval harness (E05_S01) to validate that
-    # curated chunk_id references in the labeled query set still exist
-    # after a re-chunk. Atomic write via tmp + os.replace mirrors the
-    # pattern from preamble.py (closes F4/F5 from E02_S02 by
-    # construction).
-    _write_chunk_manifest(out_dir / "chunk_manifest.json", paper_id, all_chunks)
+    # Nothing on disk changes until the whole new set exists, so any
+    # failure above leaves the previous chunk set intact.
+    _write_chunk_set(CHUNKS_DIR / paper_id, paper_id, all_chunks)
 
     return all_chunks
 
@@ -1504,6 +1474,56 @@ def _resolve_preamble_doc(paper_id: str):
         return None
 
 
+_CHUNK_MANIFEST_NAME = "chunk_manifest.json"
+
+
+def _write_chunk_set(
+    out_dir: Path, paper_id: str, chunks: list[ChunkRecord]
+) -> None:
+    """Replace the paper's on-disk chunk set with ``chunks``.
+
+    Readers reach chunk files only through ``chunk_manifest.json``, so the
+    manifest replacement is the commit point:
+
+    1. every new chunk JSON is written to a temporary file and then moved
+       onto its final name;
+    2. the manifest is replaced atomically;
+    3. chunk JSONs the new manifest does not list, and leftover temporary
+       files, are removed.
+
+    A failure before step 2 leaves the previous manifest and every file it
+    lists in place. Each chunk file is named by the 16-char hash suffix of
+    its ``chunk_id``, which keeps colons out of file names.
+    """
+    out_dir.mkdir(parents=True, exist_ok=True)
+    tmp_suffix = f".{os.getpid()}.{uuid.uuid4().hex[:8]}.tmp"
+    keep = {_CHUNK_MANIFEST_NAME}
+    staged: list[tuple[Path, Path]] = []
+    try:
+        for chunk in chunks:
+            name = f"{chunk.chunk_id.rsplit(':', 1)[-1]}.json"
+            tmp = out_dir / f"{name}{tmp_suffix}"
+            tmp.write_text(
+                json.dumps(chunk.to_dict(), ensure_ascii=False, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            staged.append((tmp, out_dir / name))
+            keep.add(name)
+        for tmp, final in staged:
+            os.replace(tmp, final)
+    finally:
+        for tmp, _final in staged:
+            with contextlib.suppress(OSError):
+                tmp.unlink(missing_ok=True)
+
+    _write_chunk_manifest(out_dir / _CHUNK_MANIFEST_NAME, paper_id, chunks)
+
+    for path in out_dir.iterdir():
+        if path.name not in keep and path.suffix in {".json", ".tmp"}:
+            with contextlib.suppress(FileNotFoundError):
+                path.unlink()
+
+
 def _write_chunk_manifest(
     manifest_path: Path, paper_id: str, chunks: list[ChunkRecord]
 ) -> None:
@@ -1541,7 +1561,6 @@ def _write_chunk_manifest(
         tmp.write_text(payload, encoding="utf-8")
         os.replace(tmp, manifest_path)
     finally:
-        import contextlib
         with contextlib.suppress(OSError):
             tmp.unlink(missing_ok=True)
 
