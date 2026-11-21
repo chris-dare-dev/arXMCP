@@ -79,6 +79,7 @@ from ingest.store import (
     StaleChunkerRowsError,
     WapGateError,
     load_embed_record,
+    refresh_indices,
     refuse_stale_chunker_rows,
     write_chunks,
 )
@@ -296,6 +297,7 @@ def ingest_one_paper(
     ar5iv_cache_dir: Path = DEFAULT_AR5IV_CACHE_DIR,
     parsed_dir: Path = DEFAULT_PARSED_DIR,
     skip_ar5iv: bool = False,
+    build_indices: bool = True,
 ) -> PaperOutcome:
     """Run the full pipeline for one paper.
 
@@ -316,6 +318,9 @@ def ingest_one_paper(
     so one bad paper cannot end a run; only :class:`WapGateError`
     propagates, because a marker that disagrees with the table breaks
     every later write too.
+
+    A loop over many papers passes ``build_indices=False`` and calls
+    :func:`ingest.store.refresh_indices` once after it.
     """
     if not is_valid_arxiv_paper_id(paper_id):
         raise ValueError(
@@ -378,8 +383,10 @@ def ingest_one_paper(
         if embed_record is None:
             outcome.failure_reason = "embedder_produced_no_record"
             return outcome
+        # The paper's whole chunk set: rows a revision re-chunked away go.
         version = write_chunks(
-            chunks, embed_record, lancedb_path=lancedb_staging_path
+            chunks, embed_record, lancedb_path=lancedb_staging_path,
+            build_indices=build_indices, replace_paper=True,
         )
         outcome.chunks_written = len(chunks)
         logger.debug(
@@ -453,6 +460,7 @@ def run_bulk_ingest(
             lancedb_staging_path=lancedb_staging_path,
             ar5iv_cache_dir=ar5iv_cache_dir,
             parsed_dir=parsed_dir,
+            build_indices=False,
         )
         chunks_written += outcome.chunks_written
         if outcome.parser_used == "ar5iv":
@@ -468,7 +476,9 @@ def run_bulk_ingest(
             _log_progress(log_path, summary, paper_id)
 
     # The dataset is not ready to promote until it carries its indexes.
+    # Vector indexes first: they move the marker the derived ones key to.
     if summary.papers_succeeded:
+        refresh_indices(lancedb_staging_path)
         build_derived_indexes(lancedb_staging_path)
 
     summary.elapsed_seconds = time.monotonic() - started

@@ -636,7 +636,7 @@ class TestPerPaperIsolation:
             )
 
     def test_a_raising_paper_is_recorded_and_the_run_continues(self, tmp_path):
-        def _write(chunks, record, *, lancedb_path):
+        def _write(chunks, record, *, lancedb_path, **_kw):
             if _write.calls == 1:
                 _write.calls += 1
                 raise ValueError("chunk/vector misalignment")
@@ -660,6 +660,88 @@ class TestPerPaperIsolation:
 
         with pytest.raises(WapGateError):
             self._run(tmp_path, WapGateError("marker disagrees with table"))
+
+
+class TestOneIndexBuildPerRun:
+    """A bulk run writes each paper unindexed and indexes the table once."""
+
+    def test_indexes_once_and_pins_the_indexed_version(self, tmp_path):
+        from contextlib import ExitStack
+
+        import lancedb
+        import numpy as np
+
+        import ingest.store as store_mod
+        from ingest.ar5iv_fetch import Ar5ivResult
+        from ingest.chunk import CHUNKER_VERSION, EMBEDDING_DIM
+        from ingest.embedder import EmbedStats
+        from ingest.schema import EmbedRecord
+
+        ids = ["2401.00001", "2401.00002", "2401.00003"]
+        parsed_dir = tmp_path / "parsed"
+        for pid in ids:
+            (parsed_dir / pid).mkdir(parents=True)
+            (parsed_dir / pid / "index.html").write_text("<html/>")
+
+        def _hit(paper_id, *a, **kw):
+            html = parsed_dir / paper_id / "index.html"
+            return Ar5ivResult(
+                paper_id=paper_id, hit=True, cache_path=html,
+                parsed_path=html, reason="ok_local_cache",
+            )
+
+        def _chunks(pid, **_kwargs):
+            return [_row_chunk(pid, f"{i:016x}", CHUNKER_VERSION, f"{pid} {i}")
+                    for i in range(2)]
+
+        def _record(pid):
+            chunks = _chunks(pid)
+            rng = np.random.default_rng(int(pid[-1]))
+            v = rng.standard_normal((len(chunks), EMBEDDING_DIM)).astype(np.float32)
+            v /= np.linalg.norm(v, axis=1, keepdims=True)
+            return EmbedRecord(
+                chunk_ids_stmt=[c.chunk_id for c in chunks], embedding_stmt=v,
+                embedder_version="bge-m3@00000000",
+            )
+
+        staging = tmp_path / "staging"
+        with ExitStack() as stack:
+            for target, kwargs in [
+                ("try_cache", {"side_effect": _hit}),
+                ("chunk_paper", {"side_effect": _chunks}),
+                ("embed_paper", {"side_effect": lambda pid: EmbedStats(
+                    paper_id=pid, chunks_processed=2, chunks_skipped=0,
+                    truncated_count=0, elapsed_s=0.0,
+                )}),
+                ("load_embed_record", {"side_effect": _record}),
+                ("build_derived_indexes", {}),
+            ]:
+                stack.enter_context(patch(f"ingest.bulk_ingest.{target}", **kwargs))
+            summary = run_bulk_ingest(
+                ids,
+                lancedb_staging_path=staging,
+                parsed_dir=parsed_dir,
+                failures_path=tmp_path / "failures.jsonl",
+                log_path=tmp_path / "ingestion.log",
+                ops_dir=tmp_path / "ops",
+            )
+
+        assert summary.papers_succeeded == 3
+        writes = [
+            json.loads(line)
+            for line in store_mod.STORE_STATS_PATH.read_text().splitlines()
+        ]
+        built = [w for w in writes if w["indices_created"]]
+        assert len(writes) == 4  # three papers, then the index build
+        assert built == [writes[-1]]
+        tbl = lancedb.connect(str(staging)).open_table("chunks")
+        # Every chunk is a statement, so there is no proof column to index.
+        assert {i.columns[0] for i in tbl.list_indices()} == {
+            "embedding_stmt", "paper_id",
+        }
+        marker = json.loads((staging / "corpus-version.json").read_text())
+        assert marker["version"] == tbl.version
+        assert (marker["chunk_count"], marker["paper_count"]) == (6, 3)
 
 
 class TestResumeFlagRemoved:

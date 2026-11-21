@@ -603,6 +603,65 @@ class TestRunDelta:
         assert summary.records_deleted == 1
         assert summary.records_ingested == 0
 
+    def test_withdrawn_paper_leaves_the_staging_dataset(self, tmp_path):
+        import json
+
+        import lancedb
+        import numpy as np
+
+        from ingest.chunk import CHUNKER_VERSION, EMBEDDING_DIM, ChunkRecord
+        from ingest.schema import EmbedRecord
+        from ingest.store import write_chunks
+
+        staging = tmp_path / "lancedb-staging"
+        for n, pid in enumerate(["2401.00099", "2401.00001"]):
+            chunks = [
+                ChunkRecord(
+                    chunk_id=f"arxiv:{pid}:{i:016x}", paper_id=pid, kind="stmt",
+                    section_path=[], theorem_name=None, theorem_label=None,
+                    body_text=f"{pid} body {i}", body_tokens="body",
+                    chunker_version=CHUNKER_VERSION,
+                )
+                for i in range(2)
+            ]
+            v = np.random.default_rng(n).standard_normal((2, EMBEDDING_DIM))
+            v = (v / np.linalg.norm(v, axis=1, keepdims=True)).astype(np.float32)
+            write_chunks(
+                chunks,
+                EmbedRecord(
+                    chunk_ids_stmt=[c.chunk_id for c in chunks],
+                    embedding_stmt=v, embedder_version="bge-m3@00000000",
+                ),
+                lancedb_path=staging,
+            )
+        body = _wrap_response(_record("2401.00099", deleted=True))
+        with (
+            patch(
+                "ingest.oai_delta.ingest_one_paper",
+                side_effect=AssertionError("must not be called for deleted records"),
+            ),
+            patch("ingest.oai_delta.build_derived_indexes"),
+        ):
+            summary = run_delta(
+                sets=("math:math:AG",),
+                from_date="2026-05-14",
+                until_date="2026-05-14",
+                lancedb_staging_path=staging,
+                state_path=tmp_path / "state.json",
+                log_path=tmp_path / "delta.log",
+                failures_path=tmp_path / "delta.jsonl",
+                timeout_flag_path=tmp_path / "timeout.flag",
+                fetch_page=_MockFetcher([body]),
+                sleep_between_pages=lambda _t: None,
+            )
+        assert summary.records_deleted == 1
+        tbl = lancedb.connect(str(staging)).open_table("chunks")
+        assert tbl.count_rows("paper_id = '2401.00099'") == 0
+        assert tbl.count_rows("paper_id = '2401.00001'") == 2
+        marker = json.loads((staging / "corpus-version.json").read_text())
+        assert marker["version"] == tbl.version
+        assert (marker["chunk_count"], marker["paper_count"]) == (2, 1)
+
     def test_dry_run_does_not_call_pipeline(self, tmp_path, capsys):
         fetcher = _MockFetcher([_final_page(["2401.00001"])])
         with patch(

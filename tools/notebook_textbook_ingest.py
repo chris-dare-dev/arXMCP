@@ -67,7 +67,7 @@ from ingest.embedder import (
 )
 from ingest.identifiers import is_valid_paper_id
 from ingest.schema import EmbedRecord
-from ingest.store import write_chunks
+from ingest.store import refresh_indices, write_chunks
 from ingest.textbook_chunker import chunk_textbook
 from ingest.textbook_markdown_chunker import chunk_textbook_markdown
 from tools._notebook_common import (
@@ -165,6 +165,7 @@ def ingest_textbook_paper(
     encoder: EncoderFn = _encode_batch,
     dry_run: bool = False,
     chunker: str = "html",
+    build_indices: bool = True,
 ) -> dict[str, Any]:
     """Chunk -> embed -> write ONE textbook paper into the notebook LanceDB.
 
@@ -203,7 +204,11 @@ def ingest_textbook_paper(
     embed_record = _build_embed_record(chunks, batch_size=batch_size, encoder=encoder)
     lancedb_path = notebook_lancedb_path(slug)
     lancedb_path.mkdir(parents=True, exist_ok=True)
-    version = write_chunks(chunks, embed_record, lancedb_path=lancedb_path)
+    # The paper's whole chunk set: rows a re-parse chunked away go.
+    version = write_chunks(
+        chunks, embed_record, lancedb_path=lancedb_path,
+        build_indices=build_indices, replace_paper=True,
+    )
     logger.info(
         "%s / %s -> %d chunks written to %s (notebook lancedb version=%d)",
         slug, paper_id, len(chunks), lancedb_path, version,
@@ -243,12 +248,19 @@ def run(
         logger.error("no --paper-id supplied; nothing to ingest")
         return 2
     any_empty = False
+    any_written = False
     for pid in paper_ids:
         result = ingest_textbook_paper(
-            slug, pid, batch_size=batch_size, dry_run=dry_run, chunker=chunker
+            slug, pid, batch_size=batch_size, dry_run=dry_run, chunker=chunker,
+            build_indices=False,
         )
         if result["chunks"] == 0:
             any_empty = True
+        if result["lancedb_version"] is not None:
+            any_written = True
+    # One index build for the run, not one per paper.
+    if any_written:
+        refresh_indices(notebook_lancedb_path(slug))
     return 1 if any_empty else 0
 
 
