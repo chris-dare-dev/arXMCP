@@ -378,6 +378,109 @@ class TestDockerfileMatchesPackaging:
         )
 
 
+def _dockerfile_stages() -> dict[str, str]:
+    """Map each ``FROM ... AS <name>`` stage to its instruction text."""
+    text = DOCKERFILE.read_text(encoding="utf-8")
+    stages: dict[str, str] = {}
+    name = None
+    for line in text.splitlines():
+        match = re.match(r"^FROM\s+\S+\s+AS\s+(\S+)", line, re.IGNORECASE)
+        if match:
+            name = match.group(1)
+            stages[name] = ""
+        elif name is not None and not line.lstrip().startswith("#"):
+            stages[name] += line + "\n"
+    return stages
+
+
+def _env_values(stage: str) -> dict[str, str]:
+    """``ENV KEY=VALUE`` pairs of a stage, line continuations joined."""
+    joined = stage.replace("\\\n", " ")
+    values: dict[str, str] = {}
+    for line in joined.splitlines():
+        if line.startswith("ENV "):
+            for key, value in re.findall(r'(\w+)=("[^"]*"|\S+)', line[4:]):
+                values[key] = value.strip('"')
+    return values
+
+
+class TestImageDependencyClosure:
+    """The image installs the closure pinned in ``uv.lock``, not a fresh
+    resolve against the open ranges in pyproject.toml."""
+
+    def test_builder_installs_the_exported_lock_with_hashes(self) -> None:
+        builder = _dockerfile_stages()["builder"]
+        assert re.search(r"uv export --locked\b", builder), (
+            "the builder stage must export its requirements from uv.lock "
+            "with --locked, so a stale lock fails the build"
+        )
+        assert re.search(r"pip install --require-hashes --no-deps\b", builder), (
+            "the exported lock must be installed hash-checked and without "
+            "pip resolving anything of its own"
+        )
+        assert re.search(r"^COPY [^\n]*\buv\.lock\b", builder, re.MULTILINE), (
+            "uv.lock is not in the builder stage's build context"
+        )
+
+    def test_no_stage_installs_the_project_by_resolving_it(self) -> None:
+        for name, stage in _dockerfile_stages().items():
+            assert not re.search(r"pip install (?:--\S+ )*\.(?:\s|$)", stage), (
+                f"stage {name!r} runs `pip install .`, which resolves the "
+                "dependency closure from PyPI instead of uv.lock"
+            )
+
+    def test_uv_lock_is_not_excluded_from_the_build_context(self) -> None:
+        patterns = [
+            line.strip()
+            for line in (REPO_ROOT / ".dockerignore").read_text().splitlines()
+            if line.strip() and not line.startswith("#")
+        ]
+        assert not any(fnmatch.fnmatch("uv.lock", p) for p in patterns)
+
+
+class TestImageImportsTheWheel:
+    """The runtime imports the installed wheel, so a file the wheel lacks
+    fails in the image instead of being served from a source copy."""
+
+    def test_runtime_has_no_copy_of_a_python_package_tree(
+        self, pyproject: dict
+    ) -> None:
+        runtime = _dockerfile_stages()["runtime"]
+        # ops/ stays: operators run its scripts by path inside the container.
+        shadowing = [
+            tree
+            for tree in _shipped_trees(pyproject)
+            if tree != "ops"
+            and re.search(rf"^COPY {re.escape(tree)}/ ", runtime, re.MULTILINE)
+        ]
+        assert not shadowing, (
+            f"the runtime stage copies {shadowing} beside the installed "
+            "wheel; with /app as the working directory those copies are "
+            "what `python -m server.main` imports"
+        )
+        assert not re.search(r"^COPY [^\n]*\bpyproject\.toml\b", runtime, re.MULTILINE), (
+            "a pyproject.toml next to the code makes the server treat /app "
+            "as a source checkout"
+        )
+
+    def test_working_directory_is_not_on_sys_path(self) -> None:
+        env = _env_values(_dockerfile_stages()["runtime"])
+        assert env.get("PYTHONSAFEPATH") == "1", (
+            "without PYTHONSAFEPATH=1, `python -m` puts /app ahead of "
+            "site-packages and /app/ops shadows the installed ops package"
+        )
+
+    def test_data_dir_is_the_declared_volume(self) -> None:
+        runtime = _dockerfile_stages()["runtime"]
+        volumes = re.findall(r"^VOLUME\s+(\S+)", runtime, re.MULTILINE)
+        env = _env_values(runtime)
+        assert env.get("ARXMCP_DATA_DIR") in volumes, (
+            "an installed wheel defaults its data root to the user's home, "
+            f"so ARXMCP_DATA_DIR must name the volume {volumes}; got "
+            f"{env.get('ARXMCP_DATA_DIR')!r}"
+        )
+
+
 # ---------------------------------------------------------------------------
 # The real clean-environment check — opt-in
 # ---------------------------------------------------------------------------
