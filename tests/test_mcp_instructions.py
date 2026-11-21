@@ -25,7 +25,7 @@ from tests.test_server_tool_schema import (
 #: mirroring ``EXPECTED_TOOL_SCHEMA_SHA256``: editing the instructions string is a
 #: conscious act — re-pin this literal to the value the failing test prints.
 EXPECTED_INSTRUCTIONS_SHA256: str = (  # UPDATE-ANCHOR — do not delete
-    "d1cbd98edf8f8e3b0ffbdec861f313d985649efea0558460b3d5771c1969e6ef"
+    "c3ee7785231dd3bbd461d6da1129b09960f26f5dc998f6e72c59b529b1ee0dfa"
 )
 
 #: The 8 live tool names (server/tools.py::ALL_TOOLS); the instructions string

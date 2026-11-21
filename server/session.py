@@ -98,10 +98,9 @@ MAX_GET_CHUNK_CALLS: int = 100
 #: a new session would exceed this. Matches the Tier-1 cache cap.
 MAX_REGISTRY_SIZE: int = 10_000
 
-#: Tool names that participate in cap accounting. Other tools
-#: (`get_definitions`, `find_lemma_by_name`, `cite_neighbors`,
-#: `find_equation`) are not counted — their token impact is small
-#: and the brief does not name them.
+#: Tool names that participate in cap accounting. Every other tool is
+#: uncounted here (the hourly ceiling still covers it): their token
+#: impact is small and the brief does not name them.
 TOOLS_WITH_CAPS: Final[dict[str, str]] = {
     "search_papers": "search_papers",
     "get_chunk": "get_chunk",
@@ -354,11 +353,12 @@ async def check_hourly_rate_limit(
     :func:`check_and_increment`:
 
     - `check_and_increment` enforces per-TOOL lifetime caps
-      (`MAX_SEARCH_PAPERS_CALLS=3`, `MAX_GET_CHUNK_CALLS=4`) for
-      retrieval-loop containment. Covers 2 of 7 tools.
+      (:data:`MAX_SEARCH_PAPERS_CALLS`, :data:`MAX_GET_CHUNK_CALLS`)
+      for retrieval-loop containment. Covers only the tools in
+      :data:`TOOLS_WITH_CAPS`.
     - This function enforces a per-SESSION rolling-hour cap
-      (`MAX_CALLS_PER_HOUR=1000`) for resource-exhaustion
-      containment. Covers ALL tools.
+      (:data:`MAX_CALLS_PER_HOUR`) for resource-exhaustion
+      containment. Covers every tool.
 
     Both checks fire on every `tools/call` request through
     :class:`server.middleware.SessionCapMiddleware`; the request is

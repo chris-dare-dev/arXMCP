@@ -8,8 +8,11 @@ The long-running ``arxmcp-server`` process. Wires:
 - :mod:`server.health` (``/healthz``, ``/readyz``).
 - ``prometheus_client.make_asgi_app()`` (``/metrics``).
 - The MCP ``FastMCP`` server mounted at ``/mcp`` via
-  :func:`server.mcp_mount.mount_mcp` (no tools registered yet —
-  E06_S03 lands the tool implementations).
+  :func:`server.mcp_mount.mount_mcp`, carrying the tools registered by
+  :func:`server.tools.register_all` and the ``arxmcp://`` resources
+  registered by :func:`server.mcp_resources.register_resources`.
+- The security middleware stack; :mod:`server.middleware` lists the
+  mount order.
 
 **Run via**: the ``arxmcp-server`` console script (issue #206), or
 ``python -m server.main``, or ``make up`` — all three are the same code
@@ -46,11 +49,12 @@ mcp_server.session_manager.run()`` from inside the parent
 lifespan.
 
 **Body-size middleware (synthesis D13, F1 fix).** A pure-ASGI
-middleware enforces the 256 KB inline-payload cap on every
-response EXCEPT ``/metrics`` (Prometheus exposition can grow
-large), the health endpoints (negligible size), and the ``/mcp``
-endpoint (Streamable HTTP carries SSE streams that defeat
-buffering). The original ``BaseHTTPMiddleware`` implementation was
+middleware enforces the ``ARXMCP_RESULT_BYTE_CAP`` response cap
+(256 KB by default) on every response EXCEPT the paths
+:func:`_is_exempt_path` names: ``/metrics`` (Prometheus exposition
+can grow large), the health probes, ``/mcp`` (Streamable HTTP
+carries SSE streams that defeat buffering), the console's static
+assets, and the notebook export stream. The original ``BaseHTTPMiddleware`` implementation was
 a silent no-op because Starlette wraps every response in a
 ``_StreamingResponse`` whose body lives in ``body_iterator``, not
 ``body`` — see F1 in the E06_S01 critique. The new pure-ASGI
@@ -372,10 +376,10 @@ def _format_unknown_arxmcp_env_var(
     if suggestions:
         return f"  - {env_name}: did you mean {suggestions[0]}?"
 
-    # Short-form fallback — top 3 nearest at cutoff=0.0, NOT the full
-    # 32-var dump. ``cutoff=0.0`` still applies SequenceMatcher ordering;
-    # an empty result here is only possible when ``declared`` itself is
-    # empty (impossible at runtime — Config has 32 declared fields).
+    # Short-form fallback — top 3 nearest at cutoff=0.0, NOT a dump of
+    # every declared var. ``cutoff=0.0`` still applies SequenceMatcher
+    # ordering; an empty result here is only possible when ``declared``
+    # itself is empty, which cannot happen while Config declares fields.
     nearest = difflib.get_close_matches(
         env_name, sorted(declared), n=3, cutoff=0.0
     )
@@ -753,7 +757,10 @@ def create_app(config: Config | None = None) -> FastAPI:
     #
     #   request flow: SecurityHeaders -> SecFetchSite -> OriginValidation
     #                 -> HostValidation -> RequestBodySizeLimit
-    #                 -> SessionCap -> BodySizeCap -> handler
+    #                 -> InitializeParams -> SessionCap -> BodySizeCap
+    #                 -> TracingContext -> RequestLineSizeLimit -> handler
+    #
+    # The :mod:`server.middleware` docstring says what each layer does.
     #
     # SecurityHeaders is OUTERMOST so even error responses from inner
     # middlewares (e.g. OriginValidation's 403, BodySizeCap's 413)
@@ -768,23 +775,23 @@ def create_app(config: Config | None = None) -> FastAPI:
         InitializeParamsMiddleware,
         OriginValidationMiddleware,
         RequestBodySizeLimitMiddleware,
-    RequestLineSizeLimitMiddleware,
+        RequestLineSizeLimitMiddleware,
         SecFetchSiteMiddleware,
         SecurityHeadersMiddleware,
         SessionCapMiddleware,
         TracingContextMiddleware,
     )
 
+    # Bound the request target and header block, the two
+    # attacker-controlled inputs the 1 MB body cap does not cover.
+    # Added first, so it is the innermost layer.
+    app.add_middleware(RequestLineSizeLimitMiddleware)
     # E14_S02: copy ``Mcp-Session-Id`` + ``Arxmcp-Agent-Role`` headers
-    # into ContextVars for the OTel parent span. Added FIRST so it
-    # becomes the innermost middleware — runs LAST on the request path,
-    # right before FastMCP dispatches to the handler. This guarantees
-    # the ContextVars are populated when ``_wrap_with_observability``
+    # into ContextVars for the OTel parent span. Added second, so it
+    # runs just before FastMCP dispatches to the handler and the
+    # ContextVars are populated when ``_wrap_with_observability``
     # opens the parent span. Pure-ASGI; the project bans
     # ``BaseHTTPMiddleware`` (E06_S01 F1).
-    # issue #471: bound the request target and header block, the two
-    # attacker-controlled inputs the 1 MB body cap did not cover.
-    app.add_middleware(RequestLineSizeLimitMiddleware)
     app.add_middleware(TracingContextMiddleware)
     # Universal response body-size cap (pure ASGI — closes F1).
     app.add_middleware(BodySizeCapMiddleware, byte_cap=cfg.result_byte_cap)

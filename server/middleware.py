@@ -1,40 +1,43 @@
 """Security-hardening ASGI middleware (E06_S05).
 
-Three middlewares, all pure-ASGI (the ``BaseHTTPMiddleware`` form was
-shown in E06_S01 to silently no-op response interception because
-Starlette wraps responses in ``_StreamingResponse``; see F1 in the
-E06_S01 critique). All three are mounted in :func:`server.main.create_app`.
+Every middleware here is pure ASGI: the ``BaseHTTPMiddleware`` form
+silently no-ops response interception, because Starlette wraps
+responses in ``_StreamingResponse``. :func:`server.main.create_app`
+mounts all of them, plus its own
+:class:`server.main.BodySizeCapMiddleware`.
 
-1. :class:`OriginValidationMiddleware` — MCP 2025-06-18 spec MUST.
-   Returns 403 JSON if an ``Origin`` header is present but its host
-   component is not in the loopback allow-list. Requests without an
-   ``Origin`` header pass through (CLI tools and the stdio shim do
-   not set ``Origin``; the spec note explicitly permits this).
-2. :class:`SecurityHeadersMiddleware` — adds
-   ``X-Content-Type-Options: nosniff`` and ``X-Frame-Options: DENY``
-   to every response. Defense-in-depth: even though the server has
-   ``docs_url=None`` (no HTML), a misconfigured proxy or a future
-   handler returning text/html should still trip browser hardening.
-3. :class:`RequestBodySizeLimitMiddleware` — 1 MB cap on incoming
-   request bodies. uvicorn has no built-in knob (verified in
-   ``uvicorn/config.py``), so we enforce in middleware: short-circuit
-   on a too-large ``Content-Length``; for chunked requests
-   accumulate ``http.request`` events and reject once the cap is
-   breached.
+Request flow, outermost first. ``add_middleware`` wraps in LIFO order,
+so ``create_app`` adds these bottom-up; ``app.user_middleware`` lists
+them in this order:
 
-Mount order in :func:`server.main.create_app` (outermost on
-request side first; ``add_middleware`` adds in LIFO request order
-so the LAST ``add_middleware`` call wraps the request FIRST):
-
-    app.add_middleware(BodySizeCapMiddleware, ...)            # innermost
-    app.add_middleware(RequestBodySizeLimitMiddleware, ...)
-    app.add_middleware(OriginValidationMiddleware)
-    app.add_middleware(SecurityHeadersMiddleware)             # outermost
-
-This puts SecurityHeaders OUTERMOST so even error responses from
-inner middlewares (e.g. OriginValidation's 403) carry the security
-headers; OriginValidation is BEFORE the body-limit middleware so an
-evil-origin POST is rejected without buffering its body.
+1. :class:`SecurityHeadersMiddleware` — ``X-Content-Type-Options:
+   nosniff`` and ``X-Frame-Options: DENY`` on every response.
+   Outermost so even an inner layer's 403 or 413 carries them.
+2. :class:`SecFetchSiteMiddleware` — rejects any ``Sec-Fetch-Site``
+   other than ``none`` or absent; ``/ui`` is exempt so the console's
+   same-origin fetches work. A cheap byte check, so it runs before
+   Origin parsing.
+3. :class:`OriginValidationMiddleware` — MCP 2025-06-18 spec MUST.
+   403 if an ``Origin`` header is present and its host is not in the
+   loopback allow-list (plus ``ARXMCP_ALLOWED_ORIGINS``). Requests
+   without ``Origin`` pass (CLI tools and the stdio shim send none).
+4. :class:`HostValidationMiddleware` — DNS-rebinding defense on the
+   ``Host`` header across the whole app, not only ``/mcp``.
+5. :class:`RequestBodySizeLimitMiddleware` — 1 MB cap on request
+   bodies (200 MB under ``/ui/api/notebooks``). uvicorn has no knob,
+   so it rejects a too-large ``Content-Length`` and counts chunked
+   bodies as they arrive. Inside the Origin and Host checks so a
+   hostile request is refused before its body is buffered.
+6. :class:`InitializeParamsMiddleware` — rejects a non-string
+   ``initialize.protocolVersion`` before FastMCP silently negotiates.
+7. :class:`SessionCapMiddleware` — per-session retrieval caps and the
+   hourly ceiling. Buffers the body, so it must stay inside layer 5.
+8. :class:`server.main.BodySizeCapMiddleware` — the response byte cap,
+   inside SessionCap so a cap-reached response is itself capped.
+9. :class:`TracingContextMiddleware` — copies the session and role
+   headers into ContextVars for the OTel parent span.
+10. :class:`RequestLineSizeLimitMiddleware` — 414 / 431 caps on the
+    request target and header block. Innermost.
 
 **Defense-in-depth note.** The ``mcp`` library's
 :class:`TransportSecurityMiddleware` (at
@@ -1151,17 +1154,22 @@ _VALID_SESSION_ID_RE: re.Pattern[str] = re.compile(r"^[0-9a-f]{32}$")
 class SessionCapMiddleware:
     """Enforce per-session retrieval caps on ``tools/call`` invocations.
 
-    E08_S04 Rule 2: max 3 ``search_papers`` and 4 ``get_chunk`` calls
-    per ``Mcp-Session-Id``. When a cap is reached, the middleware
+    At most :data:`server.session.MAX_SEARCH_PAPERS_CALLS`
+    ``search_papers`` and :data:`server.session.MAX_GET_CHUNK_CALLS`
+    ``get_chunk`` units per ``Mcp-Session-Id`` (both operator-set via
+    ``ARXMCP_MAX_SEARCH_PAPERS_CALLS`` / ``ARXMCP_MAX_GET_CHUNK_CALLS``),
+    plus :data:`server.session.MAX_CALLS_PER_HOUR` calls of any tool
+    per rolling hour. When a cap is reached, the middleware
     short-circuits with a ``RETRIEVAL_CAP_REACHED`` structured error
     in the JSON-RPC response — the agent sees a tool-result-like
     payload it can parse and react to (proceed with already-retrieved
     chunks).
 
-    **Where in the stack.** Mounted on the FastAPI app between
-    ``OriginValidationMiddleware`` (must pass origin check before
-    we waste time parsing the body) and ``BodySizeCapMiddleware``
-    (so a cap-rejection response is itself capped). The cap is
+    **Where in the stack.** Inside ``RequestBodySizeLimitMiddleware``
+    and ``InitializeParamsMiddleware`` (so the body it buffers is
+    already bounded and a hostile origin never reaches it) and outside
+    ``BodySizeCapMiddleware`` (so a cap-rejection response is itself
+    capped); the module docstring lists the full order. The cap is
     enforced on POST requests to ``/mcp`` whose JSON-RPC body has
     ``"method": "tools/call"`` AND whose ``params.name`` is one of
     the cap-tracked tools (per :data:`server.session.TOOLS_WITH_CAPS`).
