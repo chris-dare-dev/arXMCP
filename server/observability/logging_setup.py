@@ -1,8 +1,10 @@
 """E13_S08 — root logger configuration with Threat-8 redaction.
 
-Provides :func:`configure` — the single entry point for the server's
-logging setup. Called from :mod:`server.main` after :class:`Config`
-loads, this function:
+Provides :func:`configure` — the server's logging setup. The CLI and the
+desktop child call it after :class:`Config` loads; the module-level app
+in :mod:`server.main` (what ``uvicorn server.main:app`` imports) calls
+:func:`ensure_configured`, which defers to whatever setup already exists.
+:func:`configure`:
 
 1. Installs :class:`server.observability.log_filter.RedactionFilter`
    on the root logger so every ``logging.getLogger(__name__)`` in the
@@ -145,12 +147,19 @@ def configure(log_level: str, log_format: str = "json") -> None:
     ``logging.info(...)`` without a child logger) are also redacted
     by the originating-logger filter chain.
 
+    Handlers that other loggers own get the filter too — uvicorn's
+    ``uvicorn.access`` handler, when uvicorn's own logging config ran
+    first, does not propagate to root and would otherwise bypass it.
+
     The function is idempotent — repeated calls re-discover existing
     handlers and skip any that already have a :class:`RedactionFilter`.
     New handlers added AFTER ``configure()`` runs will NOT be
     auto-protected; callers that install additional handlers post-
     configure must either re-call ``configure()`` or install the
-    filter themselves. The audit doc spells out this contract.
+    filter themselves. Configuring before anything else touches the
+    root logger keeps ``logging.basicConfig`` calls in libraries (FastMCP
+    makes one) from adding a handler at all, since it does nothing once
+    root has one.
 
     Safe to call multiple times.
 
@@ -181,10 +190,9 @@ def configure(log_level: str, log_format: str = "json") -> None:
     # (Threat 8). Filter-then-format on one handler keeps the chain intact.
     want_json = str(log_format).strip().lower() == "json"
     for handler in root.handlers:
-        if not any(isinstance(f, RedactionFilter) for f in handler.filters):
-            handler.addFilter(RedactionFilter())
         if want_json:
             handler.setFormatter(JsonFormatter())
+    _filter_every_handler()
 
     # Defense-in-depth: also attach to the root logger so direct-root
     # emits (``logging.info(...)`` without a named child) are
@@ -192,8 +200,7 @@ def configure(log_level: str, log_format: str = "json") -> None:
     # install has zero cost on records already redacted by the
     # handler filter (subsequent ``dict.pop(key, None)`` calls are
     # no-ops).
-    if not any(isinstance(f, RedactionFilter) for f in root.filters):
-        root.addFilter(RedactionFilter())
+    _add_filter_once(root)
 
     root.setLevel(log_level)
 
@@ -212,6 +219,48 @@ def configure(log_level: str, log_format: str = "json") -> None:
         )
 
 
+def ensure_configured(log_level: str, log_format: str = "json") -> None:
+    """Make sure redaction is in place without overriding an existing setup.
+
+    For code that builds the app without knowing which entry point it is
+    on: ``server.main``'s module-level app, which ``uvicorn
+    server.main:app`` imports, but which the CLI and the desktop child
+    import too, after they have configured logging themselves.
+
+    - Root has no handler yet (the ``uvicorn server.main:app`` form:
+      uvicorn's own config never touches root): this is a full
+      :func:`configure`, on a stderr handler added for the purpose.
+    - Root already has handlers (someone configured logging): their level
+      and format are left alone, and only the :class:`RedactionFilter` is
+      added wherever it is missing — on root's handlers and on every
+      other logger's, ``uvicorn.access`` included.
+    """
+    root = logging.getLogger()
+    if not root.handlers:
+        root.addHandler(logging.StreamHandler())
+        configure(log_level, log_format)
+        return
+    _filter_every_handler()
+    _add_filter_once(root)
+
+
+def _add_filter_once(target: logging.Filterer) -> None:
+    if not any(isinstance(f, RedactionFilter) for f in target.filters):
+        target.addFilter(RedactionFilter())
+
+
+def _filter_every_handler() -> None:
+    """Add :class:`RedactionFilter` to every handler of every existing logger."""
+    loggers: list[logging.Logger] = [logging.getLogger()]
+    loggers.extend(
+        lg for lg in list(logging.Logger.manager.loggerDict.values())
+        if isinstance(lg, logging.Logger)
+    )
+    for lg in loggers:
+        for handler in lg.handlers:
+            _add_filter_once(handler)
+
+
 def _reset_debug_warning_for_tests() -> None:
     """Clear the :data:`_debug_warning_emitted` one-shot guard.
 
@@ -228,4 +277,5 @@ def _reset_debug_warning_for_tests() -> None:
 __all__ = [
     "JsonFormatter",
     "configure",
+    "ensure_configured",
 ]
