@@ -18,11 +18,11 @@ already has ``mathml_tree_json`` populated is a no-op; the WHERE
 predicate filters rows that need processing.
 
 **Concurrency.** Like the definitions indexer in
-:mod:`ingest.index_definitions`, this writer assumes a
-**single-writer contract** — concurrent invocations against the same
-LanceDB table can interleave delete/insert pairs in ways that
-duplicate or drop rows. The production ingest driver landing in E11
-must serialize the equation-tree population step.
+:mod:`ingest.index_definitions`, concurrent invocations against the same
+LanceDB table could interleave delete/insert pairs in ways that
+duplicate or drop rows, so :func:`index_equation_trees` runs under the
+dataset write lock (:mod:`ingest.write_lock`) and a second writer is
+refused.
 """
 
 from __future__ import annotations
@@ -38,6 +38,7 @@ from ingest.schema import (
     EQUATIONS_TABLE_NAME,
     LANCE_STORAGE_OPTIONS,
 )
+from ingest.write_lock import exits_when_write_locked, holds_dataset_write_lock
 from server.retrieval.equations import (
     MATHML_TREE_NORMALIZER_VERSION,
     parse_mathml_to_tree,
@@ -80,6 +81,7 @@ def open_or_create_equations_table(lancedb_path: str | Path) -> Any:
         )
 
 
+@holds_dataset_write_lock("lancedb_path")
 def index_equation_trees(
     lancedb_path: str | Path, *, rebuild: bool = False,
 ) -> dict[str, int]:
@@ -173,6 +175,7 @@ def index_equation_trees(
 
 
 
+@exits_when_write_locked
 def _cli(argv: list[str]) -> int:
     import argparse
 

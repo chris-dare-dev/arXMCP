@@ -15,9 +15,9 @@ call it directly rather than reimplementing the model lifecycle.
 Same batch size (``EMBED_BATCH_DEFAULT = 32``), same dtype
 (``float32``), same L2 normalization invariant.
 
-**Concurrency.** Single-writer-per-table contract. SQLite WAL it's
-not — LanceDB merge_insert against the same table from two
-processes can interleave. Document and serialize externally.
+**Concurrency.** LanceDB merge_insert against the same table from two
+processes can interleave, so :func:`embed_pending_equations` runs under
+the dataset write lock (:mod:`ingest.write_lock`).
 """
 
 from __future__ import annotations
@@ -31,6 +31,7 @@ import pyarrow as pa
 from ingest.embedder import EMBED_BATCH_DEFAULT, _encode_batch
 from ingest.index_equations import open_or_create_equations_table
 from ingest.schema import EQUATIONS_SCHEMA_V1
+from ingest.write_lock import exits_when_write_locked, holds_dataset_write_lock
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +52,7 @@ def _embedding_input(row: dict[str, Any]) -> str:
     return pl or ctx
 
 
+@holds_dataset_write_lock("lancedb_path")
 def embed_pending_equations(
     lancedb_path: str | Path,
     batch_size: int = EMBED_BATCH_DEFAULT,
@@ -152,6 +154,7 @@ def embed_pending_equations(
 # ---------------------------------------------------------------------------
 
 
+@exits_when_write_locked
 def _cli(argv: list[str]) -> int:
     import argparse
 

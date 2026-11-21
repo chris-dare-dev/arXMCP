@@ -37,6 +37,7 @@ import sys
 from ingest.bm25_indexer import resolve_bm25_root
 from ingest.bulk_ingest import run_bulk_ingest
 from ingest.store import STALE_CHUNKER_EXIT_CODE, StaleChunkerRowsError
+from ingest.write_lock import exits_when_write_locked
 from tools._notebook_common import (
     NotebookError,
     notebook_dir,
@@ -194,6 +195,7 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     return parser
 
 
+@exits_when_write_locked
 def main(argv: list[str] | None = None) -> int:
     parser = _build_arg_parser()
     args = parser.parse_args(argv)

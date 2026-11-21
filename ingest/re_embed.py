@@ -81,6 +81,7 @@ from ingest.store import (
     load_embed_record,
     write_chunks,
 )
+from ingest.write_lock import exits_when_write_locked, holds_dataset_write_lock
 
 logger = logging.getLogger(__name__)
 
@@ -708,6 +709,7 @@ def _subset_embed_record(
 # ---------------------------------------------------------------------------
 
 
+@holds_dataset_write_lock("staging_lancedb_path", skip_if="dry_run")
 def run_re_embed(
     *,
     paper_ids: list[str] | None = None,
@@ -981,6 +983,7 @@ def _append_failure(
 # ---------------------------------------------------------------------------
 
 
+@exits_when_write_locked
 def _cli(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(
         description="arXMCP partial re-embed driver (E11_S03).",

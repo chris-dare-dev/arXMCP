@@ -59,8 +59,11 @@ def test_a_staged_dataset_carries_its_own_indexes(tmp_path, monkeypatch):
 
     summary = build_derived_indexes(staging)
 
-    # Nothing lands beside the dataset but the build-stats log.
-    assert {p.name for p in tmp_path.iterdir()} == {"lancedb-staging", "preamble", "ops"}
+    # No index lands beside the dataset: only the build-stats log and the
+    # dataset's write lock, which must not move when the dataset is renamed.
+    assert {p.name for p in tmp_path.iterdir()} == {
+        "lancedb-staging", "preamble", "ops", ".lancedb-staging.write-lock",
+    }
     bm25 = staging / "derived" / "bm25" / f"v{summary.corpus_version}"
     assert sorted(json.loads((bm25 / "chunk_ids.json").read_text())) == [
         f"{pid}#c0" for pid in PAPERS

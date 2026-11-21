@@ -84,6 +84,7 @@ from ingest.store import (
     refresh_indices,
     refuse_stale_chunker_rows,
 )
+from ingest.write_lock import exits_when_write_locked, holds_dataset_write_lock
 
 logger = logging.getLogger(__name__)
 
@@ -696,6 +697,7 @@ def _clear_budget_flag(flag_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
+@holds_dataset_write_lock("lancedb_staging_path", skip_if="dry_run")
 def run_delta(
     *,
     sets: tuple[str, ...] = DEFAULT_SETS,
@@ -902,6 +904,7 @@ def run_delta(
 # ---------------------------------------------------------------------------
 
 
+@exits_when_write_locked
 def _cli(argv: list[str]) -> int:
     # E14_S05 D5: defense-in-depth check for the ``ingest-paused``
     # sentinel. The cron wrapper checks first, but manual

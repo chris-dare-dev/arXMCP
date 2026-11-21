@@ -17,6 +17,8 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+from ingest.write_lock import exits_when_write_locked, holds_dataset_write_lock
+
 logger = logging.getLogger(__name__)
 
 
@@ -29,6 +31,7 @@ class DerivedIndexSummary:
     theorem_name_papers: int
 
 
+@holds_dataset_write_lock("lancedb_path")
 def build_derived_indexes(lancedb_path: str | Path) -> DerivedIndexSummary:
     """Build the BM25, definitions and theorem-name indexes of a dataset.
 
@@ -59,6 +62,7 @@ def build_derived_indexes(lancedb_path: str | Path) -> DerivedIndexSummary:
     return summary
 
 
+@exits_when_write_locked
 def _cli(argv: list[str]) -> int:
     import argparse
 

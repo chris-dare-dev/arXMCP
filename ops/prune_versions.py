@@ -28,9 +28,10 @@ version, and the compacted copy sits beside the pinned files until the
 next write moves the marker and a later prune drops the old ones. A run
 with nothing to remove does not call ``optimize``.
 
-**When to run it.** It commits to the dataset, so it obeys the
-single-writer rule: never beside an ingest, re-embed, delta harvest or
-cutover on the same dataset. A server started before the last write and
+**When to run it.** It commits to the dataset, so it takes the dataset
+write lock (:mod:`ingest.write_lock`) and is refused beside an ingest,
+re-embed or delta harvest on the same dataset. A cutover does not take
+the lock: never prune during one. A server started before the last write and
 not restarted is pinned to an older version, which survives only while
 it is younger than ``--keep-days``; restart servers before pruning with
 a short window.
@@ -43,6 +44,8 @@ import sys
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+
+from ingest.write_lock import exits_when_write_locked, holds_dataset_write_lock
 
 #: Versions younger than this are kept whatever they are.
 DEFAULT_KEEP_DAYS = 7.0
@@ -148,6 +151,7 @@ def plan_prune(
     )
 
 
+@holds_dataset_write_lock("lancedb_path")
 def prune_versions(
     lancedb_path: str | Path,
     *,
@@ -182,6 +186,7 @@ def prune_versions(
     )
 
 
+@exits_when_write_locked
 def _cli(argv: list[str]) -> int:
     from ingest.store import DEFAULT_LANCEDB_PATH
 
