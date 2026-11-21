@@ -598,7 +598,7 @@ class TestOneIndexBuildPerRun:
                 parsed_path=html, reason="ok_local_cache",
             )
 
-        def _chunks(pid):
+        def _chunks(pid, **_kwargs):
             return [_row_chunk(pid, f"{i:016x}", CHUNKER_VERSION, f"{pid} {i}")
                     for i in range(2)]
 
