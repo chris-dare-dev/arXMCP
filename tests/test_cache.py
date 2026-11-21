@@ -769,7 +769,10 @@ class TestRectificationGuards:
                 # Mirror entry is now `(payload, expires_at_future)`.
                 key = next(iter(cache._tier1_mirror.keys()))
                 payload, _expires = cache._tier1_mirror[key]
-                cache._tier1_mirror[key] = (payload, 0.0)  # in the past
+                cache._tier1_mirror.put(
+                    key, (payload, 0.0),  # in the past
+                    cache.tier1_bytes_used(),
+                )
                 # Lookup must NOT return the stale payload from the
                 # mirror; the mirror entry should be evicted.
                 #
@@ -841,30 +844,34 @@ class TestRectificationGuards:
         # And specifically: the conftest fixture uses tmp_path / "cache".
         assert cfg.cache_db_path.name == "retrieval.db"
 
-    def test_f8_rehydrate_caps_at_mirror_max(self, cache_db_path):
+    def test_f8_rehydrate_caps_at_mirror_max(self, cache_db_path, monkeypatch):
         """F8 (MEDIUM): rehydrate must truncate at TIER1_MIRROR_CAP
-        rather than blindly populating every SQLite row."""
-        # We can't easily insert >MAX_ROWS rows in a unit test (it
-        # would take a while). Instead, monkey-patch MAX_ROWS to a
-        # small value and verify the truncation path fires.
-        # This requires reaching into the rehydrate's view of the
-        # cap — easiest is to spy on the import inside cache.py.
-        # For this regression test we just assert the source contains
-        # the truncation expression that the F8 fix added.
-        from pathlib import Path
-
-        from server.cache_sqlite import MAX_ROWS
-        cache_src = (
-            Path(__file__).resolve().parent.parent
-            / "server" / "cache.py"
-        ).read_text(encoding="utf-8")
-        assert "rows[:TIER1_MIRROR_CAP]" in cache_src, (
-            "F8 regression: _rehydrate_tier1_from_sqlite must "
-            "truncate the rehydrate set at TIER1_MIRROR_CAP."
-        )
-        # Also: TIER1_MIRROR_CAP must equal MAX_ROWS at module top.
+        rather than blindly populating every SQLite row, keeping the
+        freshest."""
+        import server.cache as cache_mod
         from server.cache import TIER1_MIRROR_CAP
+        from server.cache_sqlite import MAX_ROWS, Tier1Store
+
         assert TIER1_MIRROR_CAP == MAX_ROWS
+
+        async def _run():
+            store = await Tier1Store.open(cache_db_path)
+            for i in range(5):
+                await store.put(
+                    f"row-{i}", b'{"v": 1}', ttl_seconds=3600.0 + i,
+                    corpus_version=42,
+                )
+            await store.close()
+            monkeypatch.setattr(cache_mod, "TIER1_MIRROR_CAP", 3)
+            cache = await RetrievalCache.open(
+                cache_db_path=cache_db_path, corpus_version=42,
+            )
+            try:
+                assert sorted(cache._tier1_mirror) == ["row-2", "row-3", "row-4"]
+            finally:
+                await cache.close()
+
+        asyncio.run(_run())
 
     def test_f9_tier2_searches_top_k_not_top_1(self, cache_db_path):
         """F9 (MEDIUM): Tier-2 lookup must search top-K so a
