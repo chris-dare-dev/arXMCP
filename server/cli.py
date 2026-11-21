@@ -132,10 +132,7 @@ def config_reference() -> str:
     blocks = []
     for name, info in Config.model_fields.items():
         env = f"{Config.model_config['env_prefix']}{name.upper()}"
-        head = (
-            f"{env}  ({_type_label(info.annotation)}; "
-            f"default {_default_label(name, info)})"
-        )
+        head = f"{env}  ({_type_label(info.annotation)}; default {_default_label(name, info)})"
         body = textwrap.fill(
             info.description or "(no description)",
             width=78,
@@ -164,10 +161,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--list-config",
         action="store_true",
-        help=(
-            "print every ARXMCP_* setting with its default and description, "
-            "then exit"
-        ),
+        help=("print every ARXMCP_* setting with its default and description, then exit"),
     )
     return parser
 
