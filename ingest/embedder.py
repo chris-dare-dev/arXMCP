@@ -46,8 +46,9 @@ iff:
   2. ``sidecar.chunker_version == EXPECTED_CHUNKER_VERSION``, AND
   3. ``sidecar.embedder_version == EMBEDDER_VERSION`` and the sidecar's
      policy is the current one, AND
-  4. every current chunk has a sidecar entry with its ``chunk_id`` (the
-     NPZ is keyed by it) AND its reuse identity.
+  4. the sidecar's entries are exactly the current chunks: the same
+     ``chunk_id`` set (the NPZ is keyed by it), each with its reuse
+     identity.
 
 If any condition fails, the entire paper is re-encoded (NPZ rewrite
 is atomic via tmp + ``os.replace``; ``np.savez`` does not support
@@ -657,8 +658,10 @@ def _paper_is_up_to_date(paper_id: str, current: dict[str, str]) -> bool:
        chunk's current identity (same embedding input, embedder
        version, policy and route). An entry without a
        ``reuse_identity`` (an older sidecar) never matches, so such a
-       paper is re-embedded once. Orphan entries (chunks no longer
-       current) are tolerated.
+       paper is re-embedded once. An entry for a chunk the paper no
+       longer has also fails the check: nothing else ever removes a
+       vector from the NPZ, so the re-encode, which rewrites the NPZ and
+       sidecar from the current chunks alone, is what drops it.
 
     Any failure of any condition triggers re-embed.
 
@@ -701,7 +704,7 @@ def _paper_is_up_to_date(paper_id: str, current: dict[str, str]) -> bool:
         if not isinstance(entry, dict) or not isinstance(entry.get("chunk_id"), str):
             return False
         stored[entry["chunk_id"]] = entry.get("reuse_identity")
-    return all(stored.get(cid) == identity for cid, identity in current.items())
+    return len(stored) == len(embedded) and stored == current
 
 
 # ---------------------------------------------------------------------------
