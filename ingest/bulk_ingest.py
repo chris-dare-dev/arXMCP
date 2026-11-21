@@ -94,7 +94,9 @@ from ingest.ar5iv_fetch import (
 from ingest.chunker import STRUCTURE_SIGNAL_CLASSES, chunk_paper
 from ingest.derived_indexes import build_derived_indexes
 from ingest.embedder import embed_paper
+from ingest.extract_equations import extract_equations_for_paper
 from ingest.identifiers import is_valid_arxiv_paper_id
+from ingest.index_equations import index_equation_trees
 from ingest.store import (
     DEFAULT_LANCEDB_PATH,
     STALE_CHUNKER_EXIT_CODE,
@@ -281,7 +283,7 @@ def _has_local_parsed_html(paper_id: str, parsed_dir: Path) -> bool:
 
     The chunker reads ``<parsed_dir>/<paper_id>/index.html``. v1's
     LaTeXML-fallback path assumes the operator has already
-    run ``tools/arxiv_fetch.py`` (or similar) to produce this
+    run ``ingest/arxiv_fetch.py`` (or similar) to produce this
     file. Bulk ingest does NOT itself fetch raw .tex or invoke
     LaTeXML — those are operator-side concerns.
     """
@@ -330,11 +332,12 @@ def ingest_one_paper(
 
     1. ar5iv cache check (unless ``skip_ar5iv``).
     2. On miss: check for pre-parsed HTML on disk (LaTeXML output
-       from the operator's prior `tools/arxiv_fetch.py` run).
+       from the operator's prior `ingest/arxiv_fetch.py` run).
     3. If neither: skip-and-log; outcome has
        ``parser_used = None`` and ``failure_reason`` set.
     4. If parsed HTML exists: invoke chunker → embedder →
-       ``write_chunks`` against the **staging** LanceDB path.
+       ``write_chunks`` against the **staging** LanceDB path, then
+       extract the paper's equations into the same dataset.
 
     Returns a :class:`PaperOutcome` regardless of success or
     failure. The caller (the bulk loop) decides what to do with
@@ -345,7 +348,8 @@ def ingest_one_paper(
     every later write too.
 
     A loop over many papers passes ``build_indices=False`` and calls
-    :func:`ingest.store.refresh_indices` once after it.
+    :func:`ingest.store.refresh_indices` once after it. The equation trees
+    are built once per run too (:func:`index_equation_trees`).
     """
     if not is_valid_arxiv_paper_id(paper_id):
         raise ValueError(
@@ -412,6 +416,12 @@ def ingest_one_paper(
         version = write_chunks(
             chunks, embed_record, lancedb_path=lancedb_staging_path,
             build_indices=build_indices, replace_paper=True,
+        )
+        # From the HTML just chunked, linked to the chunks just written.
+        # A paper whose equations did not land is not counted as written.
+        extract_equations_for_paper(
+            paper_id, lancedb_staging_path,
+            html_path=parsed_dir / paper_id / "index.html",
         )
         outcome.chunks_written = len(chunks)
         logger.debug(
@@ -532,6 +542,7 @@ def _run_locked(
     if summary.papers_succeeded:
         refresh_indices(lancedb_staging_path)
         build_derived_indexes(lancedb_staging_path)
+        index_equation_trees(lancedb_staging_path)
 
     summary.elapsed_seconds = time.monotonic() - started
 

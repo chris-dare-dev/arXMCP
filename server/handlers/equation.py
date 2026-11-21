@@ -3,7 +3,7 @@
 Two-mode dispatch on the ``latex_or_mathml`` input:
 
 * **MathML input** (``<math>`` root present) → delegate to
-  :class:`server.retrieval.equations.EquationIndex` for the
+  :class:`ingest.mathml_tree.EquationIndex` for the
   Zhang-Shasha tree-edit-distance + dense-cosine fusion path. The
   envelope reports ``retrieval_mode="ted_fused"``.
 * **LaTeX input** → converted to Presentation MathML at query time
@@ -23,7 +23,7 @@ MathML inputs degrade to dense-only with
 
 The TED scan is bounded (retrieval-unlocks-m4 security fix): see the
 ``MAX_QUERY_TREE_NODES`` / ``MAX_TED_PAIR_PRODUCT`` / ``TED_WORK_BUDGET``
-guards in :mod:`server.retrieval.equations`. Without them a large query
+guards in :mod:`ingest.mathml_tree`. Without them a large query
 tree (which a short LaTeX string can amplify into) blocks the event loop
 for minutes.
 """
@@ -241,7 +241,7 @@ def _convert_latex_to_mathml(
     but NOT the downstream TED cost, which a short input can amplify into
     a huge tree. That is bounded separately by the ``MAX_QUERY_TREE_NODES``
     / ``MAX_TED_PAIR_PRODUCT`` / ``TED_WORK_BUDGET`` guards in
-    :mod:`server.retrieval.equations`, not here.
+    :mod:`ingest.mathml_tree`, not here.
     """
     try:
         mathml = latex2mathml_convert(latex)

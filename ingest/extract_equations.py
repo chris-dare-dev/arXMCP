@@ -17,7 +17,7 @@ top (matches chunker discipline at ``ingest/chunker.py::_element_text``).
 
 **`mathml` is the serialized `<math>` element** including the wrapper,
 so the downstream tree indexer at
-:func:`server.retrieval.equations.parse_mathml_to_tree` can re-parse
+:func:`ingest.mathml_tree.parse_mathml_to_tree` can re-parse
 via ``defusedxml.ElementTree.fromstring`` without surgery.
 
 **`label` is the LaTeXML sequential id suffix** (e.g. ``E1`` from
@@ -33,11 +33,16 @@ cells. We treat each ``<tbody>`` as ONE equation atom — concatenate
 the ``alttext`` of every ``<math>`` cell (space-joined) for
 ``presentation_latex``, serialize the whole ``<tbody>`` for ``mathml``.
 
-**`parent_chunk_id = None`** at v1. Reimplementing the chunker's
-section-path resolution to synthesize a parent linkage adds
-significant scope for zero retrieval benefit; the
-``server/retrieval/equations.py`` dual-path dense step bypasses the
-chunks proxy join once ``embedding_eq`` is populated.
+**`parent_chunk_id` is the chunk whose text holds the equation.** The
+chunker writes every ``<math>`` element into ``body_text`` as its
+``alttext`` between ``$`` delimiters, so the parent is the paper's chunk
+whose body contains every cell of the equation that way. A chunk with a
+statement vector wins over one without: the dense step of
+``find_equation`` reaches an equation through its parent's
+``embedding_stmt`` until ``embedding_eq`` is populated, so an equation
+linked to a proof chunk, or to none, is never a candidate there. With
+the paper's chunks not yet written, or no chunk holding it, the column
+stays NULL.
 
 **`context_sentence` is the enclosing ``<p>`` element's text**, capped
 at 4000 characters (matches the handler-side ``latex_or_mathml``
@@ -54,8 +59,9 @@ from __future__ import annotations
 import hashlib
 import logging
 import re
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 import pyarrow as pa
 from bs4 import BeautifulSoup, Tag
@@ -63,7 +69,7 @@ from bs4 import BeautifulSoup, Tag
 from ingest.application_paths import ApplicationPaths
 from ingest.identifiers import is_valid_arxiv_paper_id
 from ingest.index_equations import open_or_create_equations_table
-from ingest.schema import EQUATIONS_SCHEMA_V1
+from ingest.schema import CHUNKS_TABLE_NAME, EQUATIONS_SCHEMA_V1
 from ingest.write_lock import exits_when_write_locked, holds_dataset_write_lock
 
 logger = logging.getLogger(__name__)
@@ -158,12 +164,72 @@ def _serialize_mathml(tag: Tag) -> str:
     return str(tag)
 
 
+class _ChunkText(NamedTuple):
+    """The part of a stored chunk an equation is linked by."""
+
+    chunk_id: str
+    body_text: str
+    has_stmt: bool
+
+
+def _parent_chunk_id(
+    alttexts: Sequence[str], chunks: Sequence[_ChunkText]
+) -> str | None:
+    """The first of ``chunks`` whose body holds every ``alttext`` as the
+    chunker writes it (``$<alttext>$``), or ``None``.
+
+    ``chunks`` arrive ordered statement chunks first, then by id, so the
+    choice is the same on every run.
+    """
+    needles = [f"${a}$" for a in alttexts if a]
+    if not needles:
+        return None
+    for chunk in chunks:
+        if all(n in chunk.body_text for n in needles):
+            return chunk.chunk_id
+    return None
+
+
+def _paper_chunk_texts(lancedb_path: str | Path, paper_id: str) -> list[_ChunkText]:
+    """The paper's rows in the dataset's ``chunks`` table, empty if there
+    is no such table."""
+    import lancedb
+
+    path = Path(lancedb_path)
+    if not (path / f"{CHUNKS_TABLE_NAME}.lance").is_dir():
+        return []
+    tbl = lancedb.connect(str(path)).open_table(CHUNKS_TABLE_NAME)
+    where = f"paper_id = '{paper_id}'"
+    n = tbl.count_rows(where)
+    if not n:
+        return []
+    rows = (
+        tbl.search()
+        .where(where)
+        .select(["chunk_id", "body_text", "embedding_stmt"])
+        .limit(n)
+        .to_arrow()
+    )
+    has_stmt = rows.column("embedding_stmt").is_valid().to_pylist()
+    return [
+        _ChunkText(cid, body or "", bool(stmt))
+        for cid, body, stmt in zip(
+            rows.column("chunk_id").to_pylist(),
+            rows.column("body_text").to_pylist(),
+            has_stmt,
+            strict=True,
+        )
+    ]
+
+
 # ---------------------------------------------------------------------------
 # Atom extraction
 # ---------------------------------------------------------------------------
 
 
-def _extract_equation_atom(eq_table: Tag, paper_id: str) -> dict[str, Any] | None:
+def _extract_equation_atom(
+    eq_table: Tag, paper_id: str, chunks: list[_ChunkText]
+) -> dict[str, Any] | None:
     """Extract one ``\\begin{equation}``-style atom.
 
     Detection: ``<table class~="ltx_eqn_table">`` with at least one
@@ -196,14 +262,15 @@ def _extract_equation_atom(eq_table: Tag, paper_id: str) -> dict[str, Any] | Non
         "mathml": mathml,
         "ascii_form": "",
         "context_sentence": context,
-        "parent_chunk_id": None,
+        "parent_chunk_id": _parent_chunk_id([alttext], chunks),
         "mathml_tree_json": None,
+        "normalizer_version": None,
         "embedding_eq": None,
     }
 
 
 def _extract_align_group_atoms(
-    group_table: Tag, paper_id: str
+    group_table: Tag, paper_id: str, chunks: list[_ChunkText]
 ) -> list[dict[str, Any]]:
     """Extract atoms from an ``\\begin{align}``-style group table.
 
@@ -265,8 +332,9 @@ def _extract_align_group_atoms(
                 "mathml": mathml,
                 "ascii_form": "",
                 "context_sentence": context,
-                "parent_chunk_id": None,
+                "parent_chunk_id": _parent_chunk_id(alt_parts, chunks),
                 "mathml_tree_json": None,
+                "normalizer_version": None,
                 "embedding_eq": None,
             }
         )
@@ -274,12 +342,14 @@ def _extract_align_group_atoms(
 
 
 def extract_equation_atoms_from_html(
-    html: str, paper_id: str
+    html: str, paper_id: str, chunks: Sequence[_ChunkText] = (),
 ) -> list[dict[str, Any]]:
     """Walk a LaTeXML HTML string and return every equation atom.
 
     Pure function — no I/O. Used by the indexer below AND by tests
-    that load hand-crafted fixture HTML.
+    that load hand-crafted fixture HTML. ``chunks`` are the paper's
+    chunks, from which each atom's ``parent_chunk_id`` is chosen
+    (:func:`_parent_chunk_id`); without them it is NULL.
 
     Detection rules:
     - ``<table class="ltx_equation ltx_eqn_table">`` (single
@@ -293,13 +363,14 @@ def extract_equation_atoms_from_html(
     """
     soup = BeautifulSoup(html, "html.parser")
     atoms: list[dict[str, Any]] = []
+    ordered = sorted(chunks, key=lambda c: (not c.has_stmt, c.chunk_id))
 
     for table in soup.find_all("table"):
         css = " ".join(table.get("class") or [])
         if "ltx_equationgroup" in css:
-            atoms.extend(_extract_align_group_atoms(table, paper_id))
+            atoms.extend(_extract_align_group_atoms(table, paper_id, ordered))
         elif "ltx_eqn_table" in css and "ltx_equation" in css:
-            atom = _extract_equation_atom(table, paper_id)
+            atom = _extract_equation_atom(table, paper_id, ordered)
             if atom is not None:
                 atoms.append(atom)
 
@@ -359,6 +430,9 @@ def extract_equations_for_paper(
 ) -> int:
     """Extract every equation atom for one paper, persist to LanceDB.
 
+    Run it after the paper's chunks are in the dataset: each row's
+    ``parent_chunk_id`` is chosen from them.
+
     Returns the number of rows written. Per-paper idempotency: any
     prior rows for ``paper_id`` are deleted before the new batch is
     inserted. A paper with no parseable equations (empty HTML, failed
@@ -383,7 +457,9 @@ def extract_equations_for_paper(
         return 0
 
     html = src.read_text(encoding="utf-8", errors="replace")
-    atoms = extract_equation_atoms_from_html(html, paper_id)
+    atoms = extract_equation_atoms_from_html(
+        html, paper_id, _paper_chunk_texts(lancedb_path, paper_id)
+    )
 
     table = open_or_create_equations_table(lancedb_path)
     # Per-paper sweep — delete any prior rows for this paper before

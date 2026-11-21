@@ -29,9 +29,9 @@ BGE-M3 *tokenizer* only (``ingest.chunker._get_tokenizer``, documented as NOT
 loading model weights), never the model. No forward pass ever runs, so
 "0 chunks re-embedded" holds by construction (asserted by an import-scan test
 in ``tests/test_notebook_chunks_backfill.py``). The self-contained schema-v2
-``add_columns`` step below deliberately re-mirrors the SQL defaults from
-``ingest.store._TEXTBOOK_MIGRATION_DEFAULTS`` rather than importing them, for
-the same reason ``ingest.store`` must stay out of this import graph.
+``add_columns`` step below deliberately re-states the NULL defaults the
+store's migration gives those columns rather than calling it, for the same
+reason ``ingest.store`` must stay out of this import graph.
 
 **Abstention is first-class (CLAUDE.md §4.9).** A chunk whose ``chunk_id`` the
 current chunker does not reproduce (or whose paper's re-chunk raised, or whose
@@ -155,9 +155,9 @@ logger = logging.getLogger("notebook_chunks_backfill")
 CHUNKS_TABLE_NAME = "chunks"
 
 # The five source-truth-m2 columns and their NULL-default SQL for the
-# self-contained schema-v2 ``add_columns`` step. DELIBERATELY duplicated from
-# the source-truth-m2 entries in ``ingest.store._TEXTBOOK_MIGRATION_DEFAULTS``
-# (not imported — see the module docstring / CHUNKS_TABLE_NAME note). Spike-4
+# self-contained schema-v2 ``add_columns`` step. DELIBERATELY re-states the
+# NULL the store's migration gives each (not imported — see the module
+# docstring / CHUNKS_TABLE_NAME note). Spike-4
 # proved ``cast(NULL as boolean)`` rides the same single-loop mechanism, so no
 # struct / schema-based ``add_columns`` branch is needed. Adding columns is a
 # fragment-level metadata op that never rewrites the embedding columns.

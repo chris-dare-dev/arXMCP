@@ -635,9 +635,9 @@ class Config(BaseSettings):
                 "derives the lancedb path from the notebook slug."
             )
         # Defer the import: ingest.notebooks is the shared seam
-        # (also called by the future fork-A per-request path). Keeping
-        # it lazy avoids a server→tools import at module load for the
-        # common (notebook-unset) case.
+        # (also called by the future fork-A per-request path). Loading
+        # it lazily keeps it off the module-load path for the common
+        # (notebook-unset) case.
         from ingest.notebooks import (  # noqa: PLC0415
             NotebookError,
             notebook_lancedb_path,

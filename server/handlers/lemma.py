@@ -1,7 +1,7 @@
 """``find_lemma_by_name`` handler — FTS5 + Jaccard fallback (E10_S02).
 
 Three-step lookup against the SQLite-backed
-:class:`server.theorem_names_store.TheoremNamesStore`:
+:class:`ingest.theorem_names_store.TheoremNamesStore`:
 
 1. **Exact match** on the normalized form
    (``retrieval_mode="fts5_exact"``).

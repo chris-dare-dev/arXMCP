@@ -753,6 +753,7 @@ def create_app(config: Config | None = None) -> FastAPI:
     # evil-origin POST is rejected without buffering its body.
     from server.middleware import (
         HostValidationMiddleware,
+        InitializeParamsMiddleware,
         OriginValidationMiddleware,
         RequestBodySizeLimitMiddleware,
     RequestLineSizeLimitMiddleware,
@@ -782,6 +783,11 @@ def create_app(config: Config | None = None) -> FastAPI:
     # dispatches. A request that fails the cap is short-circuited
     # before any handler runs.
     app.add_middleware(SessionCapMiddleware)
+    # The mcp library accepts a non-string initialize.protocolVersion
+    # and silently negotiates its latest version; reject it as invalid
+    # params before FastMCP sees it. Inside the request-body limit so
+    # the buffered body is already bounded.
+    app.add_middleware(InitializeParamsMiddleware)
     # 1 MB default cap on incoming request bodies (E06_S05). m8:
     # /ui/api/notebooks/*/papers/upload accepts ar5iv HTML files
     # which routinely exceed 1 MB (~100KB-5MB observed); the

@@ -624,6 +624,7 @@ class TestPerPaperIsolation:
                 )}),
                 ("load_embed_record", {"return_value": object()}),
                 ("write_chunks", {"side_effect": write_side_effect}),
+                ("extract_equations_for_paper", {"return_value": 0}),
             ]:
                 stack.enter_context(patch(f"ingest.bulk_ingest.{target}", **kwargs))
             return run_bulk_ingest(

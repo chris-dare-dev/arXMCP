@@ -9,7 +9,8 @@ Covers:
 * Persistence — `extract_equations_for_paper` writes to a real
   LanceDB equations table; per-paper sweep is idempotent.
 * `equation_id` content-addressing — same inputs produce the same id.
-* `parent_chunk_id = None` at v1 (synthesis D7).
+* `parent_chunk_id` — the chunk whose text holds the equation.
+* An ingest run leaves `find_equation` a table it answers `ted_fused` from.
 * AC1 coverage.
 """
 
@@ -59,7 +60,7 @@ class TestExtractEquationAtomsFromHtml:
         assert atom["presentation_latex"] == r"e^{i\pi}+1=0"
         # ``mathml`` carries the <math> wrapper for downstream parsing.
         assert atom["mathml"].lstrip().startswith("<math")
-        # Defaults established by synthesis decisions.
+        # No chunks given, so no parent.
         assert atom["parent_chunk_id"] is None
         assert atom["ascii_form"] == ""
         assert atom["mathml_tree_json"] is None
@@ -318,3 +319,177 @@ class TestExtractEquationsForPaper:
                 lancedb_path,
                 html_path=FIXTURES / "single_equation.html",
             )
+
+
+# ===========================================================================
+# Parent chunk
+# ===========================================================================
+
+
+class TestParentChunk:
+    def _chunk(self, chunk_id, body, *, has_stmt=True):
+        from ingest.extract_equations import _ChunkText
+
+        return _ChunkText(chunk_id, body, has_stmt)
+
+    def test_the_chunk_holding_the_equation_is_its_parent(self):
+        chunks = [
+            self._chunk("c1", "Nothing here."),
+            self._chunk("c2", r"Euler: $e^{i\pi}+1=0$ links five constants."),
+        ]
+        [atom] = extract_equation_atoms_from_html(
+            _read("single_equation.html"), "2401.00001", chunks
+        )
+        assert atom["parent_chunk_id"] == "c2"
+
+    def test_a_statement_chunk_wins_over_a_proof_chunk(self):
+        body = r"$e^{i\pi}+1=0$"
+        chunks = [
+            self._chunk("a-proof", body, has_stmt=False),
+            self._chunk("b-stmt", body),
+        ]
+        [atom] = extract_equation_atoms_from_html(
+            _read("single_equation.html"), "2401.00001", chunks
+        )
+        assert atom["parent_chunk_id"] == "b-stmt"
+
+    def test_no_chunk_holding_it_leaves_no_parent(self):
+        [atom] = extract_equation_atoms_from_html(
+            _read("single_equation.html"), "2401.00001",
+            [self._chunk("c1", "e^{i\\pi}+1=0 without delimiters")],
+        )
+        assert atom["parent_chunk_id"] is None
+
+    def test_an_align_row_needs_every_cell(self):
+        atoms = extract_equation_atoms_from_html(
+            _read("align_group.html"), "2401.00001",
+            [self._chunk("c1", "$x+y$ $=3$ and $2x$ alone")],
+        )
+        parents = {a["label"]: a["parent_chunk_id"] for a in atoms}
+        assert parents == {"E2": "c1", "E3": None}
+
+
+# ===========================================================================
+# Through an ingest run
+# ===========================================================================
+
+
+def _ingest_fixture_paper(tmp_path, paper_id):
+    """Run a bulk ingest of one paper from ``two_theorems.html``: the real
+    chunker, store, equation extraction and tree build, with the
+    embedder replaced by one unit vector per chunk."""
+    from contextlib import ExitStack
+    from unittest.mock import patch
+
+    import numpy as np
+
+    from ingest.ar5iv_fetch import Ar5ivResult
+    from ingest.bulk_ingest import run_bulk_ingest
+    from ingest.chunk import EMBEDDING_DIM, route
+    from ingest.chunker import chunk_paper
+    from ingest.embedder import EmbedStats
+    from ingest.schema import EmbedRecord
+
+    parsed_dir = tmp_path / "parsed"
+    (parsed_dir / paper_id).mkdir(parents=True)
+    html = parsed_dir / paper_id / "index.html"
+    html.write_text(_read("two_theorems.html"), encoding="utf-8")
+    chunked: list = []
+
+    def _chunk(pid, **kwargs):
+        chunked[:] = chunk_paper(pid, **kwargs)
+        return chunked
+
+    def _record(_pid):
+        stmt = [c for c in chunked if route(c.kind) == "stmt"]
+        proof = [c for c in chunked if route(c.kind) == "proof"]
+        eye = np.eye(len(chunked), EMBEDDING_DIM, dtype=np.float32)
+        return EmbedRecord(
+            chunk_ids_stmt=[c.chunk_id for c in stmt],
+            embedding_stmt=eye[: len(stmt)],
+            chunk_ids_proof=[c.chunk_id for c in proof],
+            embedding_proof=eye[len(stmt) :],
+            embedder_version="bge-m3@00000000",
+        )
+
+    staging = tmp_path / "staging"
+    with ExitStack() as stack:
+        for target, kwargs in [
+            ("try_cache", {"return_value": Ar5ivResult(
+                paper_id=paper_id, hit=True, cache_path=html,
+                parsed_path=html, reason="ok_local_cache",
+            )}),
+            ("chunk_paper", {"side_effect": _chunk}),
+            ("embed_paper", {"return_value": EmbedStats(
+                paper_id=paper_id, chunks_processed=len(chunked),
+                chunks_skipped=0, truncated_count=0, elapsed_s=0.0,
+            )}),
+            ("load_embed_record", {"side_effect": _record}),
+            ("build_derived_indexes", {}),
+        ]:
+            stack.enter_context(patch(f"ingest.bulk_ingest.{target}", **kwargs))
+        stack.enter_context(patch("ingest.chunker.CHUNKS_DIR", tmp_path / "chunks"))
+        stack.enter_context(
+            patch("ingest.chunker._resolve_preamble_doc", return_value=None)
+        )
+        summary = run_bulk_ingest(
+            [paper_id],
+            lancedb_staging_path=staging,
+            parsed_dir=parsed_dir,
+            failures_path=tmp_path / "failures.jsonl",
+            log_path=tmp_path / "ingestion.log",
+            ops_dir=tmp_path / "ops",
+        )
+    assert summary.papers_succeeded == 1
+    return staging
+
+
+def test_an_ingested_paper_answers_find_equation_by_tree(tmp_path, monkeypatch):
+    import lancedb
+    import numpy as np
+
+    import server.handlers.equation as eq_handler_mod
+    import server.tools as server_tools
+    from tests.test_equation_index import _install_resources, _run
+
+    paper_id = "2401.00007"
+    staging = _ingest_fixture_paper(tmp_path, paper_id)
+
+    db = lancedb.connect(str(staging))
+    chunks = db.open_table("chunks")
+    equations = db.open_table("equations")
+    rows = {r["label"]: r for r in equations.to_arrow().to_pylist()}
+    assert set(rows) == {"E1", "E2"}
+    assert all(r["mathml_tree_json"] for r in rows.values())
+    bodies = {
+        r["chunk_id"]: r["body_text"] for r in chunks.to_arrow().to_pylist()
+    }
+    assert "\\int" in bodies[rows["E1"]["parent_chunk_id"]]
+    assert "\\sum" in bodies[rows["E2"]["parent_chunk_id"]]
+
+    # The query lands next to the integral's chunk; the tree must still
+    # rank the integral first among the candidates the chunks bring in.
+    [integral_chunk] = (
+        chunks.search()
+        .where(f"chunk_id = '{rows['E1']['parent_chunk_id']}'")
+        .to_arrow()
+        .to_pylist()
+    )
+    query_vec = np.asarray(integral_chunk["embedding_stmt"], dtype=np.float32)
+
+    async def _encode(_text):
+        return query_vec
+
+    monkeypatch.setattr(eq_handler_mod, "encode_query", _encode)
+    _install_resources(chunks, equations_table=equations, tmp_path=staging)
+    query = (Path(__file__).parent / "fixtures" / "equations" / "int_01_fxdx.mathml")
+    try:
+        result = _run(
+            eq_handler_mod.handle_find_equation(
+                latex_or_mathml=query.read_text(encoding="utf-8"), k=5
+            )
+        )
+    finally:
+        server_tools._RESOURCES = None
+    assert result["retrieval_mode"] == "ted_fused"
+    assert result["results"][0]["equation_id"] == rows["E1"]["equation_id"]

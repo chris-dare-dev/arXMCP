@@ -77,6 +77,7 @@ from ingest.bulk_ingest import (
 )
 from ingest.derived_indexes import build_derived_indexes
 from ingest.identifiers import is_valid_arxiv_paper_id
+from ingest.index_equations import index_equation_trees
 from ingest.store import (
     CORPUS_VERSION_MARKER_NAME,
     STALE_CHUNKER_EXIT_CODE,
@@ -845,6 +846,7 @@ def run_delta(
     if changed and (lancedb_staging_path / CORPUS_VERSION_MARKER_NAME).is_file():
         refresh_indices(lancedb_staging_path)
         build_derived_indexes(lancedb_staging_path)
+        index_equation_trees(lancedb_staging_path)
 
     summary.elapsed_seconds = time.monotonic() - started
     summary.budget_breached = summary.elapsed_seconds > budget_seconds
