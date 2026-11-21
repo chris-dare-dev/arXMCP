@@ -3,7 +3,8 @@
 Wires :attr:`server.config.Config.pin_arxiv_ca` into an
 :class:`ssl.SSLContext` consumer for the two arxiv-rooted fetch
 sites — ``ingest/ar5iv_fetch.py::try_cache`` and
-``tools/arxiv_fetch.py::fetch_eprint``. Closes Threat 7 mitigation #2
+``tools/arxiv_fetch.py::fetch_eprint``. Every production caller of
+those two functions passes :func:`arxiv_ssl_context_from_env`. Closes Threat 7 mitigation #2
 ("Pin known fingerprint of arxiv.org's certificate authority chain
 (rotated periodically)").
 
@@ -111,8 +112,26 @@ def build_arxiv_ssl_context(config: Config) -> ssl.SSLContext | None:
     return ssl.create_default_context(cafile=str(bundle))
 
 
+def arxiv_ssl_context_from_env() -> ssl.SSLContext | None:
+    """Build the arxiv SSLContext from the process's ``ARXMCP_*`` env.
+
+    The entry point for fetch callers that run outside the server
+    process (bulk ingest, the seed and notebook fetch tools) and so
+    hold no :class:`~server.config.Config` of their own. Loads a fresh
+    ``Config()``, which applies the same fail-closed bundle validation
+    as server startup, and hands it to :func:`build_arxiv_ssl_context`:
+    ``None`` when the pin is off, the pinned context when it is on.
+    A missing or unparseable bundle raises rather than degrading to
+    the system trust store.
+    """
+    from server.config import Config  # noqa: PLC0415 — only this entry point needs it
+
+    return build_arxiv_ssl_context(Config())
+
+
 __all__ = [
     "VENDORED_ARXIV_CA_BUNDLE",
+    "arxiv_ssl_context_from_env",
     "build_arxiv_ssl_context",
     "resolve_arxiv_ca_bundle",
 ]

@@ -84,6 +84,7 @@ from ingest.store import (
     write_chunks,
 )
 from server.application_paths import ApplicationPaths
+from server.ssl_pin import arxiv_ssl_context_from_env
 
 logger = logging.getLogger(__name__)
 
@@ -234,6 +235,7 @@ def _parse_via_ar5iv(
             paper_id,
             cache_dir=ar5iv_cache_dir,
             parsed_dir=parsed_dir,
+            ssl_context=arxiv_ssl_context_from_env(),
         )
     except ValueError:
         # Malformed paper_id was already caught upstream; defensive.

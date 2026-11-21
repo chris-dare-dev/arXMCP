@@ -58,6 +58,7 @@ from ingest.ar5iv_fetch import (
     try_cache,
 )
 from ingest.identifiers import is_valid_arxiv_paper_id
+from server.ssl_pin import arxiv_ssl_context_from_env
 from tools._notebook_common import (
     CORPUS_RAW_DIR,
     NotebookError,
@@ -116,6 +117,7 @@ def run(slug: str, *, sleep_seconds: float = POLITENESS_SLEEP_SECONDS) -> int:
             paper_id,
             cache_dir=DEFAULT_AR5IV_CACHE_DIR,
             parsed_dir=DEFAULT_PARSED_DIR,
+            ssl_context=arxiv_ssl_context_from_env(),
         )
         if result.hit:
             # Categorize: was this a local-cache hit (no fetch) or a

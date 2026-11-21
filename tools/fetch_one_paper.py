@@ -19,6 +19,7 @@ import argparse
 import sys
 from pathlib import Path
 
+from server.ssl_pin import arxiv_ssl_context_from_env
 from tools.arxiv_fetch import (
     fetch_eprint,
     parse_with_latexml,
@@ -36,7 +37,9 @@ def main() -> int:
     args = parser.parse_args()
 
     try:
-        fetch = fetch_eprint(args.paper_id, RAW_DIR)
+        fetch = fetch_eprint(
+            args.paper_id, RAW_DIR, ssl_context=arxiv_ssl_context_from_env()
+        )
     except Exception as e:  # noqa: BLE001 — boundary; we want any failure surfaced
         print(f"FETCH FAILED: {e}", file=sys.stderr)
         return 2

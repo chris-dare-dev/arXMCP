@@ -317,7 +317,7 @@ def test_fetch_distinguishes_rate_limit_from_miss(
     _seed_notebook(notebooks_base, "demo", ["2303.07061", "0705.3794", "1106.3430"])
 
     # Mock try_cache: first returns 429, second returns 404, third returns hit
-    def _mock(paper_id, *, cache_dir, parsed_dir):
+    def _mock(paper_id, *, cache_dir, parsed_dir, **_kw):
         if paper_id == "2303.07061":
             return Ar5ivResult(
                 paper_id=paper_id, hit=False, cache_path=None,
