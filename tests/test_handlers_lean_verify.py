@@ -36,6 +36,7 @@ from server.handlers.lean_verify import (
     MAX_IMPORT_LINE_LEN,
     _audit_from_messages,
     _build_command,
+    _classify_snippet,
     _declaration_names,
     _decode_token,
     _encode_token,
@@ -44,6 +45,7 @@ from server.handlers.lean_verify import (
     handle_lean_verify,
 )
 from server.lean_repl import (
+    DEFAULT_QUERY_TIMEOUT_S,
     LeanReplError,
     LeanReplRestartedError,
     LeanReplTimeoutError,
@@ -100,6 +102,9 @@ class _FakeLeanRepl:
         # tokens with LeanRepl.generation. A distinct value per instance
         # lets the respawn tests exercise the expired-token path.
         self.generation = generation
+        # The handler reads the live REPL's budget for its heartbeat and its
+        # timeout message (LeanRepl.query_timeout_s).
+        self.query_timeout_s = DEFAULT_QUERY_TIMEOUT_S
 
     def _next_response(self) -> dict[str, Any]:
         """Pop the next queued response, or ``{}`` once the queue is empty.
@@ -302,6 +307,137 @@ class TestBuildCommand:
     def test_syntax_only_wraps_def_in_maxheartbeats(self):
         cmd = _build_command("def x : Nat := 7", [], "syntax_only")
         assert cmd.startswith("set_option maxHeartbeats 5000 in ")
+
+    def test_syntax_only_sends_other_commands_unwrapped(self):
+        """A ``variable`` line scopes the declarations after it; behind
+        ``set_option … in`` it would be closed before them, and inside
+        ``#check (…)`` it is a parse error."""
+        snippet = "variable (n : Nat)\ntheorem t : n = n := rfl"
+        assert _build_command(snippet, [], "syntax_only") == snippet
+
+    def test_syntax_only_declaration_keeps_imports_first(self):
+        cmd = _build_command(
+            "noncomputable def f : Nat := 0", ["Mathlib"], "syntax_only"
+        )
+        assert cmd == (
+            "import Mathlib\n"
+            "set_option maxHeartbeats 5000 in noncomputable def f : Nat := 0"
+        )
+
+
+#: (snippet, expected kind). Every shape #check-wrapping used to break, plus
+#: the terms that must still be wrapped.
+_CLASSIFY_CASES: list[tuple[str, str]] = [
+    # Bare declaration keywords.
+    ("theorem t : 1 = 1 := rfl", "declaration"),
+    ("lemma l : True := trivial", "declaration"),
+    ("def x : Nat := 7", "declaration"),
+    ("example : True := trivial", "declaration"),
+    ("abbrev N := Nat", "declaration"),
+    ("instance : Inhabited Nat := ⟨0⟩", "declaration"),
+    ("instance instFoo : Inhabited Nat := ⟨0⟩", "declaration"),
+    ("structure P where\n  x : Nat", "declaration"),
+    ("inductive T where\n  | a", "declaration"),
+    ("class C (α : Type) where\n  f : α", "declaration"),
+    ("class inductive D where\n  | a", "declaration"),
+    ("axiom ax : False", "declaration"),
+    ("opaque o : Nat", "declaration"),
+    ("alias foo := bar", "declaration"),
+    ("mutual\n  def a : Nat := 0\nend", "declaration"),
+    # Modifiers.
+    ("noncomputable def f : Nat := 0", "declaration"),
+    ("private theorem p : True := trivial", "declaration"),
+    ("protected theorem q : True := trivial", "declaration"),
+    ("private noncomputable def g : Nat := 0", "declaration"),
+    ("partial def loop : Nat → Nat := loop", "declaration"),
+    ("unsafe def u : Nat := 0", "declaration"),
+    ("nonrec theorem n : True := trivial", "declaration"),
+    ("scoped instance : Inhabited Nat := ⟨0⟩", "declaration"),
+    ("local instance : Inhabited Nat := ⟨0⟩", "declaration"),
+    # Attributes, including nested brackets and no space before the keyword.
+    ("@[simp] theorem s : 1 + 0 = 1 := rfl", "declaration"),
+    ("@[simp, norm_cast] lemma c : True := trivial", "declaration"),
+    ("@[to_additive (attr := simp)] theorem m : True := trivial", "declaration"),
+    ("@[simp]theorem s : True := trivial", "declaration"),
+    ("@[simp]\n@[reducible]\ndef d : Nat := 1", "declaration"),
+    ("@[simp] private theorem sp : True := trivial", "declaration"),
+    # Doc comments and ordinary comments before the declaration.
+    ("/-- A helper. -/\ntheorem h : True := trivial", "declaration"),
+    ("/-- Doc with /- nested -/ comment. -/ def d : Nat := 1", "declaration"),
+    ("/-- Doc. -/\n@[simp] noncomputable def d : Nat := 1", "declaration"),
+    ("-- a note\ntheorem t : True := trivial", "declaration"),
+    ("/- a block -/ theorem t : True := trivial", "declaration"),
+    ("\n\n   theorem t : True := trivial", "declaration"),
+    # `… in` prefixes.
+    ("open Nat in theorem t : succ 0 = 1 := rfl", "declaration"),
+    ("open Nat in\ntheorem t : succ 0 = 1 := rfl", "declaration"),
+    ("open scoped Classical in\nnoncomputable def c : Nat := 0", "declaration"),
+    ("set_option maxHeartbeats 400000 in\ntheorem big : True := trivial", "declaration"),
+    ("variable (n : Nat) in\ntheorem v : n = n := rfl", "declaration"),
+    ("universe u in\ndef idU (α : Sort u) (a : α) : α := a", "declaration"),
+    ("open Nat in\nset_option pp.all true in\n@[simp] theorem t : True := trivial", "declaration"),
+    # Other commands: sent unwrapped.
+    ("variable (n : Nat)\ntheorem t : n = n := rfl", "command"),
+    ("namespace Foo\ntheorem t : True := trivial\nend Foo", "command"),
+    ("section\ntheorem t : True := trivial\nend", "command"),
+    ("noncomputable section\ndef f : Nat := 0\nend", "command"),
+    ("open Nat\ntheorem t : succ 0 = 1 := rfl", "command"),
+    ("open Nat -- used in proofs\nNat.succ 0", "command"),
+    ("set_option autoImplicit false\ntheorem t : True := trivial", "command"),
+    ("universe u", "command"),
+    ("#check Nat.succ", "command"),
+    ("#eval 1 + 1", "command"),
+    ("deriving instance Repr for Foo", "command"),
+    ("attribute [simp] Nat.add_zero", "command"),
+    ("local notation \"ℕ\" => Nat", "command"),
+    ("/-! Module doc. -/\ntheorem t : True := trivial", "command"),
+    # A doc comment / attribute / modifier cannot open a term.
+    ("/-- Doc. -/ something_unknown", "command"),
+    ("@[simp] (1 + 1 : Nat)", "command"),
+    # Terms.
+    ("(1 + 1 : Nat)", "term"),
+    ("1 + 1", "term"),
+    ("Nat.succ 0", "term"),
+    ("fun x : Nat => x + 1", "term"),
+    ("∀ n : Nat, n = n", "term"),
+    ("show 1 = 1 from rfl", "term"),
+    ("@id Nat 0", "term"),
+    ("open Nat in succ 0", "term"),
+    ("-- a note\n(2 : Nat)", "term"),
+    ("partial_sum 3", "term"),
+    ("theorem_like_name 2", "term"),
+    ("definitely 2", "term"),
+]
+
+
+class TestClassifySnippet:
+    @pytest.mark.parametrize(("snippet", "expected"), _CLASSIFY_CASES)
+    def test_classification(self, snippet: str, expected: str) -> None:
+        assert _classify_snippet(snippet) == expected
+
+    @pytest.mark.parametrize(
+        "snippet",
+        [s for s, kind in _CLASSIFY_CASES if kind == "declaration"],
+    )
+    def test_declarations_are_never_check_wrapped(self, snippet: str) -> None:
+        cmd = _build_command(snippet, [], "syntax_only")
+        assert cmd == f"set_option maxHeartbeats 5000 in {snippet}"
+
+    @pytest.mark.parametrize(
+        "snippet", [s for s, kind in _CLASSIFY_CASES if kind == "term"]
+    )
+    def test_terms_are_check_wrapped(self, snippet: str) -> None:
+        assert _build_command(snippet, [], "syntax_only") == f"#check ({snippet})"
+
+    def test_unterminated_doc_comment_is_not_a_term(self) -> None:
+        """An unclosed comment must not loop or raise; it cannot be a term."""
+        assert _classify_snippet("/-- never closed theorem t") == "command"
+
+    def test_unterminated_attribute_is_not_a_term(self) -> None:
+        assert _classify_snippet("@[simp theorem t : True := trivial") == "command"
+
+    def test_empty_snippet_is_a_term(self) -> None:
+        assert _classify_snippet("") == "term"
 
 
 # ===========================================================================
@@ -951,6 +1087,29 @@ class TestHandlerTimeout:
             assert result["compilation_success"] is False
             assert fake.lean_repl is timed_out
             assert timed_out.closed is False
+        finally:
+            reset_resources_for_tests()
+
+    def test_timeout_message_names_the_configured_budget(self):
+        """The message reports the budget the REPL actually enforced and
+        names the knob that raises it, rather than a module constant."""
+        timed_out = _FakeLeanRepl(
+            raise_with=LeanReplTimeoutError(
+                "Lean REPL query exceeded the 240.0s timeout."
+            )
+        )
+        timed_out.query_timeout_s = 240.0
+        _attach_fake_resources(timed_out)
+        try:
+            result = _run(
+                handle_lean_verify(
+                    snippet="theorem t : 1 + 1 = 2 := by norm_num",
+                    imports=["Mathlib"],
+                )
+            )
+            text = result["messages"][0]["text"]
+            assert "240s per-query timeout" in text
+            assert "ARXMCP_LEAN_QUERY_TIMEOUT_S" in text
         finally:
             reset_resources_for_tests()
 
@@ -1877,14 +2036,12 @@ class TestProgressHeartbeat:
                 f"expected >=1 progress emission for a 200ms call at a "
                 f"50ms heartbeat interval; got {len(ctx.calls)} calls"
             )
-            # All emissions carry total=DEFAULT_QUERY_TIMEOUT_S (the
+            # All emissions carry total=the REPL's query_timeout_s (the
             # source of truth for the REPL wall-clock budget — m4
             # critique F2) and a STRICTLY-monotonic progress value (m4
             # critique F1 / F5 — the spec MUST is "MUST increase", and
             # the prior non-strict `sorted` check would silently pass
             # the plateau-at-0.95 bug).
-            from server.lean_repl import DEFAULT_QUERY_TIMEOUT_S
-
             progresses = [c["progress"] for c in ctx.calls]
             assert all(0.0 < p < 1.0 for p in progresses), (
                 f"progress must be in (0, 1) — the asymptotic taper "
@@ -2128,24 +2285,14 @@ class TestProgressHeartbeat:
         finally:
             reset_resources_for_tests()
 
-    def test_f2_total_tracks_default_query_timeout_s(self, monkeypatch):
-        """m4 critique F2: ``total`` MUST track
-        ``server.lean_repl.DEFAULT_QUERY_TIMEOUT_S`` — patching it
-        scales the emitted ``total`` and the asymptotic taper. Without
-        the import, the prior hardcoded ``_HEARTBEAT_TOTAL_S = 30.0``
-        would emit ``total=30.0`` regardless and silently desynchronize
-        from the real REPL budget."""
-        import server.handlers.lean_verify as lv
-        import server.lean_repl as lr
-
-        # Patch the module-level binding the handler READS each tick
-        # (the handler uses ``total=DEFAULT_QUERY_TIMEOUT_S`` — a bare
-        # name resolved against ``server.handlers.lean_verify``'s
-        # module globals at call time, so we patch it there).
-        monkeypatch.setattr(lv, "DEFAULT_QUERY_TIMEOUT_S", 99.0)
-        monkeypatch.setattr(lr, "DEFAULT_QUERY_TIMEOUT_S", 99.0)
-
+    def test_f2_total_tracks_the_repl_query_timeout(self):
+        """m4 critique F2: ``total`` MUST track the live REPL's
+        ``query_timeout_s`` (the operator's ``ARXMCP_LEAN_QUERY_TIMEOUT_S``)
+        — a raised budget scales the emitted ``total`` and the asymptotic
+        taper. A hardcoded total would silently desynchronize from the
+        real REPL budget."""
         slow_repl = _SlowFakeLeanRepl(responses=[{"env": 0}], delay_s=0.2)
+        slow_repl.query_timeout_s = 99.0
         _attach_fake_resources(slow_repl)
         ctx = _RecordingCtx()
         try:
@@ -2159,31 +2306,26 @@ class TestProgressHeartbeat:
             )
             assert len(ctx.calls) >= 1
             assert all(c["total"] == 99.0 for c in ctx.calls), (
-                f"total MUST track the patched DEFAULT_QUERY_TIMEOUT_S "
+                f"total MUST track the REPL's query_timeout_s "
                 f"(=99.0); got {[c['total'] for c in ctx.calls]} — "
                 f"hardcoded constant divergence from m4 critique F2"
             )
         finally:
             reset_resources_for_tests()
 
-    def test_f1_progress_never_plateaus(self, monkeypatch):
+    def test_f1_progress_never_plateaus(self):
         """m4 critique F1: the spec MUST is "progress MUST increase
         with each notification" — the prior ``min(elapsed / total,
         0.95)`` cap plateaued at 0.95. The asymptotic taper
         ``1 - exp(-elapsed / total)`` is strictly monotonic for all
-        positive ``elapsed``. We force the cap region by shrinking
-        ``DEFAULT_QUERY_TIMEOUT_S`` so the taper saturates rapidly
+        positive ``elapsed``. We force the cap region by shrinking the
+        REPL's ``query_timeout_s`` so the taper saturates rapidly
         within a tractable wall-clock — and confirm strict-monotonic
         emissions across many ticks."""
-        import server.handlers.lean_verify as lv
-        import server.lean_repl as lr
-
         # Tiny total + a longer-than-needed delay so MANY heartbeat
         # ticks fire while the (pre-fix) cap would have plateaued.
-        monkeypatch.setattr(lv, "DEFAULT_QUERY_TIMEOUT_S", 0.1)
-        monkeypatch.setattr(lr, "DEFAULT_QUERY_TIMEOUT_S", 0.1)
-
         slow_repl = _SlowFakeLeanRepl(responses=[{"env": 0}], delay_s=0.5)
+        slow_repl.query_timeout_s = 0.1
         _attach_fake_resources(slow_repl)
         ctx = _RecordingCtx()
         try:

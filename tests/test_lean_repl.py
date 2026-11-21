@@ -22,6 +22,7 @@ import pytest
 
 from server.config import Config
 from server.lean_repl import (
+    DEFAULT_QUERY_TIMEOUT_S,
     LeanRepl,
     LeanReplError,
     LeanReplRestartedError,
@@ -252,6 +253,62 @@ class TestFakeProcRoundTrips:
         assert proc.kill_called is True
         # Two bounded waits of ~0.1s each — generously under 5s.
         assert elapsed < 5.0
+
+
+class TestQueryTimeoutConfig:
+    """The per-query timeout is an operator knob, not a module constant, so a
+    cold ``import Mathlib`` can be given the minutes it needs."""
+
+    def test_config_default_matches_the_repl_default(self):
+        assert (
+            Config.model_fields["lean_query_timeout_s"].default
+            == DEFAULT_QUERY_TIMEOUT_S
+        )
+
+    def test_env_var_sets_the_field(self, monkeypatch):
+        monkeypatch.setenv("ARXMCP_LEAN_QUERY_TIMEOUT_S", "240")
+        assert Config().lean_query_timeout_s == 240.0
+
+    @pytest.mark.parametrize("bad", [0.0, -1.0, float("nan"), float("inf")])
+    def test_rejects_non_positive_or_non_finite(self, bad):
+        with pytest.raises(ValueError, match="ARXMCP_LEAN_QUERY_TIMEOUT_S"):
+            Config(lean_query_timeout_s=bad)
+
+    def test_query_uses_the_instance_timeout_by_default(self):
+        proc = _FakeProc(stdout_hang=True)
+        repl = LeanRepl(
+            proc, Path("fake_lake"), Path("fake_repl_dir"), query_timeout_s=0.1
+        )
+        assert repl.query_timeout_s == 0.1
+        start = time.monotonic()
+        with pytest.raises(LeanReplTimeoutError, match="0.1s"):
+            _run(repl.query({"cmd": "x"}))
+        assert time.monotonic() - start < 5.0
+
+    def test_explicit_timeout_overrides_the_instance_default(self):
+        proc = _FakeProc(stdout_hang=True)
+        repl = LeanRepl(
+            proc, Path("fake_lake"), Path("fake_repl_dir"), query_timeout_s=600.0
+        )
+        with pytest.raises(LeanReplTimeoutError, match="0.1s"):
+            _run(repl.query({"cmd": "x"}, timeout=0.1))
+
+    def test_unset_instance_timeout_is_the_module_default(self):
+        assert _repl(_FakeProc()).query_timeout_s == DEFAULT_QUERY_TIMEOUT_S
+
+    def test_spawn_from_config_threads_the_timeout(self, tmp_path, monkeypatch):
+        async def _fake_start(lake, rd, rlimit_as_bytes):
+            return _FakeProc()
+
+        monkeypatch.setattr(LeanRepl, "_start_process", staticmethod(_fake_start))
+        cfg = Config(
+            enable_lean=True,
+            lake_path=tmp_path / "lake",
+            lean_repl_dir=tmp_path,
+            lean_query_timeout_s=180.0,
+        )
+        repl = _run(LeanRepl.spawn_from_config(cfg))
+        assert repl.query_timeout_s == 180.0
 
 
 class TestObservabilityTelemetry:

@@ -45,7 +45,6 @@ from mcp.server.fastmcp import Context
 from pydantic import Field
 
 from server.lean_repl import (
-    DEFAULT_QUERY_TIMEOUT_S,
     LeanReplError,
     LeanReplRestartedError,
     LeanReplTimeoutError,
@@ -70,7 +69,7 @@ logger = logging.getLogger(__name__)
 #: Maximum bytes accepted in the ``snippet`` input. 16 KiB is generous
 #: for a single theorem + proof; bounds the per-call payload an agent
 #: can submit. Threat-3 "subprocess input cap" — bounding the Lean
-#: source bounds the elaboration cost (mitigates the 30 s timeout from
+#: source bounds the elaboration cost (mitigates the per-query timeout from
 #: needing to fire on a million-line snippet).
 MAX_SNIPPET_LEN: int = 16 * 1024
 
@@ -158,7 +157,7 @@ def _continuation_reject_message(kind: str, disposition: str) -> str:
 _HEARTBEAT_INTERVAL_S: float = 3.0
 
 
-def _heartbeat_progress(elapsed: float) -> float:
+def _heartbeat_progress(elapsed: float, total: float) -> float:
     """Map ``elapsed`` seconds to a strictly-monotonic ``progress`` value
     in ``[0, 1)`` for ``Context.report_progress``.
 
@@ -170,12 +169,12 @@ def _heartbeat_progress(elapsed: float) -> float:
     ``DEFAULT_QUERY_TIMEOUT_S`` (m4 critique F1). An asymptotic taper
     ``1 - exp(-elapsed / total)`` is strictly monotonic for all positive
     ``elapsed`` AND strictly less than 1, so a slow REPL never appears
-    complete before ``query`` returns. We pin ``total`` to
-    ``DEFAULT_QUERY_TIMEOUT_S`` (the only source of truth for the REPL
-    wall-clock budget — m4 critique F2) so a future timeout bump scales
-    the taper accordingly without further code change.
+    complete before ``query`` returns. ``total`` is the live REPL's
+    per-query budget (:attr:`LeanRepl.query_timeout_s`, set from
+    ``ARXMCP_LEAN_QUERY_TIMEOUT_S``), so a raised timeout scales the
+    taper with it.
     """
-    return 1.0 - math.exp(-elapsed / DEFAULT_QUERY_TIMEOUT_S)
+    return 1.0 - math.exp(-elapsed / total)
 
 
 def _has_progress_token(ctx: Context) -> bool:
@@ -200,7 +199,7 @@ def _has_progress_token(ctx: Context) -> bool:
         return False
 
 
-async def _emit_progress_heartbeats(ctx: Context) -> None:
+async def _emit_progress_heartbeats(ctx: Context, total: float) -> None:
     """Emit ``notifications/progress`` every ``_HEARTBEAT_INTERVAL_S``
     seconds until cancelled.
 
@@ -245,13 +244,11 @@ async def _emit_progress_heartbeats(ctx: Context) -> None:
     while True:
         await asyncio.sleep(_HEARTBEAT_INTERVAL_S)
         elapsed += _HEARTBEAT_INTERVAL_S
-        pct = _heartbeat_progress(elapsed)
+        pct = _heartbeat_progress(elapsed, total)
         message = f"Lean elaboration running — {elapsed:.0f}s elapsed"
         emitted = False
         try:
-            await ctx.report_progress(
-                pct, total=DEFAULT_QUERY_TIMEOUT_S, message=message
-            )
+            await ctx.report_progress(pct, total=total, message=message)
             emitted = True
         except Exception:
             # FM-2 — never propagate transport errors to the handler.
@@ -1073,7 +1070,10 @@ def _timeout_envelope(
                 "text": (
                     f"Lean REPL exceeded the {timeout_s:.0f}s per-query "
                     "timeout; the subprocess was killed and respawned. "
-                    "The snippet may contain a non-terminating elaboration."
+                    "The snippet may contain a non-terminating elaboration, "
+                    "or a cold import (such as Mathlib) needed longer than "
+                    "the budget; the operator can raise it with "
+                    "ARXMCP_LEAN_QUERY_TIMEOUT_S."
                 ),
             }
         ],
@@ -1206,31 +1206,185 @@ def _message_error_envelope(
 # ---------------------------------------------------------------------------
 
 
+#: Keywords that open a declaration command in ``syntax_only`` mode. Every
+#: declaration :func:`_declaration_names` audits, plus the two that introduce no
+#: auditable name but are still declarations Lean elaborates (``example``) or
+#: wrap them (``mutual … end``).
+_SYNTAX_ONLY_DECL_KEYWORDS: frozenset[str] = frozenset(
+    (*_DECL_KEYWORDS, "example", "mutual")
+)
+
+#: Keywords that open a non-declaration command. Such a snippet can be neither
+#: wrapped in ``#check (…)`` (it is not a term) nor put behind
+#: ``set_option … in`` (``in`` scopes ONE command in its own section, so a
+#: ``variable`` or ``namespace`` would be closed before the declarations after
+#: it). It is sent unwrapped. Anything starting with ``#`` is a command too.
+_SYNTAX_ONLY_COMMAND_KEYWORDS: frozenset[str] = frozenset(
+    {
+        "namespace",
+        "section",
+        "end",
+        "open",
+        "export",
+        "variable",
+        "universe",
+        "set_option",
+        "attribute",
+        "import",
+        "include",
+        "omit",
+        "deriving",
+        "notation",
+        "infix",
+        "infixl",
+        "infixr",
+        "prefix",
+        "postfix",
+        "macro",
+        "macro_rules",
+        "syntax",
+        "elab",
+        "elab_rules",
+        "declare_syntax_cat",
+        "initialize",
+        "builtin_initialize",
+        "add_decl_doc",
+    }
+)
+
+#: A same-line ``… in`` prefix: ``open Foo in``, ``set_option pp.all true in``,
+#: ``variable (n : Nat) in`` and the like. Lean accepts these in front of a
+#: command AND in front of a term, so they say nothing about which one follows
+#: and the classifier skips them. The ``in`` must sit on the same line and
+#: before any ``--``, so ``open Foo -- used in proofs`` is not a prefix.
+_IN_PREFIX_RE = re.compile(
+    r"(?:open|set_option|variable|universe|attribute|include|omit)\b"
+    r"(?:(?!--)[^\n])*?(?<=\s)in(?=\s)"
+)
+
+_MODIFIER_RE = re.compile(rf"(?:{_MODIFIER_ALT})\b")
+
+#: The first word of what remains once the leading trivia is skipped.
+_LEAD_WORD_RE = re.compile(r"#?[A-Za-z_][A-Za-z0-9_]*")
+
+SnippetKind = Literal["term", "declaration", "command"]
+
+
+def _skip_block_comment(snippet: str, i: int) -> int:
+    """Return the index just past the (nestable) ``/- … -/`` opening at ``i``,
+    or ``len(snippet)`` when it never closes."""
+    depth = 0
+    n = len(snippet)
+    while i < n:
+        if snippet.startswith("/-", i):
+            depth += 1
+            i += 2
+        elif snippet.startswith("-/", i):
+            depth -= 1
+            i += 2
+            if depth == 0:
+                return i
+        else:
+            i += 1
+    return n
+
+
+def _skip_attribute(snippet: str, i: int) -> int:
+    """Return the index just past the ``@[ … ]`` opening at ``i``, matching
+    nested brackets (``@[simp, norm_cast]``, ``@[to_additive (attr := simp)]``)."""
+    depth = 0
+    n = len(snippet)
+    i += 1  # the "@"
+    while i < n:
+        ch = snippet[i]
+        if ch == "[":
+            depth += 1
+        elif ch == "]":
+            depth -= 1
+            if depth == 0:
+                return i + 1
+        i += 1
+    return n
+
+
+def _classify_snippet(snippet: str) -> SnippetKind:
+    """Decide how ``syntax_only`` mode must send ``snippet`` to Lean.
+
+    ``"term"`` — an expression, wrapped as ``#check (…)``.
+    ``"declaration"`` — a declaration command, put behind
+    ``set_option maxHeartbeats … in``.
+    ``"command"`` — any other command, sent unwrapped.
+
+    The leading trivia a declaration may carry is skipped first: whitespace,
+    ``--`` and ``/- … -/`` comments, doc comments, ``@[…]`` attributes, the
+    declaration modifiers (``private``, ``noncomputable``, …) and ``… in``
+    prefixes such as ``open Foo in``. A doc comment, an attribute or a
+    modifier can only open a command, never a term, so seeing one rules
+    ``"term"`` out even when the keyword after it is not recognised.
+    """
+    i = 0
+    n = len(snippet)
+    rules_out_term = False
+    while i < n:
+        if snippet[i].isspace():
+            i += 1
+        elif snippet.startswith("--", i):
+            newline = snippet.find("\n", i)
+            i = n if newline < 0 else newline + 1
+        elif snippet.startswith("/-!", i):
+            # A module doc comment is a command of its own, so whatever
+            # follows it is a separate command that ``in`` would not reach.
+            return "command"
+        elif snippet.startswith("/-", i):
+            # ``/--`` documents the declaration after it; a plain ``/-`` is
+            # just a comment.
+            if snippet.startswith("/--", i):
+                rules_out_term = True
+            i = _skip_block_comment(snippet, i)
+        elif snippet.startswith("@[", i):
+            rules_out_term = True
+            i = _skip_attribute(snippet, i)
+        elif modifier := _MODIFIER_RE.match(snippet, i):
+            rules_out_term = True
+            i = modifier.end()
+        elif in_prefix := _IN_PREFIX_RE.match(snippet, i):
+            i = in_prefix.end()
+        else:
+            break
+
+    word = _LEAD_WORD_RE.match(snippet, i)
+    lead = word.group(0) if word else ""
+    if lead in _SYNTAX_ONLY_DECL_KEYWORDS:
+        return "declaration"
+    if lead.startswith("#") or lead in _SYNTAX_ONLY_COMMAND_KEYWORDS:
+        return "command"
+    return "command" if rules_out_term else "term"
+
+
 def _build_command(snippet: str, imports: list[str], mode: str) -> str:
     """Build the ``{"cmd": ...}`` payload string sent to the REPL.
 
     - ``imports`` are prepended verbatim as ``import <name>`` lines (the
       REPL exposes the same surface as a ``.lean`` file).
-    - ``mode == "syntax_only"`` wraps the snippet in ``#check (...)`` so
-      Lean's elaborator type-checks the term WITHOUT running the full
-      kernel decide-instances pipeline. The REPL has no native
-      ``syntax_only`` flag — ``#check`` is the documented mechanism.
-      When the snippet is a declaration (a ``theorem`` / ``def`` line —
-      ``#check`` cannot wrap those), the wrapping prepends
+    - ``mode == "syntax_only"`` picks the wrapping from
+      :func:`_classify_snippet`. A term is wrapped in ``#check (...)`` so
+      Lean's elaborator type-checks it WITHOUT running the full kernel
+      decide-instances pipeline (the REPL has no native ``syntax_only``
+      flag). A declaration cannot be ``#check``-wrapped, so it gets
       ``set_option maxHeartbeats 5000 in `` to short-circuit kernel work
-      while preserving the declaration's type-check surface.
+      while preserving its type-check surface. Any other command
+      (``variable``, ``namespace``, ``#eval``, …) is sent unwrapped: it is
+      not a term, and ``set_option … in`` would scope it away from the
+      declarations after it.
     """
     import_lines = "\n".join(f"import {name}" for name in imports)
     body = snippet
 
     if mode == "syntax_only":
-        stripped = snippet.lstrip()
-        if stripped.startswith(("theorem ", "def ", "lemma ", "example ")):
-            # Declarations cannot be #check-wrapped — short-circuit
-            # kernel work via maxHeartbeats instead.
+        kind = _classify_snippet(snippet)
+        if kind == "declaration":
             body = f"set_option maxHeartbeats 5000 in {snippet}"
-        else:
-            # Term — wrap in #check to elaborate without kernel verification.
+        elif kind == "term":
             body = f"#check ({snippet})"
 
     if import_lines:
@@ -1544,7 +1698,9 @@ async def handle_lean_verify(
     # timeout (FM-7), and other ``LeanReplError`` variants (FM-7).
     heartbeat_task: asyncio.Task[None] | None = None
     if ctx is not None and _has_progress_token(ctx):
-        heartbeat_task = asyncio.create_task(_emit_progress_heartbeats(ctx))
+        heartbeat_task = asyncio.create_task(
+            _emit_progress_heartbeats(ctx, lean_repl.query_timeout_s)
+        )
 
     try:
         try:
@@ -1576,8 +1732,6 @@ async def handle_lean_verify(
         # FM-2 / m3 critique F3 — the REPL has already killed and restarted
         # its process. Distinct exception class so the discriminator is the
         # type, not a substring match on the message.
-        from server.lean_repl import DEFAULT_QUERY_TIMEOUT_S
-
         logger.warning("lean_verify: REPL timed out (%s)", exc)
         # m5 critique F4: a resumed continuation that then timed out still
         # had its token accepted THIS call — record that, don't claim
@@ -1585,7 +1739,9 @@ async def handle_lean_verify(
         resumed_status = "resumed" if resumed else "not-applicable"
         return envelope(
             _timeout_envelope(
-                mode, DEFAULT_QUERY_TIMEOUT_S, continuation_status=resumed_status
+                mode,
+                lean_repl.query_timeout_s,
+                continuation_status=resumed_status,
             )
         )
     except LeanReplError as exc:

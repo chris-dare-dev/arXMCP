@@ -54,7 +54,10 @@ logger = logging.getLogger(__name__)
 #: Default per-:meth:`LeanRepl.query` wall-clock timeout (seconds). The
 #: Lean REPL has no built-in per-command timeout — this is the
 #: implemented sandbox guard against a runaway elaboration. Simple
-#: snippets take sub-second round-trips; 30 s is generous.
+#: snippets take sub-second round-trips; 30 s is generous for them, but
+#: a cold ``import Mathlib`` can take minutes, so the operator raises it
+#: with ``ARXMCP_LEAN_QUERY_TIMEOUT_S`` (:attr:`Config.lean_query_timeout_s`,
+#: whose default must equal this value).
 DEFAULT_QUERY_TIMEOUT_S = 30.0
 
 #: Grace period for a clean subprocess ``terminate()`` before the
@@ -126,8 +129,10 @@ class LeanRepl:
         generation: str | None = None,
         *,
         rlimit_as_bytes: int | None = None,
+        query_timeout_s: float = DEFAULT_QUERY_TIMEOUT_S,
     ) -> None:
         self._proc = proc
+        self._query_timeout_s = query_timeout_s
         self._lake_path = lake_path
         self._repl_dir = repl_dir
         self._rlimit_as_bytes = rlimit_as_bytes
@@ -172,6 +177,7 @@ class LeanRepl:
         lake_path: str | Path,
         repl_dir: str | Path,
         rlimit_as_bytes: int | None = None,
+        query_timeout_s: float = DEFAULT_QUERY_TIMEOUT_S,
     ) -> LeanRepl:
         """Spawn ``lake exe repl`` as a non-blocking asyncio subprocess.
 
@@ -186,9 +192,12 @@ class LeanRepl:
         ``RLIMIT_AS`` in a ``preexec_fn``. ``None`` or ``0`` disables the
         cap. On Windows the cap is silently skipped — the platform has
         no ``RLIMIT_AS`` analogue and ``preexec_fn`` is rejected by
-        ``asyncio.create_subprocess_exec``; the 30 s per-query timeout
+        ``asyncio.create_subprocess_exec``; the per-query timeout
         remains the only memory backstop there (no Job-Object equivalent
         yet).
+
+        ``query_timeout_s`` is the wall-clock budget :meth:`query` uses
+        when its caller passes no explicit ``timeout``.
 
         Raises :class:`LeanUnavailableError` if either path is missing
         or the subprocess cannot be started.
@@ -196,7 +205,13 @@ class LeanRepl:
         lake = Path(lake_path)
         rd = Path(repl_dir)
         proc = await cls._start_process(lake, rd, rlimit_as_bytes)
-        return cls(proc, lake, rd, rlimit_as_bytes=rlimit_as_bytes)
+        return cls(
+            proc,
+            lake,
+            rd,
+            rlimit_as_bytes=rlimit_as_bytes,
+            query_timeout_s=query_timeout_s,
+        )
 
     @staticmethod
     async def _start_process(
@@ -245,7 +260,7 @@ class LeanRepl:
         elif rlimit_as_bytes and sys.platform == "win32":
             logger.warning(
                 "LeanRepl: RLIMIT_AS (%d bytes) requested but Windows has "
-                "no equivalent; the 30 s per-query timeout is the only "
+                "no equivalent; the per-query timeout is the only "
                 "memory backstop. See .claude/docs/lean-sandbox-design.md.",
                 rlimit_as_bytes,
             )
@@ -301,6 +316,7 @@ class LeanRepl:
             lake_path=config.lake_path,
             repl_dir=config.lean_repl_dir,
             rlimit_as_bytes=config.lean_rlimit_as_bytes,
+            query_timeout_s=config.lean_query_timeout_s,
         )
 
     # ------------------------------------------------------------------
@@ -311,6 +327,15 @@ class LeanRepl:
     def is_running(self) -> bool:
         """True while the REPL subprocess has not exited."""
         return self._proc.returncode is None
+
+    @property
+    def query_timeout_s(self) -> float:
+        """The default per-:meth:`query` wall-clock budget, in seconds.
+
+        The ``lean_verify`` handler reads it so its progress heartbeat and
+        its timeout message describe the budget that actually applies.
+        """
+        return self._query_timeout_s
 
     @property
     def generation(self) -> str:
@@ -349,7 +374,7 @@ class LeanRepl:
         self,
         command: dict[str, Any],
         *,
-        timeout: float = DEFAULT_QUERY_TIMEOUT_S,
+        timeout: float | None = None,
         generation: str | None = None,
     ) -> dict[str, Any]:
         """Send one JSON ``command`` to the REPL, return the parsed JSON
@@ -357,7 +382,8 @@ class LeanRepl:
 
         The round-trip is wrapped in ``asyncio.wait_for(timeout)`` — the
         sandbox per-query guard against a runaway elaboration — and
-        serialised against other ``query`` calls.
+        serialised against other ``query`` calls. ``timeout=None`` uses
+        :attr:`query_timeout_s`.
 
         A process that has exited is restarted before anything is sent.
         ``generation`` pins the command to one process: if the REPL has
@@ -372,6 +398,8 @@ class LeanRepl:
         :meth:`close`, and :class:`LeanUnavailableError` when the process
         must be restarted and cannot be.
         """
+        if timeout is None:
+            timeout = self._query_timeout_s
         async with self._io_lock:
             if self._closed:
                 raise LeanReplError("Lean REPL is closed; cannot query.")
@@ -486,7 +514,7 @@ class LeanRepl:
             # object — do NOT depend on the trailing blank line alone.
             # The REPL build validated by spike-2 does emit the
             # blank-line terminator, but relying on it exclusively means
-            # a repl build that omits it turns every query into a 30 s
+            # a repl build that omits it turns every query into a full
             # `asyncio.wait_for` timeout hang (m2 critique F3). An early
             # successful parse is the robust framing signal; the
             # blank-line break below is the fallback for a buffer that
