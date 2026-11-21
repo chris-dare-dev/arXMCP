@@ -6,9 +6,9 @@ Thin wrapper that:
    ``lancedb_staging_path=var/arxmcp/notebooks/<slug>/lancedb``.
 2. Reads the resulting ``corpus-version.json`` to find the per-notebook
    corpus version.
-3. ``run_bulk_ingest`` has already built the dataset's BM25, definitions
-   and theorem-name indexes inside it, so a cutover or rollback moves
-   them with the chunks.
+3. ``run_bulk_ingest`` has already built the dataset's BM25, definitions,
+   theorem-name and equation indexes inside it, so a cutover or rollback
+   moves them with the chunks.
 
 The brief's ``ARXMCP_LANCEDB_PATH=...`` wording was wrong — that's the
 SERVER's env var, not a bulk_ingest one. ``bulk_ingest`` uses the

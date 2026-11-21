@@ -5,13 +5,10 @@ column is populated and whose ``mathml_tree_json`` column is NULL,
 parses the MathML into a :class:`zss.Node` tree, serializes the tree
 to JSON, and writes the result back to the table.
 
-**v1 scope reminder.** The brief frames E10_S03 as "build the
-equation similarity index"; in practice the corpus-level equation
-atom extraction step (LaTeXML HTML → ``equations`` rows) is deferred
-to a future milestone. At v1 this indexer is mainly exercised by
-tests and by hand-seeded fixtures — once a future milestone lands
-the extractor, this module is the second step of the chain and
-needs no changes.
+**Second step of two.** Bulk ingest and the OAI delta extract each
+paper's equations as they write its chunks
+(:mod:`ingest.extract_equations`), then run this indexer once at the
+end of the run, under the same dataset write lock.
 
 **Idempotent per row.** Re-running the indexer on a table that
 already has ``mathml_tree_json`` populated is a no-op; the WHERE
@@ -95,15 +92,19 @@ def index_equation_trees(
     normalizer.
 
     Returns a counts dict ``{processed, updated, skipped, failed}``
-    so the caller (ops tooling or tests) can verify what landed.
+    so the caller (ops tooling or tests) can verify what landed. A
+    dataset with no ``equations`` table has nothing to index: every
+    count is 0 and no table is created.
 
     On a parse failure the row is left untouched and the failure is
     logged at WARNING. This lets a hand-crafted bad fixture surface
     in test logs without killing the whole indexer pass.
     """
+    counts = {"processed": 0, "updated": 0, "skipped": 0, "failed": 0}
+    if not (Path(lancedb_path) / f"{EQUATIONS_TABLE_NAME}.lance").is_dir():
+        return counts
     table = open_or_create_equations_table(lancedb_path)
     arrow = table.to_arrow()
-    counts = {"processed": 0, "updated": 0, "skipped": 0, "failed": 0}
 
     if arrow.num_rows == 0:
         return counts
@@ -195,6 +196,8 @@ def _cli(argv: list[str]) -> int:
         "the tree normalizer changes)",
     )
     args = parser.parse_args(argv)
+    if not Path(args.lancedb_path).is_dir():
+        parser.error(f"no LanceDB dataset at {args.lancedb_path}")
     counts = index_equation_trees(args.lancedb_path, rebuild=args.rebuild)
     print(" ".join(f"{k}={v}" for k, v in counts.items()))
     return 0
