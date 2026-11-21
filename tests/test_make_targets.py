@@ -219,7 +219,7 @@ class TestMakeInit:
 class TestResolveContactEmail:
     """``tools._notebook_common.resolve_contact_email`` is the
     priority chain: explicit arg → SQLite operator_settings →
-    ARXMCP_CONTACT_EMAIL env var → raise. Tested against an isolated
+    ARXMCP_CONTACT_EMAIL env var → ``None`` when no address is set. Tested against an isolated
     tmp_path SQLite to avoid polluting the shared notebooks.db.
     """
 
@@ -275,22 +275,11 @@ class TestResolveContactEmail:
         finally:
             os.environ.pop("ARXMCP_CONTACT_EMAIL", None)
 
-    def test_raises_with_make_init_hint_when_all_sources_empty(
-        self, isolated_db
-    ):
-        from tools._notebook_common import NotebookError, resolve_contact_email
+    def test_missing_address_is_optional(self, isolated_db):
+        from tools._notebook_common import resolve_contact_email
 
         os.environ.pop("ARXMCP_CONTACT_EMAIL", None)
-        with pytest.raises(NotebookError) as exc_info:
-            resolve_contact_email(None, db_path=isolated_db)
-        msg = str(exc_info.value)
-        # Independent-predicate assertions (m1 critique F4 / m2
-        # synthesis FM-4 brittleness mitigation).
-        assert "make init" in msg, (
-            "remediation hint must name the canonical Make target"
-        )
-        assert "EMAIL=" in msg or "--email" in msg
-        assert "ARXMCP_CONTACT_EMAIL" in msg
+        assert resolve_contact_email(None, db_path=isolated_db) is None
 
     def test_sqlite_shadows_env_var_emits_info_log(
         self, isolated_db, caplog

@@ -606,13 +606,15 @@ class TestValidation:
 
 class TestPolitePool:
     def test_user_agent_contains_arxmcp_and_mailto(self):
-        """AC#7: User-Agent header includes ``arXMCP/0.1 (mailto:...)``."""
+        """A configured address is optional contact on the app identity."""
         # build_user_agent is the helper we delegate to. Invoke directly
         # to confirm the format string is the one the AC pins.
         from tools.arxiv_fetch import build_user_agent
 
         ua = build_user_agent("operator@example.com")
-        assert ua.startswith("arXMCP/0.1 (mailto:")
+        assert ua.startswith(
+            "arXMCP/0.1 (+https://github.com/chris-dare-dev/arXMCP)"
+        )
         assert "operator@example.com" in ua
         assert ua.endswith(")")
 

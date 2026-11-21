@@ -35,8 +35,8 @@ import numpy as np
 import pyarrow as pa
 import pytest
 
+from ingest.chunk import ChunkRecord
 from ingest.chunker import chunk_paper
-from ingest.chunker_types import ChunkRecord
 from ingest.embedder import EMBEDDER_VERSION, EMBEDDING_DIM
 from ingest.preamble_types import PreambleDoc
 from ingest.schema import CHUNKS_SCHEMA_V1, EmbedRecord
@@ -153,8 +153,9 @@ def _build_table_from_html(
 
     ``resolve_preamble`` defaults to the hermetic empty-preamble seam
     (``lambda _pid: None``); pass a resolver returning a non-empty
-    ``PreambleDoc`` to build the table THROUGH a real preamble so the stored
-    chunk_ids are ``hash(preamble_text + body_text)`` (M1 / M4)."""
+    ``PreambleDoc`` to build the table THROUGH a real preamble. The stored
+    chunk_ids are ``hash(NFC(body_text))`` either way; only
+    ``preamble_ref`` differs."""
     if resolve_preamble is None:
         resolve_preamble = lambda _pid: None  # noqa: E731
     with (
@@ -171,8 +172,8 @@ def _build_table_from_html(
 def _nonempty_preamble(paper_id: str) -> PreambleDoc:
     """A ``PreambleDoc`` with a stable NON-empty ``preamble_text`` — drives the
     ``preamble_doc is not None`` branch of ``_rechunk_paper`` that the
-    ``lambda _pid: None`` seam never exercises, and (M4) a chunk_id namespace
-    distinct from the empty-preamble build."""
+    ``lambda _pid: None`` seam never exercises. It changes
+    ``preamble_ref`` only, never a chunk_id (``TestBodyOnlyIdsThroughBackfill``)."""
     text = "\\newcommand{\\R}{\\mathbb{R}}\n\\newcommand{\\Z}{\\mathbb{Z}}"
     return PreambleDoc(
         paper_id=paper_id,
@@ -593,8 +594,9 @@ class TestRealPreambleRoundTrip:
         doc = _nonempty_preamble(PAPER)
         resolver = lambda _pid: doc  # noqa: E731
 
-        # Build the table THROUGH the non-empty preamble (NOT the None seam),
-        # so the stored chunk_ids are hash(preamble_text + body_text).
+        # Build the table THROUGH the non-empty preamble (NOT the None seam).
+        # The stored chunk_ids are hash(NFC(body)); the preamble
+        # shows only in preamble_ref.
         _build_table_from_html(
             tmp_path, base, parsed, PAPER, seed=21, resolve_preamble=resolver
         )
@@ -624,7 +626,8 @@ class TestRealPreambleRoundTrip:
             by_kind.setdefault(r["kind"], []).append(r)
 
         # HIT: every row resolves source_span non-null (chunk_ids reproduced
-        # under the non-empty preamble), carrying the authoritative txt hash.
+        # with the non-empty preamble resolving), carrying the authoritative
+        # txt hash.
         for r in rows.values():
             assert r["source_revision_id"] == PAPER
             assert r["source_span"] is not None, (
@@ -640,30 +643,59 @@ class TestRealPreambleRoundTrip:
 
 
 # ---------------------------------------------------------------------------
-# M2 — the driver's own add_columns -> hydrate composition (21 -> 26 cols)
+# The driver's own add_columns -> hydrate composition (pre-v2 -> v2 cols)
 # ---------------------------------------------------------------------------
+
+
+# The five source-truth columns the backfill adds, and the columns added to
+# the schema after them, which a pre-v2 table cannot have either.
+_V2_COLUMNS = frozenset(
+    {"source_revision_id", "source_span", "truncated", "printed_number", "license_ref"}
+)
+_POST_V2_COLUMNS = frozenset(
+    {
+        "embed_input_policy_version",
+        "part_index",
+        "part_count",
+        "source_start",
+        "source_end",
+    }
+)
+# The columns a pre-v2 table carries: the original arXiv ones and the textbook ones.
+_PRE_V2_COLUMNS = frozenset(
+    {
+        "chunk_id", "paper_id", "kind", "section_path", "theorem_name",
+        "theorem_label", "body_text", "body_tokens", "embedding_stmt",
+        "embedding_proof", "embedding_eq", "chunker_version",
+        "embedder_version", "preamble_ref",
+        "source_kind", "license", "chapter", "page_start", "page_end",
+        "textbook_slug", "parser_used",
+    }
+)
 
 
 class TestMigrateThenHydrate:
     """M2 — every other backfill test builds via ``write_chunks`` (already at
-    the 26-col schema), so ``_ensure_v2_columns`` returns ``[]`` and the
-    migrate-then-hydrate path — add 5 columns to a genuine pre-v2 table, then
-    hydrate them in the SAME run (the live go-live scenario) — is exercised by
-    no test. Build a real 21-col pre-v2 table, run the backfill, and assert the
-    5 columns are added AND hydrated non-null (read back from disk) with
-    embeddings byte-identical."""
+    the full schema), so ``_ensure_v2_columns`` returns ``[]`` and the
+    migrate-then-hydrate path — add the 5 v2 columns to a genuine pre-v2
+    table, then hydrate them in the SAME run (the live go-live scenario) — is
+    exercised by no test. Build a real pre-v2 table, run the backfill, and
+    assert the 5 columns are added AND hydrated non-null (read back from disk)
+    with embeddings byte-identical."""
 
     def _build_pre_v2_table(
         self, tmp_path: Path, base: Path, parsed_root: Path, paper_id: str, *, seed: int
     ) -> None:
-        """Materialize the notebook's chunks table at the 21-col pre-source-
-        truth-m2 schema (``CHUNKS_SCHEMA_V1[:-5]``) holding real, HIT-
-        reproducible rows + embeddings — the live on-disk shape BEFORE the
-        backfill adds the five v2 columns.
+        """Materialize the notebook's chunks table at the pre-v2
+        schema holding real, HIT-reproducible rows + embeddings — the live
+        on-disk shape BEFORE the backfill adds the five v2 columns.
 
-        ``write_chunks`` always builds the full 26-col table, so harvest the
+        ``write_chunks`` always builds the full current table, so harvest the
         real rows + embeddings from a throwaway build and re-materialize the
-        21-col subset at the real notebook path (no ``drop_table`` needed)."""
+        pre-v2 subset at the real notebook path (no ``drop_table`` needed).
+        The subset is chosen by column name, not position: columns added after
+        v2 are appended to the schema tail too, so slicing it would drop them
+        instead of the v2 five."""
         harvest = tmp_path / "harvest"
         _build_table_from_html(tmp_path, harvest, parsed_root, paper_id, seed=seed)
         full_rows = (
@@ -672,11 +704,14 @@ class TestMigrateThenHydrate:
             .to_arrow()
             .to_pylist()
         )
-        pre_v2_schema = pa.schema(list(CHUNKS_SCHEMA_V1)[:-5])
-        v2_cols = set(CHUNKS_SCHEMA_V1.names) - set(pre_v2_schema.names)
-        assert len(pre_v2_schema.names) == 21 and len(v2_cols) == 5
+        dropped = _V2_COLUMNS | _POST_V2_COLUMNS
+        pre_v2_schema = pa.schema(
+            [f for f in CHUNKS_SCHEMA_V1 if f.name not in dropped]
+        )
+        assert set(pre_v2_schema.names) == _PRE_V2_COLUMNS
+        assert dropped <= set(CHUNKS_SCHEMA_V1.names)
         pre_rows = [
-            {k: v for k, v in r.items() if k not in v2_cols} for r in full_rows
+            {k: v for k, v in r.items() if k not in dropped} for r in full_rows
         ]
         ldir = _lancedb_dir(base)
         ldir.mkdir(parents=True, exist_ok=True)
@@ -690,12 +725,12 @@ class TestMigrateThenHydrate:
         self._build_pre_v2_table(tmp_path, base, parsed, PAPER, seed=31)
         _register(base, [_doc(PAPER, license_status="eligible")])
 
-        # The table is genuinely pre-v2: 21 columns, none of the five.
-        assert len(
+        # The table is genuinely pre-v2: its columns, none of the five.
+        assert set(
             lancedb.connect(str(_lancedb_dir(base)))
             .open_table("chunks")
             .schema.names
-        ) == 21
+        ) == _PRE_V2_COLUMNS
 
         before = _read_rows(base)
 
@@ -713,11 +748,13 @@ class TestMigrateThenHydrate:
         }
 
         after = _read_rows(base)
-        assert len(
+        # Exactly the five v2 columns were added; the post-v2 columns are
+        # not this driver's to add.
+        assert set(
             lancedb.connect(str(_lancedb_dir(base)))
             .open_table("chunks")
             .schema.names
-        ) == 26
+        ) == _PRE_V2_COLUMNS | _V2_COLUMNS
 
         # (b) the five columns are hydrated non-null on the HIT paper, read BACK
         # from the table (NOT the in-memory report). The theorem stmt row
@@ -779,6 +816,8 @@ class TestRerunFailedAbstention:
         parsed = _parsed_root(tmp_path, {PAPER: HTML})
         _build_table_from_html(tmp_path, base, parsed, PAPER, seed=41)
         _register(base, [_doc(PAPER)])
+        stored_pn = {cid: r["printed_number"] for cid, r in _read_rows(base).items()}
+        assert "1.1" in stored_pn.values()  # the chunker numbered the theorem
 
         # Make the first structural pass raise a member of
         # PER_PAPER_FAILURE_EXCEPTIONS (ValueError) -> _rechunk_paper's try/except
@@ -801,11 +840,17 @@ class TestRerunFailedAbstention:
 
         rows = _read_rows(base)
         assert rows
-        for r in rows.values():
+        for cid, r in rows.items():
             assert r["source_revision_id"] == PAPER
             assert r["source_span"] is None  # abstained
-            assert r["printed_number"] is None  # not attempted on a miss
+            # A miss keeps the stored printed_number (the
+            # chunker wrote it at ingest) instead of nulling it.
+            assert r["printed_number"] == stored_pn[cid]
             assert r["truncated"] is not None  # fallback still populates it
+        assert report.pn_kept_on_miss == sum(
+            1 for v in stored_pn.values() if v is not None
+        )
+        assert report.pn_numbered == 0  # nothing was freshly computed
 
 
 # ---------------------------------------------------------------------------
@@ -817,43 +862,42 @@ class TestSpanReattempt:
     """M4 — the old skip-gate keyed on ``source_revision_id`` alone, so a
     registry-HIT + chunk-id-MISS paper (source_span null though the revision
     resolved) was frozen at null on every future run. The tightened gate
-    RE-attempts such a paper. Run 1 re-chunks under a preamble that does NOT
-    match the stored (empty-preamble) chunk_ids -> a MISS -> source_span null;
-    run 2 re-chunks under the matching (empty) preamble -> a HIT -> source_span
-    resolves. Embeddings stay byte-identical across both runs."""
+    RE-attempts such a paper. Run 1 re-chunks a parsed HTML whose bodies differ
+    from the stored rows' -> a MISS -> source_span null; run 2 re-chunks the
+    original HTML -> a HIT -> source_span resolves. Embeddings stay
+    byte-identical across both runs.
+
+    Run 1 cannot force its MISS with a different preamble: the preamble does
+    not reach the id, so that would be a HIT
+    (``TestBodyOnlyIdsThroughBackfill``); a changed body is the only way to miss."""
 
     def test_span_null_rerun_reattempts_when_ids_reproduce(self, tmp_path):
         base = tmp_path / "notebooks"
         parsed = _parsed_root(tmp_path, {PAPER: HTML})
-        # Table built with the EMPTY preamble -> stored chunk_ids = hash(body).
+        drifted = _parsed_root(
+            tmp_path / "drifted",
+            {PAPER: HTML.replace("full detail", "full and drifted detail").replace(
+                "careful argument", "careful drifted argument"
+            ).replace("stand-alone section", "stand-alone drifted section")},
+        )
         _build_table_from_html(tmp_path, base, parsed, PAPER, seed=51)
         _register(base, [_doc(PAPER)])
         before = _read_rows(base)
 
-        # Run 1: re-chunk under a NON-empty preamble -> chunk_ids differ -> MISS.
+        # Run 1: re-chunk the DRIFTED HTML -> every body differs -> MISS.
         # Registry resolves, so source_revision_id is set but source_span
         # abstains (reason chunk_id_not_reproduced).
-        doc = _nonempty_preamble(PAPER)
-        assert (
-            backfill.run(
-                SLUG,
-                base=base,
-                corpus_parsed_dir=parsed,
-                resolve_preamble=lambda _pid: doc,
-            )
-            == 0
-        )
+        assert _run(base, drifted) == 0
         mid = _read_rows(base)
         assert all(r["source_revision_id"] == PAPER for r in mid.values())
         assert all(r["source_span"] is None for r in mid.values()), (
-            "run 1 must MISS (chunk-id not reproduced under the wrong preamble)"
+            "run 1 must MISS (chunk ids not reproduced from drifted bodies)"
         )
         assert all(r["truncated"] is not None for r in mid.values())
 
-        # Run 2: re-chunk under the MATCHING (empty) preamble -> chunk_ids
-        # reproduce -> HIT. The OLD gate would SKIP (source_revision_id already
-        # non-null) and freeze the null span; the tightened gate RE-attempts and
-        # the span resolves.
+        # Run 2: re-chunk the ORIGINAL HTML -> chunk_ids reproduce -> HIT. The
+        # OLD gate would SKIP (source_revision_id already non-null) and freeze
+        # the null span; the tightened gate RE-attempts and the span resolves.
         assert _run(base, parsed) == 0
         after = _read_rows(base)
         assert all(r["source_span"] is not None for r in after.values()), (
@@ -907,3 +951,136 @@ def test_v2_defaults_match_store():
             f"cast SQL drift for {key!r}: backfill={v2[key]!r} "
             f"store={_TEXTBOOK_MIGRATION_DEFAULTS[key]!r}"
         )
+
+
+# ---------------------------------------------------------------------------
+# Body-only ids through the backfill's own re-chunk
+# ---------------------------------------------------------------------------
+
+
+class TestBodyOnlyIdsThroughBackfill:
+    """The backfill reproduces ids with its own re-chunk (``_rechunk_paper``),
+    so body-only ids must hold there as well as in ``chunk_paper``: the ids are
+    ``arxiv:<pid>:`` + ``sha256(NFC(body))[:16]`` whether or not a preamble
+    resolves, and whatever preamble a data root holds."""
+
+    def test_rechunk_ids_do_not_depend_on_the_preamble(self, tmp_path):
+        parsed = _parsed_root(tmp_path, {PAPER: HTML})
+        none = backfill._rechunk_paper(PAPER, parsed, resolve_preamble=lambda _p: None)
+        doc = _nonempty_preamble(PAPER)
+        with_doc = backfill._rechunk_paper(PAPER, parsed, resolve_preamble=lambda _p: doc)
+
+        assert none.status == with_doc.status == "ok"
+        assert len(none.records) == 3
+        assert list(none.records) == list(with_doc.records)
+        for cid, record in none.records.items():
+            digest = hashlib.sha256(
+                unicodedata.normalize("NFC", record.body_text).encode("utf-8")
+            ).hexdigest()[:16]
+            assert cid == f"arxiv:{PAPER}:{digest}"
+
+    def test_rechunk_ids_equal_the_chunkers(self, tmp_path):
+        parsed = _parsed_root(tmp_path, {PAPER: HTML})
+        doc = _nonempty_preamble(PAPER)
+        with (
+            patch("ingest.chunker.PARSED_DIR", parsed),
+            patch("ingest.chunker.CHUNKS_DIR", tmp_path / "chunks_out"),
+            patch("ingest.chunker._resolve_preamble_doc", lambda _pid: None),
+        ):
+            chunker_ids = [c.chunk_id for c in chunk_paper(PAPER)]
+        rr = backfill._rechunk_paper(PAPER, parsed, resolve_preamble=lambda _p: doc)
+        assert sorted(rr.records) == sorted(chunker_ids)
+
+    def test_table_built_without_a_preamble_hits_when_one_resolves(self, tmp_path):
+        # The live case body-only ids fix: ingest ran before a preamble was
+        # recovered (or on another data root), the backfill runs after.
+        base = tmp_path / "notebooks"
+        parsed = _parsed_root(tmp_path, {PAPER: HTML})
+        _build_table_from_html(tmp_path, base, parsed, PAPER, seed=61)
+        _register(base, [_doc(PAPER)])
+        doc = _nonempty_preamble(PAPER)
+
+        report = _patch(base, parsed, resolve_preamble=lambda _pid: doc)
+
+        assert report.source_span_resolved == report.total_rows == 3
+        assert report.source_span_null == 0
+
+
+class TestPrintedNumberKeptOnMiss:
+    """A chunk-id MISS used to overwrite the stored
+    ``printed_number`` with NULL. The backfill is re-run after
+    every cutover, so each re-run would have erased numbers the chunker
+    wrote at ingest for any row the backfill's re-chunk does not reproduce
+    (labeled-result and hybrid-TeX chunks, textbook rows)."""
+
+    def test_miss_keeps_the_stored_printed_number(self, tmp_path, capsys):
+        base = tmp_path / "notebooks"
+        parsed = _parsed_root(tmp_path, {PAPER: HTML})
+        numbered = _make_fixed_chunk(PAPER, "lemma", "a labeled result body", "4" * 16)
+        numbered.printed_number = "7.3"
+        bare = _make_fixed_chunk(PAPER, "stmt", "an unnumbered body", "5" * 16)
+        write_chunks(
+            [numbered, bare],
+            _synth_embeddings([numbered, bare], seed=71),
+            lancedb_path=_lancedb_dir(base),
+        )
+        _register(base, [_doc(PAPER)])
+
+        assert _run(base, parsed) == 0
+
+        rows = _read_rows(base)
+        assert rows[numbered.chunk_id]["printed_number"] == "7.3"
+        assert rows[bare.chunk_id]["printed_number"] is None
+        assert all(r["source_span"] is None for r in rows.values())  # both MISS
+        tokens = capsys.readouterr().out.split()
+        assert "kept_on_miss=1" in tokens
+        assert "numbered=0" in tokens
+
+    def test_hit_still_takes_the_fresh_value(self, tmp_path):
+        base = tmp_path / "notebooks"
+        parsed = _parsed_root(tmp_path, {PAPER: HTML})
+        _build_table_from_html(tmp_path, base, parsed, PAPER, seed=72)
+        _register(base, [_doc(PAPER)])
+
+        report = _patch(base, parsed)
+
+        assert report.pn_kept_on_miss == 0
+        rows = _read_rows(base)
+        assert {r["printed_number"] for r in rows.values()} == {"1.1", None}
+
+
+class TestStaleChunkerRefusal:
+    """Against a table another chunker version wrote, every
+    rotated row would MISS. The backfill refuses before touching the table,
+    the schema migration included."""
+
+    def test_refuses_a_v1_2_table_without_writing(self, tmp_path):
+        base = tmp_path / "notebooks"
+        parsed = _parsed_root(tmp_path, {PAPER: HTML})
+        chunk = _make_fixed_chunk(PAPER, "stmt", "an old body", "6" * 16)
+        chunk.chunker_version = "v1.2"
+        write_chunks([chunk], _synth_embeddings([chunk], seed=81), lancedb_path=_lancedb_dir(base))
+        _register(base, [_doc(PAPER)])
+        table = lancedb.connect(str(_lancedb_dir(base))).open_table("chunks")
+        version_before = table.version
+
+        with pytest.raises(backfill.NotebookError, match="make notebook-cutover"):
+            _run(base, parsed)
+
+        table = lancedb.connect(str(_lancedb_dir(base))).open_table("chunks")
+        assert table.version == version_before
+        assert _read_rows(base)[chunk.chunk_id]["source_revision_id"] is None
+
+    def test_main_reports_the_refusal_as_exit_1(self, tmp_path, monkeypatch, capsys):
+        base = tmp_path / "notebooks"
+        chunk = _make_fixed_chunk(PAPER, "stmt", "an old body", "7" * 16)
+        chunk.chunker_version = "v1.2"
+        write_chunks([chunk], _synth_embeddings([chunk], seed=82), lancedb_path=_lancedb_dir(base))
+        real_run = backfill.run
+        monkeypatch.setattr(
+            backfill, "run",
+            lambda slug: real_run(slug, base=base, corpus_parsed_dir=tmp_path / "p"),
+        )
+
+        assert backfill.main([SLUG]) == 1
+        assert "make re-embed" in capsys.readouterr().err

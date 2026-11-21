@@ -441,6 +441,76 @@ class TestRunDelta:
         assert builds == [(staging, None)]
         assert _read_state(state_path)["last_successful_run_utc"]
 
+    def test_cli_reports_a_refusal_with_its_own_exit_code(
+        self, tmp_path, monkeypatch, capsys
+    ):
+        # The nightly timer's journal gets one "error:" line, not a stack
+        # trace, and exit 3 rather than the failure exit 1.
+        import ingest.oai_delta as delta
+        from ingest.store import STALE_CHUNKER_EXIT_CODE, StaleChunkerRowsError
+        from tools import ingest_sentinel
+
+        def _refuse(**_k):
+            raise StaleChunkerRowsError("rotate it first (make re-embed)")
+
+        monkeypatch.setattr(ingest_sentinel, "is_paused", lambda: None)
+        monkeypatch.setattr(delta, "run_delta", _refuse)
+        code = delta._cli([
+            "--lancedb-staging-path", str(tmp_path / "lancedb-staging"),
+            "--state-file", str(tmp_path / "state.json"),
+        ])
+
+        assert code == STALE_CHUNKER_EXIT_CODE == 3
+        err = capsys.readouterr().err
+        assert "error: rotate it first" in err
+        assert "Traceback" not in err
+
+    def test_refuses_a_staging_table_another_chunker_wrote(self, tmp_path):
+        """The delta loop writes its staging table in place,
+        so it refuses one holding arXiv rows another chunker version wrote,
+        before handing any record to the pipeline."""
+        import lancedb
+        import pyarrow as pa
+
+        from ingest.store import StaleChunkerRowsError
+
+        staging = tmp_path / "lancedb-staging"
+        lancedb.connect(str(staging)).create_table(
+            "chunks",
+            data=pa.table({
+                "chunk_id": ["arxiv:2401.00001:" + "a" * 16],
+                "chunker_version": ["v1.2"],
+            }),
+        )
+        fetcher = _MockFetcher([_final_page(["2401.00001"])])
+        # The refusal must come before the harvest: harvest_set persists
+        # last_harvest_date after every page, so a late refusal would
+        # spend the fetched window without ingesting it.
+        state_path = tmp_path / "state.json"
+        state_bytes = json.dumps({"last_harvest_date": "2026-05-10"}).encode()
+        state_path.write_bytes(state_bytes)
+
+        def _never(*_a, **_k):
+            raise AssertionError("no record may reach the pipeline")
+
+        with (
+            patch("ingest.oai_delta.ingest_one_paper", _never),
+            pytest.raises(StaleChunkerRowsError, match="make notebook-cutover"),
+        ):
+            run_delta(
+                sets=("math:math:AG",),
+                lancedb_staging_path=staging,
+                state_path=state_path,
+                log_path=tmp_path / "delta.log",
+                failures_path=tmp_path / "delta.jsonl",
+                timeout_flag_path=tmp_path / "timeout.flag",
+                ops_dir=tmp_path,
+                fetch_page=fetcher,
+                sleep_between_pages=lambda _t: None,
+            )
+        assert fetcher.calls == []
+        assert state_path.read_bytes() == state_bytes
+
     def test_writes_ingest_summary_sentinel(self, tmp_path):
         """corpus-integrity-observability-e3 F3: run_delta writes the
         ingest-summary.json sentinel at end-of-run (AC2)."""

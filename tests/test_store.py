@@ -25,7 +25,7 @@ import numpy as np
 import pyarrow as pa
 import pytest
 
-from ingest.chunker_types import CHUNKER_VERSION, ChunkRecord
+from ingest.chunk import CHUNKER_VERSION, ChunkRecord
 from ingest.embedder import EMBEDDER_VERSION, EMBEDDING_DIM
 from ingest.schema import (
     CHUNKS_SCHEMA_V1,
@@ -139,55 +139,65 @@ def _make_corpus(n: int = 10) -> list[ChunkRecord]:
 # TestSchemaContract — every column the brief enumerates is present
 # ===========================================================================
 
+# The chunks table's columns by the schema step that added them. Migration
+# tests name the on-disk shape they build from these groups instead of
+# counting columns, so a new column changes no number here.
+#: Original arXiv columns.
+V1_COLUMNS = [
+    "chunk_id",
+    "paper_id",
+    "kind",
+    "section_path",
+    "theorem_name",
+    "theorem_label",
+    "body_text",
+    "body_tokens",
+    "embedding_stmt",
+    "embedding_proof",
+    "embedding_eq",
+    "chunker_version",
+    "embedder_version",
+    "preamble_ref",
+]
+#: Textbook columns — appended at the end to keep the arXiv-column
+#: block byte-stable for downstream consumers that index by position.
+TEXTBOOK_COLUMNS = [
+    "source_kind",
+    "license",
+    "chapter",
+    "page_start",
+    "page_end",
+    "textbook_slug",
+    "parser_used",
+]
+#: Source-truth columns (chunks schema v2). ``source_span`` is a JSON
+#: string (not a struct) so all five ride the single-loop add_columns
+#: migration.
+SOURCE_TRUTH_V2_COLUMNS = [
+    "source_revision_id",
+    "source_span",
+    "truncated",
+    "printed_number",
+    "license_ref",
+]
+#: Bridgeland corpus repair: input policy and lossless window provenance.
+REPAIR_COLUMNS = [
+    "embed_input_policy_version",
+    "part_index",
+    "part_count",
+    "source_start",
+    "source_end",
+]
+
 
 class TestSchemaContract:
-    def test_column_count_matches_brief(self):
-        # E04_S01 brief: 14 arXiv columns.
-        # textbook-ingest-m2 appended 7 textbook columns
-        # (source_kind, license, chapter, page_start, page_end,
-        # textbook_slug, parser_used) -> 21.
-        # source-truth-m2 (chunks schema v2) appended 5 more
-        # (source_revision_id, source_span, truncated, printed_number,
-        # license_ref) -> 26.
-        assert len(CHUNKS_SCHEMA_V1) == 26
+    def test_column_names_are_unique(self):
+        assert len(set(CHUNKS_SCHEMA_V1.names)) == len(CHUNKS_SCHEMA_V1.names)
 
     def test_column_names_in_brief_order(self):
-        expected = [
-            # E04_S01 arXiv columns (14)
-            "chunk_id",
-            "paper_id",
-            "kind",
-            "section_path",
-            "theorem_name",
-            "theorem_label",
-            "body_text",
-            "body_tokens",
-            "embedding_stmt",
-            "embedding_proof",
-            "embedding_eq",
-            "chunker_version",
-            "embedder_version",
-            "preamble_ref",
-            # textbook-ingest-m2 columns (7) — appended at the end to
-            # keep the arXiv-column block byte-stable for downstream
-            # consumers that index by position.
-            "source_kind",
-            "license",
-            "chapter",
-            "page_start",
-            "page_end",
-            "textbook_slug",
-            "parser_used",
-            # source-truth-m2 columns (5, chunks schema v2) — appended
-            # after parser_used. ``source_span`` is a JSON string (not a
-            # struct) so all 5 ride the single-loop add_columns migration.
-            "source_revision_id",
-            "source_span",
-            "truncated",
-            "printed_number",
-            "license_ref",
-        ]
-        assert CHUNKS_SCHEMA_V1.names == expected
+        assert CHUNKS_SCHEMA_V1.names == (
+            V1_COLUMNS + TEXTBOOK_COLUMNS + SOURCE_TRUTH_V2_COLUMNS + REPAIR_COLUMNS
+        )
 
     def test_embedding_columns_are_fixed_size_list_1024(self):
         for col in ("embedding_stmt", "embedding_proof", "embedding_eq"):
@@ -1061,7 +1071,7 @@ class TestSchemaMigrationGuard:
 
         # Build the 14-col legacy table directly.
         db, tbl = self._make_legacy_14col_table(tmp_path)
-        assert len(tbl.schema.names) == 14
+        assert tbl.schema.names == V1_COLUMNS
         assert "source_kind" not in tbl.schema.names
 
         # Trigger the migration via a follow-up write_chunks call
@@ -1072,10 +1082,10 @@ class TestSchemaMigrationGuard:
         new_embed = _make_synthetic_embeddings([new_chunk], seed=44)
         write_chunks([new_chunk], new_embed, lancedb_path=tmp_path / "lancedb")
 
-        # Re-open and assert the migrated table matches the canonical
-        # schema: 14 legacy + 7 textbook-ingest-m2 + 5 source-truth-m2 = 26.
+        # Re-open and assert the migrated table has exactly the canonical
+        # schema's columns.
         tbl2 = db.open_table(CHUNKS_TABLE_NAME)
-        assert len(tbl2.schema.names) == len(CHUNKS_SCHEMA_V1.names) == 26
+        assert set(tbl2.schema.names) == set(CHUNKS_SCHEMA_V1.names)
         for col in CHUNKS_SCHEMA_V1.names:
             assert col in tbl2.schema.names, f"column {col} missing post-migration"
 
@@ -1238,8 +1248,8 @@ class TestSchemaMigrationGuard:
         tbl = db.open_table(CHUNKS_TABLE_NAME)
         added = _migrate_chunks_schema_if_needed(tbl)
         assert added == []
-        # Schema still has exactly the canonical column set (26).
-        assert len(tbl.schema.names) == len(CHUNKS_SCHEMA_V1.names) == 26
+        # Schema still has exactly the canonical column set.
+        assert set(tbl.schema.names) == set(CHUNKS_SCHEMA_V1.names)
 
     def test_migration_unhandled_column_raises(self, tmp_path):
         """A future schema column not in _TEXTBOOK_MIGRATION_DEFAULTS
@@ -1304,7 +1314,7 @@ class TestSchemaMigrationGuard:
         assert "future_m3_col" in added
         # The 12 post-v1 columns (7 textbook-ingest-m2 + 5 source-truth-m2)
         # + the simulated m3 column all landed on the 14-col legacy table.
-        assert len(added) == 13
+        assert len(added) == 18
         assert "future_m3_col" in tbl.schema.names
 
 
@@ -1335,9 +1345,10 @@ class TestParserUsedEnumGuard:
         write_chunks([chunk], embeddings, lancedb_path=tmp_path / "lancedb")
 
     def test_each_valid_parser_used_accepted(self, tmp_path):
-        from ingest.store import _ALLOWED_PARSER_USED, write_chunks
+        from ingest.chunk import ALLOWED_PARSER_USED
+        from ingest.store import write_chunks
 
-        for i, parser in enumerate(sorted(_ALLOWED_PARSER_USED)):
+        for i, parser in enumerate(sorted(ALLOWED_PARSER_USED)):
             chunk = _make_chunk(
                 f"2307.0050{i}", "stmt", f"body {i}", suffix=f"7{i:015x}"
             )
@@ -1792,22 +1803,19 @@ class TestSourceTruthM2SchemaMigration:
     idempotent on a second run, land nullable, and leave existing rows'
     values byte-identical."""
 
-    _V2_COLUMNS = (
-        "source_revision_id",
-        "source_span",
-        "truncated",
-        "printed_number",
-        "license_ref",
-    )
+    _V2_COLUMNS = tuple(SOURCE_TRUTH_V2_COLUMNS)
 
     def _make_pre_v2_table(self, tmp_path):
-        """Create a chunks table at the pre-source-truth-m2 (21-column)
-        schema — i.e. CHUNKS_SCHEMA_V1 with the last 5 fields dropped —
-        holding one arXiv row, mirroring the live on-disk tables."""
+        """Create a chunks table at the pre-v2 schema — the
+        v1 and textbook columns, chosen by name — holding one
+        arXiv row, mirroring the live on-disk tables."""
         import lancedb
 
-        pre_v2_schema = pa.schema(list(CHUNKS_SCHEMA_V1)[:-5])
-        assert len(pre_v2_schema.names) == 21
+        pre_v2_names = V1_COLUMNS + TEXTBOOK_COLUMNS
+        pre_v2_schema = pa.schema(
+            [f for f in CHUNKS_SCHEMA_V1 if f.name in pre_v2_names]
+        )
+        assert pre_v2_schema.names == pre_v2_names
         assert not any(c in pre_v2_schema.names for c in self._V2_COLUMNS)
         legacy_row = {
             "chunk_id": "arxiv:2307.07777:" + "c" * 16,
@@ -1843,7 +1851,7 @@ class TestSourceTruthM2SchemaMigration:
         from ingest.store import write_chunks
 
         db, tbl, legacy_row = self._make_pre_v2_table(tmp_path)
-        assert len(tbl.schema.names) == 21
+        assert tbl.schema.names == V1_COLUMNS + TEXTBOOK_COLUMNS
 
         # Trigger the migration via a follow-up write_chunks call.
         new_chunk = _make_chunk("2307.08888", "stmt", "v2 body", suffix="d" * 16)
@@ -1851,7 +1859,7 @@ class TestSourceTruthM2SchemaMigration:
         write_chunks([new_chunk], new_embed, lancedb_path=tmp_path / "lancedb")
 
         tbl2 = db.open_table(CHUNKS_TABLE_NAME)
-        assert len(tbl2.schema.names) == 26
+        assert set(tbl2.schema.names) == set(CHUNKS_SCHEMA_V1.names)
         for col in self._V2_COLUMNS:
             assert col in tbl2.schema.names, f"{col} missing post-migration"
 
@@ -1916,15 +1924,13 @@ class TestSourceTruthM2SchemaMigration:
         tbl2 = db.open_table(CHUNKS_TABLE_NAME)
         added = _migrate_chunks_schema_if_needed(tbl2)
         assert added == []
-        assert len(tbl2.schema.names) == len(CHUNKS_SCHEMA_V1.names) == 26
+        assert set(tbl2.schema.names) == set(CHUNKS_SCHEMA_V1.names)
 
 
-class TestTruncatedPersistsRoundtrip:
-    """AC2 — ``truncated`` (previously dropped at ``_build_arrow_table``) and
-    the new ``printed_number`` now survive the LanceDB write→read round-trip.
-    No such store-level test existed before source-truth-m2."""
+class TestTruncatedWriteGuard:
+    """New writes reject shortened source text while retaining provenance."""
 
-    def test_truncated_and_printed_number_survive_roundtrip(self, tmp_path):
+    def test_truncated_rejected_and_printed_number_survives(self, tmp_path):
         import lancedb
 
         from ingest.store import write_chunks
@@ -1937,23 +1943,23 @@ class TestTruncatedPersistsRoundtrip:
         normal_chunk = _make_chunk(
             "2307.09999", "lemma", "an intact lemma", suffix="2" * 16
         )
-        # normal_chunk keeps the defaults: truncated=False, printed_number=None.
         chunks = [truncated_chunk, normal_chunk]
-        embeddings = _make_synthetic_embeddings(chunks, seed=81)
-        write_chunks(chunks, embeddings, lancedb_path=tmp_path / "lancedb")
+        with pytest.raises(ValueError, match="truncated=true"):
+            write_chunks(chunks, _make_synthetic_embeddings(chunks, seed=81),
+                         lancedb_path=tmp_path / "lancedb")
+
+        normal_chunk.printed_number = "3.1"
+        write_chunks([normal_chunk], _make_synthetic_embeddings([normal_chunk], seed=81),
+                     lancedb_path=tmp_path / "lancedb")
 
         db = lancedb.connect(str(tmp_path / "lancedb"))
         tbl = db.open_table(CHUNKS_TABLE_NAME)
         rows = {r["chunk_id"]: r for r in tbl.to_arrow().to_pylist()}
 
-        t = rows[truncated_chunk.chunk_id]
-        assert t["truncated"] is True
-        assert t["printed_number"] == "3.1"
         n = rows[normal_chunk.chunk_id]
         assert n["truncated"] is False
-        assert n["printed_number"] is None
+        assert n["printed_number"] == "3.1"
         # A plain new write leaves the three registry-derived columns NULL
         # (forward-wiring is a fast-follow; the backfill hydrates them).
         for col in ("source_revision_id", "source_span", "license_ref"):
-            assert t[col] is None
             assert n[col] is None

@@ -152,9 +152,8 @@ def resolve_contact_email(
     arg: str | None,
     *,
     db_path: Path | None = None,
-) -> str:
-    """Resolve the arXiv polite-pool ``contact_email`` for a CLI
-    invocation (``onboarding-uplift-m2``).
+) -> str | None:
+    """Resolve optional contact information for a CLI invocation.
 
     Priority chain (m2 synthesis §1 + §3 D1):
 
@@ -168,8 +167,9 @@ def resolve_contact_email(
     3. **``ARXMCP_CONTACT_EMAIL`` env var** — the historical pre-m2
        contract. Continues to work for operators who set it in their
        ``.envrc`` / shell init.
-    4. **Raise :class:`NotebookError`** — every source exhausted; tell
-       the operator the canonical fix is ``make init … EMAIL=…``.
+    4. Return ``None`` when no address is configured. arXiv's current API
+       terms do not require a contact email in the User-Agent; callers use
+       the application identifier on its own in that case.
 
     If both SQLite and the env var carry a (different) value, SQLite
     wins (per synthesis D1 — sticky pref over shell ephemera) and
@@ -216,14 +216,7 @@ def resolve_contact_email(
     # additively offers the SQLite path.
     if env_value:
         return env_value
-    raise NotebookError(
-        "no contact email available: pass --email <addr>, OR run "
-        "`make init NOTEBOOK=<slug> EMAIL=<addr>` to persist it in "
-        "the operator_settings store, OR `export "
-        "ARXMCP_CONTACT_EMAIL=<addr>` in this shell. The arXiv "
-        "polite-pool User-Agent contract (arXiv TOS §3) requires a "
-        "contact email on every request."
-    )
+    return None
 
 
 def read_paper_ids_from_papers_txt(papers_txt: Path) -> list[str]:

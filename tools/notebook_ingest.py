@@ -22,6 +22,9 @@ Usage:
 Exit codes:
     0 — every paper ingested and the dataset's indexes were built
     1 — slug validation failed, or any paper failed
+    3 — refused, nothing written: the notebook's table holds arXiv rows
+        another chunker version wrote (rotate it through staging and
+        cutover instead)
 """
 
 from __future__ import annotations
@@ -33,6 +36,7 @@ import sys
 
 from ingest.bm25_indexer import resolve_bm25_root
 from ingest.bulk_ingest import run_bulk_ingest
+from ingest.store import STALE_CHUNKER_EXIT_CODE, StaleChunkerRowsError
 from tools._notebook_common import (
     NotebookError,
     notebook_dir,
@@ -204,6 +208,9 @@ def main(argv: list[str] | None = None) -> int:
     )
     try:
         return run(args.slug)
+    except StaleChunkerRowsError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return STALE_CHUNKER_EXIT_CODE
     except NotebookError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1

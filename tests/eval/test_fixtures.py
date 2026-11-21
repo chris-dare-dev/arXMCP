@@ -33,8 +33,8 @@ from pathlib import Path
 
 import pytest
 
+from ingest.chunk import CHUNKER_VERSION
 from ingest.chunker import _PAPER_ID_RE as CHUNKER_PAPER_ID_RE
-from ingest.chunker_types import CHUNKER_VERSION
 from tools.validate_eval_fixtures import (
     _PAPER_ID_RE,
     DEFAULT_FIXTURE_PATH,

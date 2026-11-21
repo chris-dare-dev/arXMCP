@@ -44,6 +44,13 @@ marked sanity test gates on the operator's actual run.
 **Single-writer constraint** (`ingest/store.py:44-55`): the loop
 is sequential at the write boundary. No parallel ``write_chunks``
 calls.
+
+**Chunker-version guard:** a run refuses, before
+its first write, a target whose arXiv rows another
+``CHUNKER_VERSION`` wrote (:func:`ingest.store.refuse_stale_chunker_rows`).
+Re-chunking such rows in place would leave every row whose id changed
+beside its replacement. The supported path is the re-embed driver into
+a fresh staging table, then a cutover.
 """
 
 from __future__ import annotations
@@ -68,8 +75,11 @@ from ingest.embedder import embed_paper
 from ingest.identifiers import is_valid_arxiv_paper_id
 from ingest.store import (
     DEFAULT_LANCEDB_PATH,
+    STALE_CHUNKER_EXIT_CODE,
+    StaleChunkerRowsError,
     WapGateError,
     load_embed_record,
+    refuse_stale_chunker_rows,
     write_chunks,
 )
 from server.application_paths import ApplicationPaths
@@ -398,9 +408,10 @@ def run_bulk_ingest(
     The loop is **single-process sequential** at the write
     boundary (``ingest.store.write_chunks`` is single-writer-per-
     dataset). GPU batching happens inside ``embed_paper``. Naive
-    re-runs are safe: the embedder's per-paper sidecar carries a
-    version check, so already-processed papers short-circuit at
-    the embed step regardless.
+    re-runs are safe: the embedder's per-paper sidecar carries the
+    versions and each chunk's reuse identity, so already-processed
+    papers short-circuit at the embed step regardless (a sidecar
+    that records no reuse identity re-embeds once).
     """
     if progress_interval <= 0:
         # Closes F8: a positive interval is the only sane value; 0
@@ -415,6 +426,9 @@ def run_bulk_ingest(
             ar5iv_cache_dir=ar5iv_cache_dir,
             parsed_dir=parsed_dir,
         )
+
+    # Never re-chunk in place across a chunker version.
+    refuse_stale_chunker_rows(lancedb_staging_path)
 
     work = paper_ids if limit is None else paper_ids[:limit]
     summary = IngestSummary(papers_total=len(work))
@@ -572,13 +586,18 @@ def _cli(argv: list[str]) -> int:
         f"loaded {len(paper_ids)} paper ids from {args.paper_ids_file}"
     )
 
-    summary = run_bulk_ingest(
-        paper_ids,
-        lancedb_staging_path=args.lancedb_staging_path,
-        ar5iv_cache_dir=args.ar5iv_cache_dir,
-        limit=args.limit,
-        dry_run=args.dry_run,
-    )
+    try:
+        summary = run_bulk_ingest(
+            paper_ids,
+            lancedb_staging_path=args.lancedb_staging_path,
+            ar5iv_cache_dir=args.ar5iv_cache_dir,
+            limit=args.limit,
+            dry_run=args.dry_run,
+        )
+    except StaleChunkerRowsError as exc:
+        # A refusal, not a crash: no traceback, and its own exit code.
+        print(f"error: {exc}", file=sys.stderr)
+        return STALE_CHUNKER_EXIT_CODE
     # Closes F5: dry-run never actually queries ar5iv, so an
     # ar5iv_rate of 0.0 against an empty local cache would be
     # misleading. Omit the rate from the dry-run summary.

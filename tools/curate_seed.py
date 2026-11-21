@@ -17,8 +17,10 @@ Heuristics it CANNOT apply (those need the tarball, deferred to fetch_seed):
 - documentclass detection (amsart vs JHEP vs custom)
 
 Usage:
-    export ARXMCP_CONTACT_EMAIL=you@example.com
     python tools/curate_seed.py --max-results 200 > /tmp/math-ag-candidates.tsv
+
+Set ``ARXMCP_CONTACT_EMAIL`` only if you want a contact address included in
+the User-Agent; it is optional.
 
 Then eyeball the TSV, pick 50 IDs that look like single-author / small
 collaboration / amsart-style submissions, and append them to

@@ -32,16 +32,20 @@ from tools.arxiv_fetch import (
 class TestUserAgent:
     def test_builds_from_env(self, monkeypatch):
         monkeypatch.setenv("ARXMCP_CONTACT_EMAIL", "alice@example.com")
-        assert build_user_agent() == "arXMCP/0.1 (mailto:alice@example.com)"
+        ua = build_user_agent()
+        assert ua.startswith("arXMCP/0.1 (+https://github.com/chris-dare-dev/arXMCP)")
+        assert ua.endswith("(mailto:alice@example.com)")
 
     def test_explicit_overrides_env(self, monkeypatch):
         monkeypatch.setenv("ARXMCP_CONTACT_EMAIL", "alice@example.com")
-        assert build_user_agent("bob@example.com") == "arXMCP/0.1 (mailto:bob@example.com)"
+        assert build_user_agent("bob@example.com").endswith("(mailto:bob@example.com)")
 
-    def test_missing_email_raises(self, monkeypatch):
+    def test_missing_email_uses_application_identifier(self, monkeypatch):
         monkeypatch.delenv("ARXMCP_CONTACT_EMAIL", raising=False)
-        with pytest.raises(RuntimeError, match="ARXMCP_CONTACT_EMAIL"):
-            build_user_agent()
+        ua = build_user_agent()
+        assert ua.startswith("arXMCP/0.1 ")
+        assert "github.com/chris-dare-dev/arXMCP" in ua
+        assert "mailto:" not in ua
 
 
 class TestPaperIdValidation:

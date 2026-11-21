@@ -29,7 +29,8 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 ARXIV_EPRINT_URL = "https://export.arxiv.org/e-print/{paper_id}"
-ARXIV_USER_AGENT_TEMPLATE = "arXMCP/0.1 (mailto:{email})"
+ARXIV_USER_AGENT_TEMPLATE = "arXMCP/0.1 (+https://github.com/chris-dare-dev/arXMCP)"
+ARXIV_USER_AGENT_EMAIL_TEMPLATE = ARXIV_USER_AGENT_TEMPLATE + " (mailto:{email})"
 
 POLITENESS_SLEEP_SECONDS = 3.0
 DEFAULT_503_BACKOFF_SECONDS = 30.0
@@ -163,9 +164,13 @@ class LatexmlProcessError(RuntimeError):
 
 
 def build_user_agent(contact_email: str | None = None) -> str:
-    """Format the User-Agent per arXiv TOS §3 (politeness contract).
+    """Build an identifying User-Agent and include an email when configured.
 
-    Priority chain (onboarding-uplift-m2 D1 + D4):
+    arXiv's current API terms do not require a contact email in the
+    User-Agent. The application identifier is always present; a configured
+    address is optional contact information.
+
+    Priority chain:
 
     1. **Explicit ``contact_email``** — the caller already has it.
     2. **SQLite ``operator_settings.contact_email``** — persisted
@@ -173,8 +178,7 @@ def build_user_agent(contact_email: str | None = None) -> str:
        restarts; the m2 canonical mechanism.
     3. **``ARXMCP_CONTACT_EMAIL`` env var** — the historical pre-m2
        contract.
-    4. **Raise** :class:`RuntimeError` — no source supplied a value.
-       We never send anonymous traffic to arXiv.
+    4. Use the application identifier alone when no address is configured.
     """
     if contact_email:
         email: str | None = contact_email
@@ -187,12 +191,8 @@ def build_user_agent(contact_email: str | None = None) -> str:
 
         email = get_contact_email() or os.environ.get("ARXMCP_CONTACT_EMAIL")
     if not email:
-        raise RuntimeError(
-            "no contact email available (arXiv TOS §3 — politeness contract). "
-            "Run `make init NOTEBOOK=<slug> EMAIL=<addr>` to persist it, OR "
-            "`export ARXMCP_CONTACT_EMAIL=<addr>` in this shell."
-        )
-    return ARXIV_USER_AGENT_TEMPLATE.format(email=email)
+        return ARXIV_USER_AGENT_TEMPLATE
+    return ARXIV_USER_AGENT_EMAIL_TEMPLATE.format(email=email)
 
 
 def validate_paper_id(paper_id: str) -> None:
@@ -671,6 +671,9 @@ def parse_with_latexml(
         str(main_tex.name),
         f"--dest={out_html}",
         "--format=html5",
+        # The Linux sandbox mounts source_dir read-only. Keep LaTeXML's log
+        # in the writable output directory so rendering can start.
+        f"--log={out_dir.resolve() / 'latexml.log'}",
     ]
     # E13_S03b — Threat 3 Phase 2 sandbox wiring. The ``.sb``
     # profile (macOS) needs a TMPDIR_SUBDIR path that exists; use

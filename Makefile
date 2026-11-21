@@ -89,13 +89,13 @@ help:
 	@echo "  make re-embed    Run the partial re-embed driver"
 	@echo "  make re-embed-all Re-embed every LanceDB dataset (shared + notebook-scoped; embedder-truncation-m1)"
 	@echo "  make ingest-recover-preambles  Back-fill raw .tex + preamble.json for ar5iv-only papers (notebook-preamble-recovery-m1)"
-	@echo "                                 NOTE: triggers chunk_id rotation; follow with make re-embed-all"
 	@echo "  make watchdog    Run the drift watchdog against staging"
 	@echo "  make cutover     Activate the staging corpus as the new active"
 	@echo "  make notebook-cutover       Promote notebook lancedb-staging -> lancedb (notebook-cutover-m1)"
 	@echo "                              DEFAULT: ALL promotable notebooks; scope with ARGS='--notebook=<slug>'."
 	@echo "                              Rollback: ARGS='--rollback --notebook=<slug>' (single-level). MEASURE first;"
-	@echo "                              RESTART the server after (it holds an open handle on the old inode)."
+	@echo "                              STOP the server before, START it after (an open table's reads fail across the swap)."
+	@echo "                              Deletes the notebook's Tier-1 retrieval cache after the swap."
 	@echo "  make daily-report           Scrape /metrics and write the daily ops report"
 	@echo "  make parser-failures-report Roll up parser-failures/*.{log,jsonl} into the weekly review"
 	@echo "  make sbom        Generate CycloneDX SBOMs + grype scan (into var/sbom/)"
@@ -113,10 +113,8 @@ help:
 	@echo ""
 	@echo "Override the python interpreter with: make test PYTHON=python3.13"
 	@echo ""
-	@echo "Before running the arXiv CLI fetch tools (tools/notebook_fetch.py,"
-	@echo "tools/recover_preambles.py, ingest/inspire_ingest.py — NOT"
-	@echo "'make up'; the server REJECTS the var), export"
-	@echo "ARXMCP_CONTACT_EMAIL=<your-email> for the User-Agent (arXiv TOS)."
+	@echo "Optional: set ARXMCP_CONTACT_EMAIL to include a contact address in"
+	@echo "arXiv request User-Agent headers. Request pacing is handled automatically."
 
 bootstrap:
 	@$(PYTHON) -c "import sys; assert sys.version_info >= (3, $(MIN_PY_MINOR)), \
@@ -140,12 +138,6 @@ bootstrap:
 	# write access to corpus/parsed/.
 	@echo ""
 	@echo "Bootstrap complete. var/arxmcp/ tree created."
-	@if [ -z "$$ARXMCP_CONTACT_EMAIL" ]; then \
-		echo "NOTE: export ARXMCP_CONTACT_EMAIL=<your-email> before running"; \
-		echo "the arXiv CLI fetch tools (tools/notebook_fetch.py,"; \
-		echo "tools/recover_preambles.py, ingest/inspire_ingest.py)."; \
-		echo "The server itself REJECTS the var — keep it unset for 'make up'."; \
-	fi
 
 test:
 	@$(PYTHON) -c "import sys; assert sys.version_info >= (3, $(MIN_PY_MINOR)), \
@@ -363,12 +355,15 @@ Try: make delta PYTHON=python3.$(MIN_PY_MINOR)'"
 
 re-embed:
 	@# E11_S03 — partial re-embed driver. Reads the active LanceDB,
-	@# re-chunks every paper with the current chunker_version, diffs
-	@# the new chunk-id set against the old, copies unchanged
-	@# embeddings from the old LanceDB version, and re-runs the
-	@# embedder only for new/changed chunks. Writes to the staging
+	@# re-chunks every paper with the current chunker_version, copies
+	@# the stored vector of every new chunk whose reuse identity
+	@# (embedding input, embedder version, policy, route) matches a
+	@# stored row (the chunk id plays no part), and
+	@# re-runs the embedder only for the rest. Writes to the staging
 	@# LanceDB; active corpus-version.json is NEVER advanced (that
-	@# is E11_S05's atomic cutover).
+	@# is the cutover's job). ARGS="--notebook=<slug>" re-embeds
+	@# one notebook (its lancedb -> its lancedb-staging); a chunk-id
+	@# rotation runs this way, one notebook at a time.
 	@#
 	@# NOTE on ARGS: paths inside ARGS must not contain spaces —
 	@# Make's shell expansion splits at whitespace before argparse
@@ -386,13 +381,11 @@ ingest-recover-preambles:
 	@# 0 in corpus/raw/). For each missing preamble.json: politeness_sleep,
 	@# fetch_eprint with 503 backoff, extract_preamble.
 	@#
-	@# Requires ARXMCP_CONTACT_EMAIL (User-Agent for /e-print/).
+	@# ARXMCP_CONTACT_EMAIL is optional contact information for the User-Agent.
 	@#
-	@# OPERATOR WARNING: after this completes, the next `make re-embed-all`
-	@# will detect that body+preamble of every back-filled paper now
-	@# differs (preamble bytes flow into the chunk_id hash), so re_embed
-	@# produces re_embedded ≫ copied for the affected notebooks —
-	@# expect 2-4 hours additional CPU. This is INTENDED (AC5).
+	@# Recovering a preamble changes no chunk id (an arXiv id
+	@# hashes the body only) and no vector (body-first-v1
+	@# never embeds the preamble); it only fills preamble_ref.
 	@#
 	@# NOTE on ARGS: paths inside ARGS must not contain spaces. Use
 	@# `ARGS="--notebook=<slug>"` to scope to one notebook's papers.txt;
@@ -409,12 +402,17 @@ re-embed-all:
 	@# embedder-truncation-m1 — notebook-aware re-embed driver.
 	@# Discovers every LanceDB dataset under var/arxmcp/notebooks/
 	@# (plus the shared corpus if non-empty) and invokes the single-
-	@# path re_embed driver against each. Required after CHUNKER_VERSION
-	@# bumps or token-budget changes that mandate corpus-wide rebuilds.
-	@#
-	@# Operator workflow: run this once per chunker-bump; expect a
-	@# multi-hour run for >10K chunks at the post-bump 2048-token
-	@# budget. ARGS forwards to the driver (e.g. ARGS="--dry-run").
+	@# path re_embed driver against each, for token-budget or embedder
+	@# changes that mandate corpus-wide rebuilds (expect a multi-hour
+	@# run for >10K chunks when vectors change). Reuse is by
+	@# identity, so a chunker bump that changes no body only copies
+	@# vectors. Not for a chunk-id rotation: ARGS="--dry-run" here
+	@# only lists datasets and cannot show the per-paper reembed=0
+	@# check. Rotate one notebook at a time with its server stopped:
+	@# make re-embed ARGS="--notebook=<slug> --dry-run" (expect
+	@# reembed=0 on every paper), make re-embed ARGS="--notebook=<slug>",
+	@# then make notebook-cutover ARGS="--notebook=<slug> --force".
+	@# ARGS forwards to the driver.
 	@#
 	@# NOTE on ARGS: paths inside ARGS must not contain spaces —
 	@# Make's shell expansion splits at whitespace before argparse
@@ -465,7 +463,8 @@ notebook-cutover:
 	@# Promotes each notebook's re-embedded var/arxmcp/notebooks/<slug>/
 	@# lancedb-staging to the live lancedb/ via an atomic two-rename swap
 	@# (lancedb/ -> lancedb-prev-<ts>/, lancedb-staging/ -> lancedb/),
-	@# building the staging BM25 index first and keeping N=2 backups.
+	@# keeping N=2 backups. BM25 is not built here; a fork-C server builds
+	@# it for the new version on startup.
 	@#
 	@# MEASURE-THEN-PROMOTE: run your pre/post comparison BEFORE this —
 	@# cutover destroys the side-by-side (old active vs new staging).
@@ -473,8 +472,15 @@ notebook-cutover:
 	@# ARGS="--notebook=<slug>". Rollback: ARGS="--rollback
 	@# --notebook=<slug>". Downgrade override: add --force.
 	@#
-	@# RESTART the server after a cutover — it holds an open LanceDB
-	@# handle on the old inode and serves stale data until restarted.
+	@# STOP the server before a cutover and START it after. An open
+	@# table does not serve the old data across the swap: its reads
+	@# fail (lancedb 0.30.2, Linux). The cutover
+	@# deletes the notebook's Tier-1 cache and every bm25/v<N> dir,
+	@# since a fresh staging restarts version numbering. For staging
+	@# built by `make re-embed ARGS="--notebook=<slug>"`, the cutover
+	@# refuses on staging version <= active; check that staging's
+	@# re-embed-progress.json reports complete with papers_failed_count
+	@# 0, then re-run with ARGS="--notebook=<slug> --force".
 	@#
 	@# NOTE on ARGS: paths inside ARGS must not contain spaces — Make's
 	@# shell expansion splits at whitespace before argparse sees them.

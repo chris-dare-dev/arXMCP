@@ -45,11 +45,13 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+from server.application_paths import ApplicationPaths
+
 logger = logging.getLogger("re_embed_all")
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-NOTEBOOKS_BASE = REPO_ROOT / "var" / "arxmcp" / "notebooks"
-SHARED_LANCEDB_PATH = REPO_ROOT / "var" / "arxmcp" / "index" / "lancedb"
+NOTEBOOKS_BASE = ApplicationPaths.resolve().notebooks
+SHARED_LANCEDB_PATH = ApplicationPaths.resolve().lancedb
 
 
 @dataclass
@@ -161,6 +163,7 @@ def run(
                 paper_ids=None,
                 active_lancedb_path=t.active_lancedb_path,
                 staging_lancedb_path=t.staging_lancedb_path,
+                notebook_slug=None if t.label == "shared" else t.label,
             )
         except Exception as exc:  # noqa: BLE001
             logger.exception(

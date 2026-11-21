@@ -1,19 +1,18 @@
-"""Tests for the partial re-embed driver (E11_S03).
+"""Tests for the partial re-embed driver.
 
-Pure unit tests with mocked LanceDB reads + mocked
-`chunk_paper`/`embed_paper`/`load_embed_record`/`write_chunks`. The
-suite covers the four ACs:
+The copy decision is tested through the public interface: ``compute_diff``
+(pure) and ``run_re_embed`` against real temporary LanceDB tables, with only
+the chunker (``chunk_paper``) and the model (``embed_paper`` /
+``load_embed_record``) stubbed. Reuse-by-identity cases (TestReuseByIdentity):
 
-1. 95% unchanged → 95% copied without re-compute
-   (TestCopyEfficacy::test_95_percent_copy).
-2. --resume skips already-embedded chunks
-   (TestResume::test_resume_skips_done_chunks).
-3. Runbook has the GPU-hours budget table for all scenarios
-   (TestRunbookContent::test_gpu_hours_table_present).
-4. Runbook explicitly warns against mixing embedding spaces
-   (TestRunbookContent::test_warns_against_mixing_spaces).
+- same body under a different chunk id -> copied;
+- same chunk id on the other route -> re-embedded (never copied across
+  routes);
+- same chunk id from another embedder or a legacy policy -> re-embedded.
 
-Plus regression guards for the synthesis landmines.
+Plus ``--resume`` (TestResume), the embedding-space mixing guard
+(TestSpaceMixingGuard), the Makefile content, the chunk-id
+source pin (TestChunkerVersionFreeze) and the staging sentinel.
 """
 
 from __future__ import annotations
@@ -22,36 +21,59 @@ import json
 from pathlib import Path
 from unittest.mock import patch
 
+import lancedb
 import numpy as np
+import pyarrow as pa
 import pytest
 
-from ingest.chunker_types import CHUNKER_VERSION, ChunkRecord
+from ingest.chunk import (
+    CHUNKER_VERSION,
+    CHUNKS_SCHEMA_V1,
+    EMBED_INPUT_POLICY_VERSION,
+    LEGACY_EMBED_INPUT_POLICY_VERSION,
+    ChunkRecord,
+    route,
+    to_row,
+)
 from ingest.embedder import EMBEDDER_VERSION
 from ingest.re_embed import (
-    _build_copy_embed_record,
     _read_old_embedder_version,
     _subset_embed_record,
     compute_diff,
     run_re_embed,
 )
-from ingest.schema import EMBEDDING_DIM, EmbedRecord
-from ingest.store import CORPUS_VERSION_MARKER_NAME
+from ingest.schema import (
+    CHUNKS_TABLE_NAME,
+    EMBEDDING_DIM,
+    LANCE_STORAGE_OPTIONS,
+    EmbedRecord,
+)
+from ingest.store import CORPUS_VERSION_MARKER_NAME, write_chunks
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
+PAPER = "2401.00001"
+OTHER_EMBEDDER = "bge-m3@00000000"
+#: Seed base of the stub embedder's vectors, far from the active tables'.
+FRESH_SEED = 1000
 
-def _normalized(seed: int) -> list[float]:
-    """Return an L2-normalized 1024-d vector seeded deterministically."""
+
+def _normalized(seed: int) -> np.ndarray:
+    """Return an L2-normalized float32 1024-d vector seeded deterministically."""
     rng = np.random.default_rng(seed)
     v = rng.standard_normal(EMBEDDING_DIM).astype(np.float32)
     v /= np.linalg.norm(v)
-    return v.tolist()
+    return v
+
+
+def _cid(paper_id: str, n: int) -> str:
+    return f"arxiv:{paper_id}:{n:016x}"
 
 
 def _make_chunk(
-    paper_id: str, chunk_id: str, kind: str = "stmt"
+    paper_id: str, chunk_id: str, kind: str = "stmt", body: str | None = None
 ) -> ChunkRecord:
     return ChunkRecord(
         chunk_id=chunk_id,
@@ -60,12 +82,49 @@ def _make_chunk(
         section_path=[],
         theorem_name=None,
         theorem_label=None,
-        body_text=f"body for {chunk_id}",
+        body_text=body if body is not None else f"body for {chunk_id}",
         body_tokens="body",
         preamble_ref=None,
         chunker_version=CHUNKER_VERSION,
         truncated=False,
     )
+
+
+def _record(
+    chunks: list[ChunkRecord],
+    *,
+    seed: int = 0,
+    embedder_version: str = EMBEDDER_VERSION,
+    policy: str = EMBED_INPUT_POLICY_VERSION,
+) -> EmbedRecord:
+    """Vectors for ``chunks`` (``seed + i`` for the i-th), each in its route's list."""
+    ids: dict[str, list[str]] = {"stmt": [], "proof": []}
+    rows: dict[str, list[np.ndarray]] = {"stmt": [], "proof": []}
+    for i, chunk in enumerate(chunks):
+        ids[route(chunk.kind)].append(chunk.chunk_id)
+        rows[route(chunk.kind)].append(_normalized(seed + i))
+
+    def _array(vectors: list[np.ndarray]) -> np.ndarray:
+        if not vectors:
+            return np.zeros((0, EMBEDDING_DIM), dtype=np.float32)
+        return np.stack(vectors)
+
+    return EmbedRecord(
+        chunk_ids_stmt=ids["stmt"],
+        embedding_stmt=_array(rows["stmt"]),
+        chunk_ids_proof=ids["proof"],
+        embedding_proof=_array(rows["proof"]),
+        embedder_version=embedder_version,
+        embed_input_policy_version=policy,
+    )
+
+
+def _active(tmp_path: Path, chunks: list[ChunkRecord] | None = None, **stamp) -> Path:
+    """A real active LanceDB (with its corpus-version.json) holding ``chunks``."""
+    chunks = chunks or []
+    path = tmp_path / "lancedb"
+    write_chunks(chunks, _record(chunks, **stamp), lancedb_path=path, build_indices=False)
+    return path
 
 
 def _write_active_marker(
@@ -77,6 +136,7 @@ def _write_active_marker(
             {
                 "version": 7,
                 "embedder_version": embedder_version,
+                "embed_input_policy_version": EMBED_INPUT_POLICY_VERSION,
                 "chunker_version": CHUNKER_VERSION,
             },
             sort_keys=True,
@@ -85,31 +145,149 @@ def _write_active_marker(
     )
 
 
+def _staged(tmp_path: Path) -> dict[str, dict]:
+    """The staging table's rows keyed by chunk_id (LanceDB reorders rows)."""
+    path = tmp_path / "staging"
+    if not (path / "chunks.lance").is_dir():
+        return {}
+    table = lancedb.connect(str(path)).open_table("chunks")
+    return {row["chunk_id"]: row for row in table.to_arrow().to_pylist()}
+
+
+def _bytes(vector) -> bytes:
+    return np.asarray(vector, dtype=np.float32).tobytes()
+
+
+def _ok_embed_stats():
+    """Return an EmbedStats mimicking status=ok."""
+    from ingest.embedder import EmbedStats
+
+    return EmbedStats(
+        paper_id="x",
+        chunks_processed=1,
+        chunks_skipped=0,
+        truncated_count=0,
+        elapsed_s=0.01,
+        status="ok",
+        error=None,
+        error_class="none",
+    )
+
+
+class _StubEmbedder:
+    """Stands in for the model (``embed_paper`` + ``load_embed_record``).
+
+    Records which papers it embedded and returns vectors seeded from
+    :data:`FRESH_SEED`, so a test can tell a fresh vector from a copied one.
+    """
+
+    def __init__(self, chunks_by_paper: dict[str, list[ChunkRecord]]):
+        self.chunks_by_paper = chunks_by_paper
+        self.calls: list[str] = []
+
+    def embed_paper(self, paper_id: str):
+        self.calls.append(paper_id)
+        return _ok_embed_stats()
+
+    def load_embed_record(self, paper_id: str) -> EmbedRecord:
+        return _record(self.chunks_by_paper[paper_id], seed=FRESH_SEED)
+
+
+def _run(
+    tmp_path: Path,
+    active: Path,
+    new_chunks: dict[str, list[ChunkRecord]],
+    **kwargs,
+):
+    """Run the driver against ``active`` with a stub chunker and model."""
+    embedder = _StubEmbedder(new_chunks)
+    with (
+        patch("ingest.re_embed.chunk_paper", lambda pid: new_chunks[pid]),
+        patch("ingest.re_embed.embed_paper", embedder.embed_paper),
+        patch("ingest.re_embed.load_embed_record", embedder.load_embed_record),
+    ):
+        summary = run_re_embed(
+            active_lancedb_path=active,
+            staging_lancedb_path=tmp_path / "staging",
+            state_path=tmp_path / "state.json",
+            failures_path=tmp_path / "failures.jsonl",
+            **kwargs,
+        )
+    return summary, embedder
+
+
+class _WriteChunksSpy:
+    """Records every call to `write_chunks` for assertion."""
+
+    def __init__(self):
+        self.calls: list[tuple[list[ChunkRecord], EmbedRecord]] = []
+
+    def __call__(self, chunks, embeddings, lancedb_path=None, **kwargs):
+        self.calls.append((list(chunks), embeddings))
+        return 1  # synthetic version int
+
+
 # ---------------------------------------------------------------------------
-# compute_diff
+# compute_diff — the pure copy decision
 # ---------------------------------------------------------------------------
+
+
+def _stored_row(
+    chunk_id: str,
+    body: str,
+    *,
+    seed: int,
+    kind: str = "stmt",
+    embedder_version: str = EMBEDDER_VERSION,
+    policy: str | None = EMBED_INPUT_POLICY_VERSION,
+) -> dict:
+    vector = _normalized(seed).tolist()
+    return {
+        "chunk_id": chunk_id,
+        "kind": kind,
+        "body_text": body,
+        "embedder_version": embedder_version,
+        "embed_input_policy_version": policy,
+        "embedding_stmt": None if route(kind) == "proof" else vector,
+        "embedding_proof": vector if route(kind) == "proof" else None,
+    }
 
 
 class TestComputeDiff:
-    def test_disjoint_sets(self):
-        copy, re_embed, drop = compute_diff({"a", "b"}, {"c", "d"})
-        assert copy == set()
-        assert re_embed == {"c", "d"}
-        assert drop == {"a", "b"}
+    def test_partitions_by_reuse_identity_not_chunk_id(self):
+        old = [
+            _stored_row(_cid(PAPER, 1), "kept body", seed=1),
+            _stored_row(_cid(PAPER, 2), "old body", seed=2),
+        ]
+        new = [
+            _make_chunk(PAPER, _cid(PAPER, 9), body="kept body"),
+            _make_chunk(PAPER, _cid(PAPER, 2), body="new body"),
+        ]
+        copy, re_embed, drop = compute_diff(
+            old, new, target_embedder_version=EMBEDDER_VERSION
+        )
+        assert copy == {_cid(PAPER, 9): old[0]["embedding_stmt"]}
+        assert re_embed == {_cid(PAPER, 2)}
+        assert drop == {_cid(PAPER, 1)}
 
-    def test_full_overlap(self):
-        copy, re_embed, drop = compute_diff({"a", "b"}, {"a", "b"})
-        assert copy == {"a", "b"}
-        assert re_embed == set()
+    def test_the_target_embedder_is_part_of_the_match(self):
+        old = [_stored_row(_cid(PAPER, 1), "body", seed=1)]
+        new = [_make_chunk(PAPER, _cid(PAPER, 1), body="body")]
+        copy, re_embed, drop = compute_diff(
+            old, new, target_embedder_version=OTHER_EMBEDDER
+        )
+        assert copy == {}
+        assert re_embed == {_cid(PAPER, 1)}
         assert drop == set()
 
-    def test_mixed(self):
-        copy, re_embed, drop = compute_diff(
-            {"a", "b", "c"}, {"b", "c", "d"}
+    def test_a_null_policy_row_is_never_reused(self):
+        old = [_stored_row(_cid(PAPER, 1), "body", seed=1, policy=None)]
+        new = [_make_chunk(PAPER, _cid(PAPER, 1), body="body")]
+        copy, re_embed, _ = compute_diff(
+            old, new, target_embedder_version=EMBEDDER_VERSION
         )
-        assert copy == {"b", "c"}
-        assert re_embed == {"d"}
-        assert drop == {"a"}
+        assert copy == {}
+        assert re_embed == {_cid(PAPER, 1)}
 
 
 # ---------------------------------------------------------------------------
@@ -166,423 +344,233 @@ class TestSubsetEmbedRecord:
 
 
 # ---------------------------------------------------------------------------
-# _build_copy_embed_record — F1-class guard
+# run_re_embed against real LanceDB tables — reuse by identity
 # ---------------------------------------------------------------------------
 
 
-class TestBuildCopyEmbedRecord:
-    def test_refuses_mismatched_old_embedder_version(self):
-        """Closes the synthesis D6 F1-class guard: an old row whose
-        embedder_version doesn't match the recorded OLD_EMBEDDER_VERSION
-        is a stale or corrupt source — refuse to copy."""
-        new_chunks = {
-            "arxiv:2401.00001:aaaaaaaaaaaaaaaa": _make_chunk(
-                "2401.00001", "arxiv:2401.00001:aaaaaaaaaaaaaaaa"
-            )
-        }
-        old_rows = {
-            "arxiv:2401.00001:aaaaaaaaaaaaaaaa": {
-                "embedding_stmt": _normalized(1),
-                "embedding_proof": None,
-                "embedder_version": "bge-m3@dddddddd",  # wrong!
-                "kind": "stmt",
-            }
-        }
-        with pytest.raises(RuntimeError, match="different embedding space"):
-            _build_copy_embed_record(
-                new_chunks_by_id=new_chunks,
-                old_rows_by_id=old_rows,
-                old_embedder_version="bge-m3@aaaaaaaa",
-                target_embedder_version=EMBEDDER_VERSION,
-            )
+class TestReuseByIdentity:
+    def test_same_body_under_a_new_chunk_id_is_copied(self, tmp_path):
+        old = _make_chunk(PAPER, _cid(PAPER, 1), body="Let X be a scheme.")
+        active = _active(tmp_path, [old], seed=7)
+        new = _make_chunk(PAPER, _cid(PAPER, 2), body="Let X be a scheme.")
 
-    def test_stamps_target_embedder_version_on_output(self):
-        """Closes synthesis D5: copied rows carry the NEW (target)
-        embedder_version, not the old one. The VECTOR is content-
-        identity-valid; the metadata column is rewritten."""
-        new_chunks = {
-            "arxiv:2401.00001:aaaaaaaaaaaaaaaa": _make_chunk(
-                "2401.00001", "arxiv:2401.00001:aaaaaaaaaaaaaaaa"
-            )
-        }
-        old_rows = {
-            "arxiv:2401.00001:aaaaaaaaaaaaaaaa": {
-                "embedding_stmt": _normalized(1),
-                "embedding_proof": None,
-                "embedder_version": "bge-m3@aaaaaaaa",
-                "kind": "stmt",
-            }
-        }
-        record = _build_copy_embed_record(
-            new_chunks_by_id=new_chunks,
-            old_rows_by_id=old_rows,
-            old_embedder_version="bge-m3@aaaaaaaa",
-            target_embedder_version="bge-m3@bbbbbbbb",
-        )
-        assert record.embedder_version == "bge-m3@bbbbbbbb"
-        assert record.chunk_ids_stmt == ["arxiv:2401.00001:aaaaaaaaaaaaaaaa"]
+        summary, embedder = _run(tmp_path, active, {PAPER: [new]})
 
-    def test_routes_proof_to_embedding_proof(self):
-        new_chunks = {
-            "arxiv:2401.00001:aaaaaaaaaaaaaaaa": _make_chunk(
-                "2401.00001", "arxiv:2401.00001:aaaaaaaaaaaaaaaa", kind="proof"
-            )
-        }
-        old_rows = {
-            "arxiv:2401.00001:aaaaaaaaaaaaaaaa": {
-                "embedding_stmt": None,
-                "embedding_proof": _normalized(1),
-                "embedder_version": "bge-m3@aaaaaaaa",
-                "kind": "proof",
-            }
-        }
-        record = _build_copy_embed_record(
-            new_chunks_by_id=new_chunks,
-            old_rows_by_id=old_rows,
-            old_embedder_version="bge-m3@aaaaaaaa",
-            target_embedder_version="bge-m3@bbbbbbbb",
-        )
-        assert record.chunk_ids_proof == ["arxiv:2401.00001:aaaaaaaaaaaaaaaa"]
-        assert record.chunk_ids_stmt == []
+        assert summary.papers_failed == []
+        assert summary.chunks_copied == 1
+        assert summary.chunks_re_embedded == 0
+        assert summary.chunks_dropped == 1
+        assert embedder.calls == []
+        staged = _staged(tmp_path)
+        assert set(staged) == {new.chunk_id}
+        row = staged[new.chunk_id]
+        assert _bytes(row["embedding_stmt"]) == _normalized(7).tobytes()
+        assert row["embedding_proof"] is None
+        assert row["embedder_version"] == EMBEDDER_VERSION
+        assert row["embed_input_policy_version"] == EMBED_INPUT_POLICY_VERSION
 
+    def test_same_chunk_id_on_the_other_route_is_re_embedded(self, tmp_path):
+        # The wrong-route bug: the chunk id does not hash the kind, so a
+        # re-chunk returned a stored ``section`` body as a ``proof`` under
+        # the same id, and the copy path carried its statement vector over.
+        cid = _cid(PAPER, 1)
+        stored = _make_chunk(PAPER, cid, kind="section", body="We prove it.")
+        active = _active(tmp_path, [stored], seed=7)
+        new = _make_chunk(PAPER, cid, kind="proof", body="We prove it.")
 
-# ---------------------------------------------------------------------------
-# End-to-end run_re_embed with mocked dependencies
-# ---------------------------------------------------------------------------
+        summary, embedder = _run(tmp_path, active, {PAPER: [new]})
 
+        assert summary.papers_failed == []
+        assert summary.chunks_copied == 0
+        assert summary.chunks_re_embedded == 1
+        assert embedder.calls == [PAPER]
+        row = _staged(tmp_path)[cid]
+        assert row["embedding_stmt"] is None
+        assert _bytes(row["embedding_proof"]) == _normalized(FRESH_SEED).tobytes()
 
-# Synthetic state. The mocks below stand in for LanceDB + chunker +
-# embedder so the tests run in milliseconds.
-
-
-def _mk_chunk(pid: str, idx: int, *, kind: str = "stmt") -> ChunkRecord:
-    """Make a synthetic chunk with a predictable id."""
-    suffix = f"{idx:016x}"  # 16 hex chars
-    return _make_chunk(pid, f"arxiv:{pid}:{suffix}", kind=kind)
-
-
-def _ok_embed_stats():
-    """Return an EmbedStats-like minimal stub mimicking status=ok."""
-    from ingest.embedder import EmbedStats
-
-    return EmbedStats(
-        paper_id="x",
-        chunks_processed=1,
-        chunks_skipped=0,
-        truncated_count=0,
-        elapsed_s=0.01,
-        status="ok",
-        error=None,
-        error_class="none",
+    @pytest.mark.parametrize(
+        "stamp",
+        [
+            {"embedder_version": OTHER_EMBEDDER},
+            {"policy": LEGACY_EMBED_INPUT_POLICY_VERSION},
+        ],
+        ids=["other-embedder", "legacy-policy"],
     )
+    def test_same_chunk_id_from_another_embedder_or_policy_is_re_embedded(
+        self, tmp_path, stamp
+    ):
+        chunk = _make_chunk(PAPER, _cid(PAPER, 1), body="Let X be a scheme.")
+        active = _active(tmp_path, [chunk], seed=7, **stamp)
 
+        summary, embedder = _run(tmp_path, active, {PAPER: [chunk]})
 
-def _ok_full_record(paper_id: str, new_ids: list[str]) -> EmbedRecord:
-    return EmbedRecord(
-        chunk_ids_stmt=new_ids,
-        embedding_stmt=np.asarray(
-            [_normalized(i) for i, _ in enumerate(new_ids)], dtype=np.float32
+        assert summary.papers_failed == []
+        assert summary.chunks_copied == 0
+        assert summary.chunks_re_embedded == 1
+        assert embedder.calls == [PAPER]
+        row = _staged(tmp_path)[chunk.chunk_id]
+        assert _bytes(row["embedding_stmt"]) == _normalized(FRESH_SEED).tobytes()
+        assert row["embedder_version"] == EMBEDDER_VERSION
+        assert row["embed_input_policy_version"] == EMBED_INPUT_POLICY_VERSION
+
+    def test_active_table_without_policy_column_is_re_embedded(self, tmp_path):
+        # A live notebook built before the Bridgeland repair has no
+        # ``embed_input_policy_version`` column at all (the five repair
+        # columns are absent, not NULL). Its rows must read as "policy
+        # unknown" and be re-embedded, and the scan must not
+        # crash on the missing columns.
+        repair_columns = {
+            "embed_input_policy_version",
+            "part_index",
+            "part_count",
+            "source_start",
+            "source_end",
+        }
+        pre_repair = pa.schema(
+            [f for f in CHUNKS_SCHEMA_V1 if f.name not in repair_columns]
         )
-        if new_ids
-        else np.zeros((0, EMBEDDING_DIM), dtype=np.float32),
-        chunk_ids_proof=[],
-        embedding_proof=np.zeros((0, EMBEDDING_DIM), dtype=np.float32),
-        embedder_version=EMBEDDER_VERSION,
-    )
-
-
-class _StagingDoubleSpy:
-    """Stub for `_staging_chunk_ids` that returns a fixed set."""
-
-    def __init__(self, ids: set[str]):
-        self._ids = ids
-        self.calls = 0
-
-    def __call__(self, staging_path):
-        self.calls += 1
-        return self._ids
-
-
-class _WriteChunksSpy:
-    """Records every call to `write_chunks` for assertion."""
-
-    def __init__(self):
-        self.calls: list[tuple[list[ChunkRecord], EmbedRecord]] = []
-
-    def __call__(self, chunks, embeddings, lancedb_path=None):
-        self.calls.append((list(chunks), embeddings))
-        return 1  # synthetic version int
-
-
-class TestCopyEfficacy:
-    """Closes AC1: 95% unchanged → 95% copied without re-compute."""
-
-    def test_95_percent_copy(self, tmp_path):
+        chunk = _make_chunk(PAPER, _cid(PAPER, 1), body="Let X be a scheme.")
+        row = to_row(
+            chunk,
+            _normalized(7),
+            embedder_version=EMBEDDER_VERSION,
+            policy=EMBED_INPUT_POLICY_VERSION,
+        )
         active = tmp_path / "lancedb"
-        staging = tmp_path / "lancedb-staging"
-        _write_active_marker(active, embedder_version=EMBEDDER_VERSION)
-
-        # 100 chunks across 10 papers (10 each). 5 of them are
-        # "new" (re-embed); the rest are "copy".
-        old_ids_by_paper: dict[str, set[str]] = {}
-        new_chunks_by_paper: dict[str, list[ChunkRecord]] = {}
-        for p in range(10):
-            paper_id = f"2401.{p:05d}"
-            unchanged_ids = []
-            new_chunks: list[ChunkRecord] = []
-            for c in range(10):
-                # Stable id for indices 0..9 of papers 0..8 (90 chunks)
-                # plus indices 0..4 of paper 9 (5 unchanged → 5 new).
-                if p == 9 and c >= 5:
-                    cid = f"arxiv:{paper_id}:{(p * 100 + c + 9999):016x}"
-                else:
-                    cid = f"arxiv:{paper_id}:{(p * 10 + c):016x}"
-                    unchanged_ids.append(cid)
-                new_chunks.append(
-                    _make_chunk(paper_id, cid, kind="stmt")
-                )
-            old_ids_by_paper[paper_id] = set(unchanged_ids)
-            new_chunks_by_paper[paper_id] = new_chunks
-
-        # 95 chunks have ids in both sets; 5 are new (paper 9, c=5..9).
-        # Old IDs that are in NEW set: 95. Old not in NEW: 0. So
-        # chunks_copied=95, chunks_re_embedded=5.
-
-        old_rows_by_id = {
-            cid: {
-                "embedding_stmt": _normalized(hash(cid) & 0x7FFFFFFF),
-                "embedding_proof": None,
-                "embedder_version": EMBEDDER_VERSION,
-                "kind": "stmt",
-            }
-            for ids in old_ids_by_paper.values()
-            for cid in ids
-        }
-
-        write_spy = _WriteChunksSpy()
-
-        def _chunk_paper_stub(pid):
-            return new_chunks_by_paper[pid]
-
-        def _index_stub(_):
-            return old_ids_by_paper
-
-        def _load_old_rows_stub(_, ids, *, cache=None):
-            return {cid: old_rows_by_id[cid] for cid in ids}
-
-        def _build_old_rows_index_stub(_):
-            return old_rows_by_id
-
-        # Closes adversary F3: count actual embedder calls so the
-        # AC1 assertion verifies "no re-compute for copy chunks",
-        # not just orchestrator accounting.
-        embed_calls: list[str] = []
-
-        def _embed_paper_stub(pid):
-            embed_calls.append(pid)
-            return _ok_embed_stats()
-
-        def _load_embed_record_stub(pid):
-            # Return the 5 new chunks for paper 9; empty for others.
-            if pid == "2401.00009":
-                new_ids = [
-                    c.chunk_id
-                    for c in new_chunks_by_paper[pid]
-                    if c.chunk_id not in old_ids_by_paper[pid]
-                ]
-                return _ok_full_record(pid, new_ids)
-            return _ok_full_record(pid, [])
-
-        def _staging_versions_stub(_path, _target):
-            return None
-
-        with (
-            patch("ingest.re_embed.chunk_paper", _chunk_paper_stub),
-            patch(
-                "ingest.re_embed._index_old_chunk_ids_by_paper", _index_stub
+        lancedb.connect(str(active)).create_table(
+            CHUNKS_TABLE_NAME,
+            data=pa.Table.from_pylist(
+                [{k: v for k, v in row.items() if k not in repair_columns}],
+                schema=pre_repair,
             ),
-            patch(
-                "ingest.re_embed._build_old_rows_index",
-                _build_old_rows_index_stub,
-            ),
-            patch("ingest.re_embed._load_old_rows", _load_old_rows_stub),
-            patch("ingest.re_embed.embed_paper", _embed_paper_stub),
-            patch(
-                "ingest.re_embed.load_embed_record", _load_embed_record_stub
-            ),
-            patch(
-                "ingest.re_embed._check_staging_embedder_versions",
-                _staging_versions_stub,
-            ),
-            patch("ingest.re_embed.write_chunks", write_spy),
-        ):
-            summary = run_re_embed(
-                active_lancedb_path=active,
-                staging_lancedb_path=staging,
-                state_path=tmp_path / "state.json",
-                failures_path=tmp_path / "failures.jsonl",
-            )
-
-        assert summary.chunks_copied == 95
-        assert summary.chunks_re_embedded == 5
-        assert summary.copy_fraction == pytest.approx(0.95)
-        # Closes F3: embedder called for exactly ONE paper (paper 9
-        # is the only one with re-embed-pending chunks). The other
-        # 9 papers' chunks were ALL copy candidates, so the embedder
-        # MUST NOT have been called for them.
-        assert embed_calls == ["2401.00009"], (
-            f"AC1: expected embedder called only for paper 9; got {embed_calls}"
+            storage_options=LANCE_STORAGE_OPTIONS,
         )
-        # At least one write_chunks call carried the 5 re-embed chunks.
-        assert any(len(c[1].chunk_ids_stmt) == 5 for c in write_spy.calls)
+        _write_active_marker(active)
+
+        summary, embedder = _run(tmp_path, active, {PAPER: [chunk]})
+
+        assert summary.papers_failed == []
+        assert summary.chunks_copied == 0
+        assert summary.chunks_re_embedded == 1
+        assert embedder.calls == [PAPER]
+        staged = _staged(tmp_path)[chunk.chunk_id]
+        assert _bytes(staged["embedding_stmt"]) == _normalized(FRESH_SEED).tobytes()
+
+    def test_unchanged_papers_are_copied_without_the_embedder(self, tmp_path):
+        # Unchanged content is copied with no model call. Four
+        # papers of five chunks; two bodies of the last paper change.
+        papers = [f"2401.0000{p}" for p in range(4)]
+        old = {
+            pid: [
+                _make_chunk(pid, _cid(pid, c), kind="proof" if c == 4 else "stmt")
+                for c in range(5)
+            ]
+            for pid in papers
+        }
+        active = _active(tmp_path, [c for pid in papers for c in old[pid]], seed=0)
+        new = {pid: list(chunks) for pid, chunks in old.items()}
+        new[papers[3]] = old[papers[3]][:3] + [
+            _make_chunk(papers[3], _cid(papers[3], 10 + c), body=f"rewritten {c}")
+            for c in range(2)
+        ]
+
+        summary, embedder = _run(tmp_path, active, new)
+
+        assert summary.papers_failed == []
+        assert summary.chunks_copied == 18
+        assert summary.chunks_re_embedded == 2
+        assert summary.copy_fraction == pytest.approx(0.9)
+        assert embedder.calls == [papers[3]]
+        staged = _staged(tmp_path)
+        assert len(staged) == 20
+        proof = staged[_cid(papers[0], 4)]
+        assert proof["embedding_stmt"] is None
+        assert proof["embedding_proof"] is not None
 
 
 class TestResume:
-    """Closes AC2: --resume skips already-embedded chunks."""
+    def test_resume_skips_a_paper_already_staged_identically(self, tmp_path):
+        chunks = [_make_chunk(PAPER, _cid(PAPER, i)) for i in range(3)]
+        active = _active(tmp_path, chunks)
+        _run(tmp_path, active, {PAPER: chunks})
 
-    def test_resume_skips_done_chunks(self, tmp_path):
-        active = tmp_path / "lancedb"
-        staging = tmp_path / "lancedb-staging"
-        _write_active_marker(active)
+        summary, embedder = _run(tmp_path, active, {PAPER: chunks}, resume=True)
 
-        # 1 paper with 10 chunks, all unchanged content (copy path).
-        # Staging "already has" 5 of them — --resume must skip those 5.
-        paper_id = "2401.00001"
-        all_ids = [
-            f"arxiv:{paper_id}:{i:016x}" for i in range(10)
-        ]
-        new_chunks = [
-            _make_chunk(paper_id, cid) for cid in all_ids
-        ]
-        old_rows = {
-            cid: {
-                "embedding_stmt": _normalized(i),
-                "embedding_proof": None,
-                "embedder_version": EMBEDDER_VERSION,
-                "kind": "stmt",
-            }
-            for i, cid in enumerate(all_ids)
-        }
+        assert summary.papers_failed == []
+        assert summary.chunks_skipped_resume == 3
+        assert summary.chunks_copied == 0
+        assert summary.chunks_re_embedded == 0
+        assert embedder.calls == []
+        assert set(_staged(tmp_path)) == {c.chunk_id for c in chunks}
 
-        write_spy = _WriteChunksSpy()
+    def test_resume_replaces_a_staged_row_whose_input_changed(self, tmp_path):
+        # Same chunk id, new body: the staged row's reuse identity no
+        # longer matches, so the paper is not skipped.
+        cid = _cid(PAPER, 1)
+        first = _make_chunk(PAPER, cid, body="first body")
+        active = _active(tmp_path, [first])
+        _run(tmp_path, active, {PAPER: [first]})
 
-        with (
-            patch(
-                "ingest.re_embed.chunk_paper", lambda _pid: new_chunks
-            ),
-            patch(
-                "ingest.re_embed._index_old_chunk_ids_by_paper",
-                lambda _p: {paper_id: set(all_ids)},
-            ),
-            patch(
-                "ingest.re_embed._build_old_rows_index",
-                lambda _p: old_rows,
-            ),
-            patch(
-                "ingest.re_embed._load_old_rows",
-                lambda _path, ids, *, cache=None: {
-                    cid: old_rows[cid] for cid in ids
-                },
-            ),
-            patch(
-                "ingest.re_embed._staging_chunk_ids",
-                lambda _p: set(all_ids[:5]),  # first 5 already done
-            ),
-            patch(
-                "ingest.re_embed._check_staging_embedder_versions",
-                lambda _p, _v: None,
-            ),
-            patch("ingest.re_embed.write_chunks", write_spy),
-        ):
-            summary = run_re_embed(
-                active_lancedb_path=active,
-                staging_lancedb_path=staging,
-                state_path=tmp_path / "state.json",
-                failures_path=tmp_path / "failures.jsonl",
-                resume=True,
-            )
+        second = _make_chunk(PAPER, cid, body="second body")
+        summary, embedder = _run(tmp_path, active, {PAPER: [second]}, resume=True)
 
-        # AC2: chunks_skipped_resume == 5 (the 5 already-present ids)
-        assert summary.chunks_skipped_resume == 5
-        # The other 5 chunks were copied (their content is unchanged).
-        assert summary.chunks_copied == 5
-        # write_chunks called once (for the remaining 5 copy ids).
-        assert len(write_spy.calls) == 1
-        assert len(write_spy.calls[0][1].chunk_ids_stmt) == 5
+        assert summary.chunks_skipped_resume == 0
+        assert summary.chunks_re_embedded == 1
+        assert embedder.calls == [PAPER]
+        assert _staged(tmp_path)[cid]["body_text"] == "second body"
+
+
+    def test_resume_rewrites_a_row_another_chunker_version_staged(self, tmp_path):
+        # A staged row with the SAME id and body but an older
+        # chunker_version stamp (a staging left by a v1.2-era run; empty-
+        # preamble papers keep their ids across v1.3) must not be skipped,
+        # or the promoted table would carry the stale stamp.
+        chunk = _make_chunk(PAPER, _cid(PAPER, 1), body="Let X be a scheme.")
+        active = _active(tmp_path, [chunk], seed=7)
+        stale = _make_chunk(PAPER, chunk.chunk_id, body="Let X be a scheme.")
+        stale.chunker_version = "v1.2"
+        write_chunks(
+            [stale], _record([stale], seed=7),
+            lancedb_path=tmp_path / "staging", build_indices=False,
+        )
+
+        summary, embedder = _run(tmp_path, active, {PAPER: [chunk]}, resume=True)
+
+        assert summary.chunks_skipped_resume == 0
+        assert summary.chunks_copied == 1
+        assert embedder.calls == []
+        row = _staged(tmp_path)[chunk.chunk_id]
+        assert row["chunker_version"] == CHUNKER_VERSION
+        assert _bytes(row["embedding_stmt"]) == _normalized(7).tobytes()
 
 
 class TestSpaceMixingGuard:
     """Code guard on top of the runbook warning (synthesis D5)."""
 
-    def test_refuses_mixed_space(self, tmp_path):
-        active = tmp_path / "lancedb"
-        staging = tmp_path / "lancedb-staging"
-        _write_active_marker(active)
-
-        # Use a side_effect to simulate the mixing-detection branch.
-        def _check_stub(_path, target):
-            raise RuntimeError(
-                f"staging table contains rows with embedder_version "
-                f"bge-m3@oldoldoldoldoldold which differ from the "
-                f"target {target!r}. Refusing to mix embedding spaces."
-            )
-
-        with (
-            patch(
-                "ingest.re_embed._check_staging_embedder_versions",
-                _check_stub,
-            ),
-            pytest.raises(RuntimeError, match="mix embedding spaces"),
-        ):
-            run_re_embed(
-                active_lancedb_path=active,
-                staging_lancedb_path=staging,
-                state_path=tmp_path / "state.json",
-                failures_path=tmp_path / "failures.jsonl",
-            )
+    def test_refuses_a_staging_table_from_another_embedder(self, tmp_path):
+        chunk = _make_chunk(PAPER, _cid(PAPER, 1))
+        active = _active(tmp_path, [chunk])
+        write_chunks(
+            [chunk], _record([chunk], embedder_version=OTHER_EMBEDDER),
+            lancedb_path=tmp_path / "staging", build_indices=False,
+        )
+        with pytest.raises(RuntimeError, match="mix embedding spaces"):
+            _run(tmp_path, active, {PAPER: [chunk]})
 
 
 class TestDryRun:
-    """Dry run does not call write_chunks; prints diff per paper."""
+    """Dry run does not write; prints the diff per paper."""
 
     def test_dry_run_skips_writes(self, tmp_path, capsys):
-        active = tmp_path / "lancedb"
-        _write_active_marker(active)
+        chunks = [_make_chunk(PAPER, _cid(PAPER, i)) for i in range(3)]
+        active = _active(tmp_path, chunks[:1])
 
-        write_spy = _WriteChunksSpy()
-        paper_id = "2401.00001"
-        new_chunks = [
-            _make_chunk(paper_id, f"arxiv:{paper_id}:{i:016x}")
-            for i in range(3)
-        ]
+        _summary, embedder = _run(tmp_path, active, {PAPER: chunks}, dry_run=True)
 
-        with (
-            patch("ingest.re_embed.chunk_paper", lambda _pid: new_chunks),
-            patch(
-                "ingest.re_embed._index_old_chunk_ids_by_paper",
-                lambda _p: {paper_id: {new_chunks[0].chunk_id}},
-            ),
-            patch(
-                "ingest.re_embed._build_old_rows_index", lambda _p: {}
-            ),
-            patch(
-                "ingest.re_embed._check_staging_embedder_versions",
-                lambda _p, _v: None,
-            ),
-            patch("ingest.re_embed.write_chunks", write_spy),
-        ):
-            run_re_embed(
-                active_lancedb_path=active,
-                staging_lancedb_path=tmp_path / "lancedb-staging",
-                state_path=tmp_path / "state.json",
-                failures_path=tmp_path / "failures.jsonl",
-                dry_run=True,
-            )
-        assert write_spy.calls == []
+        assert not (tmp_path / "staging").exists()
+        assert embedder.calls == []
         out = capsys.readouterr().out
-        assert paper_id in out
-        assert "copy=" in out
-        assert "reembed=" in out
+        assert f"{PAPER}\tcopy=1\treembed=2\tdrop=0" in out
 
 
 # ---------------------------------------------------------------------------
@@ -592,68 +580,62 @@ class TestDryRun:
 
 class TestStateFile:
     def test_state_marks_complete_on_success(self, tmp_path):
-        active = tmp_path / "lancedb"
-        _write_active_marker(active)
-
-        with (
-            patch("ingest.re_embed.chunk_paper", lambda _pid: []),
-            patch(
-                "ingest.re_embed._index_old_chunk_ids_by_paper",
-                lambda _p: {"2401.00001": set()},
-            ),
-            patch(
-                "ingest.re_embed._build_old_rows_index", lambda _p: {}
-            ),
-            patch(
-                "ingest.re_embed._check_staging_embedder_versions",
-                lambda _p, _v: None,
-            ),
-            patch("ingest.re_embed.write_chunks", _WriteChunksSpy()),
-        ):
-            state_path = tmp_path / "state.json"
-            summary = run_re_embed(
-                active_lancedb_path=active,
-                staging_lancedb_path=tmp_path / "lancedb-staging",
-                state_path=state_path,
-                failures_path=tmp_path / "failures.jsonl",
-            )
-        assert summary.papers_total == 1
-        state = json.loads(state_path.read_text())
+        chunks = [_make_chunk(PAPER, _cid(PAPER, i)) for i in range(2)]
+        active = _active(tmp_path, chunks)
+        summary, _ = _run(tmp_path, active, {PAPER: chunks})
+        assert summary.papers_failed == []
+        state = json.loads((tmp_path / "state.json").read_text())
         assert state["status"] == "complete"
+        assert state["chunks_copied"] == 2
         # Closes IS5: chunks_skipped_resume present in final state.
         assert state["chunks_skipped_resume"] == 0
 
+    def test_empty_chunker_output_is_a_failure(self, tmp_path):
+        active = _active(tmp_path)
+        summary, _ = _run(tmp_path, active, {PAPER: []}, paper_ids=[PAPER])
+        assert summary.papers_total == 1
+        assert summary.papers_failed == [PAPER]
+        state = json.loads((tmp_path / "state.json").read_text())
+        assert state["status"] == "complete_with_failures"
+
     def test_state_marks_complete_with_failures(self, tmp_path):
-        active = tmp_path / "lancedb"
-        _write_active_marker(active)
+        active = _active(tmp_path)
 
         def _chunker_raises(_pid):
             raise RuntimeError("synthetic chunker explosion")
 
-        with (
-            patch("ingest.re_embed.chunk_paper", _chunker_raises),
-            patch(
-                "ingest.re_embed._index_old_chunk_ids_by_paper",
-                lambda _p: {"2401.00001": set()},
-            ),
-            patch(
-                "ingest.re_embed._build_old_rows_index", lambda _p: {}
-            ),
-            patch(
-                "ingest.re_embed._check_staging_embedder_versions",
-                lambda _p, _v: None,
-            ),
-        ):
+        with patch("ingest.re_embed.chunk_paper", _chunker_raises):
             state_path = tmp_path / "state.json"
             summary = run_re_embed(
+                paper_ids=[PAPER],
                 active_lancedb_path=active,
-                staging_lancedb_path=tmp_path / "lancedb-staging",
+                staging_lancedb_path=tmp_path / "staging",
                 state_path=state_path,
                 failures_path=tmp_path / "failures.jsonl",
             )
-        assert "2401.00001" in summary.papers_failed
+        assert PAPER in summary.papers_failed
         state = json.loads(state_path.read_text())
         assert state["status"] == "complete_with_failures"
+
+    def test_failed_paper_still_leaves_staging_indexed(self, tmp_path):
+        """A run with a failed paper ends ``complete_with_failures``, which
+        ``make cutover``'s C3 accepts. Its staging table must still carry the
+        vector indexes, or the cutover integrity probe refuses it."""
+        from ops.cutover import verify_lancedb_integrity
+
+        bad = "2401.00002"
+        chunks = [_make_chunk(PAPER, _cid(PAPER, i)) for i in range(3)]
+        active = _active(tmp_path, chunks)
+
+        summary, _ = _run(
+            tmp_path, active, {PAPER: chunks, bad: []}, paper_ids=[PAPER, bad],
+        )
+
+        assert summary.papers_failed == [bad]
+        state = json.loads((tmp_path / "state.json").read_text())
+        assert state["status"] == "complete_with_failures"
+        integrity = verify_lancedb_integrity(tmp_path / "staging")
+        assert integrity.ok is True, integrity.reason
 
 
 # ---------------------------------------------------------------------------
@@ -663,27 +645,12 @@ class TestStateFile:
 
 class TestPaperIdValidation:
     def test_invalid_paper_id_in_list_raises(self, tmp_path):
-        active = tmp_path / "lancedb"
-        _write_active_marker(active)
-
-        with (
-            patch(
-                "ingest.re_embed._index_old_chunk_ids_by_paper",
-                lambda _p: {},
-            ),
-            patch(
-                "ingest.re_embed._build_old_rows_index", lambda _p: {}
-            ),
-            patch(
-                "ingest.re_embed._check_staging_embedder_versions",
-                lambda _p, _v: None,
-            ),
-            pytest.raises(ValueError, match="invalid paper_id"),
-        ):
+        active = _active(tmp_path)
+        with pytest.raises(ValueError, match="invalid paper_id"):
             run_re_embed(
                 paper_ids=["not-a-paper-id"],
                 active_lancedb_path=active,
-                staging_lancedb_path=tmp_path / "lancedb-staging",
+                staging_lancedb_path=tmp_path / "staging",
                 state_path=tmp_path / "state.json",
                 failures_path=tmp_path / "failures.jsonl",
             )
@@ -710,23 +677,26 @@ class TestMakefileReEmbedTarget:
 
 class TestChunkerVersionFreeze:
     """Closes Landmine A + adversary F4: any change to
-    ``_compute_chunk_id`` rotates every chunk_id and silently
-    invalidates the partial-re-embed contract. We pin the literal
-    SHA of the function's source bytes so a future PR edit
-    fails this test loudly, forcing the contributor to either
-    revert OR bump ``CHUNKER_VERSION`` and re-pin in the same PR.
+    ``_compute_chunk_id`` rotates every chunk_id. We pin the literal
+    SHA of the function's source bytes so a future PR edit fails this
+    test loudly, forcing the contributor to either revert OR bump
+    ``CHUNKER_VERSION`` and re-pin in the same PR.
+
+    Re-pinned for v1.3, which dropped the preamble from arXiv ids.
+    Vector reuse is keyed by the reuse identity, not the chunk id, so a
+    rotation is a staging copy plus a cutover, not a re-embed.
     """
 
     #: SHA-256 of `inspect.getsource(_compute_chunk_id)` as of the
-    #: E11_S03 freeze. ANY edit to the function body (whitespace,
-    #: docstring, algorithm) breaks this hash.
+    #: v1.3 rotation. ANY edit to the function body
+    #: (whitespace, docstring, algorithm) breaks this hash.
     #:
     #: To re-pin after a deliberate change:
     #: ``uv run python -c "import hashlib, inspect; from
-    #: ingest.chunker import _compute_chunk_id; print(hashlib.sha256(
+    #: ingest.chunk import _compute_chunk_id; print(hashlib.sha256(
     #: inspect.getsource(_compute_chunk_id).encode()).hexdigest())"``
     EXPECTED_COMPUTE_CHUNK_ID_SHA256 = (
-        "6a49d455ce8898b0b602dbf8e84b433546cd4fa120cc9e522eff1d8486488f30"
+        "101d8d8855d0df8040c7f7d11fcb2dbe27d1f19006f093c76bdeb7e22d2f3088"
     )
 
     def test_compute_chunk_id_source_is_pinned(self):
@@ -741,18 +711,22 @@ class TestChunkerVersionFreeze:
             f"_compute_chunk_id source bytes changed.\n"
             f"  expected SHA: {self.EXPECTED_COMPUTE_CHUNK_ID_SHA256}\n"
             f"  actual SHA:   {actual}\n\n"
-            f"This is a SCHEMA migration, not a chunker_version "
-            f"bump. Either revert the edit OR (1) bump "
-            f"ingest.chunker_types.CHUNKER_VERSION, (2) update "
+            f"An edit to the id function rotates chunk ids: a SCHEMA "
+            f"migration. Either revert the edit OR (1) bump "
+            f"ingest.chunk.CHUNKER_VERSION, (2) update "
             f"EXPECTED_COMPUTE_CHUNK_ID_SHA256 in this test, and "
-            f"(3) document the migration in the rectification commit "
-            f"per ingest/chunker_types.py's schema-migration constraint."
+            f"(3) rotate existing tables through staging, per notebook: "
+            f"make re-embed ARGS=\"--notebook=<slug>\", then "
+            f"make notebook-cutover ARGS=\"--notebook=<slug> --force\" "
+            f"(the schema-migration constraint on CHUNKER_VERSION in "
+            f"ingest/chunk.py)."
         )
 
     def test_contract_strings_present(self):
-        """Sanity guard alongside the SHA pin: even when a future
-        edit re-pins the SHA, the canonical-bytes contract must
-        still apply preamble_text + NFC normalization + sha256."""
+        """Sanity guard alongside the SHA pin: even when a future edit
+        re-pins the SHA, the canonical-bytes contract must still apply
+        NFC normalization + sha256, and the id must hash the body only
+        unless a caller names a position."""
         import inspect
 
         from ingest.chunker import _compute_chunk_id
@@ -761,7 +735,12 @@ class TestChunkerVersionFreeze:
         assert "unicodedata.normalize" in src
         assert "NFC" in src
         assert "sha256" in src
-        assert "preamble_text" in src
+        params = inspect.signature(_compute_chunk_id).parameters
+        assert list(params) == ["paper_id", "body_text", "position"]
+        assert params["position"].kind is inspect.Parameter.KEYWORD_ONLY
+        assert params["position"].default == ""
+        code = src.split('"""')[-1]  # the body after the docstring
+        assert "preamble" not in code
 
 
 # ---------------------------------------------------------------------------
@@ -779,61 +758,31 @@ class TestStagingSentinel:
     def test_sentinel_written_with_in_progress_then_complete(
         self, tmp_path
     ):
-        active = tmp_path / "lancedb"
-        staging = tmp_path / "lancedb-staging"
-        _write_active_marker(active)
-
+        active = _active(tmp_path)
+        staging = tmp_path / "staging"
+        sentinel_path = staging / "re-embed-progress.json"
         observed_sentinels: list[dict] = []
         write_spy = _WriteChunksSpy()
-        original_write_chunks = write_spy.__call__
-
-        sentinel_path = staging / "re-embed-progress.json"
 
         # Capture the sentinel mid-run (between paper write calls).
-        def _capturing_write(chunks, embeddings, lancedb_path=None):
+        def _capturing_write(chunks, embeddings, lancedb_path=None, **kwargs):
             if sentinel_path.is_file():
                 observed_sentinels.append(
                     json.loads(sentinel_path.read_text())
                 )
-            return original_write_chunks(
-                chunks, embeddings, lancedb_path=lancedb_path
-            )
+            return write_spy(chunks, embeddings, lancedb_path=lancedb_path)
 
-        paper_id = "2401.00001"
-        # One paper, one new chunk → triggers re-embed path.
-        new_chunks = [
-            _make_chunk(paper_id, f"arxiv:{paper_id}:{i:016x}")
-            for i in range(3)
-        ]
-        # No copies — every chunk is new.
+        # One paper, three new chunks, nothing stored → re-embed path.
+        new_chunks = [_make_chunk(PAPER, _cid(PAPER, i)) for i in range(3)]
+        embedder = _StubEmbedder({PAPER: new_chunks})
         with (
-            patch(
-                "ingest.re_embed.chunk_paper", lambda _pid: new_chunks
-            ),
-            patch(
-                "ingest.re_embed._index_old_chunk_ids_by_paper",
-                lambda _p: {paper_id: set()},
-            ),
-            patch(
-                "ingest.re_embed._build_old_rows_index", lambda _p: {}
-            ),
-            patch(
-                "ingest.re_embed._check_staging_embedder_versions",
-                lambda _p, _v: None,
-            ),
-            patch(
-                "ingest.re_embed.embed_paper",
-                lambda _pid: _ok_embed_stats(),
-            ),
-            patch(
-                "ingest.re_embed.load_embed_record",
-                lambda pid: _ok_full_record(
-                    pid, [c.chunk_id for c in new_chunks]
-                ),
-            ),
+            patch("ingest.re_embed.chunk_paper", lambda _pid: new_chunks),
+            patch("ingest.re_embed.embed_paper", embedder.embed_paper),
+            patch("ingest.re_embed.load_embed_record", embedder.load_embed_record),
             patch("ingest.re_embed.write_chunks", _capturing_write),
         ):
             run_re_embed(
+                paper_ids=[PAPER],
                 active_lancedb_path=active,
                 staging_lancedb_path=staging,
                 state_path=tmp_path / "state.json",
@@ -858,152 +807,45 @@ class TestStagingSentinel:
     def test_indexes_are_built_before_the_run_is_marked_complete(
         self, tmp_path
     ):
-        active = tmp_path / "lancedb"
-        staging = tmp_path / "lancedb-staging"
-        _write_active_marker(active)
-        sentinel_path = staging / "re-embed-progress.json"
+        sentinel_path = tmp_path / "staging" / "re-embed-progress.json"
         builds: list[tuple] = []
-
-        def _write(chunks, embeddings, lancedb_path=None):
-            (lancedb_path / "corpus-version.json").write_text("{}")
-            return 1
 
         def _build(path):
             builds.append((path, json.loads(sentinel_path.read_text())["status"]))
 
-        paper_id = "2401.00001"
-        new_chunks = [_make_chunk(paper_id, f"arxiv:{paper_id}:{0:016x}")]
-        with (
-            patch("ingest.re_embed.chunk_paper", lambda _pid: new_chunks),
-            patch(
-                "ingest.re_embed._index_old_chunk_ids_by_paper",
-                lambda _p: {paper_id: set()},
-            ),
-            patch("ingest.re_embed._build_old_rows_index", lambda _p: {}),
-            patch(
-                "ingest.re_embed._check_staging_embedder_versions",
-                lambda _p, _v: None,
-            ),
-            patch("ingest.re_embed.embed_paper", lambda _pid: _ok_embed_stats()),
-            patch(
-                "ingest.re_embed.load_embed_record",
-                lambda pid: _ok_full_record(pid, [c.chunk_id for c in new_chunks]),
-            ),
-            patch("ingest.re_embed.write_chunks", _write),
-            patch("ingest.re_embed.build_derived_indexes", _build),
-        ):
-            run_re_embed(
-                active_lancedb_path=active,
-                staging_lancedb_path=staging,
-                state_path=tmp_path / "state.json",
-                failures_path=tmp_path / "failures.jsonl",
-            )
+        chunks = [_make_chunk(PAPER, _cid(PAPER, 0))]
+        active = _active(tmp_path)
+        with patch("ingest.re_embed.build_derived_indexes", _build):
+            _run(tmp_path, active, {PAPER: chunks}, paper_ids=[PAPER])
 
-        assert builds == [(staging, "in_progress")]
+        assert builds == [(tmp_path / "staging", "in_progress")]
         assert json.loads(sentinel_path.read_text())["status"] == "complete"
 
     def test_sentinel_not_written_on_dry_run(self, tmp_path):
-        active = tmp_path / "lancedb"
-        staging = tmp_path / "lancedb-staging"
-        _write_active_marker(active)
-
-        paper_id = "2401.00001"
-        new_chunks = [
-            _make_chunk(paper_id, f"arxiv:{paper_id}:{i:016x}")
-            for i in range(2)
-        ]
-        with (
-            patch(
-                "ingest.re_embed.chunk_paper", lambda _pid: new_chunks
-            ),
-            patch(
-                "ingest.re_embed._index_old_chunk_ids_by_paper",
-                lambda _p: {paper_id: set()},
-            ),
-            patch(
-                "ingest.re_embed._build_old_rows_index", lambda _p: {}
-            ),
-            patch(
-                "ingest.re_embed._check_staging_embedder_versions",
-                lambda _p, _v: None,
-            ),
-        ):
-            run_re_embed(
-                active_lancedb_path=active,
-                staging_lancedb_path=staging,
-                state_path=tmp_path / "state.json",
-                failures_path=tmp_path / "failures.jsonl",
-                dry_run=True,
-            )
-        sentinel = staging / "re-embed-progress.json"
-        assert not sentinel.is_file()
-
-
-# ---------------------------------------------------------------------------
-# Missing-old-rows guard — closes adversary F5
-# ---------------------------------------------------------------------------
-
-
-class TestMissingOldRows:
-    """Closes adversary F5: when the active LanceDB drifts out of
-    sync with the in-memory chunk_id index (race or corruption),
-    a copy lookup with a missing chunk_id is logged as a per-paper
-    failure rather than silently producing a partial copy."""
-
-    def test_missing_chunk_id_raises_per_paper(self, tmp_path):
-        active = tmp_path / "lancedb"
-        staging = tmp_path / "lancedb-staging"
-        _write_active_marker(active)
-
-        paper_id = "2401.00001"
-        existing_id = f"arxiv:{paper_id}:{0:016x}"
-        new_chunks = [
-            _make_chunk(paper_id, existing_id),
-        ]
-
-        with (
-            patch(
-                "ingest.re_embed.chunk_paper", lambda _pid: new_chunks
-            ),
-            patch(
-                "ingest.re_embed._index_old_chunk_ids_by_paper",
-                lambda _p: {paper_id: {existing_id}},
-            ),
-            # The cache is EMPTY — the old-rows lookup will find
-            # nothing for the requested id, triggering the
-            # missing-ids guard in _process_paper.
-            patch(
-                "ingest.re_embed._build_old_rows_index", lambda _p: {}
-            ),
-            patch(
-                "ingest.re_embed._check_staging_embedder_versions",
-                lambda _p, _v: None,
-            ),
-            patch(
-                "ingest.re_embed.write_chunks", _WriteChunksSpy()
-            ),
-        ):
-            failures = tmp_path / "failures.jsonl"
-            summary = run_re_embed(
-                active_lancedb_path=active,
-                staging_lancedb_path=staging,
-                state_path=tmp_path / "state.json",
-                failures_path=failures,
-            )
-        assert paper_id in summary.papers_failed
-        # The failure was logged to the JSONL.
-        assert failures.is_file()
-        rows = [
-            json.loads(line)
-            for line in failures.read_text().splitlines()
-            if line.strip()
-        ]
-        assert any(r["paper_id"] == paper_id for r in rows)
+        new_chunks = [_make_chunk(PAPER, _cid(PAPER, i)) for i in range(2)]
+        active = _active(tmp_path)
+        _run(tmp_path, active, {PAPER: new_chunks}, paper_ids=[PAPER], dry_run=True)
+        assert not (tmp_path / "staging" / "re-embed-progress.json").is_file()
 
 
 # ---------------------------------------------------------------------------
 # IS1 — Makefile re-embed: target carries the ARGS word-split hazard note
 # ---------------------------------------------------------------------------
+
+
+class TestMakefileReEmbedAllRotationNote:
+    """The ``re-embed-all`` comment must not send a chunk-id rotation down
+    the all-datasets path; its ``--dry-run`` only lists datasets and cannot
+    show the per-paper reembed=0 check."""
+
+    def test_re_embed_all_points_the_rotation_at_the_notebook_path(self):
+        text = (
+            Path(__file__).resolve().parent.parent / "Makefile"
+        ).read_text(encoding="utf-8")
+        start = text.index("\nre-embed-all:\n")
+        block = text[start:text.index("\n\n", start + 1)]
+        assert "make notebook-cutover" in block
+        assert "run this once per chunker-bump" not in block
 
 
 class TestMakefileReEmbedArgsNote:
@@ -1032,33 +874,9 @@ class TestStartedUtcStable:
     boot-time started_utc, not a fresh _utc_iso() per call."""
 
     def test_started_utc_does_not_drift(self, tmp_path):
-        active = tmp_path / "lancedb"
-        _write_active_marker(active)
-
-        paper_id = "2401.00001"
-        with (
-            patch("ingest.re_embed.chunk_paper", lambda _pid: []),
-            patch(
-                "ingest.re_embed._index_old_chunk_ids_by_paper",
-                lambda _p: {paper_id: set()},
-            ),
-            patch(
-                "ingest.re_embed._build_old_rows_index", lambda _p: {}
-            ),
-            patch(
-                "ingest.re_embed._check_staging_embedder_versions",
-                lambda _p, _v: None,
-            ),
-            patch("ingest.re_embed.write_chunks", _WriteChunksSpy()),
-        ):
-            state_path = tmp_path / "state.json"
-            run_re_embed(
-                active_lancedb_path=active,
-                staging_lancedb_path=tmp_path / "lancedb-staging",
-                state_path=state_path,
-                failures_path=tmp_path / "failures.jsonl",
-            )
-        state = json.loads(state_path.read_text())
+        active = _active(tmp_path)
+        _run(tmp_path, active, {PAPER: []}, paper_ids=[PAPER])
+        state = json.loads((tmp_path / "state.json").read_text())
         # `started_utc` should be present and stable; the
         # terminal write echoes the boot-time value rather than a
         # fresh timestamp.
@@ -1068,3 +886,388 @@ class TestStartedUtcStable:
         # so it should equal the value written in the initial state
         # file write (which is what the final write also uses).
         assert state["started_utc"] <= state["completed_utc"]
+
+
+# ---------------------------------------------------------------------------
+# --notebook on the CLI
+# ---------------------------------------------------------------------------
+
+
+class TestCliNotebook:
+    """A rotation dry-runs and runs one notebook at a time from the CLI with
+    ``--notebook``; a dataset holding textbook papers raises without a slug."""
+
+    def _capture(self, monkeypatch, tmp_path):
+        import tools._notebook_common as common
+        from ingest import re_embed
+        from ingest.re_embed import ReEmbedSummary
+
+        monkeypatch.setattr(common, "NOTEBOOKS_BASE", tmp_path / "notebooks")
+        calls: list[dict] = []
+
+        def _fake(**kwargs):
+            calls.append(kwargs)
+            return ReEmbedSummary()
+
+        monkeypatch.setattr(re_embed, "run_re_embed", _fake)
+        return re_embed, calls
+
+    def test_notebook_selects_its_datasets_and_state_file(self, monkeypatch, tmp_path):
+        re_embed, calls = self._capture(monkeypatch, tmp_path)
+
+        assert re_embed._cli(["--notebook", "demo-nb", "--dry-run"]) == 0
+
+        nb = (tmp_path / "notebooks").resolve() / "demo-nb"
+        (call,) = calls
+        assert call["notebook_slug"] == "demo-nb"
+        assert call["active_lancedb_path"] == nb / "lancedb"
+        assert call["staging_lancedb_path"] == nb / "lancedb-staging"
+        assert call["state_path"] == nb / "ops" / "re-embed-state.json"
+        assert call["dry_run"] is True
+
+    def test_an_explicit_path_wins_over_the_notebook_default(
+        self, monkeypatch, tmp_path
+    ):
+        re_embed, calls = self._capture(monkeypatch, tmp_path)
+        staging = tmp_path / "elsewhere"
+
+        re_embed._cli(["--notebook", "demo-nb", "--lancedb-staging-path", str(staging)])
+
+        assert calls[0]["staging_lancedb_path"] == staging
+
+    def test_paper_ids_file_scopes_a_notebook_run(self, monkeypatch, tmp_path):
+        # A rotation scopes a notebook run to the active table's
+        # own papers: without the file, papers.txt entries that never
+        # ingested join the run and fail it.
+        re_embed, calls = self._capture(monkeypatch, tmp_path)
+        ids = tmp_path / "rotation-papers.txt"
+        ids.write_text("2401.00001\n# comment\n\ntextbook:abc\n", encoding="utf-8")
+
+        assert re_embed._cli(
+            ["--notebook", "demo-nb", "--paper-ids-file", str(ids), "--dry-run"]
+        ) == 0
+
+        (call,) = calls
+        assert call["paper_ids"] == ["2401.00001", "textbook:abc"]
+        assert call["notebook_slug"] == "demo-nb"
+
+    def test_without_notebook_the_shared_defaults_hold(self, monkeypatch, tmp_path):
+        from ingest.bulk_ingest import DEFAULT_LANCEDB_STAGING_PATH
+        from ingest.re_embed import DEFAULT_STATE_PATH
+        from ingest.store import DEFAULT_LANCEDB_PATH
+
+        re_embed, calls = self._capture(monkeypatch, tmp_path)
+
+        re_embed._cli([])
+
+        (call,) = calls
+        assert call["notebook_slug"] is None
+        assert call["active_lancedb_path"] == DEFAULT_LANCEDB_PATH
+        assert call["staging_lancedb_path"] == DEFAULT_LANCEDB_STAGING_PATH
+        assert call["state_path"] == DEFAULT_STATE_PATH
+
+    def test_a_bad_slug_is_refused(self, monkeypatch, tmp_path):
+        from tools._notebook_common import NotebookError
+
+        re_embed, calls = self._capture(monkeypatch, tmp_path)
+        with pytest.raises(NotebookError):
+            re_embed._cli(["--notebook", "../escape"])
+        assert calls == []
+
+
+# ---------------------------------------------------------------------------
+# The one-time v1.2 -> v1.3 id rotation, end to end
+# ---------------------------------------------------------------------------
+
+FIXTURES = Path(__file__).parent / "fixtures" / "chunker"
+#: Paper A resolves a preamble (its v1.2 ids hashed it in, so they rotate);
+#: paper B never did (extraction failed, or no macros), so its ids are the
+#: same under both formulas.
+ROT_A, ROT_B = "2307.00002", "2307.00001"
+ROT_SLUG = "rotation-nb"
+ROT_PREAMBLE = "\\newcommand{\\R}{\\mathbb{R}}\n\\def\\Z{\\mathbb{Z}}"
+
+
+def _v12_id(paper_id: str, preamble_text: str, body: str) -> str:
+    """The v1.2 formula: ``sha256(preamble_text + NFC(body))[:16]``."""
+    import hashlib
+    import unicodedata
+
+    digest = hashlib.sha256(
+        (preamble_text + unicodedata.normalize("NFC", body)).encode("utf-8")
+    ).hexdigest()[:16]
+    return f"arxiv:{paper_id}:{digest}"
+
+
+def _adversarial(seed: int) -> np.ndarray:
+    """A unit float32 vector carrying the bit patterns a lossy copy breaks:
+    -0.0, the smallest subnormal and ±FLT_MIN."""
+    v = _normalized(seed)
+    specials = np.array(
+        [-0.0, np.float32(1e-45), np.finfo(np.float32).tiny, -np.finfo(np.float32).tiny],
+        dtype=np.float32,
+    )
+    rest = v[len(specials):]
+    rest = (rest / np.linalg.norm(rest)).astype(np.float32)
+    return np.concatenate([specials, rest]).astype(np.float32)
+
+
+def _preamble_doc(paper_id: str):
+    import hashlib
+
+    from ingest.preamble_types import PreambleDoc
+
+    return PreambleDoc(
+        paper_id=paper_id,
+        source_hash="0" * 64,
+        macros=ROT_PREAMBLE.splitlines(),
+        preamble_text=ROT_PREAMBLE,
+        preamble_hash=hashlib.sha256(ROT_PREAMBLE.encode("utf-8")).hexdigest()[:16],
+    )
+
+
+def _resolve(paper_id: str):
+    return _preamble_doc(paper_id) if paper_id == ROT_A else None
+
+
+class _Corpus:
+    """A temporary parsed corpus + chunk dir the REAL chunker reads/writes."""
+
+    def __init__(self, tmp_path: Path, html_edit=None):
+        import shutil
+
+        self.parsed = tmp_path / "corpus" / "parsed"
+        self.chunks = tmp_path / "corpus" / "chunks"
+        for pid in (ROT_A, ROT_B):
+            (self.parsed / pid).mkdir(parents=True)
+            shutil.copy(FIXTURES / pid / "index.html", self.parsed / pid / "index.html")
+        self.html_edit = html_edit
+
+    def patches(self):
+        return (
+            patch("ingest.chunker.PARSED_DIR", self.parsed),
+            patch("ingest.chunker.CHUNKS_DIR", self.chunks),
+            patch("ingest.chunker._resolve_preamble_doc", _resolve),
+        )
+
+    def chunk(self, paper_id: str) -> list[ChunkRecord]:
+        from ingest.chunker import chunk_paper
+
+        a, b, c = self.patches()
+        with a, b, c:
+            return chunk_paper(paper_id)
+
+
+def _build_v12_active(tmp_path: Path, corpus: _Corpus) -> tuple[Path, dict]:
+    """The notebook's active table as v1.2 wrote it: preamble-hashed ids,
+    ``chunker_version='v1.2'``, ``body-first-v1``, the current embedder, and
+    stored vectors with adversarial bit patterns. Returns the dataset path and
+    ``{v1.2 id: (paper_id, body, route, vector bytes)}``."""
+    active = tmp_path / "notebooks" / ROT_SLUG / "lancedb"
+    rows: list[ChunkRecord] = []
+    ids: dict[str, list[str]] = {"stmt": [], "proof": []}
+    vectors: dict[str, list[np.ndarray]] = {"stmt": [], "proof": []}
+    stored: dict[str, tuple] = {}
+    seed = 0
+    for pid in (ROT_A, ROT_B):
+        preamble = ROT_PREAMBLE if pid == ROT_A else ""
+        for chunk in corpus.chunk(pid):
+            chunk.chunk_id = _v12_id(pid, preamble, chunk.body_text)
+            chunk.chunker_version = "v1.2"
+            vector = _adversarial(seed)
+            seed += 1
+            ids[route(chunk.kind)].append(chunk.chunk_id)
+            vectors[route(chunk.kind)].append(vector)
+            stored[chunk.chunk_id] = (pid, chunk.body_text, route(chunk.kind), vector.tobytes())
+            rows.append(chunk)
+
+    def _array(vs):
+        return np.stack(vs) if vs else np.zeros((0, EMBEDDING_DIM), dtype=np.float32)
+
+    record = EmbedRecord(
+        chunk_ids_stmt=ids["stmt"], embedding_stmt=_array(vectors["stmt"]),
+        chunk_ids_proof=ids["proof"], embedding_proof=_array(vectors["proof"]),
+        embedder_version=EMBEDDER_VERSION,
+        embed_input_policy_version=EMBED_INPUT_POLICY_VERSION,
+    )
+    # A long-lived active table has seen many commits; a staging table built
+    # from scratch restarts the count. Re-write the same rows to model that.
+    for _ in range(25):
+        write_chunks(rows, record, lancedb_path=active, build_indices=False)
+    return active, stored
+
+
+def _forbid_embedder():
+    def _boom(*_a, **_k):
+        raise AssertionError("the id rotation must not reach the embedder")
+
+    return (
+        patch("ingest.re_embed.embed_paper", _boom),
+        patch("ingest.re_embed.load_embed_record", _boom),
+        patch("tools.notebook_textbook_ingest._build_embed_record", _boom),
+    )
+
+
+def _rotate(tmp_path: Path, corpus: _Corpus, active: Path, embedder_patches):
+    staging = active.parent / "lancedb-staging"
+    p1, p2, p3 = corpus.patches()
+    e1, e2, e3 = embedder_patches
+    # run_re_embed reads the notebook's papers.txt through this base.
+    base = patch("ingest.textbook_chunker.NOTEBOOKS_BASE", active.parent.parent)
+    with p1, p2, p3, e1, e2, e3, base:
+        summary = run_re_embed(
+            active_lancedb_path=active,
+            staging_lancedb_path=staging,
+            state_path=tmp_path / "state.json",
+            failures_path=tmp_path / "failures.jsonl",
+            notebook_slug=ROT_SLUG,
+        )
+    return summary, staging
+
+
+def _rows(path: Path) -> dict[str, dict]:
+    table = lancedb.connect(str(path)).open_table("chunks")
+    return {row["chunk_id"]: row for row in table.to_arrow().to_pylist()}
+
+
+class TestOneTimeIdRotation:
+    """The v1.2 -> v1.3 rotation through the REAL re-embed driver
+    and the REAL chunker, into a fresh staging table, then the notebook
+    cutover. Only the embedder is replaced, by a stub that fails if called."""
+
+    def _setup(self, tmp_path, html_edit=None):
+        corpus = _Corpus(tmp_path)
+        active, stored = _build_v12_active(tmp_path, corpus)
+        (tmp_path / "notebooks" / ROT_SLUG / "papers.txt").write_text(
+            f"{ROT_A}\n{ROT_B}\n", encoding="utf-8"
+        )
+        if html_edit is not None:
+            html = corpus.parsed / ROT_A / "index.html"
+            html.write_text(html_edit(html.read_text(encoding="utf-8")), encoding="utf-8")
+        return corpus, active, stored
+
+    def test_an_id_only_rotation_copies_every_vector(self, tmp_path):
+        corpus, active, stored = self._setup(tmp_path)
+        expected = {pid: [c.chunk_id for c in corpus.chunk(pid)] for pid in (ROT_A, ROT_B)}
+
+        summary, staging = _rotate(tmp_path, corpus, active, _forbid_embedder())
+
+        assert summary.papers_failed == []
+        assert summary.chunks_re_embedded == 0
+        assert summary.chunks_copied == summary.chunks_target == len(stored)
+        progress = json.loads((staging / "re-embed-progress.json").read_text())
+        assert progress["status"] == "complete"
+        assert progress["papers_failed_count"] == 0
+
+        staged = _rows(staging)
+        # Row count equal, per paper.
+        for pid in (ROT_A, ROT_B):
+            assert sum(r["paper_id"] == pid for r in staged.values()) == sum(
+                v[0] == pid for v in stored.values()
+            )
+        # No id the v1.3 chunker does not produce.
+        assert set(staged) == set(expected[ROT_A]) | set(expected[ROT_B])
+        # Paper A rotated every id; paper B (no preamble) kept every id.
+        old_a = {cid for cid, v in stored.items() if v[0] == ROT_A}
+        old_b = {cid for cid, v in stored.items() if v[0] == ROT_B}
+        assert old_a.isdisjoint(staged)
+        assert old_b == set(expected[ROT_B])
+        assert summary.chunks_dropped == len(old_a)
+        # Every row is a v1.3 row.
+        assert {r["chunker_version"] for r in staged.values()} == {CHUNKER_VERSION}
+        # Every vector copied bit-exactly into its route column.
+        by_body = {(v[0], v[1], v[2]): v[3] for v in stored.values()}
+        for row in staged.values():
+            column = "embedding_proof" if route(row["kind"]) == "proof" else "embedding_stmt"
+            other = "embedding_stmt" if column == "embedding_proof" else "embedding_proof"
+            want = by_body[(row["paper_id"], row["body_text"], route(row["kind"]))]
+            assert _bytes(row[column]) == want
+            assert row[other] is None
+            assert row["embedder_version"] == EMBEDDER_VERSION
+            assert row["embed_input_policy_version"] == EMBED_INPUT_POLICY_VERSION
+
+    def test_cutover_promotes_the_rotation_and_drops_version_keyed_caches(
+        self, tmp_path
+    ):
+        from server.corpus import read_corpus_version
+        from tools import notebook_cutover as nc
+
+        corpus, active, stored = self._setup(tmp_path)
+        _summary, staging = _rotate(tmp_path, corpus, active, _forbid_embedder())
+        staged = _rows(staging)
+        nb = active.parent
+        base = nb.parent
+        active_version = read_corpus_version(active).version
+        staging_version = read_corpus_version(staging).version
+        # A from-scratch staging restarts its version count.
+        assert staging_version <= active_version
+
+        # Caches a server wrote while the OLD dataset was active, keyed by
+        # integers the new active may reuse.
+        cache = nb / "cache"
+        cache.mkdir()
+        (cache / "retrieval.db").write_bytes(b"v1.2-era tier-1 rows")
+        (cache / "retrieval.db-wal").write_bytes(b"wal")
+        stale_bm25 = nb / "index" / "bm25" / f"v{staging_version}"
+        stale_bm25.mkdir(parents=True)
+        (stale_bm25 / "chunk_ids.json").write_text(json.dumps(sorted(stored)))
+        old_bm25 = nb / "index" / "bm25" / f"v{active_version}"
+        old_bm25.mkdir(parents=True)
+
+        with pytest.raises(nc.CutoverError, match="--force"):
+            nc.perform_cutover(ROT_SLUG, base=base)
+        assert (cache / "retrieval.db").exists()  # a refusal mutates nothing
+
+        result = nc.perform_cutover(ROT_SLUG, base=base, force=True)
+
+        assert result["promoted_version"] == staging_version
+        assert _rows(active) == staged
+        assert set(_rows(nb / result["backup"])) == set(stored)
+        assert not (cache / "retrieval.db").exists()
+        assert not (cache / "retrieval.db-wal").exists()
+        assert not stale_bm25.exists()
+        # The old dataset's own BM25 dir goes too: the new table's version
+        # climbs toward it on later writes.
+        assert not old_bm25.exists()
+        assert sorted(result["invalidated_caches"]) == sorted([
+            "cache/retrieval.db", "cache/retrieval.db-wal",
+            f"index/bm25/v{staging_version}", f"index/bm25/v{active_version}",
+        ])
+
+    def test_a_changed_body_still_reaches_the_embedder(self, tmp_path):
+        corpus, active, stored = self._setup(
+            tmp_path,
+            html_edit=lambda html: html.replace(
+                "Every injective sheaf is flasque.",
+                "Every injective sheaf is flasque, as edited.",
+            ),
+        )
+        new_chunks: dict[str, list[ChunkRecord]] = {}
+
+        from ingest.chunker import chunk_paper as real_chunk_paper
+
+        def _recording_chunk_paper(pid):
+            new_chunks[pid] = real_chunk_paper(pid)
+            return new_chunks[pid]
+
+        embedder = _StubEmbedder(new_chunks)
+        with patch("ingest.re_embed.chunk_paper", _recording_chunk_paper):
+            summary, staging = _rotate(
+                tmp_path, corpus, active,
+                (
+                    patch("ingest.re_embed.embed_paper", embedder.embed_paper),
+                    patch("ingest.re_embed.load_embed_record", embedder.load_embed_record),
+                    patch("tools.notebook_textbook_ingest._build_embed_record",
+                          lambda *_a, **_k: pytest.fail("not a TeX/textbook paper")),
+                ),
+            )
+
+        assert summary.papers_failed == []
+        assert embedder.calls == [ROT_A]
+        assert summary.chunks_re_embedded == 1
+        assert summary.chunks_copied == summary.chunks_target - summary.chunks_re_embedded
+        stored_bodies = {(v[0], v[1]) for v in stored.values()}
+        staged = _rows(staging)
+        fresh = [r for r in staged.values() if (r["paper_id"], r["body_text"]) not in stored_bodies]
+        assert len(fresh) == summary.chunks_re_embedded
+        assert all(r["paper_id"] == ROT_A for r in fresh)

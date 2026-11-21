@@ -1,6 +1,6 @@
 """LanceDB ``chunks`` table writer (E04_S01).
 
-Reads :class:`ingest.chunker_types.ChunkRecord` rows + an
+Reads :class:`ingest.chunk.ChunkRecord` rows + an
 :class:`ingest.schema.EmbedRecord` (loaded from the embedder's NPZ
 store), and writes/upserts them into the canonical LanceDB ``chunks``
 dataset at ``var/arxmcp/index/lancedb/`` (table name ``chunks``;
@@ -8,8 +8,9 @@ LanceDB's on-disk layout puts the actual files under
 ``var/arxmcp/index/lancedb/chunks.lance/`` — closes F9 from the
 E04_S01 critique by acknowledging that the brief's literal-path
 language elides the LanceDB-internal ``.lance`` suffix). The schema is
-the single source of truth in :mod:`ingest.schema`; this module never
-re-declares it.
+declared in :mod:`ingest.chunk` (re-exported by :mod:`ingest.schema`),
+which also owns the record -> row mapping and its write-time checks; this
+module never re-declares either.
 
 **Idempotent upsert.** :func:`write_chunks` uses LanceDB's
 ``merge_insert(on="chunk_id")`` so a second write of the same chunk
@@ -87,17 +88,28 @@ from pathlib import Path
 import numpy as np
 import pyarrow as pa
 
-from ingest.chunker import _validate_paper_id
-from ingest.chunker_types import CHUNKER_VERSION, ChunkRecord
-from ingest.embedder import (
+# ALLOWED_KINDS is re-exported (``__all__``): server/handlers/search.py
+# derives its proof-route ``excluded_kinds`` from ``ingest.store.ALLOWED_KINDS``
+# so the two cannot drift. The write-time checks themselves are ingest.chunk's.
+from ingest.chunk import (
+    ALLOWED_KINDS,
+    CHUNKER_VERSION,
+    CHUNKS_SCHEMA_V1,
     EMBEDDING_DIM,
+    LEGACY_EMBED_INPUT_POLICY_VERSION,
+    ChunkRecord,
+    route,
+    to_arrow_table,
+    to_row,
+)
+from ingest.chunker import _validate_paper_id
+from ingest.embedder import (
     EMBEDDINGS_DIR,
     EMBEDDINGS_MANIFEST_NAME,
     EMBEDDINGS_NPZ_NAME,
     _read_embeddings_manifest,
 )
 from ingest.schema import (
-    CHUNKS_SCHEMA_V1,
     CHUNKS_TABLE_NAME,
     LANCE_STORAGE_OPTIONS,
     EmbedRecord,
@@ -137,59 +149,6 @@ CORPUS_VERSION_MARKER_NAME = "corpus-version.json"
 # ---------------------------------------------------------------------------
 # WriteStats — per-call summary
 # ---------------------------------------------------------------------------
-
-
-# Closes F10 from the E04_S01 critique: ``kind`` accepts arbitrary
-# strings at the schema layer (PyArrow has no native enum); a runtime
-# guard against typos at write time catches "theroem" etc. before the
-# bad row lands in the dataset.
-_ALLOWED_KINDS = frozenset(
-    {
-        "stmt",
-        "proof",
-        "section",
-        "definition",
-        "lemma",
-        "proposition",
-        "corollary",
-        "remark",
-        "example",
-        "claim",
-        "conjecture",
-        "fact",
-        "hypothesis",
-        "observation",
-        "problem",
-        "question",
-        "exercise",
-        "assumption",
-        "convention",
-        "notation",
-        "theorem",
-    }
-)
-
-#: Public alias of :data:`_ALLOWED_KINDS` (retrieval-unlocks-m2).
-#: The write-time guard is this module's concern, but the SERVING side
-#: needs the same domain to answer "which kinds did this route exclude?"
-#: honestly — ``server/handlers/search.py`` computes its proof-route
-#: ``excluded_kinds`` as this set minus ``{"proof"}``. Exported rather
-#: than duplicated so the two can never disagree about what a kind is.
-ALLOWED_KINDS: frozenset[str] = _ALLOWED_KINDS
-
-# textbook-ingest-m2: domain of ``source_kind`` enum on the chunks
-# table. Enforced at write time by ``_build_arrow_table`` against
-# typos (``"arxv"``, ``"textboook"``) — same pattern as ``_ALLOWED_KINDS``.
-_ALLOWED_SOURCE_KINDS = frozenset({"arxiv", "textbook"})
-
-# m2 rect F4: parallel enum guard for ``parser_used`` (the brief's
-# "extend the parser_used enum" wording is only meaningful if the
-# column is actually enum-validated). None means failure / unknown
-# and is accepted by ``_build_arrow_table`` — only non-None values
-# must be in this set. Domain mirrors the chunker_types.py descriptions.
-_ALLOWED_PARSER_USED = frozenset(
-    {"ar5iv", "latexml", "mineru+latexml", "mineru+markdown"}
-)
 
 
 class WapGateError(RuntimeError):
@@ -290,6 +249,11 @@ def load_embed_record(paper_id: str) -> EmbedRecord | None:
             f"sidecar at {sidecar_path} has malformed embedder_version: "
             f"{embedder_version!r}"
         )
+    embed_input_policy_version = sidecar.get("embed_input_policy_version")
+    if embed_input_policy_version is None:
+        embed_input_policy_version = LEGACY_EMBED_INPUT_POLICY_VERSION
+    if not isinstance(embed_input_policy_version, str) or not embed_input_policy_version:
+        raise ValueError(f"invalid embedding input policy in {sidecar_path}")
     # ``allow_pickle=True`` is required because chunk_ids_* arrays use
     # ``dtype=object`` (numpy stores Python strings via pickle by default
     # in NPZ archives). Safe here because the file was produced by our
@@ -312,6 +276,7 @@ def load_embed_record(paper_id: str) -> EmbedRecord | None:
         chunk_ids_proof=chunk_ids_proof,
         embedding_proof=embedding_proof,
         embedder_version=embedder_version,
+        embed_input_policy_version=embed_input_policy_version,
     )
 
 
@@ -346,6 +311,11 @@ def load_embed_record(paper_id: str) -> EmbedRecord | None:
 #: prefix for continuity with the shipped migration; it is now the
 #: canonical "all post-v1 chunks columns" default map.
 _TEXTBOOK_MIGRATION_DEFAULTS: dict[str, str] = {
+    "embed_input_policy_version": "cast(NULL as string)",
+    "part_index": "cast(NULL as int)",
+    "part_count": "cast(NULL as int)",
+    "source_start": "cast(NULL as int)",
+    "source_end": "cast(NULL as int)",
     "source_kind": "cast('arxiv' as string)",
     "license": "cast('arxiv-license' as string)",
     "chapter": "cast(NULL as string)",
@@ -458,30 +428,34 @@ def _build_arrow_table(
     ``ValueError`` (this is the F4-from-E03_S02 analogue: verify the
     artifact, not just the audit trail).
 
-    Validates D8: ``body_tokens is None`` raises (E02_S03 has shipped;
-    a None here is a real upstream bug, not a legacy concern).
+    The list a chunk's vector is found in must be the chunk's own route
+    (:func:`ingest.chunk.route`): a proof chunk whose vector sits in the
+    statement list raises instead of being stored with the wrong column
+    filled. The per-record checks and the row
+    shape are :func:`ingest.chunk.to_row` / :func:`ingest.chunk.to_arrow_table`.
     """
     if not chunks:
         # Empty input is a valid no-op; return an empty table conforming
         # to the schema so downstream code doesn't have to special-case
         # the empty branch.
-        return pa.Table.from_pylist([], schema=CHUNKS_SCHEMA_V1)
+        return to_arrow_table([])
 
-    # Build lookup tables for embedding rows. Each chunk_id appears in
-    # at most one list (validated by EmbedRecord.__post_init__); we map
-    # to (column, vector) here.
-    stmt_lookup: dict[str, np.ndarray] = {
-        cid: embeddings.embedding_stmt[i]
-        for i, cid in enumerate(embeddings.chunk_ids_stmt)
-    }
-    proof_lookup: dict[str, np.ndarray] = {
-        cid: embeddings.embedding_proof[i]
-        for i, cid in enumerate(embeddings.chunk_ids_proof)
+    # Each chunk_id appears in at most one list (validated by
+    # EmbedRecord.__post_init__).
+    lookups: dict[str, dict[str, np.ndarray]] = {
+        "stmt": {
+            cid: embeddings.embedding_stmt[i]
+            for i, cid in enumerate(embeddings.chunk_ids_stmt)
+        },
+        "proof": {
+            cid: embeddings.embedding_proof[i]
+            for i, cid in enumerate(embeddings.chunk_ids_proof)
+        },
     }
 
     # Validate D7: every chunk must have an embedding somewhere.
     chunk_id_set = {c.chunk_id for c in chunks}
-    embedded_set = set(stmt_lookup) | set(proof_lookup)
+    embedded_set = set(lookups["stmt"]) | set(lookups["proof"])
     missing = chunk_id_set - embedded_set
     if missing:
         raise ValueError(
@@ -491,126 +465,24 @@ def _build_arrow_table(
 
     rows: list[dict] = []
     for chunk in chunks:
-        if chunk.body_tokens is None:
-            # D8: body_tokens=None is a real bug (E02_S03 has shipped).
+        chunk_route = route(chunk.kind)
+        vector = lookups[chunk_route].get(chunk.chunk_id)
+        if vector is None:
             raise ValueError(
-                f"chunk {chunk.chunk_id} has body_tokens=None; "
-                "E02_S03 is required and must have populated this field"
+                f"chunk {chunk.chunk_id} (kind={chunk.kind!r}) is on the "
+                f"{chunk_route} route but its vector is in the EmbedRecord's "
+                f"other list; refusing to store a vector from the other "
+                f"embedding space"
             )
-        # Closes F10 from the E04_S01 critique: ``kind`` is not enforced
-        # by PyArrow (no native enum), so a chunker bug or driver typo
-        # like ``"theroem"`` could land in the dataset and silently
-        # break the dual-encoding routing rule. Validate against the
-        # closed set the chunker emits.
-        if chunk.kind not in _ALLOWED_KINDS:
-            raise ValueError(
-                f"chunk {chunk.chunk_id} has kind={chunk.kind!r} which "
-                f"is not in the allowed set {sorted(_ALLOWED_KINDS)!r}"
-            )
-        # textbook-ingest-m2: same enum-guard pattern for ``source_kind``.
-        # The chunks-schema column is nullable to accommodate the
-        # in-place migration of pre-m2 rows via
-        # ``_migrate_chunks_schema_if_needed`` below, but every NEW write
-        # MUST have a valid source_kind from the ChunkRecord default
-        # ("arxiv") or the textbook chunker override ("textbook").
-        if chunk.source_kind not in _ALLOWED_SOURCE_KINDS:
-            raise ValueError(
-                f"chunk {chunk.chunk_id} has source_kind="
-                f"{chunk.source_kind!r} which is not in the allowed "
-                f"set {sorted(_ALLOWED_SOURCE_KINDS)!r}"
-            )
-        # textbook-ingest-m9 / e4 rect F6: the chunk_id PREFIX and the
-        # source_kind COLUMN must agree. The dense retrieval path filters
-        # on the authoritative source_kind column; the BM25 path infers
-        # source_kind from the chunk_id prefix
-        # (server/retrieval/bm25.py:_source_kind_from_chunk_id). If a
-        # chunk were written with a "textbook:"-prefixed id but
-        # source_kind="arxiv" (or vice versa, via a chunker bug), the two
-        # paths would classify the same chunk differently. Enforcing the
-        # invariant at write time makes the prefix a guaranteed-reliable
-        # proxy so the two paths can never disagree. ``arxiv:`` ⇔
-        # "arxiv"; ``textbook:`` ⇔ "textbook".
-        expected_prefix = f"{chunk.source_kind}:"
-        if not chunk.chunk_id.startswith(expected_prefix):
-            raise ValueError(
-                f"chunk {chunk.chunk_id} has source_kind="
-                f"{chunk.source_kind!r} but its chunk_id does not start "
-                f"with the matching prefix {expected_prefix!r}; the "
-                f"chunk_id prefix and source_kind column must agree so "
-                f"the dense (column) and BM25 (prefix) retrieval paths "
-                f"classify the chunk identically"
-            )
-        # m2 rect F4: ``parser_used`` is a documented enum. None
-        # means failure / unknown (accepted). Any other value must
-        # be in ``_ALLOWED_PARSER_USED`` so a chunker bug or driver
-        # typo (``"latexm"``, ``"mineru"`` alone without ``+latexml``)
-        # surfaces at write time instead of polluting chunk-grained
-        # re-parse decisions downstream.
-        if (
-            chunk.parser_used is not None
-            and chunk.parser_used not in _ALLOWED_PARSER_USED
-        ):
-            raise ValueError(
-                f"chunk {chunk.chunk_id} has parser_used="
-                f"{chunk.parser_used!r} which is not in the allowed "
-                f"set {sorted(_ALLOWED_PARSER_USED)!r} (or None for "
-                f"failure/unknown)"
-            )
-        emb_stmt = stmt_lookup.get(chunk.chunk_id)
-        emb_proof = proof_lookup.get(chunk.chunk_id)
-        # Convert numpy arrays to Python lists for PyArrow's
-        # fixed-size-list type. ``.tolist()`` is the standard bridge.
         rows.append(
-            {
-                "chunk_id": chunk.chunk_id,
-                "paper_id": chunk.paper_id,
-                "kind": chunk.kind,
-                "section_path": list(chunk.section_path),
-                "theorem_name": chunk.theorem_name,
-                "theorem_label": chunk.theorem_label,
-                "body_text": chunk.body_text,
-                "body_tokens": chunk.body_tokens,
-                "embedding_stmt": (
-                    emb_stmt.tolist() if emb_stmt is not None else None
-                ),
-                "embedding_proof": (
-                    emb_proof.tolist() if emb_proof is not None else None
-                ),
-                # E03_S01 / E10_S03 contract: every row written here has
-                # embedding_eq=None. E10_S03 will populate it later via a
-                # separate update path.
-                "embedding_eq": None,
-                "chunker_version": chunk.chunker_version,
-                "embedder_version": embeddings.embedder_version,
-                "preamble_ref": chunk.preamble_ref,
-                # textbook-ingest-m2 columns. ``source_kind`` and
-                # ``license`` always populated from ChunkRecord defaults
-                # ("arxiv" / "arxiv-license"); the four textbook-only
-                # fields and ``parser_used`` stay None for arXiv chunks.
-                "source_kind": chunk.source_kind,
-                "license": chunk.license,
-                "chapter": chunk.chapter,
-                "page_start": chunk.page_start,
-                "page_end": chunk.page_end,
-                "textbook_slug": chunk.textbook_slug,
-                "parser_used": chunk.parser_used,
-                # source-truth-m2 (chunks schema v2). ``truncated`` and
-                # ``printed_number`` are chunker-native: persist the values
-                # already on the ChunkRecord (``truncated`` was previously
-                # dropped here — the exact silent-drop the milestone closes).
-                # The three registry-derived columns stay NULL on a new
-                # write — no new-ingest driver consults the per-notebook
-                # documents registry yet (forward-wiring is a tracked
-                # fast-follow); they are hydrated on existing rows by the
-                # separately-invoked ``tools/notebook_chunks_backfill.py``.
-                "truncated": chunk.truncated,
-                "printed_number": chunk.printed_number,
-                "source_revision_id": None,
-                "source_span": None,
-                "license_ref": None,
-            }
+            to_row(
+                chunk,
+                vector.tolist(),
+                embedder_version=embeddings.embedder_version,
+                policy=embeddings.embed_input_policy_version,
+            )
         )
-    return pa.Table.from_pylist(rows, schema=CHUNKS_SCHEMA_V1)
+    return to_arrow_table(rows)
 
 
 # ---------------------------------------------------------------------------
@@ -739,6 +611,7 @@ def write_corpus_version_marker(
     embedder_version: str,
     paper_count: int,
     chunk_count: int,
+    embed_input_policy_version: str = "",
 ) -> None:
     """Atomically write ``corpus-version.json`` next to the LanceDB dataset.
 
@@ -795,7 +668,7 @@ def write_corpus_version_marker(
         :func:`write_chunks` — the post-index version (see the module
         docstring's "MVCC handshake" section).
     chunker_version:
-        From :data:`ingest.chunker_types.CHUNKER_VERSION`. Threaded
+        From :data:`ingest.chunk.CHUNKER_VERSION`. Threaded
         through as a parameter (rather than auto-imported) so tests
         can inject arbitrary values; production callers (e.g.
         :func:`write_chunks`) pass the live constant.
@@ -820,6 +693,7 @@ def write_corpus_version_marker(
         "chunker_version": str(chunker_version),
         "created_at": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "embedder_version": str(embedder_version),
+        "embed_input_policy_version": str(embed_input_policy_version),
         "paper_count": int(paper_count),
         "version": int(version),
     }
@@ -838,6 +712,84 @@ def write_corpus_version_marker(
 
 
 # ---------------------------------------------------------------------------
+# In-place write guard
+# ---------------------------------------------------------------------------
+
+
+class StaleChunkerRowsError(RuntimeError):
+    """A write target holds arXiv rows another chunker version wrote."""
+
+
+#: Exit code the ingest CLIs (``ingest.bulk_ingest``, ``ingest.oai_delta``,
+#: ``tools/notebook_ingest.py``) return when they refuse a target with
+#: :class:`StaleChunkerRowsError`. A refusal is a state the operator must act
+#: on (rotate the table through staging and a cutover; the error message
+#: names the commands), not a fault, so it does not share exit 1 with a
+#: failed paper; 2 is argparse's usage error.
+STALE_CHUNKER_EXIT_CODE = 3
+
+
+def refuse_stale_chunker_rows(
+    lancedb_path: str | Path, *, chunker_version: str = CHUNKER_VERSION
+) -> None:
+    """Refuse an in-place write into a table another chunker version wrote.
+
+    :func:`write_chunks` upserts by ``chunk_id`` and its ``merge_insert``
+    has no delete arm, so re-chunking a paper in place leaves every row
+    whose id changed beside its replacement. A chunker version bump can
+    change ids (v1.3 dropped the preamble from arXiv ids) or
+    bodies, so a table whose arXiv rows another version wrote must be
+    re-chunked through a fresh staging table and a cutover, never written
+    in place. This runs once per run, before the first write, from the
+    in-place ingest paths (:func:`ingest.bulk_ingest.run_bulk_ingest`,
+    which ``make ingest``, ``tools/notebook_ingest.py`` and the ``/ui/``
+    console reach, and :func:`ingest.oai_delta.run_delta`).
+
+    A missing or empty table passes. Textbook rows carry their own chunker
+    versions and are not checked. The check reads the rows, not the
+    ``corpus-version.json`` marker: a textbook ingest restamps the marker
+    with this code's version without touching a single arXiv row.
+    """
+    path = Path(lancedb_path)
+    if not (path / f"{CHUNKS_TABLE_NAME}.lance").is_dir():
+        return
+    import lancedb  # noqa: PLC0415
+
+    table = lancedb.connect(str(path)).open_table(CHUNKS_TABLE_NAME)
+    safe_version = chunker_version.replace("'", "''")
+    stale_filter = (
+        "chunk_id LIKE 'arxiv:%' AND (chunker_version IS NULL "
+        f"OR chunker_version != '{safe_version}')"
+    )
+    stale = table.count_rows(stale_filter)
+    if not stale:
+        return
+    sample = (
+        table.search()
+        .where(stale_filter)
+        .select(["chunker_version"])
+        .limit(1000)
+        .to_list()
+    )
+    found = sorted({str(row["chunker_version"]) for row in sample})
+    raise StaleChunkerRowsError(
+        f"refusing to write into {path}: {stale} arXiv row(s) there were "
+        f"chunked by another chunker_version (seen: {found}), and this code "
+        f"is {chunker_version!r}. Writing in place would leave each re-chunked "
+        "row beside its replacement (merge_insert has no delete arm). "
+        "Re-chunk through a fresh staging table and a cutover instead, "
+        "with the server stopped. For a notebook: "
+        "make re-embed ARGS=\"--notebook=<slug> --dry-run\" (check each "
+        "paper's copy/reembed/drop counts), then "
+        "make re-embed ARGS=\"--notebook=<slug>\", then "
+        "make notebook-cutover ARGS=\"--notebook=<slug> --force\" "
+        "(--force because a fresh staging table restarts its version "
+        "count). For the shared corpus: make re-embed, make watchdog, "
+        "then make cutover."
+    )
+
+
+# ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
@@ -846,6 +798,8 @@ def write_chunks(
     chunks: list[ChunkRecord],
     embeddings: EmbedRecord,
     lancedb_path: str | Path | None = None,
+    *,
+    build_indices: bool = True,
 ) -> int:
     """Upsert chunks + embeddings into the LanceDB ``chunks`` table.
 
@@ -930,7 +884,7 @@ def write_chunks(
         rows_updated = int(merge_result.num_updated_rows)
 
     # Refresh indices best-effort (logs warnings on individual failures).
-    indices_created = _create_indices(tbl)
+    indices_created = _create_indices(tbl) if build_indices else {}
 
     # Resolve the new dataset version. ``tbl.version`` is a stable
     # attribute since lancedb 0.6+; fall back to 0 if unavailable.
@@ -1033,6 +987,7 @@ def write_chunks(
             version=dataset_version,
             chunker_version=CHUNKER_VERSION,
             embedder_version=embeddings.embedder_version,
+            embed_input_policy_version=embeddings.embed_input_policy_version,
             paper_count=paper_count,
             chunk_count=chunk_count,
         )
@@ -1184,12 +1139,15 @@ def write_chunks(
 
 
 __all__ = [
+    "ALLOWED_KINDS",
     "CORPUS_VERSION_MARKER_NAME",
     "DEFAULT_LANCEDB_PATH",
     "STORE_STATS_PATH",
+    "StaleChunkerRowsError",
     "WapGateError",
     "WriteStats",
     "load_embed_record",
+    "refuse_stale_chunker_rows",
     "write_chunks",
     "write_corpus_version_marker",
 ]

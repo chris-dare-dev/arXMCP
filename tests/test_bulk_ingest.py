@@ -40,6 +40,18 @@ def derived_builds(monkeypatch) -> list:
     return calls
 
 
+@pytest.fixture(autouse=True)
+def _default_staging_in_tmp(tmp_path, monkeypatch):
+    """``run_bulk_ingest`` inspects its write target before
+    the first write. Most tests here omit ``lancedb_staging_path``, whose
+    default is the real ``var/`` staging dataset; point the default into
+    ``tmp_path`` so no test reads it."""
+    import ingest.bulk_ingest as bulk
+
+    defaults = dict(bulk.run_bulk_ingest.__kwdefaults__)
+    defaults["lancedb_staging_path"] = tmp_path / "default-lancedb-staging"
+    monkeypatch.setattr(bulk.run_bulk_ingest, "__kwdefaults__", defaults)
+
 # ---------------------------------------------------------------------------
 # _read_paper_ids
 # ---------------------------------------------------------------------------
@@ -729,3 +741,206 @@ class TestDiagnoseEmptyRender:
 
         assert a.STRUCTURE_SIGNAL_CLASSES is c.STRUCTURE_SIGNAL_CLASSES
         assert b.STRUCTURE_SIGNAL_CLASSES is c.STRUCTURE_SIGNAL_CLASSES
+
+
+# ---------------------------------------------------------------------------
+# Never re-chunk in place across a chunker version
+# ---------------------------------------------------------------------------
+
+
+def _row_chunk(paper_id: str, suffix: str, version: str, body: str = "body"):
+    from ingest.chunk import ChunkRecord
+
+    return ChunkRecord(
+        chunk_id=f"arxiv:{paper_id}:{suffix}",
+        paper_id=paper_id,
+        kind="stmt",
+        section_path=[],
+        theorem_name=None,
+        theorem_label=None,
+        body_text=body,
+        body_tokens="body",
+        chunker_version=version,
+    )
+
+
+def _write(path, chunks):
+    import numpy as np
+
+    from ingest.chunk import EMBEDDING_DIM
+    from ingest.schema import EmbedRecord
+    from ingest.store import write_chunks
+
+    rng = np.random.default_rng(0)
+    vectors = rng.standard_normal((len(chunks), EMBEDDING_DIM)).astype(np.float32)
+    vectors /= np.linalg.norm(vectors, axis=1, keepdims=True)
+    write_chunks(
+        chunks,
+        EmbedRecord(
+            chunk_ids_stmt=[c.chunk_id for c in chunks],
+            embedding_stmt=vectors,
+            chunk_ids_proof=[],
+            embedding_proof=np.zeros((0, EMBEDDING_DIM), dtype=np.float32),
+            embedder_version="bge-m3@00000000",
+        ),
+        lancedb_path=path,
+        build_indices=False,
+    )
+
+
+def _count(path) -> int:
+    import lancedb
+
+    return lancedb.connect(str(path)).open_table("chunks").count_rows()
+
+
+def _minimal_table(path, rows: list[tuple[str, str | None]]):
+    """A chunks table holding only the two columns the guard reads."""
+    import lancedb
+    import pyarrow as pa
+
+    lancedb.connect(str(path)).create_table(
+        "chunks",
+        data=pa.table(
+            {
+                "chunk_id": [cid for cid, _ in rows],
+                "chunker_version": pa.array([v for _, v in rows], pa.utf8()),
+            }
+        ),
+    )
+
+
+def _never_ingest(*_args, **_kwargs):
+    raise AssertionError("ingest_one_paper must not run against a refused target")
+
+
+class TestChunkerVersionGuard:
+    """Once v1.3 is the chunker version, an
+    in-place re-ingest of a v1.2 table (``make ingest``, notebook ingest, the
+    ``/ui/`` console) would ``merge_insert`` new-id rows beside the old ones,
+    because ``write_chunks`` has no delete arm."""
+
+    def test_cli_reports_a_refusal_with_its_own_exit_code(
+        self, tmp_path, monkeypatch, capsys
+    ):
+        # A refusal is not a crash: one "error:" line, no traceback, and
+        # exit 3 rather than the failure exit 1.
+        import ingest.bulk_ingest as bulk
+        from ingest.store import STALE_CHUNKER_EXIT_CODE, StaleChunkerRowsError
+
+        ids = tmp_path / "ids.txt"
+        ids.write_text("2401.00001\n", encoding="utf-8")
+
+        def _refuse(*_a, **_k):
+            raise StaleChunkerRowsError("rotate it first (make re-embed)")
+
+        monkeypatch.setattr(bulk, "run_bulk_ingest", _refuse)
+        code = bulk._cli([
+            "--paper-ids-file", str(ids),
+            "--lancedb-staging-path", str(tmp_path / "lancedb"),
+        ])
+
+        assert code == STALE_CHUNKER_EXIT_CODE == 3
+        err = capsys.readouterr().err
+        assert "error: rotate it first" in err
+        assert "Traceback" not in err
+
+    def test_the_hazard_is_real(self, tmp_path):
+        # Why the guard exists: the same body under a rotated id doubles.
+        path = tmp_path / "lancedb"
+        _write(path, [_row_chunk("2401.00001", "a" * 16, "v1.2", "same body")])
+        _write(path, [_row_chunk("2401.00001", "b" * 16, "v1.3", "same body")])
+        assert _count(path) == 2
+
+    def test_refuses_a_target_holding_another_versions_arxiv_rows(self, tmp_path):
+        from ingest.store import StaleChunkerRowsError
+
+        path = tmp_path / "lancedb"
+        _write(path, [_row_chunk("2401.00001", "a" * 16, "v1.2")])
+        with (
+            patch("ingest.bulk_ingest.ingest_one_paper", _never_ingest),
+            pytest.raises(StaleChunkerRowsError, match="make notebook-cutover") as exc,
+        ):
+            run_bulk_ingest(
+                ["2401.00001"],
+                lancedb_staging_path=path,
+                failures_path=tmp_path / "f.jsonl",
+                log_path=tmp_path / "l.log",
+                ops_dir=tmp_path,
+            )
+        assert "v1.2" in str(exc.value)
+        assert _count(path) == 1
+
+    def test_reads_the_rows_not_the_marker(self, tmp_path):
+        # A textbook ingest restamps corpus-version.json with this code's
+        # chunker version without touching an arXiv row.
+        from ingest.chunk import CHUNKER_VERSION
+        from ingest.store import (
+            StaleChunkerRowsError,
+            refuse_stale_chunker_rows,
+            write_corpus_version_marker,
+        )
+
+        path = tmp_path / "lancedb"
+        _write(path, [_row_chunk("2401.00001", "a" * 16, "v1.2")])
+        write_corpus_version_marker(path, 9, CHUNKER_VERSION, "bge-m3@x", 1, 1)
+        with pytest.raises(StaleChunkerRowsError):
+            refuse_stale_chunker_rows(path)
+
+    @pytest.mark.parametrize("state", ["missing", "empty", "current"])
+    def test_allows_a_fresh_empty_or_current_target(self, tmp_path, state):
+        from ingest.chunk import CHUNKER_VERSION, CHUNKS_SCHEMA_V1
+
+        path = tmp_path / "lancedb"
+        if state == "empty":
+            import lancedb
+
+            lancedb.connect(str(path)).create_table("chunks", schema=CHUNKS_SCHEMA_V1)
+        elif state == "current":
+            _write(path, [_row_chunk("2401.00001", "a" * 16, CHUNKER_VERSION)])
+        with patch(
+            "ingest.bulk_ingest.ingest_one_paper",
+            side_effect=lambda pid, **kw: _ok_outcome(pid),
+        ):
+            summary = run_bulk_ingest(
+                ["2401.00001"],
+                lancedb_staging_path=path,
+                failures_path=tmp_path / "f.jsonl",
+                log_path=tmp_path / "l.log",
+                ops_dir=tmp_path,
+            )
+        assert summary.papers_succeeded == 1
+
+    def test_textbook_rows_are_not_checked(self, tmp_path):
+        from ingest.chunk import CHUNKER_VERSION
+        from ingest.store import refuse_stale_chunker_rows
+
+        path = tmp_path / "lancedb"
+        _minimal_table(
+            path,
+            [("textbook:ko95:" + "c" * 16, "tv0.1"),
+             ("arxiv:2401.00001:" + "d" * 16, CHUNKER_VERSION)],
+        )
+        refuse_stale_chunker_rows(path)  # no raise
+
+    def test_a_null_chunker_version_counts_as_stale(self, tmp_path):
+        from ingest.store import StaleChunkerRowsError, refuse_stale_chunker_rows
+
+        path = tmp_path / "lancedb"
+        _minimal_table(path, [("arxiv:2401.00001:" + "e" * 16, None)])
+        with pytest.raises(StaleChunkerRowsError, match="None"):
+            refuse_stale_chunker_rows(path)
+
+    def test_dry_run_is_not_refused(self, tmp_path):
+        path = tmp_path / "lancedb"
+        _write(path, [_row_chunk("2401.00001", "a" * 16, "v1.2")])
+        summary = run_bulk_ingest(
+            ["2401.00001"],
+            lancedb_staging_path=path,
+            ar5iv_cache_dir=tmp_path / "cache",
+            parsed_dir=tmp_path / "parsed",
+            failures_path=tmp_path / "f.jsonl",
+            log_path=tmp_path / "l.log",
+            dry_run=True,
+        )
+        assert summary.papers_skipped == 1

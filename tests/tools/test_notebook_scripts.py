@@ -425,6 +425,41 @@ def test_ingest_fails_when_notebook_dir_missing(notebooks_base: Path) -> None:
         notebook_ingest.run("does-not-exist")
 
 
+def test_ingest_refuses_a_table_another_chunker_wrote(
+    notebooks_base: Path, monkeypatch: pytest.MonkeyPatch, capsys
+) -> None:
+    """The /ui/ console and `tools/notebook_ingest.py` write
+    the notebook's ACTIVE lancedb in place. Against a table holding v1.2
+    arXiv rows that would double every preamble-bearing chunk, so the run
+    is refused (exit 3, distinct from a failure's 1) with the rotation
+    commands and writes nothing."""
+    import lancedb
+    import pyarrow as pa
+
+    import ingest.bulk_ingest as bulk
+
+    nb = _seed_notebook(notebooks_base, "demo", ["2303.07061"], with_lancedb=False)
+    lancedb.connect(str(nb / "lancedb")).create_table(
+        "chunks",
+        data=pa.table({
+            "chunk_id": ["arxiv:2303.07061:" + "a" * 16],
+            "chunker_version": ["v1.2"],
+        }),
+    )
+
+    def _never(*_a, **_k):
+        raise AssertionError("no paper may be ingested into a refused table")
+
+    monkeypatch.setattr(bulk, "ingest_one_paper", _never)
+    monkeypatch.setattr(bulk, "build_derived_indexes", _never)
+
+    assert notebook_ingest.main(["demo"]) == 3
+    err = capsys.readouterr().err
+    assert "make notebook-cutover" in err and "v1.2" in err
+    table = lancedb.connect(str(nb / "lancedb")).open_table("chunks")
+    assert table.count_rows() == 1
+
+
 # ---------------------------------------------------------------------------
 # notebook_purge.py (AC #4, FM-1 cross-notebook, FM-8 pdf-deferred)
 # ---------------------------------------------------------------------------
@@ -836,18 +871,26 @@ def test_fetch_raw_tex_if_missing_tarball_bomb_logs_error_returns_false(
     )
 
 
-def test_notebook_fetch_run_requires_arxmcp_contact_email(
+def test_notebook_fetch_run_does_not_require_contact_email(
     notebooks_base: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """AC7: notebook_fetch.run() fails fast with a clear NotebookError
-    when ARXMCP_CONTACT_EMAIL is unset. Enforcement at run-time, NOT
-    import-time (so tests that don't exercise the raw-tex path don't
-    have to set the env var)."""
+    """A missing optional contact address must not block notebook fetch."""
     _seed_notebook(notebooks_base, "demo", ["2303.07061"])
     monkeypatch.delenv("ARXMCP_CONTACT_EMAIL", raising=False)
-    with pytest.raises(NotebookError, match="ARXMCP_CONTACT_EMAIL"):
-        notebook_fetch.run("demo", sleep_seconds=0.0)
+    monkeypatch.setattr(
+        notebook_fetch,
+        "try_cache",
+        lambda paper_id, **kw: Ar5ivResult(
+            paper_id=paper_id,
+            hit=True,
+            cache_path=Path("/cache"),
+            parsed_path=Path("/parsed"),
+            reason="ok_local_cache",
+        ),
+    )
+    monkeypatch.setattr(notebook_fetch, "fetch_raw_tex_if_missing", lambda *a: False)
+    assert notebook_fetch.run("demo", sleep_seconds=0.0) == 0
 
 
 # ---------------------------------------------------------------------------
@@ -986,16 +1029,16 @@ def test_recover_preambles_503_backoff_retries_then_succeeds(
     assert summary.preamble_recovered == 1
 
 
-def test_recover_preambles_requires_arxmcp_contact_email(
+def test_recover_preambles_does_not_require_contact_email(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """AC7: recover_preambles.run() also enforces ARXMCP_CONTACT_EMAIL."""
+    """A missing optional contact address must not block local recovery."""
     from tools import recover_preambles
 
     monkeypatch.delenv("ARXMCP_CONTACT_EMAIL", raising=False)
-    with pytest.raises(NotebookError, match="ARXMCP_CONTACT_EMAIL"):
-        recover_preambles.run(sleep_seconds=0.0)
+    monkeypatch.setattr(recover_preambles, "_discover_candidates", lambda _: [])
+    assert recover_preambles.run(sleep_seconds=0.0).total_candidates == 0
 
 
 def test_recover_preambles_continues_past_tarball_bomb(

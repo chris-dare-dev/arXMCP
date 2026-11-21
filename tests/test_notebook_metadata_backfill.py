@@ -1,7 +1,7 @@
 """Tests for ``tools.notebook_metadata_backfill`` (paper-metadata-m1).
 
 t-backfill-driver acceptance: politeness contract (3 s spacing,
-resolved contact email on every request, run-entry enforcement),
+optional contact information on requests),
 idempotent re-run (zero network egress), loud hydrated/total summary
 line, per-id miss reasons, clamped 429/503 backoff, and poisoned-batch
 per-id fallback. All offline: the HTTP layer is mocked via
@@ -194,26 +194,24 @@ class TestPoliteness:
         # the first.
         assert sleeps == [POLITENESS_SLEEP_SECONDS, POLITENESS_SLEEP_SECONDS]
 
-    def test_email_enforced_at_run_entry_before_any_fetch(
+    def test_missing_contact_email_does_not_block_fetch(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         base = _make_notebook(tmp_path, "2307.00001\n")
         calls: list[str] = []
         monkeypatch.setattr(
             _arxiv_api, "_fetch_url",
-            lambda url, contact_email=None: calls.append(url) or b"",
+            lambda url, contact_email=None: (
+                calls.append(url) or _feed_for_ids(["2307.00001v1"])
+            ),
         )
-
-        def _no_email(_arg):
-            raise NotebookError("no contact email available")
-
         monkeypatch.setattr(
-            notebook_metadata_backfill, "resolve_contact_email", _no_email,
+            notebook_metadata_backfill, "resolve_contact_email", lambda _arg: None,
         )
-
-        with pytest.raises(NotebookError, match="contact email"):
-            notebook_metadata_backfill.run(SLUG, base=base, sleep=lambda _s: None)
-        assert calls == []
+        assert notebook_metadata_backfill.run(
+            SLUG, base=base, sleep=lambda _s: None
+        ) == 0
+        assert len(calls) == 1
 
     def test_retry_after_zero_clamps_to_default_503_backoff(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,

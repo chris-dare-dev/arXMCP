@@ -36,7 +36,7 @@ from ingest.bm25_indexer import (
     BM25Stats,
     build_bm25_index,
 )
-from ingest.chunker_types import CHUNKER_VERSION, ChunkRecord
+from ingest.chunk import CHUNKER_VERSION, ChunkRecord
 from ingest.embedder import EMBEDDER_VERSION, EMBEDDING_DIM
 from ingest.schema import EmbedRecord
 from ingest.store import write_chunks

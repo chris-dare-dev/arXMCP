@@ -18,8 +18,12 @@ that comparison. Run the measurement first, then::
 **Live-serving impact (notebook-retrieval-m1/m2).** As of fork C
 (``ARXMCP_NOTEBOOK``) and fork A (``filters.notebook``), the MCP server reads
 the notebook's active ``lancedb`` directly. So this cutover DOES change what is
-served — and a running server holds an open LanceDB handle on the OLD inode, so
-**restart the server after a cutover** to pick up the swap.
+served. **Stop the server before a cutover and start it after.** A reader
+holding an open table across the swap does not keep serving the old data:
+measured on Linux with lancedb 0.30.2, its cached
+row count and version go stale while ``to_arrow()`` and vector search raise
+``Object ... not found``, because the old dataset's files moved with it.
+Windows was not measured.
 
 **The ``PYTHON`` 3.9 trap.** ``make``'s ``PYTHON ?= python3`` resolves to 3.9 on
 this workstation (the project needs ≥3.11). If ``make notebook-cutover`` hits a
@@ -35,11 +39,25 @@ older ones are pruned (prune failure is non-fatal — the swap already committed
 The dataset carries its derived indexes (BM25, theorem names) under
 ``derived/``, so the two renames move them with the chunks and a rollback
 restores the ones built for the restored version.
+
+**Version-keyed caches are invalidated after every swap.** A LanceDB version
+integer counts commits within ONE dataset, and a staging table built from
+scratch starts counting again, so the version a swap makes active can equal
+one an earlier dataset of this notebook was served at. The fork-C Tier-1
+retrieval cache (``<notebook>/cache/retrieval.db``, keys salted with the
+version) lives outside the dataset and is keyed only by that integer; left in
+place it would serve result lists naming chunk ids the new table does not
+hold. It is a rebuildable cache, so after the swap commits
+:func:`_invalidate_version_keyed_caches` deletes it, along with every
+``index/bm25/v<N>`` dir still outside the dataset. A shared
+(fork-A) server's Tier-1 cache can hold rows for this notebook too; it is not
+in the notebook dir, so the operator deletes it while the server is stopped.
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import os
 import shutil
@@ -144,6 +162,51 @@ def _prune_backups(nb: Path, retention: int = BACKUP_RETENTION) -> list[str]:
     return pruned
 
 
+#: Files of a SQLite database in WAL mode (``server/cache_sqlite.py``).
+_SQLITE_SUFFIXES = ("", "-wal", "-shm", "-journal")
+
+
+def _invalidate_version_keyed_caches(nb: Path) -> list[str]:
+    """Delete the notebook's caches keyed by a bare version integer.
+
+    Runs after a swap has committed. Deletes ``cache/retrieval.db`` (and its
+    WAL siblings) whole, because every row in it belongs to this notebook and
+    a key salted with a reused version integer is indistinguishable from a
+    live one. Deletes every ``index/bm25/v<N>`` entry too, not only the one
+    for the version just made active: none was built from the newly active
+    dataset (a cutover never builds BM25), and any of them can alias a version
+    that dataset reaches on later writes. A symlinked ``v<N>`` entry is
+    unlinked, never followed; a symlinked ``index/bm25`` root is refused,
+    because clearing it would delete outside the notebook.
+
+    Returns the removed paths relative to ``nb``, with ``/`` separators on
+    every platform. Raises ``OSError`` on a delete failure or a symlinked
+    root; the caller reports it, since a swap that left a stale cache needs
+    an operator.
+    """
+    removed: list[str] = []
+    cache_db = nb / "cache" / "retrieval.db"
+    for suffix in _SQLITE_SUFFIXES:
+        path = cache_db.with_name(cache_db.name + suffix)
+        if path.is_file():
+            path.unlink()
+            removed.append(path.relative_to(nb).as_posix())
+    bm25_root = nb / "index" / "bm25"
+    if bm25_root.is_symlink():
+        raise OSError(f"{bm25_root} is a symlink; not following it")
+    if bm25_root.is_dir():
+        for entry in sorted(bm25_root.iterdir()):
+            name = entry.name
+            if not (name.startswith("v") and name[1:].isdigit()):
+                continue
+            if entry.is_symlink() or not entry.is_dir():
+                entry.unlink()
+            else:
+                shutil.rmtree(entry)
+            removed.append(entry.relative_to(nb).as_posix())
+    return removed
+
+
 def perform_cutover(
     slug: str, *, base: Path | None = None, force: bool = False
 ) -> dict:
@@ -155,16 +218,24 @@ def perform_cutover(
     - staging dir missing → refuse (AC4).
     - staging has no ``corpus-version.json`` → refuse (AC4, incomplete
       re-embed).
+    - if a re-embed progress sentinel exists, it must report ``complete``
+      with zero failed papers.
     - staging ``corpus_version`` ≤ active version → refuse unless ``force``
-      (AC3 downgrade guard). This comparison ASSUMES staging is a re-embed OF
-      the same notebook's active dataset, so its MVCC version is monotonically
-      greater (F3). A from-scratch rebuild (fresh LanceDB → low version) would
-      legitimately need ``--force``.
+      (the downgrade guard). Version integers count commits within one
+      dataset, and ``ingest.re_embed`` builds staging as a NEW dataset, so its
+      version restarts and is usually LOWER than a long-lived active's: the
+      guard does not detect a downgrade, it flags a comparison between two
+      counters. A re-embed or id rotation into a fresh staging (the supported
+      path) therefore needs ``--force``; check first that the staged
+      ``re-embed-progress.json`` reports ``complete`` with
+      ``papers_failed_count: 0`` and that each paper's staged row count equals
+      the active one.
     - first-ingest case (no active dir): promote staging with NO backup.
 
     Then perform the two-rename swap with an EXDEV guard +
-    rollback-on-step-2-failure, and prune backups to ``N=2`` (prune failure is
-    non-fatal — the swap already committed).
+    rollback-on-step-2-failure, invalidate every cache keyed by a bare
+    version integer (:func:`_invalidate_version_keyed_caches`), and prune backups to
+    ``N=2`` (prune failure is non-fatal — the swap already committed).
     """
     validate_slug(slug)  # Threat-1 boundary, before any path construction.
     nb = notebook_dir(slug, base=base)
@@ -181,6 +252,17 @@ def perform_cutover(
             f"notebook {slug!r}: {STAGING_NAME} has no corpus-version.json "
             f"(incomplete re-embed); refusing to promote"
         )
+    progress = staging / "re-embed-progress.json"
+    if progress.is_file():
+        try:
+            progress_data = json.loads(progress.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            raise CutoverError(f"notebook {slug!r}: invalid re-embed progress sentinel") from exc
+        if (progress_data.get("status") != "complete"
+                or progress_data.get("papers_failed_count") != 0):
+            raise CutoverError(
+                f"notebook {slug!r}: staged re-embed is not complete without failures"
+            )
     staging_version = staging_info.version
 
     first_ingest = not active.exists()
@@ -190,14 +272,18 @@ def perform_cutover(
         # A missing/corrupt active marker is treated as version -1 so any
         # healthy staging promotes over it (it is effectively a recovery).
         active_version = active_info.version if active_info is not None else -1
-        # F3: the <= comparison is meaningful only because staging is a
-        # re-embed of the SAME active (monotonic MVCC version). A corrupt
-        # active marker → -1, so any healthy staging (>= 1) promotes (recovery).
+        # The two integers count commits in two DIFFERENT datasets, so
+        # "<=" is a prompt to check, not proof of a downgrade (see the
+        # docstring). A corrupt active marker → -1, so any healthy staging
+        # (>= 1) promotes (recovery).
         if not force and staging_version <= active_version:
             raise CutoverError(
                 f"notebook {slug!r}: staging corpus_version {staging_version} "
-                f"<= active {active_version} — promoting would be a downgrade. "
-                f"Pass --force to override."
+                f"<= active {active_version}. A staging table built from "
+                f"scratch (a re-embed or id rotation) restarts its version "
+                f"count, so this is expected there; otherwise it may be a "
+                f"downgrade. Check the staged run, then pass --force to "
+                f"promote it."
             )
 
     backup_name: str | None = None
@@ -228,6 +314,21 @@ def perform_cutover(
             ) from exc
         backup_name = backup.name
 
+    # The swap has COMMITTED. Drop the caches keyed by a bare
+    # version integer; a stale one would serve another dataset's chunk ids
+    # (Tier-1) or block startup (BM25). A failure here is NOT swallowed: the
+    # promotion stands, but the operator must clear the named paths before
+    # starting the server.
+    try:
+        invalidated = _invalidate_version_keyed_caches(nb)
+    except OSError as exc:
+        raise CutoverError(
+            f"notebook {slug!r}: promoted v{staging_version}, but could not "
+            f"delete its version-keyed caches ({exc}). Delete "
+            f"{nb / 'cache' / 'retrieval.db'}* and every "
+            f"{nb / 'index' / 'bm25'}/v<N> before starting the server."
+        ) from exc
+
     # F2 (FM-3): the swap has COMMITTED. Pruning old backups is best-effort —
     # a disk-full / permission OSError here must NOT turn a successful
     # promotion into a non-zero exit. Swallow + WARN.
@@ -247,6 +348,7 @@ def perform_cutover(
         "backup": backup_name,
         "pruned_backups": pruned,
         "first_ingest": first_ingest,
+        "invalidated_caches": invalidated,
     }
 
 
@@ -291,7 +393,23 @@ def perform_rollback(slug: str, *, base: Path | None = None) -> dict:
         raise CutoverError(
             f"notebook {slug!r}: rollback failed at step 2 ({exc}); restored"
         ) from exc
-    return {"slug": slug, "restored_from": latest.name}
+    # A rollback is a swap too. While the demoted dataset
+    # was active, its caches were written under ITS versions, which can equal
+    # the restored dataset's after a forced cutover.
+    try:
+        invalidated = _invalidate_version_keyed_caches(nb)
+    except OSError as exc:
+        raise CutoverError(
+            f"notebook {slug!r}: rolled back to {latest.name}, but could not "
+            f"delete its version-keyed caches ({exc}); delete "
+            f"{nb / 'cache' / 'retrieval.db'}* and every "
+            f"{nb / 'index' / 'bm25'}/v<N> before starting the server."
+        ) from exc
+    return {
+        "slug": slug,
+        "restored_from": latest.name,
+        "invalidated_caches": invalidated,
+    }
 
 
 def _build_arg_parser() -> argparse.ArgumentParser:
@@ -299,7 +417,8 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         prog="notebook_cutover",
         description=(
             "Promote per-notebook lancedb-staging → lancedb (atomic swap + "
-            "rollback). Measure BEFORE promoting; restart the server AFTER."
+            "rollback). Measure BEFORE promoting; stop the server BEFORE and "
+            "start it AFTER."
         ),
     )
     p.add_argument(
@@ -317,7 +436,8 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     )
     p.add_argument(
         "--force", action="store_true",
-        help="override the downgrade guard (staging version <= active)",
+        help="promote even though staging version <= active (expected for a "
+             "staging re-embedded from scratch, e.g. a chunk-id rotation)",
     )
     return p
 
@@ -360,15 +480,21 @@ def main(argv: list[str] | None = None) -> int:
                         f"v{res['promoted_version']} (backup "
                         f"{res['backup']}{pr})"
                     )
+            if res.get("invalidated_caches"):
+                print(
+                    f"     {slug}: deleted version-keyed caches: "
+                    f"{', '.join(res['invalidated_caches'])}"
+                )
         except (CutoverError, NotebookError) as exc:
             failures += 1
             print(f"FAIL {slug}: {exc}", file=sys.stderr)
 
-    if not args.rollback and failures < len(slugs):
+    if failures < len(slugs):
         print(
-            "\nRESTART the arxmcp-server to pick up the swap — it holds an "
-            "open LanceDB handle on the old inode and will keep serving the "
-            "pre-cutover data until restarted."
+            "\nSTART the arxmcp-server now (it should have been stopped "
+            "before the swap). A server left running across it does not "
+            "serve the old data: its open table's reads fail, because the "
+            "old dataset's files moved."
         )
     return 1 if failures else 0
 

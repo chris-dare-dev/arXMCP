@@ -1032,3 +1032,203 @@ class TestRestoreDrillFreshness:
         r = check_criterion_4_restore_drill(flag)
         assert r.ok is False
         assert "restored_at" in r.reason
+
+
+# ---------------------------------------------------------------------------
+# Staging vector-index coverage
+# ---------------------------------------------------------------------------
+
+
+def _staging_chunks(paper_id: str, *, stmt: int, proof: int = 0):
+    """``stmt`` stmt chunks then ``proof`` proof chunks for ``paper_id``."""
+    from ingest.chunk import CHUNKER_VERSION, ChunkRecord
+
+    kinds = ["stmt"] * stmt + ["proof"] * proof
+    return [
+        ChunkRecord(
+            chunk_id=f"arxiv:{paper_id}:{i:016x}",
+            paper_id=paper_id,
+            kind=kind,
+            section_path=[],
+            theorem_name=None,
+            theorem_label=None,
+            body_text=f"{paper_id} {kind} {i}",
+            body_tokens=f"{kind} {i}",
+            preamble_ref=None,
+            chunker_version=CHUNKER_VERSION,
+        )
+        for i, kind in enumerate(kinds)
+    ]
+
+
+def _write_staging(path: Path, chunks, *, build_indices: bool, seed: int = 0) -> None:
+    """Write ``chunks`` into a real staging LanceDB (marker included)."""
+    import numpy as np
+
+    from ingest.embedder import EMBEDDER_VERSION, EMBEDDING_DIM
+    from ingest.schema import EmbedRecord
+    from ingest.store import write_chunks
+
+    rng = np.random.default_rng(seed)
+
+    def _vectors(n: int):
+        if n == 0:
+            return np.zeros((0, EMBEDDING_DIM), dtype=np.float32)
+        v = rng.standard_normal((n, EMBEDDING_DIM)).astype(np.float32)
+        return v / np.linalg.norm(v, axis=1, keepdims=True)
+
+    stmt = [c for c in chunks if c.kind == "stmt"]
+    proof = [c for c in chunks if c.kind == "proof"]
+    record = EmbedRecord(
+        chunk_ids_stmt=[c.chunk_id for c in stmt],
+        embedding_stmt=_vectors(len(stmt)),
+        chunk_ids_proof=[c.chunk_id for c in proof],
+        embedding_proof=_vectors(len(proof)),
+        embedder_version=EMBEDDER_VERSION,
+    )
+    write_chunks(chunks, record, lancedb_path=path, build_indices=build_indices)
+
+
+def _index_names(path: Path) -> set[str]:
+    from server.corpus import open_chunks_table, read_corpus_version
+
+    info = read_corpus_version(lancedb_path=path)
+    table = open_chunks_table(lancedb_path=path, version=info.version)
+    return {cfg.name for cfg in table.list_indices()}
+
+
+class TestStagingVectorIndexCoverage:
+    """``ingest.re_embed`` writes staging with ``build_indices=False`` and
+    builds the indexes once at the end; C3 accepts ``complete_with_failures``.
+    The integrity probe is where cutover must refuse a staging table whose
+    vector columns are not fully indexed, or search silently scans flat."""
+
+    def test_unindexed_staging_is_refused(self, tmp_path):
+        from ops.cutover import verify_lancedb_integrity
+
+        staging = tmp_path / "lancedb-staging"
+        _write_staging(
+            staging, _staging_chunks("2301.00001", stmt=4, proof=2),
+            build_indices=False,
+        )
+        assert _index_names(staging) == set()
+
+        r = verify_lancedb_integrity(staging)
+
+        assert r.ok is False
+        assert "embedding_stmt holds 4 vectors but has no index" in r.reason
+        assert "embedding_proof holds 2 vectors but has no index" in r.reason
+
+    def test_fully_indexed_staging_passes(self, tmp_path):
+        from ops.cutover import verify_lancedb_integrity
+
+        staging = tmp_path / "lancedb-staging"
+        _write_staging(
+            staging, _staging_chunks("2301.00001", stmt=4, proof=2),
+            build_indices=True,
+        )
+        assert {"embedding_stmt_idx", "embedding_proof_idx"} <= _index_names(staging)
+
+        r = verify_lancedb_integrity(staging)
+
+        assert r.ok is True, r.reason
+        assert r.reason == "chunks=6; vector indexes cover every row"
+
+    def test_all_null_proof_column_needs_no_index(self, tmp_path):
+        from ops.cutover import verify_lancedb_integrity
+
+        staging = tmp_path / "lancedb-staging"
+        _write_staging(
+            staging, _staging_chunks("2301.00001", stmt=4), build_indices=True,
+        )
+        # _create_indices skips a column with no vectors.
+        names = _index_names(staging)
+        assert "embedding_stmt_idx" in names
+        assert "embedding_proof_idx" not in names
+
+        r = verify_lancedb_integrity(staging)
+
+        assert r.ok is True, r.reason
+
+    def test_rows_outside_the_index_are_refused(self, tmp_path):
+        from ops.cutover import verify_lancedb_integrity
+
+        staging = tmp_path / "lancedb-staging"
+        _write_staging(
+            staging, _staging_chunks("2301.00001", stmt=4, proof=2),
+            build_indices=True,
+        )
+        _write_staging(
+            staging, _staging_chunks("2301.00002", stmt=3),
+            build_indices=False, seed=1,
+        )
+
+        r = verify_lancedb_integrity(staging)
+
+        assert r.ok is False
+        assert "embedding_stmt_idx misses 3 rows" in r.reason
+        # The appended rows carry no proof vector, but they sit outside the
+        # proof index too, so a proof search scans them flat.
+        assert "embedding_proof_idx misses 3 rows" in r.reason
+
+    def test_index_without_stats_fails_closed(self):
+        from types import SimpleNamespace
+
+        from ops.cutover import vector_index_gaps
+
+        table = SimpleNamespace(
+            list_indices=lambda: [
+                SimpleNamespace(name="embedding_stmt_idx", columns=["embedding_stmt"])
+            ],
+            index_stats=lambda _name: None,
+            count_rows=lambda where: 5 if "embedding_stmt" in where else 0,
+        )
+
+        assert vector_index_gaps(table) == ["embedding_stmt_idx reports no stats"]
+
+    def test_run_cutover_refuses_unindexed_complete_with_failures_staging(
+        self, tmp_path
+    ):
+        """The reviewed scenario end to end: every other criterion passes,
+        the re-embed ended ``complete_with_failures``, staging is unindexed."""
+        from ingest.store import CORPUS_VERSION_MARKER_NAME
+        from server.corpus import read_corpus_version
+
+        active = tmp_path / "lancedb"
+        _write_marker(active, version=7)
+        staging = tmp_path / "lancedb-staging"
+        _write_staging(
+            staging, _staging_chunks("2301.00001", stmt=4, proof=2),
+            build_indices=False,
+        )
+        staging_version = read_corpus_version(lancedb_path=staging).version
+        eval_dir = tmp_path / "eval"
+        _write_aggregate(eval_dir, version=7, ndcg5=0.85)
+        reports = tmp_path / "eval-reports"
+        _write_watchdog_report(reports, version=staging_version, ndcg5=0.83)
+        state = tmp_path / "re-embed-state.json"
+        _write_re_embed_state(state, "complete_with_failures")
+        drill = tmp_path / "restore-drill-passed.flag"
+        _write_drill_flag(drill)
+
+        # The readiness wait is stubbed so a gate that wrongly passes fails
+        # here on the swap, not after a 60 s wait for the server.
+        with patch(
+            "ops.cutover.wait_for_promoted_server",
+            return_value=(True, staging_version),
+        ):
+            rc = run_cutover(
+                active_path=active,
+                staging_path=staging,
+                rollback_path=tmp_path / "lancedb-prev",
+                aggregate_dir=eval_dir,
+                watchdog_report_dir=reports,
+                quarantine_flag_path=tmp_path / "no-quarantine.flag",
+                re_embed_state_path=state,
+                restore_drill_flag_path=drill,
+                skip_post_activation=True,
+            )
+
+        assert rc == 1
+        assert (staging / CORPUS_VERSION_MARKER_NAME).is_file()
+        assert not (tmp_path / "lancedb-prev").exists()

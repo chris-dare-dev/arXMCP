@@ -52,7 +52,6 @@ from ingest.chunker import (
     _sanitize_log_field,
     _validate_paper_id,
 )
-from ingest.chunker_types import ChunkRecord  # noqa: F401  (re-export indirect)
 from ingest.preamble_types import PreambleDoc
 
 # Reuse the existing root-tex heuristic from the fetcher tooling rather than

@@ -15,14 +15,15 @@ Regression guards from Phase 3 critique:
 
 Coverage map (acceptance criteria → test):
 
-* ``chunk_id`` matches ``arxiv:<paper_id>:<sha256(preamble_normalized + body_text)[:16]>``
-  → ``TestChunkIDFormat``
+* ``chunk_id`` matches ``arxiv:<paper_id>:<sha256(NFC(body_text))[:16]>``
+  (the body only) → ``TestChunkIDFormat``
 * Re-running chunker on an unchanged paper produces byte-identical chunk_ids
   → ``TestChunkIDDeterminism::test_two_runs_same_paper_identical_ids``
 * Modifying ``body_text`` produces a different chunk_id
   → ``TestChunkIDDeterminism::test_body_mutation_changes_chunk_id``
-* Modifying preamble produces a different chunk_id
-  → ``TestChunkIDDeterminism::test_preamble_mutation_changes_chunk_id``
+* The preamble, whether it resolved, and the data root do not change an id
+  → ``TestIdHashesBodyOnly``; a TeX position value does
+  → ``TestChunkIDDeterminism::test_position_value_changes_chunk_id``
 * ``chunker_version: CHUNKER_VERSION`` on every chunk; defined as a single constant
   → ``TestChunkerVersionConstant``
 * ``chunk_manifest.json`` exists for every paper after a chunker run
@@ -44,8 +45,8 @@ from unittest.mock import patch
 
 import pytest
 
+from ingest.chunk import CHUNKER_VERSION
 from ingest.chunker import _compute_chunk_id, chunk_paper
-from ingest.chunker_types import CHUNKER_VERSION
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures" / "chunker"
 
@@ -110,21 +111,38 @@ class TestChunkIDFormat:
     def test_compute_chunk_id_helper_is_pure(self):
         # The helper is the canonical implementation — always returns the
         # same digest for the same inputs.
-        a = _compute_chunk_id("2307.00001", "preamble", "body")
-        b = _compute_chunk_id("2307.00001", "preamble", "body")
+        a = _compute_chunk_id("2307.00001", "body")
+        b = _compute_chunk_id("2307.00001", "body")
         assert a == b
 
     def test_compute_chunk_id_uses_documented_formula(self):
-        # Spec: chunk_id = arxiv:<paper_id>:<sha256(preamble + NFC(body))[:16]>
+        # Spec: chunk_id = arxiv:<paper_id>:<sha256(NFC(body))[:16]>
         paper_id = "2307.00001"
-        preamble = r"\newcommand{\R}{\mathbb{R}}"
         body = "Theorem text"
         expected_digest = hashlib.sha256(
-            (preamble + unicodedata.normalize("NFC", body)).encode("utf-8")
+            unicodedata.normalize("NFC", body).encode("utf-8")
         ).hexdigest()[:16]
-        assert _compute_chunk_id(paper_id, preamble, body) == (
+        assert _compute_chunk_id(paper_id, body) == (
             f"arxiv:{paper_id}:{expected_digest}"
         )
+
+    def test_position_value_is_hashed_raw_before_the_body(self):
+        # The TeX chunker's position value: sha256(position + NFC(body)).
+        paper_id = "2307.00001"
+        body = "Theorem text"
+        expected_digest = hashlib.sha256(
+            ("tex-offset:42" + unicodedata.normalize("NFC", body)).encode("utf-8")
+        ).hexdigest()[:16]
+        assert _compute_chunk_id(paper_id, body, position="tex-offset:42") == (
+            f"arxiv:{paper_id}:{expected_digest}"
+        )
+
+    def test_a_stale_three_positional_call_fails_loudly(self):
+        # The pre-v1.3 signature was (paper_id, preamble_text, body_text).
+        # A caller left on it must fail, not silently hash the preamble as
+        # the body.
+        with pytest.raises(TypeError):
+            _compute_chunk_id("2307.00001", "preamble", "body")  # type: ignore[misc]
 
 
 # ===========================================================================
@@ -151,33 +169,33 @@ class TestChunkIDDeterminism:
     def test_body_mutation_changes_chunk_id(self):
         # Use the helper directly — same paper_id, same preamble, but
         # one byte of body text differs → different chunk_id.
-        a = _compute_chunk_id("2307.00001", "preamble", "Original body text")
-        b = _compute_chunk_id("2307.00001", "preamble", "Modified body text")
+        a = _compute_chunk_id("2307.00001", "Original body text")
+        b = _compute_chunk_id("2307.00001", "Modified body text")
         assert a != b
 
-    def test_preamble_mutation_changes_chunk_id(self):
-        a = _compute_chunk_id("2307.00001", "preamble v1", "body")
-        b = _compute_chunk_id("2307.00001", "preamble v2", "body")
+    def test_position_value_changes_chunk_id(self):
+        # Only a TeX-chunker-owned paper passes a position; two identical
+        # short proofs at different offsets must get distinct ids.
+        a = _compute_chunk_id("2307.00001", "body", position="tex-offset:1")
+        b = _compute_chunk_id("2307.00001", "body", position="tex-offset:2")
         assert a != b
+        assert a != _compute_chunk_id("2307.00001", "body")
 
-    def test_empty_preamble_fallback_works(self):
-        # F3 path: when preamble extraction fails, preamble_text="".
-        # Result is content-addressable on body alone.
-        a = _compute_chunk_id("2307.00001", "", "body")
-        b = _compute_chunk_id("2307.00001", "", "body")
+    def test_body_only_id_is_content_addressable(self):
+        a = _compute_chunk_id("2307.00001", "body")
+        b = _compute_chunk_id("2307.00001", "body")
         assert a == b
-        # And different body → different id even with empty preamble.
-        c = _compute_chunk_id("2307.00001", "", "different body")
+        c = _compute_chunk_id("2307.00001", "different body")
         assert a != c
 
     def test_paper_id_in_hash_input_via_prefix_only(self):
-        # paper_id is in the chunk_id PREFIX, not the hash input — same
-        # body+preamble across two paper_ids produces the same hash
-        # suffix but different prefixes. This is intentional: lets the
-        # embedder share embedding-input cache hits when two papers
-        # genuinely have identical chunk content.
-        a = _compute_chunk_id("2307.00001", "preamble", "body")
-        b = _compute_chunk_id("2307.99999", "preamble", "body")
+        # paper_id is in the chunk_id PREFIX, not the hash input — the
+        # same body across two paper_ids produces the same hash suffix but
+        # different prefixes. This is intentional: lets the embedder share
+        # embedding-input cache hits when two papers genuinely have
+        # identical chunk content.
+        a = _compute_chunk_id("2307.00001", "body")
+        b = _compute_chunk_id("2307.99999", "body")
         assert a != b
         # Same hash suffix
         assert a.split(":")[-1] == b.split(":")[-1]
@@ -188,9 +206,178 @@ class TestChunkIDDeterminism:
         nfc = "étale"  # precomposed
         nfd = unicodedata.normalize("NFD", nfc)
         assert nfc != nfd  # they really are different bytes
-        a = _compute_chunk_id("2307.00001", "", nfc)
-        b = _compute_chunk_id("2307.00001", "", nfd)
+        a = _compute_chunk_id("2307.00001", nfc)
+        b = _compute_chunk_id("2307.00001", nfd)
         assert a == b
+
+
+# ===========================================================================
+# TestIdHashesBodyOnly — an arXiv id hashes the body only
+# ===========================================================================
+
+
+def _preamble_doc(paper_id: str, text: str):
+    from ingest.preamble_types import PreambleDoc
+
+    return PreambleDoc(
+        paper_id=paper_id,
+        source_hash="0" * 64,
+        macros=[text],
+        preamble_text=text,
+        preamble_hash=hashlib.sha256(text.encode("utf-8")).hexdigest()[:16],
+    )
+
+
+def _run_with_preamble(tmp_path: Path, paper_id: str, doc):
+    parsed_dir, chunks_dir = _stage(tmp_path, paper_id)
+    with (
+        patch("ingest.chunker.PARSED_DIR", parsed_dir),
+        patch("ingest.chunker.CHUNKS_DIR", chunks_dir),
+        patch("ingest.chunker._resolve_preamble_doc", return_value=doc),
+    ):
+        return chunk_paper(paper_id)
+
+
+class TestIdHashesBodyOnly:
+    """An arXiv id is ``arxiv:<pid>:`` + ``sha256(NFC(body))[:16]``.
+
+    The golden fixtures cannot prove this: they are generated with the
+    preamble resolver stubbed to ``None``, so their ids are body-only under
+    either formula. These tests chunk the same paper with no preamble and
+    with two different resolvable preambles (what two data roots, or a
+    recovered preamble, would yield) and require the same ids.
+    """
+
+    PAPER_ID = "2307.00002"  # multi-kind fixture
+
+    def test_ids_do_not_depend_on_the_preamble(self, tmp_path):
+        none = _run_no_preamble(tmp_path / "none", self.PAPER_ID)
+        doc_a = _preamble_doc(self.PAPER_ID, r"\newcommand{\R}{\mathbb{R}}")
+        doc_b = _preamble_doc(self.PAPER_ID, r"\def\Z{\mathbb{Z}}")
+        with_a = _run_with_preamble(tmp_path / "a", self.PAPER_ID, doc_a)
+        with_b = _run_with_preamble(tmp_path / "b", self.PAPER_ID, doc_b)
+
+        assert len(none) > 1
+        ids = [c.chunk_id for c in none]
+        assert [c.chunk_id for c in with_a] == ids
+        assert [c.chunk_id for c in with_b] == ids
+        # The preamble still stamps preamble_ref; it just no longer reaches
+        # the id.
+        assert {c.preamble_ref for c in none} == {None}
+        assert {c.preamble_ref for c in with_a} == {doc_a.preamble_hash}
+
+    def test_ids_are_the_body_hash(self, tmp_path):
+        doc = _preamble_doc(self.PAPER_ID, r"\newcommand{\R}{\mathbb{R}}")
+        for chunk in _run_with_preamble(tmp_path, self.PAPER_ID, doc):
+            digest = hashlib.sha256(
+                unicodedata.normalize("NFC", chunk.body_text).encode("utf-8")
+            ).hexdigest()[:16]
+            assert chunk.chunk_id == f"arxiv:{self.PAPER_ID}:{digest}"
+
+    def test_on_disk_manifest_matches_with_and_without_preamble(self, tmp_path):
+        _run_no_preamble(tmp_path / "none", self.PAPER_ID)
+        doc = _preamble_doc(self.PAPER_ID, r"\newcommand{\R}{\mathbb{R}}")
+        _run_with_preamble(tmp_path / "doc", self.PAPER_ID, doc)
+
+        def manifest_ids(root: Path) -> list[str]:
+            manifest = json.loads(
+                (root / "chunks" / self.PAPER_ID / "chunk_manifest.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            return [entry["chunk_id"] for entry in manifest["chunks"]]
+
+        assert manifest_ids(tmp_path / "none") == manifest_ids(tmp_path / "doc")
+
+
+# ===========================================================================
+# TestTexPositionValue — TeX-chunker-owned papers keep their position value
+# ===========================================================================
+
+TEX_SOURCE = (
+    r"\newtheorem{lemma}{Lemma}" "\n"
+    r"\begin{document}" "\n"
+    r"\section{One}" "\n"
+    r"\begin{lemma}\label{l:a}First statement.\end{lemma}" "\n"
+    r"\begin{proof}Clear.\end{proof}" "\n"
+    r"\begin{lemma}\label{l:b}Second statement.\end{lemma}" "\n"
+    r"\begin{proof}Clear.\end{proof}" "\n"
+    r"\end{document}" "\n"
+)
+
+
+class _WordTokenizer:
+    """Hermetic stand-in for the BGE-M3 tokenizer (whitespace words)."""
+
+    def __call__(self, text, **kwargs):
+        matches = list(re.finditer(r"\S+", text))
+        return {
+            "input_ids": list(range(len(matches))),
+            "offset_mapping": [(m.start(), m.end()) for m in matches],
+        }
+
+
+def _tex_chunks(tmp_path: Path, monkeypatch, paper_id: str = "1309.5035"):
+    from types import SimpleNamespace
+
+    from ingest import chunker, tex_formal_chunker
+
+    tex = tmp_path / "main.tex"
+    tex.write_text(TEX_SOURCE, encoding="utf-8")
+    monkeypatch.setattr(chunker, "_get_tokenizer", lambda: _WordTokenizer())
+    monkeypatch.setattr(
+        tex_formal_chunker.ApplicationPaths, "resolve",
+        lambda: SimpleNamespace(corpus=tmp_path),
+    )
+    monkeypatch.setattr(tex_formal_chunker, "find_main_tex", lambda *_: tex)
+    return tex_formal_chunker.chunk_tex_formals(paper_id)
+
+
+class TestTexPositionValue:
+    """A TeX-chunker-owned paper
+    keeps ``tex-offset:<n>`` in its id hash, because the same short proof
+    recurs at different places in one source and both copies are kept."""
+
+    #: The first "Clear." proof's id (offset 122). Computed with BOTH the
+    #: v1.2 function (``_compute_chunk_id(pid, "tex-offset:122",
+    #: "Clear.")``) and the v1.3 one, which agree. Pinned so a change to
+    #: either the id function or the TeX chunker's position value fails here.
+    PINNED_FIRST_PROOF_ID = "arxiv:1309.5035:2c5e961813f0a6a9"
+
+    def test_identical_short_proofs_get_distinct_ids(self, tmp_path, monkeypatch):
+        chunks = _tex_chunks(tmp_path, monkeypatch)
+        proofs = [c for c in chunks if c.kind == "proof"]
+        assert [p.body_text for p in proofs] == ["Clear.", "Clear."]
+        assert proofs[0].chunk_id != proofs[1].chunk_id
+        ids = [c.chunk_id for c in chunks]
+        assert len(ids) == len(set(ids))
+
+    def test_tex_ids_hash_the_position_value(self, tmp_path, monkeypatch):
+        for chunk in _tex_chunks(tmp_path, monkeypatch):
+            digest = hashlib.sha256(
+                (
+                    f"tex-offset:{chunk.source_start}"
+                    + unicodedata.normalize("NFC", chunk.body_text)
+                ).encode("utf-8")
+            ).hexdigest()[:16]
+            assert chunk.chunk_id == f"arxiv:1309.5035:{digest}"
+
+    def test_tex_id_literal_survives_the_v1_3_bump(self, tmp_path, monkeypatch):
+        proofs = [c for c in _tex_chunks(tmp_path, monkeypatch) if c.kind == "proof"]
+        assert proofs[0].chunk_id == self.PINNED_FIRST_PROOF_ID
+
+    def test_chunk_paper_keeps_tex_ids_for_a_tex_owned_paper(
+        self, tmp_path, monkeypatch
+    ):
+        # The public entry point writes TeX ids as-is for a TeX-owned
+        # paper; the HTML body-only post-pass never sees them.
+        from ingest import chunker
+
+        expected = [c.chunk_id for c in _tex_chunks(tmp_path, monkeypatch)]
+        monkeypatch.setattr(chunker, "CHUNKS_DIR", tmp_path / "chunks")
+        got = [c.chunk_id for c in chunker.chunk_paper("1309.5035")]
+        assert got == expected
+        assert self.PINNED_FIRST_PROOF_ID in got
 
 
 # ===========================================================================
@@ -202,7 +389,7 @@ class TestChunkerVersionConstant:
     PAPER_ID = "2307.00001"
 
     def test_constant_value(self):
-        assert CHUNKER_VERSION == "v1.1"
+        assert CHUNKER_VERSION == "v1.3"
 
     def test_every_chunk_has_version(self, tmp_path):
         chunks = _run_no_preamble(tmp_path, self.PAPER_ID)
@@ -212,7 +399,7 @@ class TestChunkerVersionConstant:
     def test_dataclass_default_uses_constant(self):
         # Construct without explicit chunker_version arg — default flows
         # from CHUNKER_VERSION.
-        from ingest.chunker_types import ChunkRecord
+        from ingest.chunk import ChunkRecord
         rec = ChunkRecord(
             chunk_id="test",
             paper_id="2307.00001",
@@ -349,7 +536,7 @@ class TestSingleVersionDefinition:
         # Closes F4: broadened from a 2-file scan to the entire ingest/
         # package, and to BOTH "vX.Y" and 'vX.Y' quote forms. The scan
         # exempts the canonical assignments:
-        #   chunker_types.py: CHUNKER_VERSION = "<current>"
+        #   chunk.py:         CHUNKER_VERSION = "<current>"
         #   tokenizer.py:     TOKENIZER_VERSION = "<current>"
         # CHUNKER_VERSION and TOKENIZER_VERSION track independent
         # invariants (chunking strategy vs tokenizer regex). The test
@@ -358,12 +545,12 @@ class TestSingleVersionDefinition:
         # doesn't require touching this test's allowed-count map.
         # Future modules that hard-code either literal instead of
         # importing the relevant constant will fail this check.
-        from ingest.chunker_types import CHUNKER_VERSION
+        from ingest.chunk import CHUNKER_VERSION
         from ingest.tokenizer import TOKENIZER_VERSION
 
         ingest_dir = Path(__file__).parent.parent / "ingest"
         canonical_literals = {
-            "chunker_types.py": CHUNKER_VERSION,
+            "chunk.py": CHUNKER_VERSION,
             "tokenizer.py": TOKENIZER_VERSION,
         }
         # The literals we forbid outside their canonical home.
@@ -382,7 +569,7 @@ class TestSingleVersionDefinition:
                         f"{py_file.name}: has {total} occurrence(s) of "
                         f"{lit!r} literal (allowed: {allowed}). Import "
                         "the relevant *_VERSION constant from "
-                        "chunker_types or tokenizer."
+                        "ingest.chunk or tokenizer."
                     )
         assert not violations, (
             "single-source-of-truth violation:\n  " + "\n  ".join(violations)
@@ -457,8 +644,8 @@ class TestF1FailureLeavesEmptyDir:
 
 
 class TestF2DuplicateContentDeduped:
-    """F2 (MEDIUM): two chunks with byte-identical (preamble, body_text)
-    must de-dupe to one chunk, NOT raise the whole paper out via the
+    """Two chunks with byte-identical body_text must de-dupe
+    to one chunk, NOT raise the whole paper out via the
     PER_PAPER_FAILURE_EXCEPTIONS envelope."""
 
     def test_duplicate_body_text_emits_one_chunk(self):
@@ -467,9 +654,9 @@ class TestF2DuplicateContentDeduped:
         # chunk_id → must de-dupe rather than crash.
         from ingest.chunker import _compute_chunk_id
 
-        # Two chunk_ids identical when preamble + body match.
-        a = _compute_chunk_id("2307.00001", "preamble", "duplicated body")
-        b = _compute_chunk_id("2307.00001", "preamble", "duplicated body")
+        # Two chunk_ids identical when the bodies match.
+        a = _compute_chunk_id("2307.00001", "duplicated body")
+        b = _compute_chunk_id("2307.00001", "duplicated body")
         assert a == b  # same content → same id (precondition for the test)
 
     def test_duplicate_chunks_in_same_paper_dedupe(self, tmp_path):
@@ -586,9 +773,8 @@ class TestF5FreshProcessDeterminism:
             # escape sequences into the -c source and SyntaxError the child.
             "sys.path.insert(0, " + repr(str(repo_root)) + "); "
             "from ingest.chunker import _compute_chunk_id; "
-            "preamble = '\\\\newcommand{\\\\R}{\\\\mathbb{R}}'; "
             "body = 'Theorem 3.4. Let X be a smooth projective variety.'; "
-            "ids = [_compute_chunk_id('2307.00001', preamble, body) for _ in range(3)]; "
+            "ids = [_compute_chunk_id('2307.00001', body) for _ in range(3)]; "
             "print(json.dumps(ids))"
         )
         env = _os.environ.copy()

@@ -21,7 +21,7 @@ import numpy as np
 import pyarrow as pa
 import pytest
 
-from ingest.chunker_types import ChunkRecord
+from ingest.chunk import ChunkRecord
 from ingest.embedder import EMBEDDING_DIM
 from ingest.schema import CHUNKS_TABLE_NAME
 from ingest.textbook_chunker import TEXTBOOK_CHUNKER_VERSION

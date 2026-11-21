@@ -14,10 +14,8 @@ notebook-preamble-recovery-m1: after each ar5iv hit, also pulls raw
 can run successfully on the ar5iv path — without it, every ar5iv-only
 paper has ``preamble_ref=null`` and ``get_definitions`` returns empty.
 
-**Requires ``ARXMCP_CONTACT_EMAIL``** for the User-Agent header on the
-``/e-print/`` request (arXiv TOU §3 politeness contract). Enforced at
-:func:`run` entry — clear NotebookError if unset. NOT enforced at
-module import (that would break every test that doesn't set the env).
+An email address is optional User-Agent contact information. Fetches identify
+the application without it and continue to honor arXiv's request pacing.
 
 Honors the 3-second-per-IP politeness contract (see
 ``ingest/ar5iv_fetch.py`` module docstring and
@@ -45,7 +43,6 @@ Exit codes:
         (rate-limited is recoverable; not a hard failure)
     1 — slug validation failed OR malformed papers.txt entries
         OR irrecoverable ``missing`` (ar5iv 404, no_math, etc.)
-        OR ARXMCP_CONTACT_EMAIL unset.
 """
 
 from __future__ import annotations
@@ -67,7 +64,6 @@ from tools._notebook_common import (
     fetch_raw_tex_if_missing,
     notebook_dir,
     read_paper_ids_from_papers_txt,
-    resolve_contact_email,
     validate_slug,
 )
 
@@ -83,24 +79,9 @@ def run(slug: str, *, sleep_seconds: float = POLITENESS_SLEEP_SECONDS) -> int:
     politeness sleep). Production callers should leave it at the
     default 3.0 s.
 
-    AC7 (notebook-preamble-recovery-m1): a contact email is required
-    at run() entry. Fail loudly with a clear NotebookError rather
-    than letting per-paper RuntimeErrors leak from ``build_user_agent``
-    deep inside the loop. The check is at run-time (not import-time)
-    so tests that don't exercise the raw-tex path don't need to
-    provide the email.
-
-    onboarding-uplift-m2: resolution goes through
-    :func:`tools._notebook_common.resolve_contact_email` — priority
-    chain is (1) explicit arg [unused here; CLI takes no --email],
-    (2) SQLite ``operator_settings`` (via ``make init EMAIL=…``),
-    (3) ``ARXMCP_CONTACT_EMAIL`` env var, (4) raise. The historical
-    env-var path still works; SQLite is the new canonical mechanism.
+    A contact email is optional. When present in operator settings or the
+    environment, the fetcher includes it in the User-Agent.
     """
-    # m2 — replace the bare-env check with the priority chain. The
-    # helper raises ``NotebookError`` with the canonical
-    # ``make init EMAIL=…`` remediation hint if every source is empty.
-    resolve_contact_email(None)
     validate_slug(slug)
     nb_dir = notebook_dir(slug)
     papers_txt = nb_dir / "papers.txt"

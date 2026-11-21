@@ -21,7 +21,7 @@ import json
 
 import pytest
 
-from ingest.chunker_types import CHUNKER_VERSION
+from ingest.chunk import CHUNKER_VERSION
 from ingest.embedder import EMBEDDER_VERSION
 from ingest.store import (
     CORPUS_VERSION_MARKER_NAME,

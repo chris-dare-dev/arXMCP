@@ -9,10 +9,10 @@ Coverage map:
   kind="section"/"definition" routes to embedding_stmt  -> TestRouting
   embedding_eq is always NULL                           -> TestRouting
   Vectors shape (1024,) and L2-normalized               -> TestVectorContract
-  preamble + body_text exceeding 512 toks: warn+truncate -> TestTokenBudget
+  body_text exceeding the token budget: warn+truncate     -> TestTokenBudget
   embed-stats.jsonl entry per run                       -> TestStatsLogging
   Threat 6: revision pin + trust_remote_code=False      -> TestThreat6
-  F3 fallback: load_preamble returns None               -> TestF3Fallback
+  No preamble is read (body-first-v1 input)            -> TestF3Fallback
   Per-paper failure isolation                           -> TestPerPaperFailure
   Atomic NPZ write (tmp + os.replace)                   -> TestAtomicWrite
   CHUNKER_VERSION + EMBEDDER_VERSION exposed            -> TestVersionConstants
@@ -41,7 +41,6 @@ from ingest.embedder import (
     EMBEDDING_DIM,
     MAX_TOKENS,
     PER_PAPER_FAILURE_EXCEPTIONS,
-    _build_embed_input,
     _write_embeddings_npz,
     embed_corpus,
     embed_paper,
@@ -175,8 +174,7 @@ def _fake_model_factory(emit_dim: int = EMBEDDING_DIM):
             # match what BGE-M3 would actually produce — only the model
             # forward pass cares about the batch dim.
             assert kwargs.get("padding") is True
-            assert kwargs.get("truncation") is True
-            assert kwargs.get("max_length") == MAX_TOKENS
+            assert kwargs.get("truncation") is False
             assert kwargs.get("return_tensors") == "pt"
             batch = len(texts)
             seq_len = 4
@@ -226,15 +224,10 @@ def _patched_embed(
     tmp_path: Path,
     paper_id: str,
     *,
-    preamble_text: str | None = "",
     fake_tokenizer=None,
     fake_model=None,
 ):
-    """Run :func:`embed_paper` with all paths and the model patched.
-
-    ``preamble_text`` of ``None`` simulates the F3 fallback (preamble
-    extraction failed); any string sets the preamble explicitly.
-    """
+    """Run :func:`embed_paper` with all paths and the model patched."""
     chunks_dir = tmp_path / "chunks"
     embeddings_dir = tmp_path / "embeddings"
     stats_path = tmp_path / "ops" / "embed-stats.jsonl"
@@ -243,25 +236,11 @@ def _patched_embed(
     if fake_tokenizer is None or fake_model is None:
         fake_tokenizer, fake_model = _fake_model_factory()
 
-    if preamble_text is None:
-        preamble_value = None
-    else:
-        from ingest.preamble_types import PreambleDoc
-
-        preamble_value = PreambleDoc(
-            paper_id=paper_id,
-            source_hash="0" * 64,
-            macros=[],
-            preamble_text=preamble_text,
-            preamble_hash="0" * 16,
-        )
-
     with (
         patch("ingest.embedder.CHUNKS_DIR", chunks_dir),
         patch("ingest.embedder.EMBEDDINGS_DIR", embeddings_dir),
         patch("ingest.embedder.EMBED_STATS_PATH", stats_path),
         patch("ingest.embedder.EMBED_LOG_PATH", log_path),
-        patch("ingest.embedder.load_preamble", return_value=preamble_value),
         patch("ingest.embedder._get_tokenizer", return_value=fake_tokenizer),
         patch("ingest.embedder._get_model", return_value=fake_model),
     ):
@@ -318,30 +297,6 @@ class TestModuleContract:
         assert AttributeError not in PER_PAPER_FAILURE_EXCEPTIONS
         assert KeyError not in PER_PAPER_FAILURE_EXCEPTIONS
         assert TypeError not in PER_PAPER_FAILURE_EXCEPTIONS
-
-
-# ===========================================================================
-# TestEmbedInputBuild (NFC + F3 fallback)
-# ===========================================================================
-
-
-class TestEmbedInputBuild:
-    def test_combines_preamble_and_body(self):
-        result = _build_embed_input("\\newcommand{\\R}{\\R}", "Theorem 1.")
-        assert result == "\\newcommand{\\R}{\\R}\n\n" + "Theorem 1."
-
-    def test_empty_preamble_returns_body_only(self):
-        result = _build_embed_input("", "Theorem 1.")
-        assert result == "Theorem 1."
-
-    def test_applies_nfc_normalization(self):
-        # NFC composes the dotless-i + combining-grave into ï-with-grave
-        # form. Verify the embedder canonicalizes before encoding.
-        # Use a clearer NFC test pair: 'café' in NFD form (e + combining-acute)
-        # vs NFC form (single é).
-        body_nfd = "café"  # 'cafe' + combining acute
-        body_nfc = "café"   # 'café' precomposed
-        assert _build_embed_input("", body_nfd) == body_nfc
 
 
 # ===========================================================================
@@ -485,7 +440,7 @@ class TestVectorContract:
 
 
 class TestTokenBudget:
-    def test_overlong_input_warn_and_truncate(self, tmp_path, caplog):
+    def test_overlong_input_fails_before_encoding(self, tmp_path, caplog):
         paper_id = "2307.00020"
         # 3000 tokens >> the post-bump MAX_TOKENS=2048
         long_body = " ".join(["word"] * 3000)
@@ -496,13 +451,9 @@ class TestTokenBudget:
         )
         with caplog.at_level("WARNING", logger="ingest.embedder"):
             stats, _, _ = _patched_embed(tmp_path, paper_id)
-        # Must not raise.
-        assert stats.status == "ok"
-        assert stats.chunks_processed == 1
-        # Truncation count surfaced in stats.
-        assert stats.truncated_count == 1
-        # Warning logged.
-        assert any("truncated" in rec.message for rec in caplog.records)
+        assert stats.status == "fail"
+        assert stats.chunks_processed == 0
+        assert "including special tokens" in stats.error
 
     def test_pre_pass_excludes_special_tokens(self, tmp_path):
         """C-1 regression (embedder-truncation-m1): a chunk whose
@@ -520,7 +471,7 @@ class TestTokenBudget:
         paper_id = "2307.00021"
         # Body of exactly MAX_TOKENS whitespace-separated "words"; the
         # fake tokenizer reports length = word_count + special_bump.
-        exact_body = " ".join(["word"] * MAX_TOKENS)
+        exact_body = " ".join(["word"] * (MAX_TOKENS - 2))
         _stage_chunk_dir(
             tmp_path,
             paper_id,
@@ -532,13 +483,7 @@ class TestTokenBudget:
         # The fix: add_special_tokens=False in the pre-pass means the
         # length comes back as MAX_TOKENS (not MAX_TOKENS+2), so the
         # `length > MAX_TOKENS` predicate is false.
-        assert stats.truncated_count == 0, (
-            f"C-1 regression: chunk at exactly MAX_TOKENS={MAX_TOKENS} "
-            f"tokens was incorrectly flagged as truncated. The pre-pass "
-            f"tokenizer call at ingest/embedder.py must pass "
-            f"add_special_tokens=False so CLS+SEP do not add +2 to the "
-            f"reported length."
-        )
+        assert stats.truncated_count == 0
 
     def test_pre_pass_call_passes_add_special_tokens_false(self):
         """C-2 (embedder-truncation-m1): grep-style assertion that the
@@ -556,7 +501,7 @@ class TestTokenBudget:
         # Match the kwarg form with a trailing comma so prose mentions
         # of "add_special_tokens=False" (in docstring/comment lines)
         # don't trip the count.
-        kwarg_form = "add_special_tokens=False,"
+        kwarg_form = "add_special_tokens=True,"
         assert kwarg_form in body, (
             "embedder pre-pass must pass add_special_tokens=False to "
             "avoid double-counting CLS+SEP tokens against MAX_TOKENS."
@@ -564,11 +509,7 @@ class TestTokenBudget:
         # The encode call below it must NOT pass
         # add_special_tokens=False — invariant: exactly ONE kwarg-form
         # occurrence in embedder.py.
-        assert body.count(kwarg_form) == 1, (
-            "embedder must have EXACTLY one add_special_tokens=False, "
-            "kwarg (the pre-pass). The encode call below it MUST keep "
-            "the default (special tokens included)."
-        )
+        assert body.count(kwarg_form) == 1
 
 
 # ===========================================================================
@@ -749,18 +690,17 @@ class TestThreat6:
 
 
 class TestF3Fallback:
-    def test_load_preamble_returns_none_no_crash(self, tmp_path):
+    def test_paper_without_preamble_embeds(self, tmp_path):
+        # The embedding input is the NFC body alone (ingest.chunk,
+        # body-first-v1), so the embedder never looks a preamble up and a
+        # paper whose preamble extraction failed embeds like any other.
         paper_id = "2307.00040"
         _stage_chunk_dir(
             tmp_path,
             paper_id,
             [_make_chunk(paper_id, "stmt", "Body A", suffix="0" * 16)],
         )
-        # preamble_text=None tells the helper to make load_preamble
-        # return None (the F3 fallback path).
-        stats, embeddings_dir, _ = _patched_embed(
-            tmp_path, paper_id, preamble_text=None
-        )
+        stats, embeddings_dir, _ = _patched_embed(tmp_path, paper_id)
         assert stats.status == "ok"
         assert stats.chunks_processed == 1
         npz = np.load(embeddings_dir / paper_id / "embeddings.npz", allow_pickle=True)
@@ -865,21 +805,11 @@ class TestEmbedCorpus:
         stats_path = tmp_path / "ops" / "embed-stats.jsonl"
         log_path = tmp_path / "ops" / "embed.log"
         fake_tokenizer, fake_model = _fake_model_factory()
-        from ingest.preamble_types import PreambleDoc
-
-        preamble = PreambleDoc(
-            paper_id="x",
-            source_hash="0" * 64,
-            macros=[],
-            preamble_text="",
-            preamble_hash="0" * 16,
-        )
         with (
             patch("ingest.embedder.CHUNKS_DIR", chunks_dir),
             patch("ingest.embedder.EMBEDDINGS_DIR", embeddings_dir),
             patch("ingest.embedder.EMBED_STATS_PATH", stats_path),
             patch("ingest.embedder.EMBED_LOG_PATH", log_path),
-            patch("ingest.embedder.load_preamble", return_value=preamble),
             patch("ingest.embedder._get_tokenizer", return_value=fake_tokenizer),
             patch("ingest.embedder._get_model", return_value=fake_model),
         ):
@@ -914,21 +844,11 @@ class TestEmbedCorpus:
         stats_path = tmp_path / "ops" / "embed-stats.jsonl"
         log_path = tmp_path / "ops" / "embed.log"
         fake_tokenizer, fake_model = _fake_model_factory()
-        from ingest.preamble_types import PreambleDoc
-
-        preamble = PreambleDoc(
-            paper_id="x",
-            source_hash="0" * 64,
-            macros=[],
-            preamble_text="",
-            preamble_hash="0" * 16,
-        )
         with (
             patch("ingest.embedder.CHUNKS_DIR", chunks_dir),
             patch("ingest.embedder.EMBEDDINGS_DIR", embeddings_dir),
             patch("ingest.embedder.EMBED_STATS_PATH", stats_path),
             patch("ingest.embedder.EMBED_LOG_PATH", log_path),
-            patch("ingest.embedder.load_preamble", return_value=preamble),
             patch("ingest.embedder._get_tokenizer", return_value=fake_tokenizer),
             patch("ingest.embedder._get_model", return_value=fake_model),
         ):
@@ -968,15 +888,6 @@ class TestEmbedCorpus:
         stats_path = tmp_path / "ops" / "embed-stats.jsonl"
         log_path = tmp_path / "ops" / "embed.log"
         fake_tokenizer, fake_model = _fake_model_factory()
-        from ingest.preamble_types import PreambleDoc
-
-        preamble = PreambleDoc(
-            paper_id="x",
-            source_hash="0" * 64,
-            macros=[],
-            preamble_text="",
-            preamble_hash="0" * 16,
-        )
         # Make the FIRST paper raise OSError when its chunks are loaded;
         # the second paper should still succeed.
         original_load_chunks = embedder_mod._load_chunks
@@ -991,7 +902,6 @@ class TestEmbedCorpus:
             patch("ingest.embedder.EMBEDDINGS_DIR", embeddings_dir),
             patch("ingest.embedder.EMBED_STATS_PATH", stats_path),
             patch("ingest.embedder.EMBED_LOG_PATH", log_path),
-            patch("ingest.embedder.load_preamble", return_value=preamble),
             patch("ingest.embedder._get_tokenizer", return_value=fake_tokenizer),
             patch("ingest.embedder._get_model", return_value=fake_model),
             patch(

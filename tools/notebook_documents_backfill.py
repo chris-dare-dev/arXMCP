@@ -18,7 +18,7 @@ Per revision it records:
   silent hole ("abstention, not silence", source-truth-m1 OWNER DECISION).
 - ``parse_artifact_sha256`` — a hash of ``parsed/<work_id>/index.html``
   (present for BOTH id shapes).
-- ``chunker_version`` (``ingest.chunker_types.CHUNKER_VERSION``);
+- ``chunker_version`` (``ingest.chunk.CHUNKER_VERSION``);
   ``parser_used`` + ``latexml_version`` are NULL in m1 (no queryable
   per-paper signal on disk yet — see the store docstring).
 - ``license_uri`` + a 3-way ``license_status``, hydrated via ONE OAI-PMH
@@ -91,7 +91,7 @@ from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
 
-from ingest.chunker_types import CHUNKER_VERSION
+from ingest.chunk import CHUNKER_VERSION
 from ingest.identifiers import is_valid_arxiv_paper_id
 from server.documents_store import (
     DOCUMENT_STATUS_ACTIVE,
