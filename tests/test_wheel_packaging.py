@@ -378,6 +378,55 @@ class TestDockerfileMatchesPackaging:
         )
 
 
+def _dockerfile_stages() -> dict[str, str]:
+    """Map each ``FROM ... AS <name>`` stage to its instruction text."""
+    text = DOCKERFILE.read_text(encoding="utf-8")
+    stages: dict[str, str] = {}
+    name = None
+    for line in text.splitlines():
+        match = re.match(r"^FROM\s+\S+\s+AS\s+(\S+)", line, re.IGNORECASE)
+        if match:
+            name = match.group(1)
+            stages[name] = ""
+        elif name is not None and not line.lstrip().startswith("#"):
+            stages[name] += line + "\n"
+    return stages
+
+
+class TestImageDependencyClosure:
+    """The image installs the closure pinned in ``uv.lock``, not a fresh
+    resolve against the open ranges in pyproject.toml."""
+
+    def test_builder_installs_the_exported_lock_with_hashes(self) -> None:
+        builder = _dockerfile_stages()["builder"]
+        assert re.search(r"uv export --locked\b", builder), (
+            "the builder stage must export its requirements from uv.lock "
+            "with --locked, so a stale lock fails the build"
+        )
+        assert re.search(r"pip install --require-hashes --no-deps\b", builder), (
+            "the exported lock must be installed hash-checked and without "
+            "pip resolving anything of its own"
+        )
+        assert re.search(r"^COPY [^\n]*\buv\.lock\b", builder, re.MULTILINE), (
+            "uv.lock is not in the builder stage's build context"
+        )
+
+    def test_no_stage_installs_the_project_by_resolving_it(self) -> None:
+        for name, stage in _dockerfile_stages().items():
+            assert not re.search(r"pip install (?:--\S+ )*\.(?:\s|$)", stage), (
+                f"stage {name!r} runs `pip install .`, which resolves the "
+                "dependency closure from PyPI instead of uv.lock"
+            )
+
+    def test_uv_lock_is_not_excluded_from_the_build_context(self) -> None:
+        patterns = [
+            line.strip()
+            for line in (REPO_ROOT / ".dockerignore").read_text().splitlines()
+            if line.strip() and not line.startswith("#")
+        ]
+        assert not any(fnmatch.fnmatch("uv.lock", p) for p in patterns)
+
+
 # ---------------------------------------------------------------------------
 # The real clean-environment check — opt-in
 # ---------------------------------------------------------------------------
