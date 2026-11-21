@@ -1623,6 +1623,106 @@ def _decode_header_strict(value: bytes | None) -> str | None:
         return None
 
 
+# ---------------------------------------------------------------------------
+# InitializeParamsMiddleware
+# ---------------------------------------------------------------------------
+
+
+#: JSON-RPC "Invalid params" error code.
+_JSONRPC_INVALID_PARAMS = -32602
+
+
+class InitializeParamsMiddleware:
+    """Reject an MCP ``initialize`` whose ``protocolVersion`` is not a string.
+
+    The MCP schema types ``protocolVersion`` as a string, but the ``mcp``
+    library models it as ``str | int`` and downgrades anything it does not
+    support to its latest version, so ``"protocolVersion": 12345`` used to
+    negotiate successfully. This layer answers such a request with HTTP 400
+    and JSON-RPC ``-32602``, the same status and code the library uses for
+    its own validation failures. An unknown *string* version still passes
+    through: the spec lets the server answer it with a version it supports.
+
+    Only a single JSON-RPC object with ``method == "initialize"`` and a
+    present, non-string ``protocolVersion`` is rejected. Everything else,
+    including bodies that do not parse, is replayed unchanged for FastMCP
+    to handle. Pure ASGI, like the rest of this module.
+    """
+
+    def __init__(self, app: Callable[..., Awaitable[None]]) -> None:
+        self.app = app
+
+    async def __call__(self, scope: dict, receive: Callable, send: Callable) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        path: str = scope.get("path", "")
+        if scope.get("method", "").upper() != "POST" or not (
+            path == _MCP_PATH_PREFIX or path.startswith(_MCP_PATH_PREFIX + "/")
+        ):
+            await self.app(scope, receive, send)
+            return
+
+        buffered_events: list[dict] = []
+        body_bytes = bytearray()
+        while True:
+            event = await receive()
+            buffered_events.append(event)
+            if event["type"] == "http.disconnect":
+                break
+            if event["type"] != "http.request":
+                continue
+            body_bytes.extend(event.get("body", b""))
+            if not event.get("more_body", False):
+                break
+
+        try:
+            parsed = json.loads(body_bytes.decode("utf-8"))
+        except (ValueError, UnicodeDecodeError):
+            parsed = None
+        params = parsed.get("params") if isinstance(parsed, dict) else None
+        if (
+            isinstance(parsed, dict)
+            and parsed.get("method") == "initialize"
+            and isinstance(params, dict)
+            and "protocolVersion" in params
+            and not isinstance(params["protocolVersion"], str)
+        ):
+            request_id = parsed.get("id")
+            # A JSON-RPC id is a string or a number; bool is an int
+            # subclass in Python but not a valid id.
+            if isinstance(request_id, bool) or not isinstance(
+                request_id, (str, int, float)
+            ):
+                request_id = None
+            await _send_json_error(
+                send,
+                400,
+                {
+                    "jsonrpc": "2.0",
+                    "id": request_id,
+                    "error": {
+                        "code": _JSONRPC_INVALID_PARAMS,
+                        "message": (
+                            "Invalid params: initialize.protocolVersion "
+                            "must be a string"
+                        ),
+                    },
+                },
+            )
+            return
+
+        replay_iter = iter(buffered_events)
+
+        async def replayed_receive() -> dict:
+            try:
+                return next(replay_iter)
+            except StopIteration:
+                return {"type": "http.disconnect"}
+
+        await self.app(scope, replayed_receive, send)
+
+
 __all__ = [
     "LOOPBACK_HOST_HEADER_HOSTS",
     "LOOPBACK_ORIGIN_HOSTS",
@@ -1630,6 +1730,7 @@ __all__ = [
     "MAX_ECHOED_ORIGIN_LEN",
     "REQUEST_BODY_MAX_BYTES",
     "HostValidationMiddleware",
+    "InitializeParamsMiddleware",
     "OriginValidationMiddleware",
     "RequestBodySizeLimitMiddleware",
     "SecFetchSiteMiddleware",

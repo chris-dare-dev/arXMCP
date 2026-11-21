@@ -971,6 +971,62 @@ class TestMiddlewareOrder:
 
 
 # ===========================================================================
+# initialize.protocolVersion must be a string
+# ===========================================================================
+
+
+def _initialize(client, protocol_version, request_id=1):
+    return client.post(
+        "/mcp/",
+        json={
+            "jsonrpc": "2.0",
+            "id": request_id,
+            "method": "initialize",
+            "params": {
+                "protocolVersion": protocol_version,
+                "capabilities": {},
+                "clientInfo": {"name": "test", "version": "1.0"},
+            },
+        },
+        headers={
+            "Accept": "application/json, text/event-stream",
+            "Content-Type": "application/json",
+            "Host": "127.0.0.1:7733",
+        },
+    )
+
+
+class TestInitializeProtocolVersion:
+    """A non-string ``protocolVersion`` is invalid params; an unknown
+    string version is negotiated down to one the server supports."""
+
+    @pytest.mark.parametrize("bad", [12345, 1.5, True, None, ["2025-06-18"], {}])
+    def test_non_string_version_rejected(self, warm_app, bad):
+        r = _initialize(warm_app, bad, request_id=7)
+        assert r.status_code == 400
+        body = r.json()
+        assert body["jsonrpc"] == "2.0"
+        assert body["id"] == 7
+        assert body["error"]["code"] == -32602
+        assert "protocolVersion" in body["error"]["message"]
+        assert "result" not in body
+        assert r.headers.get("mcp-session-id") is None
+
+    def test_unknown_string_version_negotiates_supported(self, warm_app):
+        from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
+
+        r = _initialize(warm_app, "9999-99-99")
+        assert r.status_code == 200
+        negotiated = r.json()["result"]["protocolVersion"]
+        assert negotiated in SUPPORTED_PROTOCOL_VERSIONS
+
+    def test_supported_string_version_echoed(self, warm_app):
+        r = _initialize(warm_app, "2025-06-18")
+        assert r.status_code == 200
+        assert r.json()["result"]["protocolVersion"] == "2025-06-18"
+
+
+# ===========================================================================
 # F8 regression — brief AC literal endpoint is /mcp
 # ===========================================================================
 
