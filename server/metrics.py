@@ -145,6 +145,16 @@ RETRIEVAL_CAP_REJECTIONS_COUNTER: Counter = Counter(
     labelnames=["tool"],
 )
 
+#: Counts ``tools/call`` requests the session cap layer forwarded
+#: without a cap check because the check itself failed. Any non-zero
+#: value means the per-session and hourly caps are not being enforced.
+SESSION_CAP_FAIL_OPEN_COUNTER: Counter = Counter(
+    "arxmcp_session_cap_fail_open_total",
+    "Total number of `tools/call` requests forwarded without the per-"
+    "session and hourly cap checks because the check failed. Any non-"
+    "zero value means the caps are not being enforced.",
+)
+
 
 # ---------------------------------------------------------------------------
 # LaTeXML drift detection (E10_S04)
@@ -525,6 +535,7 @@ __all__ = [
     "LEAN_REPL_AGE_SECONDS_GAUGE",
     "LEAN_REPL_ENV_SNAPSHOTS_GAUGE",
     "RETRIEVAL_CAP_REJECTIONS_COUNTER",
+    "SESSION_CAP_FAIL_OPEN_COUNTER",
     "TIER_1",
     "TIER_2",
     "TIER_3",

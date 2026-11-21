@@ -53,6 +53,8 @@ import jsonschema
 from pydantic import RootModel, model_validator
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from mcp.types import CallToolResult
 
 from server.observability.metrics import (
@@ -512,11 +514,24 @@ def set_resources(r: Resources) -> None:
     """Register the live Resources singleton for handler access.
 
     Called from :func:`server.main.lifespan` after
-    :meth:`Resources.startup` returns. Handlers read the singleton
-    via :func:`get_resources`.
+    :meth:`Resources.startup` returns, and paired with
+    :func:`clear_resources` on the way down. Handlers read the
+    singleton via :func:`get_resources`.
     """
     global _RESOURCES
     _RESOURCES = r
+
+
+def clear_resources() -> None:
+    """Withdraw the Resources singleton before it is drained.
+
+    The lifespan calls this first on shutdown, so a tool call that
+    arrives while the stores and executor close gets
+    :class:`ResourcesNotReadyError` instead of a half-closed
+    Resources.
+    """
+    global _RESOURCES
+    _RESOURCES = None
 
 
 def get_resources() -> Resources:
@@ -524,7 +539,8 @@ def get_resources() -> Resources:
 
     Handlers call this on every invocation. In production the
     singleton is set by the lifespan BEFORE the MCP session manager
-    opens, so this never raises in steady state.
+    opens and cleared when shutdown begins, so this raises only
+    outside the serving window.
     """
     if _RESOURCES is None:
         raise ResourcesNotReadyError(
@@ -538,8 +554,7 @@ def get_resources() -> Resources:
 def reset_resources_for_tests() -> None:
     """Test hook — clear the singleton so a fresh test_app can attach
     its own Resources without leaking state from a prior test."""
-    global _RESOURCES
-    _RESOURCES = None
+    clear_resources()
 
 
 # ---------------------------------------------------------------------------
@@ -1314,6 +1329,46 @@ _RETRIEVAL_TOOL_NAMES: frozenset[str] = frozenset({
 })
 
 
+def _get_chunk_cap_units(arguments: dict[str, Any]) -> int:
+    """Retrieval-cap units for one ``get_chunk`` call.
+
+    A batch of N ids costs N, so a caller cannot fold many fetches into
+    one request to escape the per-session budget. A batch the handler
+    rejects wholesale (empty, over the maximum, or any malformed id)
+    costs 0, because nothing is served; charging it would spend budget
+    on bad input. The size and format checks are the handler's own, so
+    the cost and the handler cannot disagree on what a valid batch is.
+    """
+    chunk_id = arguments.get("chunk_id")
+    if not isinstance(chunk_id, list):
+        return 1
+    from ingest.identifiers import is_valid_chunk_id  # noqa: PLC0415
+    from server.handlers.chunk import MAX_BATCH_CHUNK_IDS  # noqa: PLC0415
+
+    will_serve = 0 < len(chunk_id) <= MAX_BATCH_CHUNK_IDS and all(
+        is_valid_chunk_id(c) for c in chunk_id
+    )
+    return len(chunk_id) if will_serve else 0
+
+
+#: Per-tool cost functions for the session retrieval cap. A tool that
+#: reads its own arguments to price a call registers here, beside its
+#: schema, so the transport-level cap never parses a tool's arguments.
+_CAP_UNITS_BY_TOOL: dict[str, Callable[[dict[str, Any]], int]] = {
+    GET_CHUNK.name: _get_chunk_cap_units,
+}
+
+
+def cap_units(tool_name: str, arguments: object) -> int:
+    """How many per-tool cap units one ``tools/call`` of ``tool_name``
+    with ``arguments`` consumes. Tools without a cost function, and
+    calls whose arguments are not an object, cost 1."""
+    cost = _CAP_UNITS_BY_TOOL.get(tool_name)
+    if cost is None or not isinstance(arguments, dict):
+        return 1
+    return cost(arguments)
+
+
 def _annotations_for(tool_name: str) -> Any:
     """Per-tool MCP ToolAnnotations (#86)."""
     from mcp.types import ToolAnnotations  # noqa: PLC0415
@@ -1343,6 +1398,8 @@ __all__ = [
     "TOOL_SCHEMA_VERSION",
     "ToolMeta",
     "cap_result_list",
+    "cap_units",
+    "clear_resources",
     "enforce_byte_cap",
     "envelope",
     "get_resources",

@@ -30,6 +30,8 @@ from __future__ import annotations
 import asyncio
 import json
 
+import pytest
+
 from server.middleware import SessionCapMiddleware
 from server.session import (
     MAX_GET_CHUNK_CALLS,
@@ -915,3 +917,78 @@ class TestBatchLeakFix:
 
     def test_scalar_charges_one(self):
         assert self._drive_and_count(self._GOOD, "scalar-b") == 1
+
+
+# ===========================================================================
+# The tool prices its own calls; the cap layer fails open only loudly
+# ===========================================================================
+
+
+class TestCapUnitsFollowToolSchema:
+    """The per-call cost is owned by the tool layer, keyed on the
+    argument the registered tool actually accepts."""
+
+    _GOOD = "arxiv:2401.00001:0123456789abcdef"
+
+    def test_batch_cost_reads_the_argument_get_chunk_accepts(self):
+        from mcp.server.fastmcp import FastMCP
+
+        from server.tools import cap_units, register_all
+
+        server = FastMCP("arxmcp", json_response=True)
+        register_all(server)
+        tools = {t.name: t for t in asyncio.run(server.list_tools())}
+        properties = tools["get_chunk"].inputSchema["properties"]
+        # Batched get_chunk: one argument that takes a list of ids.
+        (batch_arg,) = [
+            name for name, spec in properties.items()
+            if any(branch.get("type") == "array" for branch in spec.get("anyOf", []))
+        ]
+
+        ids = [self._GOOD] * 3
+        assert cap_units("get_chunk", {batch_arg: ids}) == 3
+        assert cap_units("get_chunk", {batch_arg: self._GOOD}) == 1
+
+    def test_tools_without_a_cost_function_cost_one(self):
+        from server.tools import cap_units
+
+        assert cap_units("search_papers", {"query": "x"}) == 1
+        assert cap_units("get_chunk", "not-an-object") == 1
+
+
+class TestCapLayerFailure:
+    def test_event_loop_mismatch_forwards_and_is_counted(self, monkeypatch):
+        from prometheus_client import REGISTRY
+
+        import server.middleware as mw_mod
+
+        def _fail_open_count() -> float:
+            return REGISTRY.get_sample_value("arxmcp_session_cap_fail_open_total") or 0.0
+
+        async def _bound_to_other_loop(session_id):
+            raise RuntimeError("Lock is bound to a different event loop")
+
+        monkeypatch.setattr(mw_mod, "get_or_create_session", _bound_to_other_loop)
+        before = _fail_open_count()
+        mw = SessionCapMiddleware(app=None)  # type: ignore[arg-type]
+        received, sent = asyncio.run(
+            _drive_middleware(mw, _make_scope(), _make_jsonrpc_body("tools/call", "search_papers"))
+        )
+        assert received, "the request should still reach the tool layer"
+        assert _extract_status(sent) == 200
+        assert _fail_open_count() == before + 1
+
+    def test_any_other_cap_failure_propagates(self, monkeypatch):
+        import server.middleware as mw_mod
+
+        async def _broken(session_id):
+            raise KeyError("registry corrupted")
+
+        monkeypatch.setattr(mw_mod, "get_or_create_session", _broken)
+        mw = SessionCapMiddleware(app=None)  # type: ignore[arg-type]
+        with pytest.raises(KeyError):
+            asyncio.run(
+                _drive_middleware(
+                    mw, _make_scope(), _make_jsonrpc_body("tools/call", "search_papers")
+                )
+            )

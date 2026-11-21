@@ -31,10 +31,13 @@ raising.
 
 **Pattern source-of-truth**: ``server/router_patterns.yaml``.
 Editing the YAML does NOT require modifying this module
-(brief AC #6). The module loads + compiles the patterns once at
-import time; failures (missing file, malformed YAML, unknown
-``tag``, bad regex) propagate as ``RuntimeError`` at import so
-the operator sees the problem at startup, not at first query.
+(brief AC #6). The patterns are loaded and compiled once, on the
+first :func:`classify` call, and cached for the process lifetime;
+failures (missing file, malformed YAML, unknown ``tag``, bad regex)
+propagate from that call as ``RuntimeError``. Loading is deferred
+because the served server only consumes :class:`RouteTag` (through
+``server.prompts`` and ``server.orchestrator.model_selector``), so a
+missing or broken pattern file must not stop ``import server.tools``.
 
 **Latency contract**: ``classify(query)`` returns within 1 ms for
 any 200-character query (brief AC #4). Verified by ``timeit``
@@ -43,6 +46,7 @@ in ``tests/test_router.py``.
 
 from __future__ import annotations
 
+import functools
 import logging
 import re
 import unicodedata
@@ -113,7 +117,7 @@ DEFAULT_TAG: RouteTag = RouteTag.LOOKUP
 #: loader can assert YAML insertion order is monotonically
 #: non-increasing under this key — appending an AUTOFORMALIZATION
 #: pattern at the bottom of the file silently demoting it would
-#: raise at import.
+#: raise on load.
 _TAG_PRIORITY_RANK: dict[RouteTag, int] = {
     RouteTag.AUTOFORMALIZATION: 4,
     RouteTag.VERIFICATION: 3,
@@ -166,7 +170,7 @@ def _canonicalize(query: Any) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Pattern loading + compilation (import-time)
+# Pattern loading + compilation
 # ---------------------------------------------------------------------------
 
 
@@ -235,7 +239,7 @@ def _load_and_compile(
     immutable tuple of ``(compiled_pattern, tag)`` pairs in YAML
     declaration order.
 
-    Validation (any failure → ``RuntimeError`` at import):
+    Validation (any failure → ``RuntimeError``):
 
     1. File must exist + be readable.
     2. Top-level YAML value must be a list.
@@ -341,7 +345,7 @@ def _load_and_compile(
     # monotonically non-increasing under priority rank. A future
     # edit that appends e.g. an AUTOFORMALIZATION pattern at the
     # bottom of the file silently demotes it; this check fails
-    # loudly at import.
+    # loudly on load.
     prev_rank = _TAG_PRIORITY_RANK[compiled[0][1]]
     prev_tag = compiled[0][1]
     for idx, (_pattern, tag) in enumerate(compiled):
@@ -365,11 +369,15 @@ def _load_and_compile(
     return tuple(compiled)
 
 
-# Module-level constant — compiled ONCE at import. The 1ms latency
-# budget demands this; per-call compilation would blow it.
-_COMPILED_PATTERNS: tuple[tuple[re.Pattern[str], RouteTag], ...] = (
-    _load_and_compile()
-)
+@functools.cache
+def _compiled_patterns() -> tuple[tuple[re.Pattern[str], RouteTag], ...]:
+    """The live pattern list, compiled on first use and cached.
+
+    Compiling once keeps :func:`classify` inside its 1 ms budget;
+    per-call compilation would blow it. A load failure is not cached,
+    so the next call retries the file.
+    """
+    return _load_and_compile()
 
 
 # ---------------------------------------------------------------------------
@@ -404,7 +412,7 @@ def classify(query: Any) -> RouteTag:
     canonical = _canonicalize(query)
     if not canonical:
         return DEFAULT_TAG
-    for pattern, tag in _COMPILED_PATTERNS:
+    for pattern, tag in _compiled_patterns():
         if pattern.search(canonical):
             return tag
     return DEFAULT_TAG

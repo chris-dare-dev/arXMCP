@@ -166,15 +166,19 @@ X_FRAME_OPTIONS = b"DENY"
 #:   Guarded by ``tests/test_ui_delegated_listeners.py`` (no inline
 #:   ``<script>`` survives in any template) and by the header
 #:   assertions in ``tests/test_ui_html_pages.py``.
-#: - ``style-src 'self' 'unsafe-inline'`` — RETAINED, and its stated
-#:   rationale is now stale: the templates carry ZERO inline
-#:   ``style=`` attributes (measured 2026-08-22, all three templates
-#:   and every Python-rendered fragment). It is left in place because
-#:   #483 scoped itself to ``script-src`` and tightening styles wants
-#:   its own browser verification — htmx mutates element styles at
-#:   runtime during swaps, and while CSSOM writes are not governed by
-#:   ``style-src``, that deserves proving rather than assuming.
-#:   Tracked separately; do not remove this token untested.
+#: - ``style-src 'self' 'unsafe-inline'`` — the console's own markup
+#:   needs no inline style: the templates, the Python-rendered
+#:   fragments, ``ui.js`` and ``favicon.svg`` carry no ``style=``
+#:   attribute and no ``<style>`` element. The token is kept for the
+#:   vendored htmx, which on ``DOMContentLoaded`` appends a
+#:   ``<style>`` element to ``<head>`` holding its default
+#:   ``.htmx-indicator`` rules unless ``htmx.config``'s
+#:   ``includeIndicatorStyles`` is false. The console never uses the
+#:   ``.htmx-indicator`` class (``app.css`` styles ``.htmx-request``
+#:   directly), so turning that off with an ``htmx-config`` meta tag
+#:   in ``base.html`` removes the last inline style. Drop the token
+#:   only after that, and after a console session in a browser shows
+#:   no style-src violation.
 #: - ``img-src 'self' data:`` — same-origin + ``data:`` URIs.
 #: - ``connect-src 'self'`` — only same-origin fetch/XHR.
 #: - ``frame-ancestors 'none'`` — no one may frame us (parity
@@ -1190,11 +1194,11 @@ class SessionCapMiddleware:
     FastMCP itself rejects batches per the MCP 2025-06-18 spec, so
     enforcing caps on batched calls would duplicate validation.
 
-    **Failure-mode discipline.** Any internal exception (failed
-    body decode, failed session lookup, etc.) is logged and
-    forwarded through. The cap is a defensive ceiling — failing
-    open is the right behavior (the worst case is one runaway loop;
-    the best case is a request that legitimately should pass).
+    **Failure-mode discipline.** A body that does not decode or parse
+    is forwarded unchanged for FastMCP to reject. A cap check that
+    fails on an event-loop mismatch forwards uncapped and increments
+    ``arxmcp_session_cap_fail_open_total``; any other exception in the
+    cap layer propagates rather than silently disabling the caps.
     """
 
     def __init__(self, app: Callable[..., Awaitable[None]]) -> None:
@@ -1266,42 +1270,20 @@ class SessionCapMiddleware:
         # Try to parse the JSON-RPC body. Failures fall through.
         tool_name: str | None = None
         request_id: Any = None
-        cap_units = 1
+        units = 1
         try:
             parsed = json.loads(body_bytes.decode("utf-8"))
             if isinstance(parsed, dict) and parsed.get("method") == _MCP_TOOLS_CALL_METHOD:
                 request_id = parsed.get("id")
                 params = parsed.get("params") or {}
-                if isinstance(params, dict):
-                    tool_name = params.get("name")
-                    # agent-platform-t-batch-chunk-fetch (#83): a batched
-                    # get_chunk consumes N per-tool cap units, not 1.
-                    # This is the ONE place the cap layer reads a tool's
-                    # arguments — deliberately narrow: only get_chunk,
-                    # only chunk_id. It charges N only for a batch the
-                    # HANDLER WILL ACTUALLY SERVE: an invalid batch (empty,
-                    # over the max, or any malformed id) charges 0, because
-                    # the handler rejects it wholesale and serves nothing —
-                    # charging it would leak retrieval budget on bad input
-                    # (the batch cap-by-N budget-leak finding). The size /
-                    # format checks reuse the handler's own primitives so
-                    # the two cannot hold divergent copies of the contract.
-                    if tool_name == "get_chunk":
-                        args = params.get("arguments")
-                        cid = args.get("chunk_id") if isinstance(args, dict) else None
-                        if isinstance(cid, list):
-                            from ingest.identifiers import (  # noqa: PLC0415
-                                is_valid_chunk_id,
-                            )
-                            from server.handlers.chunk import (  # noqa: PLC0415
-                                MAX_BATCH_CHUNK_IDS,
-                            )
+                if isinstance(params, dict) and isinstance(params.get("name"), str):
+                    tool_name = params["name"]
+                    # The tool layer prices its own calls (a batched
+                    # get_chunk costs one unit per id), so this layer
+                    # never reads a tool's argument names.
+                    from server.tools import cap_units  # noqa: PLC0415
 
-                            will_serve = (
-                                0 < len(cid) <= MAX_BATCH_CHUNK_IDS
-                                and all(is_valid_chunk_id(c) for c in cid)
-                            )
-                            cap_units = len(cid) if will_serve else 0
+                    units = cap_units(tool_name, params.get("arguments"))
         except (ValueError, UnicodeDecodeError):
             tool_name = None  # malformed body → forward unchanged
 
@@ -1326,12 +1308,18 @@ class SessionCapMiddleware:
         try:
             state = await get_or_create_session(session_id)
             verdict, count, limit = await check_both_caps(
-                state, tool_name, n=cap_units
+                state, tool_name, n=units
             )
-        except Exception:  # noqa: BLE001
-            # Failure-mode discipline: cap layer must not break the
-            # request. Log + forward. If a cap is silently bypassed
-            # in this path, the worst case is one runaway loop.
+        except RuntimeError:
+            # The cap state is plain dicts behind asyncio locks; the one
+            # failure it can raise is asyncio's RuntimeError for a lock
+            # awaited from a loop other than the one it bound to. That
+            # forwards uncapped, counted so a cap layer that has gone
+            # open shows on /metrics rather than only in the log. Any
+            # other exception is a bug and propagates.
+            from server.metrics import SESSION_CAP_FAIL_OPEN_COUNTER  # noqa: PLC0415
+
+            SESSION_CAP_FAIL_OPEN_COUNTER.inc()
             logger.exception(
                 "SessionCapMiddleware: cap check failed for "
                 "session=%s tool=%s; forwarding without cap",
@@ -1354,14 +1342,9 @@ class SessionCapMiddleware:
                 "RATE_LIMIT_EXCEEDED: session=%s tool=%s attempted=%d limit=%d",
                 session_id[:16], tool_name, count, limit,
             )
-            try:
-                from server.metrics import RETRIEVAL_CAP_REJECTIONS_COUNTER
+            from server.metrics import RETRIEVAL_CAP_REJECTIONS_COUNTER  # noqa: PLC0415
 
-                RETRIEVAL_CAP_REJECTIONS_COUNTER.labels(
-                    tool="rate_limit_hourly"
-                ).inc()
-            except Exception:  # noqa: BLE001
-                logger.debug("metrics inc failed", exc_info=True)
+            RETRIEVAL_CAP_REJECTIONS_COUNTER.labels(tool="rate_limit_hourly").inc()
             await self._send_rate_limit_response(
                 send, request_id, tool_name, count, limit
             )
@@ -1383,12 +1366,9 @@ class SessionCapMiddleware:
         # a Prometheus counter so operators can see how often caps
         # fire. The cap middleware short-circuits BEFORE FastMCP, so
         # any FastMCP-side per-tool counter would NOT see this event.
-        try:
-            from server.metrics import RETRIEVAL_CAP_REJECTIONS_COUNTER
+        from server.metrics import RETRIEVAL_CAP_REJECTIONS_COUNTER  # noqa: PLC0415
 
-            RETRIEVAL_CAP_REJECTIONS_COUNTER.labels(tool=tool_name).inc()
-        except Exception:  # noqa: BLE001
-            logger.debug("metrics inc failed", exc_info=True)
+        RETRIEVAL_CAP_REJECTIONS_COUNTER.labels(tool=tool_name).inc()
         cap_payload = _retrieval_cap_payload(tool_name, count, limit)
         rpc_response = {
             "jsonrpc": "2.0",
