@@ -53,6 +53,7 @@ from ingest.chunker import (
     _validate_paper_id,
 )
 from ingest.preamble_types import PreambleDoc
+from server.application_paths import ApplicationPaths
 
 # Reuse the existing root-tex heuristic from the fetcher tooling rather than
 # re-implementing it. The function lives in tools/arxiv_fetch.py and the
@@ -66,11 +67,11 @@ logger = logging.getLogger(__name__)
 # Paths
 # ---------------------------------------------------------------------------
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
-RAW_DIR = REPO_ROOT / "var" / "arxmcp" / "corpus" / "raw"
-PREAMBLE_DIR = REPO_ROOT / "var" / "arxmcp" / "corpus" / "preamble"
+_APPLICATION_PATHS = ApplicationPaths.resolve()
+RAW_DIR = _APPLICATION_PATHS.corpus / "raw"
+PREAMBLE_DIR = _APPLICATION_PATHS.corpus / "preamble"
 PREAMBLE_LOG_PATH = (
-    REPO_ROOT / "var" / "arxmcp" / "ops" / "parser-failures" / "preamble.log"
+    _APPLICATION_PATHS.ops / "parser-failures" / "preamble.log"
 )
 
 

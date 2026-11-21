@@ -38,17 +38,14 @@ into two scalar indexes. The query planner can use both predicates.
 The handler at :mod:`server.handlers.definitions` reads from the same
 table; this module is the writer half of that contract.
 
-**CONCURRENCY:** :func:`index_definitions_for_paper` assumes a
-**single-writer-per-paper** contract — callers MUST serialize
-concurrent invocations for the same ``paper_id``. The
+**CONCURRENCY:** :func:`index_definitions_for_paper` and
+:func:`index_definitions_for_corpus` run under the dataset write lock
+(:mod:`ingest.write_lock`), so a second writer of the dataset is
+refused. Without it the
 delete-then-insert pair is two separate LanceDB MVCC commits, so two
-concurrent runs for the same paper can interleave as
+concurrent runs for the same paper could interleave as
 ``A.delete → B.delete → A.add → B.add`` (yielding duplicate rows) or
-``A.add → B.delete → B.add`` (discarding A's writes). Different
-papers may be indexed in parallel without coordination. The
-production ingest driver landing in E11 must enforce this — either
-via a per-paper file-system lock or a single-worker stage in the
-pipeline DAG.
+``A.add → B.delete → B.add`` (discarding A's writes).
 """
 
 from __future__ import annotations
@@ -67,6 +64,7 @@ from ingest.schema import (
     DEFINITIONS_TABLE_NAME,
     LANCE_STORAGE_OPTIONS,
 )
+from ingest.write_lock import exits_when_write_locked, holds_dataset_write_lock
 
 if TYPE_CHECKING:
     from ingest.preamble_types import PreambleDoc
@@ -386,6 +384,7 @@ def _ensure_scalar_indexes(tbl: Any) -> dict[str, bool]:
     return created
 
 
+@holds_dataset_write_lock("lancedb_path")
 def index_definitions_for_paper(
     paper_id: str,
     lancedb_path: str | Path,
@@ -441,6 +440,7 @@ def index_definitions_for_paper(
 
 
 
+@holds_dataset_write_lock("lancedb_path")
 def index_definitions_for_corpus(
     lancedb_path: str | Path, paper_ids: list[str] | None = None,
 ) -> tuple[int, int]:
@@ -462,6 +462,7 @@ def index_definitions_for_corpus(
     return total, len(paper_ids)
 
 
+@exits_when_write_locked
 def _cli(argv: list[str]) -> int:
     import argparse
 

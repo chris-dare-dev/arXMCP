@@ -17,6 +17,25 @@ inside ``var/arxmcp/index/lancedb-staging/``. The server's
 active path), so it cannot accidentally pick up half-ingested
 data.
 
+**What staging does not isolate:** the per-paper intermediate trees
+(``corpus/parsed``, ``corpus/chunks``, ``corpus/embeddings``,
+``corpus/preamble``) are shared by every dataset's runs, on purpose.
+They are a per-paper cache, not a dataset's record. The parsed and raw
+trees are downloads, the same whichever dataset reads them. The chunk and
+embedding trees are what this code makes of those downloads: the same
+paper and code give the same files, each set is replaced through a
+temporary file and ``os.replace`` (two runs writing one paper concurrently
+each leave a whole set), and nothing reuses a set without checking it.
+The embedder re-encodes any paper whose sidecar records another chunker,
+embedder or input-policy version or other chunks, and the rows a run
+writes come from the embed step of that same run, never from the tree
+alone. An aborted run that leaves another code version's sets behind
+therefore costs a re-embed, not a wrong row. A tree per dataset would
+re-embed every paper once per notebook and per staging run. The ops
+files are per target where it matters: callers pass ``ops_dir``,
+``log_path`` and ``failures_path``, and a notebook's run keeps them in
+the notebook's ``ops/``.
+
 **Scope at v1 (per research synthesis D1):** This module ships
 the SCAFFOLDING — orchestrator + CLI. The actual ingest of the
 200K-paper corpus is a 1-2 day GPU run that requires a Bittorrent
@@ -41,9 +60,11 @@ marked sanity test gates on the operator's actual run.
    ``ops/parser-failures/bulk.jsonl``. Nougat PDF fallback is
    deferred (synthesis D2).
 
-**Single-writer constraint** (`ingest/store.py:44-55`): the loop
-is sequential at the write boundary. No parallel ``write_chunks``
-calls.
+**One writer per dataset:** a run holds the target dataset's write
+lock (:mod:`ingest.write_lock`) from its chunker-version check to its
+index build, and the loop is sequential at the write boundary. A second
+writer of the same dataset is refused at once, and the CLI exits with
+:data:`ingest.write_lock.WRITE_LOCKED_EXIT_CODE`.
 
 **Chunker-version guard:** a run refuses, before
 its first write, a target whose arXiv rows another
@@ -83,6 +104,7 @@ from ingest.store import (
     refuse_stale_chunker_rows,
     write_chunks,
 )
+from ingest.write_lock import dataset_write_lock, exits_when_write_locked
 from server.application_paths import ApplicationPaths
 from server.ssl_pin import arxiv_ssl_context_from_env
 
@@ -427,8 +449,9 @@ def run_bulk_ingest(
     """Run the full bulk-ingest loop. Returns the aggregate summary.
 
     The loop is **single-process sequential** at the write
-    boundary (``ingest.store.write_chunks`` is single-writer-per-
-    dataset). GPU batching happens inside ``embed_paper``. Naive
+    boundary, and the run holds the dataset's write lock throughout
+    (:class:`ingest.write_lock.DatasetWriteLockedError` if another
+    writer has it). GPU batching happens inside ``embed_paper``. Naive
     re-runs are safe: the embedder's per-paper sidecar carries the
     versions and each chunk's reuse identity, so already-processed
     papers short-circuit at the embed step regardless (a sidecar
@@ -447,7 +470,33 @@ def run_bulk_ingest(
             ar5iv_cache_dir=ar5iv_cache_dir,
             parsed_dir=parsed_dir,
         )
+    with dataset_write_lock(lancedb_staging_path):
+        return _run_locked(
+            paper_ids,
+            lancedb_staging_path=lancedb_staging_path,
+            ar5iv_cache_dir=ar5iv_cache_dir,
+            parsed_dir=parsed_dir,
+            failures_path=failures_path,
+            log_path=log_path,
+            ops_dir=ops_dir,
+            progress_interval=progress_interval,
+            limit=limit,
+        )
 
+
+def _run_locked(
+    paper_ids: list[str],
+    *,
+    lancedb_staging_path: Path,
+    ar5iv_cache_dir: Path,
+    parsed_dir: Path,
+    failures_path: Path,
+    log_path: Path,
+    ops_dir: Path,
+    progress_interval: int,
+    limit: int | None,
+) -> IngestSummary:
+    """The run itself, under the dataset write lock."""
     # Never re-chunk in place across a chunker version.
     refuse_stale_chunker_rows(lancedb_staging_path)
 
@@ -546,6 +595,7 @@ def _run_dry(
 # ---------------------------------------------------------------------------
 
 
+@exits_when_write_locked
 def _cli(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(
         description="arXMCP bulk ingest orchestrator (E11_S01).",

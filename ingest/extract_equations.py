@@ -43,10 +43,10 @@ chunks proxy join once ``embedding_eq`` is populated.
 at 4000 characters (matches the handler-side ``latex_or_mathml``
 Pydantic constraint). No sentence tokenization at v1.
 
-**Concurrency.** Single-writer-per-paper contract; callers MUST
-serialize concurrent invocations against the same LanceDB table. The
-delete-then-insert pair (per-paper sweep) is two separate MVCC
-commits; concurrent runs can interleave and orphan rows.
+**Concurrency.** The delete-then-insert pair (per-paper sweep) is two
+separate MVCC commits that concurrent runs could interleave, orphaning
+rows, so :func:`extract_equations_for_paper` runs under the dataset
+write lock (:mod:`ingest.write_lock`).
 """
 
 from __future__ import annotations
@@ -63,11 +63,13 @@ from bs4 import BeautifulSoup, Tag
 from ingest.identifiers import is_valid_arxiv_paper_id
 from ingest.index_equations import open_or_create_equations_table
 from ingest.schema import EQUATIONS_SCHEMA_V1
+from ingest.write_lock import exits_when_write_locked, holds_dataset_write_lock
+from server.application_paths import ApplicationPaths
 
 logger = logging.getLogger(__name__)
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
-PARSED_DIR = REPO_ROOT / "var" / "arxmcp" / "corpus" / "parsed"
+_APPLICATION_PATHS = ApplicationPaths.resolve()
+PARSED_DIR = _APPLICATION_PATHS.corpus / "parsed"
 
 #: Cap on the ``context_sentence`` column. Matches the handler-side
 #: ``latex_or_mathml`` Pydantic max_length so corpus and query rows
@@ -349,6 +351,7 @@ def _table_has_any_rows_for_paper(tbl: Any, paper_id: str) -> bool:
         return True
 
 
+@holds_dataset_write_lock("lancedb_path")
 def extract_equations_for_paper(
     paper_id: str,
     lancedb_path: str | Path,
@@ -422,6 +425,7 @@ def extract_equations_for_paper(
 # ---------------------------------------------------------------------------
 
 
+@exits_when_write_locked
 def _cli(argv: list[str]) -> int:
     import argparse
 
@@ -431,7 +435,7 @@ def _cli(argv: list[str]) -> int:
     parser.add_argument("paper_id", help="arXiv paper id (e.g. 2401.00001)")
     parser.add_argument(
         "--lancedb-path",
-        default=str(REPO_ROOT / "var" / "arxmcp" / "index" / "lancedb"),
+        default=str(_APPLICATION_PATHS.lancedb),
         help="LanceDB dataset root (default: var/arxmcp/index/lancedb)",
     )
     parser.add_argument(

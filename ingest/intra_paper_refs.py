@@ -70,25 +70,28 @@ from bs4 import BeautifulSoup
 from ingest.graph_ingest import _merge_cite, save_checkpoint
 from ingest.identifiers import is_valid_arxiv_paper_id
 from ingest.kuzudb_schema import apply_schema
+from server.application_paths import ApplicationPaths
 
 logger = logging.getLogger(__name__)
+
+_APPLICATION_PATHS = ApplicationPaths.resolve()
 
 #: LaTeXML emits ``\ref{label}`` as ``<a class="ltx_ref" href="#label" ...>``;
 #: we walk the parse tree for elements with class containing ``ltx_ref``.
 LTX_REF_CSS_CLASS = "ltx_ref"
 
 #: Default location of LaTeXML output (matches ``tools/fetch_seed.py``).
-DEFAULT_PARSED_DIR = Path("var/arxmcp/corpus/parsed")
+DEFAULT_PARSED_DIR = _APPLICATION_PATHS.corpus / "parsed"
 
 #: Default Kùzu DB directory. Matches the design notes + bootstrap;
 #: the brief's ``kuzudb/`` is documented drift (synthesis § 3).
-DEFAULT_KUZUDB_PATH = Path("var/arxmcp/index/kuzu")
+DEFAULT_KUZUDB_PATH = _APPLICATION_PATHS.kuzu
 
 #: Default LanceDB chunks-table path; mirrors ``ingest.store``.
-DEFAULT_LANCEDB_PATH = Path("var/arxmcp/index/lancedb")
+DEFAULT_LANCEDB_PATH = _APPLICATION_PATHS.lancedb
 
 #: Atomic-write checkpoint location.
-DEFAULT_CHECKPOINT_PATH = Path("var/arxmcp/ops/intra-paper-refs-checkpoint.json")
+DEFAULT_CHECKPOINT_PATH = _APPLICATION_PATHS.ops / "intra-paper-refs-checkpoint.json"
 
 #: Checkpoint flush cadence (papers / batch).
 CHECKPOINT_BATCH_SIZE = 100

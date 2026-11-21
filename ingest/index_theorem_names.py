@@ -18,11 +18,12 @@ only populates ``theorem_name`` when it found an explicit ``(Name)``
 parenthetical in the heading — that's a high-confidence signal. A
 future milestone may add lower-confidence body-text extraction.
 
-**Concurrency.** Single-writer-per-table contract (synthesis D10).
-Callers MUST serialize concurrent invocations of
-:func:`index_theorem_names_for_paper` against the same SQLite
-database; SQLite WAL tolerates concurrent readers but serializes
-writers, and two interleaved per-paper passes can race the
+**Concurrency.** :func:`build_theorem_names_index` runs under the write
+lock of the dataset the index belongs to (:mod:`ingest.write_lock`).
+Callers of :func:`index_theorem_names_for_paper` outside it must
+serialize invocations against the same SQLite database; SQLite WAL
+tolerates concurrent readers but serializes writers, and two interleaved
+per-paper passes can race the
 delete + insert pair.
 """
 
@@ -32,6 +33,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
+from ingest.write_lock import exits_when_write_locked, holds_dataset_write_lock
 from server.theorem_names_store import (
     TheoremNamesStore,
     TheoremRow,
@@ -193,6 +195,7 @@ def default_db_path(lancedb_path: str | Path) -> Path:
 
 
 
+@holds_dataset_write_lock("lancedb_path")
 def build_theorem_names_index(
     lancedb_path: str | Path, db_path: str | Path | None = None,
 ) -> dict[str, int]:
@@ -219,6 +222,7 @@ def build_theorem_names_index(
     return asyncio.run(run())
 
 
+@exits_when_write_locked
 def _cli(argv: list[str]) -> int:
     import argparse
 

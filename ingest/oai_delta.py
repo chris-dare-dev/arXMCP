@@ -84,10 +84,12 @@ from ingest.store import (
     refresh_indices,
     refuse_stale_chunker_rows,
 )
+from ingest.write_lock import exits_when_write_locked, holds_dataset_write_lock
+from server.application_paths import ApplicationPaths
 
 logger = logging.getLogger(__name__)
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
+_APPLICATION_PATHS = ApplicationPaths.resolve()
 
 #: OAI-PMH endpoint. arXiv migrated from
 #: ``http://export.arxiv.org/oai2`` to ``https://oaipmh.arxiv.org/oai``
@@ -131,25 +133,25 @@ METADATA_PREFIX: str = "arXivRaw"
 #: ``last_resumption_token`` and, while a run is in flight, ``harvest_from``
 #: so a mid-harvest crash can resume.
 DEFAULT_STATE_PATH: Path = (
-    REPO_ROOT / "var" / "arxmcp" / "ops" / "oai-pmh-state.json"
+    _APPLICATION_PATHS.ops / "oai-pmh-state.json"
 )
 
 #: Default delta log location.
 DEFAULT_DELTA_LOG_PATH: Path = (
-    REPO_ROOT / "var" / "arxmcp" / "ops" / "oai-delta.log"
+    _APPLICATION_PATHS.ops / "oai-delta.log"
 )
 
 #: Default parser-failures JSONL location (separate from the
 #: bulk-ingest path so each channel has its own audit trail).
 DEFAULT_DELTA_PARSER_FAILURES_PATH: Path = (
-    REPO_ROOT / "var" / "arxmcp" / "ops" / "parser-failures" / "delta.jsonl"
+    _APPLICATION_PATHS.ops / "parser-failures" / "delta.jsonl"
 )
 
 #: Sentinel flag file written when a run exceeds the 90-minute
 #: budget (synthesis D8). Mirrors the E10_S04 drift-detector
 #: pattern (``var/arxmcp/ops/drift-detected.flag``).
 DEFAULT_TIMEOUT_FLAG_PATH: Path = (
-    REPO_ROOT / "var" / "arxmcp" / "ops" / "delta-timeout.flag"
+    _APPLICATION_PATHS.ops / "delta-timeout.flag"
 )
 
 #: 90-minute budget in seconds. Synthesis §7 documents this is
@@ -158,7 +160,7 @@ DEFAULT_TIMEOUT_FLAG_PATH: Path = (
 DEFAULT_BUDGET_SECONDS: float = 90 * 60.0
 
 #: Default ops directory for sentinel files (ingest-summary.json etc.).
-DEFAULT_OPS_DIR: Path = REPO_ROOT / "var" / "arxmcp" / "ops"
+DEFAULT_OPS_DIR: Path = _APPLICATION_PATHS.ops
 
 #: Closes F1: total wall-clock cap on the 503-retry/backoff loop.
 #: Per design note 08:200, the delta loop pauses with exponential
@@ -696,6 +698,7 @@ def _clear_budget_flag(flag_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
+@holds_dataset_write_lock("lancedb_staging_path", skip_if="dry_run")
 def run_delta(
     *,
     sets: tuple[str, ...] = DEFAULT_SETS,
@@ -902,6 +905,7 @@ def run_delta(
 # ---------------------------------------------------------------------------
 
 
+@exits_when_write_locked
 def _cli(argv: list[str]) -> int:
     # E14_S05 D5: defense-in-depth check for the ``ingest-paused``
     # sentinel. The cron wrapper checks first, but manual

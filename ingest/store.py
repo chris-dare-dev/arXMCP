@@ -37,24 +37,17 @@ routing rule forbids) raises :class:`ValueError` rather than
 silently inserting a NULL-embedding row that would poison ANN
 results.
 
-**Concurrency.** LanceDB's own MVCC layer serializes concurrent
-writers at the dataset level — two simultaneous ``write_chunks`` calls
-produce two separate dataset versions, never a corrupt half-write. No
-additional filesystem-atomicity wrapper is needed beyond the directory
-``mkdir(parents=True, exist_ok=True)``.
+**Concurrency.** LanceDB's own MVCC layer keeps two simultaneous
+commits from corrupting the table, but not from interleaving.
 
-**Single-writer assumption (F11 from the E04_S02 critique).** The
-function is designed for a SINGLE writer per LanceDB dataset. Between
-``merge_insert`` and ``_create_indices``, a concurrent writer-B
-landing its own merge against the same dataset would shift
-``tbl.version`` such that writer-A's returned integer points to
-writer-B's post-merge state, not writer-A's own post-index state.
-Callers running concurrent ingest from multiple processes against
-the same dataset must serialize writes externally (e.g. a flock on
-``<lancedb_path>/.write-lock``). The Tier-0 ingestion pipeline has
-exactly one writer (the corpus driver), so this is a documented
-constraint rather than an enforced one. Multi-writer support is an
-E11 concern.
+**One writer per dataset, enforced.** Between ``merge_insert`` and the
+marker write, a second writer's commit would shift ``tbl.version`` so that
+the returned integer and the marker's counts describe neither write.
+:func:`write_chunks` and :func:`delete_paper` therefore run under the
+dataset's write lock (:mod:`ingest.write_lock`), and the drivers hold it
+for their whole run; a second writer is refused at once with
+:class:`ingest.write_lock.DatasetWriteLockedError`. A writer that goes
+around the lock is caught by the write-audit gate, which names it.
 
 **MVCC handshake (E04_S02).** No symlink swaps. LanceDB version int IS
 the corpus_version. Writers use the current dataset; readers call
@@ -117,6 +110,7 @@ from ingest.schema import (
     LANCE_STORAGE_OPTIONS,
     EmbedRecord,
 )
+from ingest.write_lock import holds_dataset_write_lock, write_lock_path
 from server.application_paths import ApplicationPaths
 
 # NB: ``server.corpus.read_corpus_version`` is imported function-locally
@@ -193,7 +187,9 @@ class WriteStats:
     # raised, so the post-mortem audit row in store-stats.jsonl pins the
     # failure surface. Empty string is the happy-path (and pre-e1) value.
     # Domain (when non-empty): "missing_marker" | "malformed_marker" |
-    # "count_mismatch_arithmetic" | "count_mismatch_swallow".
+    # "count_mismatch_arithmetic" | "count_mismatch_swallow" |
+    # "concurrent_writer" (another process committed to the dataset during
+    # the call, so neither count is wrong code).
     # The arithmetic-vs-swallow split mirrors the runbook's S5/S6 routing
     # (rect F3).
     gate_failure_reason: str = ""
@@ -837,6 +833,9 @@ def _scan_paper_ids(tbl, chunk_count: int) -> set[str]:
 # ---------------------------------------------------------------------------
 
 
+@holds_dataset_write_lock(
+    "lancedb_path", default=lambda: DEFAULT_LANCEDB_PATH
+)
 def write_chunks(
     chunks: list[ChunkRecord],
     embeddings: EmbedRecord,
@@ -1034,10 +1033,9 @@ def write_chunks(
     try:
         # F4 (corpus-integrity-observability-m1 critique): these counts are read
         # off the SAME `tbl` handle that pinned `dataset_version` above, under the
-        # single-writer-per-dataset model (module docstring, "MVCC handshake").
-        # No write lands between L862 and here in-process, so the marker's
-        # `version` and its counts are coherent. A concurrent external writer is
-        # out of scope (E11).
+        # dataset write lock this call holds, so no lock-taking writer lands
+        # between the version read and here, and the marker's `version` and
+        # counts are coherent. One that bypasses the lock is named by the gate.
         chunk_count = tbl.count_rows()
         # corpus-integrity-observability-e3 (CAND-8): thread the total-row
         # count through WriteStats so callers can accumulate run-level
@@ -1107,8 +1105,9 @@ def write_chunks(
     # (int overflow), and FM-10 (swallowed marker-write leaving a stale
     # prior marker OR no marker at all; the stale-marker production-common
     # path fires the count-mismatch arm). Out-of-scope: FM-4 caller
-    # arithmetic (m1 fix + m3 integration test), FM-5 TOCTOU (single-writer
-    # constraint), FM-6/FM-14 schema-version drift (deferred follow-on),
+    # arithmetic (m1 fix + m3 integration test), FM-5 TOCTOU (the dataset
+    # write lock; a bypassing writer is the concurrent-writer arm),
+    # FM-6/FM-14 schema-version drift (deferred follow-on),
     # FM-8 wrong path (config), FM-9 silent skip (logging), FM-11 sibling
     # marker writers (m3 follow-up F2-extension).
     #
@@ -1161,6 +1160,14 @@ def write_chunks(
             # arithmetic regression; needs a code fix). Operators on
             # the 2am-page path get the routing decision in the
             # exception text alone — no separate `grep` required.
+            # A commit this call did not make shows as a marker naming
+            # another version or a table past the one written here. Only
+            # a writer bypassing the dataset write lock gets there.
+            latest_version = _latest_version(target_path)
+            concurrent = (
+                re_read_marker.version != dataset_version
+                or latest_version != dataset_version
+            )
             if marker_write_failed:
                 stats.gate_failure_reason = "count_mismatch_swallow"
                 routing_tag = "Routing: S5 (swallow + stale marker)"
@@ -1171,6 +1178,20 @@ def write_chunks(
                     "log line contains a 'could not write "
                     "corpus-version.json marker' warning that the "
                     "swallow emitted in this call)"
+                )
+            elif concurrent:
+                stats.gate_failure_reason = "concurrent_writer"
+                raise WapGateError(
+                    f"WAP gate: corpus-version.json marker at {target_path} reports "
+                    f"chunk_count={re_read_marker.chunk_count} but tbl.count_rows()="
+                    f"{fresh_count}. Cause: another writer committed to this "
+                    f"dataset during this call (this call wrote version "
+                    f"{dataset_version}; the marker names version "
+                    f"{re_read_marker.version} and the table is at version "
+                    f"{latest_version}). The rows and the writer code are not "
+                    f"at fault. That writer bypassed the dataset write lock at "
+                    f"{write_lock_path(target_path)}: find and stop it, then run "
+                    f"`make reconcile` to rewrite the marker from the table."
                 )
             else:
                 stats.gate_failure_reason = "count_mismatch_arithmetic"
@@ -1198,6 +1219,14 @@ def write_chunks(
         _append_store_stats(stats)
 
     return dataset_version
+
+
+def _latest_version(path: Path) -> int:
+    """The dataset's newest committed version, read through a fresh handle."""
+    import lancedb  # noqa: PLC0415
+
+    tbl = lancedb.connect(str(path)).open_table(CHUNKS_TABLE_NAME)
+    return int(getattr(tbl, "version", 0) or 0)
 
 
 def refresh_indices(lancedb_path: str | Path) -> int | None:
@@ -1250,6 +1279,7 @@ def _marker_embed_record(path: Path) -> EmbedRecord | None:
     )
 
 
+@holds_dataset_write_lock("lancedb_path")
 def delete_paper(lancedb_path: str | Path, paper_id: str) -> int:
     """Remove a paper from a dataset: its chunks and its derived rows.
 
@@ -1261,9 +1291,8 @@ def delete_paper(lancedb_path: str | Path, paper_id: str) -> int:
     still in ``chunks``, so nothing else would remove them. The BM25
     index is rebuilt per version from ``chunks``.
 
-    This is a write, under the same single-writer rule as
-    :func:`write_chunks`: call it from the loop that owns the dataset,
-    never beside another writer. It runs its own event loop for the
+    This is a write under the dataset write lock, like
+    :func:`write_chunks`. It runs its own event loop for the
     theorem-name store, so it is for offline callers only. Vector indexes
     stay valid (deleted rows are masked) until the caller's end-of-run
     :func:`refresh_indices` rebuilds them.

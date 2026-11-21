@@ -84,6 +84,7 @@ from pathlib import Path
 
 from rank_bm25 import BM25Okapi
 
+from server.application_paths import ApplicationPaths
 from server.corpus import open_chunks_table, project_columns
 
 logger = logging.getLogger(__name__)
@@ -93,7 +94,7 @@ logger = logging.getLogger(__name__)
 # Paths and identity constants
 # ---------------------------------------------------------------------------
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
+_APPLICATION_PATHS = ApplicationPaths.resolve()
 
 # The directory layout convention: ``<lancedb>/derived/bm25/v<N>/``.
 # Confine the ``f"v{N}"`` literal to ``_bm25_version_dir`` below — every
@@ -101,7 +102,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 BM25_DIR_NAME = "bm25"
 BM25_INDEX_NAME = "bm25.pkl"
 BM25_CHUNK_IDS_NAME = "chunk_ids.json"
-BM25_STATS_PATH = REPO_ROOT / "var" / "arxmcp" / "ops" / "bm25-stats.jsonl"
+BM25_STATS_PATH = _APPLICATION_PATHS.ops / "bm25-stats.jsonl"
 
 
 def resolve_bm25_root(
