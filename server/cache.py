@@ -9,8 +9,8 @@ falls through to recompute, logs and alerts.
 **Three tiers** with progressively-looser equivalence:
 
 - **Tier 1 — Exact-query memo.** SQLite-backed cache, max 10K
-  entries, 1-hour TTL. The in-process mirror (an ``OrderedDict``)
-  is TRUE LRU on read; the SQLite layer evicts by TTL-priority
+  entries, 1-hour TTL. The in-process mirror is also byte-bounded
+  (``TIER1_MIRROR_MAX_BYTES``) and is TRUE LRU on read; the SQLite layer evicts by TTL-priority
   (oldest-expiring first → FIFO under uniform-TTL inserts; F7 fix
   from the E08_S03 critique). Cache key includes ``corpus_version``
   so a corpus bump unreachable-izes every prior entry by hash
@@ -120,6 +120,16 @@ TIER2_HIT_LOG_SAMPLE_RATE: float = 0.01
 #: of ranked chunk IDs + scores).
 TIER3_LRU_CAPACITY: int = 1_024
 
+#: Byte ceiling on the Tier-1 in-process mirror, counted as the UTF-8
+#: length of each entry's serialized payload. The entry cap alone does
+#: not bound memory: 10K wide-``k`` envelopes at ~20 KB each is
+#: ~200 MB resident next to the embedding and reranker weights. Past
+#: this ceiling the mirror evicts least-recently-used entries; their
+#: SQLite rows stay, so an evicted key costs one SQLite read on its
+#: next hit, not a recompute. An entry larger than the whole ceiling
+#: is served from SQLite only and never mirrored.
+TIER1_MIRROR_MAX_BYTES: int = 128 * 1024 * 1024
+
 #: BGE-M3 embedding dimension. Used to construct the FAISS index.
 #: Pinned here for the cache; the source of truth lives in
 #: ``server/query_encoder.py``.
@@ -194,18 +204,98 @@ def _tier2_scope_fingerprint(
 def _approx_payload_bytes(payload: Any) -> int:
     """Return an approximate byte count for a cache payload.
 
-    Tier-1 / Tier-3 byte-usage gauges feed off this. Approximate
-    is fine — the gauge is operational telemetry, not a hard limit.
-    For dict / JSON-able payloads we use ``len(json.dumps(...))``;
-    for already-serialized bytes we use ``len(b)``; for everything
-    else we fall back to ``sys.getsizeof``.
+    Called ONCE per entry, at insert time; the per-tier totals are
+    running sums over these numbers, so a gauge scrape never
+    re-serializes anything. For JSON-able payloads this is the length
+    of the UTF-8 encoding — not of the ``str``, whose length is a
+    character count and undercounts exactly the LaTeX- and
+    Greek-heavy text this corpus is made of. Already-serialized bytes
+    count as ``len(b)``; anything else falls back to
+    ``sys.getsizeof``.
     """
     if isinstance(payload, (bytes, bytearray)):
         return len(payload)
     try:
-        return len(json.dumps(payload, sort_keys=True, ensure_ascii=False))
+        return len(
+            json.dumps(payload, sort_keys=True, ensure_ascii=False).encode("utf-8")
+        )
     except (TypeError, ValueError):
         return sys.getsizeof(payload)
+
+
+class _SizedLRU:
+    """An ``OrderedDict`` LRU that records each entry's byte size and
+    keeps their sum, so :attr:`bytes_used` is an O(1) read.
+
+    The size is supplied by the caller at :meth:`put` time — Tier-1
+    already holds the serialized blob it wrote to SQLite, so it passes
+    ``len(blob)`` and never serializes twice. Every removal path
+    (``pop``, ``popitem``, ``clear``, replacement by ``put``) goes
+    through this class, which is the whole point: a running sum is
+    only honest if nothing can remove an entry behind its back.
+    """
+
+    __slots__ = ("_entries", "_bytes")
+
+    def __init__(self) -> None:
+        self._entries: OrderedDict[str, tuple[Any, int]] = OrderedDict()
+        self._bytes = 0
+
+    @property
+    def bytes_used(self) -> int:
+        return self._bytes
+
+    def __len__(self) -> int:
+        return len(self._entries)
+
+    def __bool__(self) -> bool:
+        return bool(self._entries)
+
+    def __contains__(self, key: object) -> bool:
+        return key in self._entries
+
+    def __iter__(self):
+        return iter(self._entries)
+
+    def __getitem__(self, key: str) -> Any:
+        return self._entries[key][0]
+
+    def get(self, key: str) -> Any | None:
+        slot = self._entries.get(key)
+        return None if slot is None else slot[0]
+
+    def keys(self):
+        return self._entries.keys()
+
+    def values(self) -> list[Any]:
+        return [value for value, _size in self._entries.values()]
+
+    def put(self, key: str, value: Any, nbytes: int) -> None:
+        """Insert or replace ``key`` and mark it most-recently-used."""
+        old = self._entries.pop(key, None)
+        if old is not None:
+            self._bytes -= old[1]
+        self._entries[key] = (value, nbytes)
+        self._bytes += nbytes
+
+    def move_to_end(self, key: str) -> None:
+        self._entries.move_to_end(key)
+
+    def pop(self, key: str, default: Any = None) -> Any:
+        slot = self._entries.pop(key, None)
+        if slot is None:
+            return default
+        self._bytes -= slot[1]
+        return slot[0]
+
+    def popitem(self, last: bool = True) -> tuple[str, Any]:
+        key, (value, nbytes) = self._entries.popitem(last=last)
+        self._bytes -= nbytes
+        return key, value
+
+    def clear(self) -> None:
+        self._entries.clear()
+        self._bytes = 0
 
 
 # ---------------------------------------------------------------------------
@@ -294,8 +384,15 @@ class RetrievalCache:
         self,
         tier1_store: Tier1Store,
         corpus_version: int,
+        *,
+        tier1_max_bytes: int = TIER1_MIRROR_MAX_BYTES,
     ) -> None:
+        if tier1_max_bytes <= 0:
+            raise ValueError(
+                f"tier1_max_bytes must be positive, got {tier1_max_bytes}"
+            )
         self._tier1_store = tier1_store
+        self._tier1_max_bytes = int(tier1_max_bytes)
         # F18 fix from the E08_S03 critique: defensively cast to int
         # so a future ``corpus-version.json`` containing a JSON
         # number that decodes as float (e.g. ``7.0``) cannot silently
@@ -306,20 +403,21 @@ class RetrievalCache:
 
         # Tier-1 in-process mirror (LRU). Stores the deserialized
         # payload so reads avoid the JSON-decode on every hit. The
-        # mirror is bounded at the same MAX_ROWS as the SQLite cap.
-        self._tier1_mirror: OrderedDict[str, Any] = OrderedDict()
+        # mirror is bounded at the same MAX_ROWS as the SQLite cap,
+        # and by ``tier1_max_bytes``.
+        self._tier1_mirror = _SizedLRU()
         self._tier1_lock = asyncio.Lock()
 
         # Tier-2: parallel deque + FAISS index. The deque holds the
         # canonical (key, _Tier2Entry) ordering; the FAISS index is
         # rebuilt from the deque on every overflow rotation.
-        self._tier2_buffer: OrderedDict[str, _Tier2Entry] = OrderedDict()
+        self._tier2_buffer = _SizedLRU()
         self._tier2_index: Any = None  # faiss.IndexFlatIP — lazy init
         self._tier2_keys_in_index: list[str] = []  # parallel ordering
         self._tier2_lock = asyncio.Lock()
 
         # Tier-3 in-process LRU.
-        self._tier3_lru: OrderedDict[str, Any] = OrderedDict()
+        self._tier3_lru = _SizedLRU()
         self._tier3_lock = asyncio.Lock()
 
     # ------------------------------------------------------------------
@@ -333,6 +431,7 @@ class RetrievalCache:
         corpus_version: int,
         *,
         purge_other_versions: bool = False,
+        tier1_max_bytes: int = TIER1_MIRROR_MAX_BYTES,
     ) -> RetrievalCache:
         """Open the underlying SQLite store, initialize FAISS, and
         rehydrate the Tier-1 mirror from unexpired SQLite rows.
@@ -376,7 +475,10 @@ class RetrievalCache:
                     "stale-version rows stay on disk (unreachable by key, so "
                     "this costs disk, not correctness)"
                 )
-        cache = cls(tier1_store=store, corpus_version=corpus_version)
+        cache = cls(
+            tier1_store=store, corpus_version=corpus_version,
+            tier1_max_bytes=tier1_max_bytes,
+        )
         await cache._rehydrate_tier1_from_sqlite()
         return cache
 
@@ -513,8 +615,18 @@ class RetrievalCache:
         # docstring promised this; the prior implementation only
         # sorted, never truncated).
         rows.sort(key=lambda r: r[2], reverse=True)
-        rows = rows[:TIER1_MIRROR_CAP]
+        # The byte ceiling is applied the same way: keep the freshest
+        # rows that fit. Selection runs freshest-first, insertion runs
+        # oldest-first, so the freshest row ends up most-recently-used
+        # and is the last the LRU would evict.
+        selected: list[tuple[str, Any, float, int]] = []
+        budget = self._tier1_max_bytes
         for key, value, expires_at in rows:
+            if len(selected) >= TIER1_MIRROR_CAP:
+                break
+            nbytes = len(value)
+            if nbytes > budget:
+                continue
             try:
                 payload = json.loads(value.decode("utf-8"))
             except (UnicodeDecodeError, json.JSONDecodeError):
@@ -523,11 +635,14 @@ class RetrievalCache:
                     "during rehydrate", key[:16] + "...",
                 )
                 continue
+            selected.append((key, payload, expires_at, nbytes))
+            budget -= nbytes
+        for key, payload, expires_at, nbytes in reversed(selected):
             # F2 fix: store ``(payload, expires_at)`` so the mirror
             # enforces TTL on every read. We use the SQLite row's
             # actual expires_at rather than re-deriving (which would
             # silently extend stale entries).
-            self._tier1_mirror[key] = (payload, expires_at)
+            self._tier1_mirror_put(key, payload, expires_at, nbytes)
         logger.info(
             "RetrievalCache: rehydrated %d tier-1 entries from sqlite",
             len(self._tier1_mirror),
@@ -810,9 +925,35 @@ class RetrievalCache:
         # mirror is a MIRROR: it inherits the row's remaining life and
         # never mints new life for it.
         async with self._tier1_lock:
-            self._tier1_mirror[key] = (payload, expires_at)
-            self._tier1_mirror.move_to_end(key)
+            self._tier1_mirror_put(key, payload, expires_at, len(blob))
         return payload
+
+    def _tier1_mirror_put(
+        self, key: str, payload: Any, expires_at: float, nbytes: int,
+    ) -> None:
+        """Insert into the mirror and enforce both of its bounds.
+
+        The caller holds ``_tier1_lock`` (or is :meth:`open`, before
+        the cache is shared). ``nbytes`` is the length of the blob the
+        row was stored as, so the mirror's byte count is the same
+        number SQLite holds and nothing is serialized a second time.
+
+        Mirror evictions are not counted in the Tier-1 eviction
+        counter: the SQLite row survives them, so the entry has left
+        memory but not Tier-1. Rows leaving SQLite are counted where
+        SQLite reports them, in :meth:`_tier1_put`.
+        """
+        if nbytes > self._tier1_max_bytes:
+            # Too large to mirror at all. Drop any older copy so the
+            # mirror never serves a payload SQLite has since replaced.
+            self._tier1_mirror.pop(key)
+            return
+        self._tier1_mirror.put(key, (payload, expires_at), nbytes)
+        while (
+            len(self._tier1_mirror) > TIER1_MIRROR_CAP
+            or self._tier1_mirror.bytes_used > self._tier1_max_bytes
+        ):
+            self._tier1_mirror.popitem(last=False)
 
     async def _tier1_put(
         self, key: str, payload: Any, *, corpus_version: int,
@@ -879,13 +1020,7 @@ class RetrievalCache:
         # F2 fix: store ``(payload, expires_at)`` rather than the bare
         # payload so the mirror enforces TTL on read.
         async with self._tier1_lock:
-            self._tier1_mirror[key] = (payload, expires_at)
-            self._tier1_mirror.move_to_end(key)
-            # Bound the in-process mirror at the same cap as SQLite.
-            while len(self._tier1_mirror) > TIER1_MIRROR_CAP:
-                self._tier1_mirror.popitem(last=False)
-                # The eviction is already counted at the SQLite layer;
-                # don't double-count.
+            self._tier1_mirror_put(key, payload, expires_at, len(blob))
 
     # ------------------------------------------------------------------
     # Tier 2 internals
@@ -1048,18 +1183,17 @@ class RetrievalCache:
             payload=payload,
             expires_at=time.time() + TIER2_TTL_SECONDS,
         )
+        # Sized outside the lock: the one serialization this entry
+        # will ever get.
+        nbytes = emb.nbytes + _approx_payload_bytes(payload)
         async with self._tier2_lock:
             evict_count = 0
-            if key in self._tier2_buffer:
-                # Update in place (same key).
-                self._tier2_buffer[key] = entry
-                self._tier2_buffer.move_to_end(key)
-            else:
-                self._tier2_buffer[key] = entry
-                # Overflow — evict oldest.
-                while len(self._tier2_buffer) > TIER2_RING_CAPACITY:
-                    self._tier2_buffer.popitem(last=False)
-                    evict_count += 1
+            # Same key replaces in place; a new key may overflow the
+            # ring, which evicts oldest.
+            self._tier2_buffer.put(key, entry, nbytes)
+            while len(self._tier2_buffer) > TIER2_RING_CAPACITY:
+                self._tier2_buffer.popitem(last=False)
+                evict_count += 1
             if evict_count:
                 self._safe_inc(CACHE_EVICTIONS_COUNTER, TIER_2, evict_count)
             # Rebuild the FAISS index from scratch — O(n) at n≤1000,
@@ -1139,9 +1273,11 @@ class RetrievalCache:
             logger.exception("Tier-3 key derivation failed; skipping store")
             return
 
+        nbytes = _approx_payload_bytes(payload)
         async with self._tier3_lock:
-            self._tier3_lru[key] = (payload, time.time() + TIER3_TTL_SECONDS)
-            self._tier3_lru.move_to_end(key)
+            self._tier3_lru.put(
+                key, (payload, time.time() + TIER3_TTL_SECONDS), nbytes,
+            )
             evict_count = 0
             while len(self._tier3_lru) > TIER3_LRU_CAPACITY:
                 self._tier3_lru.popitem(last=False)
@@ -1153,31 +1289,25 @@ class RetrievalCache:
     # Byte-usage gauges (read by server.metrics.refresh_cache_metrics)
     # ------------------------------------------------------------------
 
+    # These run on the event loop at every ``/metrics`` scrape, so each
+    # is a read of a running sum kept on insert and evict, never a pass
+    # over the entries.
+
     def tier1_bytes_used(self) -> int:
-        """Approximate Tier-1 in-process mirror byte usage."""
-        # Tier-1 mirror only — SQLite-on-disk bytes are visible via
-        # ``ls -la`` and are not reported in this gauge.
-        # Mirror entry shape (post-F2 fix): ``(payload, expires_at)``.
-        total = 0
-        for payload, _expires_at in self._tier1_mirror.values():
-            total += _approx_payload_bytes(payload)
-        return total
+        """Serialized byte size of the Tier-1 in-process mirror.
+
+        Mirror only — SQLite-on-disk bytes are visible via ``ls -la``
+        and are not reported in this gauge."""
+        return self._tier1_mirror.bytes_used
 
     def tier2_bytes_used(self) -> int:
-        """Approximate Tier-2 ring-buffer + FAISS index byte usage."""
-        # Embedding bytes (deque) + payload bytes.
-        total = 0
-        for entry in self._tier2_buffer.values():
-            total += entry.embedding.nbytes
-            total += _approx_payload_bytes(entry.payload)
-        return total
+        """Tier-2 ring buffer: embedding bytes plus serialized payload
+        bytes."""
+        return self._tier2_buffer.bytes_used
 
     def tier3_bytes_used(self) -> int:
-        """Approximate Tier-3 LRU byte usage."""
-        total = 0
-        for payload, _expires in self._tier3_lru.values():
-            total += _approx_payload_bytes(payload)
-        return total
+        """Serialized byte size of the Tier-3 LRU."""
+        return self._tier3_lru.bytes_used
 
     # ------------------------------------------------------------------
     # Stats accessor (consumed by server/routes/debug.py)
