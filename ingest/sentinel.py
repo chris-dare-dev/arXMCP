@@ -51,17 +51,17 @@ import pathlib
 import sys
 from dataclasses import dataclass
 
+from ingest.application_paths import ApplicationPaths
+
 logger = logging.getLogger(__name__)
 
 
-REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
-
-#: Default sentinel path. The runtime resolves it via
-#: ``Config.data_dir`` so a non-default ``ARXMCP_DATA_DIR`` is
-#: honored. The fallback below is used by the CLI when no
-#: explicit path is given.
+#: Default sentinel path, in the resolved ops directory so an installed
+#: wheel never writes beside its own modules. The server resolves its
+#: copy from ``Config.data_dir``; the CLI uses this one when no explicit
+#: path is given.
 DEFAULT_SENTINEL_PATH: pathlib.Path = (
-    REPO_ROOT / "var" / "arxmcp" / "ops" / "ingest-paused"
+    ApplicationPaths.resolve().ops / "ingest-paused"
 )
 
 
