@@ -1,16 +1,17 @@
-"""Tests for the partial re-embed driver (E11_S03, reworked in chunk-module-m1).
+"""Tests for the partial re-embed driver.
 
 The copy decision is tested through the public interface: ``compute_diff``
 (pure) and ``run_re_embed`` against real temporary LanceDB tables, with only
 the chunker (``chunk_paper``) and the model (``embed_paper`` /
-``load_embed_record``) stubbed. ADR rule 2 cases (TestReuseByIdentity):
+``load_embed_record``) stubbed. Reuse-by-identity cases (TestReuseByIdentity):
 
 - same body under a different chunk id -> copied;
-- same chunk id on the other route -> re-embedded (the 7b160a0 bug);
+- same chunk id on the other route -> re-embedded (never copied across
+  routes);
 - same chunk id from another embedder or a legacy policy -> re-embedded.
 
 Plus ``--resume`` (TestResume), the embedding-space mixing guard
-(TestSpaceMixingGuard), the runbook and Makefile content, the chunk-id
+(TestSpaceMixingGuard), the Makefile content, the chunk-id
 source pin (TestChunkerVersionFreeze) and the staging sentinel.
 """
 
@@ -343,7 +344,7 @@ class TestSubsetEmbedRecord:
 
 
 # ---------------------------------------------------------------------------
-# run_re_embed against real LanceDB tables — ADR rule 2
+# run_re_embed against real LanceDB tables — reuse by identity
 # ---------------------------------------------------------------------------
 
 
@@ -369,7 +370,7 @@ class TestReuseByIdentity:
         assert row["embed_input_policy_version"] == EMBED_INPUT_POLICY_VERSION
 
     def test_same_chunk_id_on_the_other_route_is_re_embedded(self, tmp_path):
-        # The 7b160a0 bug: the chunk id does not hash the kind, so a
+        # The wrong-route bug: the chunk id does not hash the kind, so a
         # re-chunk returned a stored ``section`` body as a ``proof`` under
         # the same id, and the copy path carried its statement vector over.
         cid = _cid(PAPER, 1)
@@ -416,7 +417,7 @@ class TestReuseByIdentity:
         # A live notebook built before the Bridgeland repair has no
         # ``embed_input_policy_version`` column at all (the five repair
         # columns are absent, not NULL). Its rows must read as "policy
-        # unknown" and be re-embedded (ADR rule 3), and the scan must not
+        # unknown" and be re-embedded, and the scan must not
         # crash on the missing columns.
         repair_columns = {
             "embed_input_policy_version",
@@ -456,7 +457,7 @@ class TestReuseByIdentity:
         assert _bytes(staged["embedding_stmt"]) == _normalized(FRESH_SEED).tobytes()
 
     def test_unchanged_papers_are_copied_without_the_embedder(self, tmp_path):
-        # E11_S03 AC1: unchanged content is copied with no model call. Four
+        # Unchanged content is copied with no model call. Four
         # papers of five chunks; two bodies of the last paper change.
         papers = [f"2401.0000{p}" for p in range(4)]
         old = {
@@ -520,9 +521,9 @@ class TestResume:
 
 
     def test_resume_rewrites_a_row_another_chunker_version_staged(self, tmp_path):
-        # chunk-module-m2: a staged row with the SAME id and body but an older
+        # A staged row with the SAME id and body but an older
         # chunker_version stamp (a staging left by a v1.2-era run; empty-
-        # preamble papers keep their ids across rule 1) must not be skipped,
+        # preamble papers keep their ids across v1.3) must not be skipped,
         # or the promoted table would carry the stale stamp.
         chunk = _make_chunk(PAPER, _cid(PAPER, 1), body="Let X be a scheme.")
         active = _active(tmp_path, [chunk], seed=7)
@@ -681,14 +682,13 @@ class TestChunkerVersionFreeze:
     test loudly, forcing the contributor to either revert OR bump
     ``CHUNKER_VERSION`` and re-pin in the same PR.
 
-    Re-pinned in chunk-module-m2 (v1.2 -> v1.3), which dropped the
-    preamble from arXiv ids (ADR rule 1). Vector reuse is keyed by the
-    reuse identity, not the chunk id (chunk-module-m1), so a rotation is
-    a staging copy plus a cutover, not a re-embed.
+    Re-pinned for v1.3, which dropped the preamble from arXiv ids.
+    Vector reuse is keyed by the reuse identity, not the chunk id, so a
+    rotation is a staging copy plus a cutover, not a re-embed.
     """
 
     #: SHA-256 of `inspect.getsource(_compute_chunk_id)` as of the
-    #: chunk-module-m2 rotation. ANY edit to the function body
+    #: v1.3 rotation. ANY edit to the function body
     #: (whitespace, docstring, algorithm) breaks this hash.
     #:
     #: To re-pin after a deliberate change:
@@ -696,7 +696,7 @@ class TestChunkerVersionFreeze:
     #: ingest.chunk import _compute_chunk_id; print(hashlib.sha256(
     #: inspect.getsource(_compute_chunk_id).encode()).hexdigest())"``
     EXPECTED_COMPUTE_CHUNK_ID_SHA256 = (
-        "11e8db573cf56d465ccfe3543b40a5bf9cdbe05ca3cbe919177151d692faff12"
+        "101d8d8855d0df8040c7f7d11fcb2dbe27d1f19006f093c76bdeb7e22d2f3088"
     )
 
     def test_compute_chunk_id_source_is_pinned(self):
@@ -715,16 +715,18 @@ class TestChunkerVersionFreeze:
             f"migration. Either revert the edit OR (1) bump "
             f"ingest.chunk.CHUNKER_VERSION, (2) update "
             f"EXPECTED_COMPUTE_CHUNK_ID_SHA256 in this test, and "
-            f"(3) ship the rotation procedure in "
-            f"docs/ops/re-embed-runbook.md, per the schema-migration "
-            f"constraint on CHUNKER_VERSION in ingest/chunk.py."
+            f"(3) rotate existing tables through staging, per notebook: "
+            f"make re-embed ARGS=\"--notebook=<slug>\", then "
+            f"make notebook-cutover ARGS=\"--notebook=<slug> --force\" "
+            f"(the schema-migration constraint on CHUNKER_VERSION in "
+            f"ingest/chunk.py)."
         )
 
     def test_contract_strings_present(self):
         """Sanity guard alongside the SHA pin: even when a future edit
         re-pins the SHA, the canonical-bytes contract must still apply
         NFC normalization + sha256, and the id must hash the body only
-        unless a caller names a position (ADR rule 1)."""
+        unless a caller names a position."""
         import inspect
 
         from ingest.chunker import _compute_chunk_id
@@ -832,17 +834,17 @@ class TestStagingSentinel:
 
 
 class TestMakefileReEmbedAllRotationNote:
-    """chunk-module-m2 rectify: the ``re-embed-all`` comment must not send
-    the one-time id rotation down the all-datasets path; its ``--dry-run``
-    only lists datasets and cannot run the runbook's reembed=0 check."""
+    """The ``re-embed-all`` comment must not send a chunk-id rotation down
+    the all-datasets path; its ``--dry-run`` only lists datasets and cannot
+    show the per-paper reembed=0 check."""
 
-    def test_re_embed_all_points_the_rotation_at_the_runbook(self):
+    def test_re_embed_all_points_the_rotation_at_the_notebook_path(self):
         text = (
             Path(__file__).resolve().parent.parent / "Makefile"
         ).read_text(encoding="utf-8")
         start = text.index("\nre-embed-all:\n")
         block = text[start:text.index("\n\n", start + 1)]
-        assert "re-embed-runbook" in block
+        assert "make notebook-cutover" in block
         assert "run this once per chunker-bump" not in block
 
 
@@ -887,14 +889,13 @@ class TestStartedUtcStable:
 
 
 # ---------------------------------------------------------------------------
-# --notebook on the CLI (chunk-module-m2)
+# --notebook on the CLI
 # ---------------------------------------------------------------------------
 
 
 class TestCliNotebook:
-    """The rotation runbook dry-runs and runs one notebook at a time. Before
-    chunk-module-m2 that needed a Python call: the CLI had no ``--notebook``,
-    and a dataset holding textbook papers raises without a slug."""
+    """A rotation dry-runs and runs one notebook at a time from the CLI with
+    ``--notebook``; a dataset holding textbook papers raises without a slug."""
 
     def _capture(self, monkeypatch, tmp_path):
         import tools._notebook_common as common
@@ -935,9 +936,9 @@ class TestCliNotebook:
         assert calls[0]["staging_lancedb_path"] == staging
 
     def test_paper_ids_file_scopes_a_notebook_run(self, monkeypatch, tmp_path):
-        # The rotation runbook scopes a notebook run to the active table's
+        # A rotation scopes a notebook run to the active table's
         # own papers: without the file, papers.txt entries that never
-        # ingested join the run and fail it (chunk-module-m2 rectify).
+        # ingested join the run and fail it.
         re_embed, calls = self._capture(monkeypatch, tmp_path)
         ids = tmp_path / "rotation-papers.txt"
         ids.write_text("2401.00001\n# comment\n\ntextbook:abc\n", encoding="utf-8")
@@ -975,13 +976,13 @@ class TestCliNotebook:
 
 
 # ---------------------------------------------------------------------------
-# The one-time id rotation, end to end (chunk-module-m2, ADR rule 1)
+# The one-time v1.2 -> v1.3 id rotation, end to end
 # ---------------------------------------------------------------------------
 
 FIXTURES = Path(__file__).parent / "fixtures" / "chunker"
 #: Paper A resolves a preamble (its v1.2 ids hashed it in, so they rotate);
 #: paper B never did (extraction failed, or no macros), so its ids are the
-#: same under both formulas (research brief-2 D4).
+#: same under both formulas.
 ROT_A, ROT_B = "2307.00002", "2307.00001"
 ROT_SLUG = "rotation-nb"
 ROT_PREAMBLE = "\\newcommand{\\R}{\\mathbb{R}}\n\\def\\Z{\\mathbb{Z}}"
@@ -1130,7 +1131,7 @@ def _rows(path: Path) -> dict[str, dict]:
 
 
 class TestOneTimeIdRotation:
-    """Brief AC4: the v1.2 -> v1.3 rotation through the REAL re-embed driver
+    """The v1.2 -> v1.3 rotation through the REAL re-embed driver
     and the REAL chunker, into a fresh staging table, then the notebook
     cutover. Only the embedder is replaced, by a stub that fails if called."""
 
@@ -1226,7 +1227,7 @@ class TestOneTimeIdRotation:
         assert not (cache / "retrieval.db-wal").exists()
         assert not stale_bm25.exists()
         # The old dataset's own BM25 dir goes too: the new table's version
-        # climbs toward it on later writes (chunk-module-m2 rectify).
+        # climbs toward it on later writes.
         assert not old_bm25.exists()
         assert sorted(result["invalidated_caches"]) == sorted([
             "cache/retrieval.db", "cache/retrieval.db-wal",

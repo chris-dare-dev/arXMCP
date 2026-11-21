@@ -139,10 +139,10 @@ def _make_corpus(n: int = 10) -> list[ChunkRecord]:
 # TestSchemaContract — every column the brief enumerates is present
 # ===========================================================================
 
-# The chunks table's columns by the milestone that added them. Migration
+# The chunks table's columns by the schema step that added them. Migration
 # tests name the on-disk shape they build from these groups instead of
 # counting columns, so a new column changes no number here.
-#: E04_S01 arXiv columns.
+#: Original arXiv columns.
 V1_COLUMNS = [
     "chunk_id",
     "paper_id",
@@ -159,9 +159,9 @@ V1_COLUMNS = [
     "embedder_version",
     "preamble_ref",
 ]
-#: textbook-ingest-m2 columns — appended at the end to keep the arXiv-column
+#: Textbook columns — appended at the end to keep the arXiv-column
 #: block byte-stable for downstream consumers that index by position.
-TEXTBOOK_M2_COLUMNS = [
+TEXTBOOK_COLUMNS = [
     "source_kind",
     "license",
     "chapter",
@@ -170,7 +170,7 @@ TEXTBOOK_M2_COLUMNS = [
     "textbook_slug",
     "parser_used",
 ]
-#: source-truth-m2 columns (chunks schema v2). ``source_span`` is a JSON
+#: Source-truth columns (chunks schema v2). ``source_span`` is a JSON
 #: string (not a struct) so all five ride the single-loop add_columns
 #: migration.
 SOURCE_TRUTH_V2_COLUMNS = [
@@ -196,7 +196,7 @@ class TestSchemaContract:
 
     def test_column_names_in_brief_order(self):
         assert CHUNKS_SCHEMA_V1.names == (
-            V1_COLUMNS + TEXTBOOK_M2_COLUMNS + SOURCE_TRUTH_V2_COLUMNS + REPAIR_COLUMNS
+            V1_COLUMNS + TEXTBOOK_COLUMNS + SOURCE_TRUTH_V2_COLUMNS + REPAIR_COLUMNS
         )
 
     def test_embedding_columns_are_fixed_size_list_1024(self):
@@ -1806,12 +1806,12 @@ class TestSourceTruthM2SchemaMigration:
     _V2_COLUMNS = tuple(SOURCE_TRUTH_V2_COLUMNS)
 
     def _make_pre_v2_table(self, tmp_path):
-        """Create a chunks table at the pre-source-truth-m2 schema — the
-        v1 and textbook-ingest-m2 columns, chosen by name — holding one
+        """Create a chunks table at the pre-v2 schema — the
+        v1 and textbook columns, chosen by name — holding one
         arXiv row, mirroring the live on-disk tables."""
         import lancedb
 
-        pre_v2_names = V1_COLUMNS + TEXTBOOK_M2_COLUMNS
+        pre_v2_names = V1_COLUMNS + TEXTBOOK_COLUMNS
         pre_v2_schema = pa.schema(
             [f for f in CHUNKS_SCHEMA_V1 if f.name in pre_v2_names]
         )
@@ -1851,7 +1851,7 @@ class TestSourceTruthM2SchemaMigration:
         from ingest.store import write_chunks
 
         db, tbl, legacy_row = self._make_pre_v2_table(tmp_path)
-        assert tbl.schema.names == V1_COLUMNS + TEXTBOOK_M2_COLUMNS
+        assert tbl.schema.names == V1_COLUMNS + TEXTBOOK_COLUMNS
 
         # Trigger the migration via a follow-up write_chunks call.
         new_chunk = _make_chunk("2307.08888", "stmt", "v2 body", suffix="d" * 16)

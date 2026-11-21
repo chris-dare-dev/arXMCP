@@ -5,7 +5,7 @@ or ``embedder_version`` bump. The naive approach — re-embed every
 chunk in the 200K-paper corpus — is a GPU-day operation; this module
 limits work to chunks whose embedding input actually changed.
 
-* **Reuse identity (ADR rule 2, chunk-module-m1):** a stored vector is
+* **Reuse identity:** a stored vector is
   copied onto a freshly chunked chunk only when the chunk's reuse
   identity (:func:`ingest.chunk.reuse_identity` under the TARGET
   embedder version) equals a stored row's
@@ -16,7 +16,7 @@ limits work to chunks whose embedding input actually changed.
   fall to re-embed, and a chunk whose id rotated with an unchanged body
   is still copied. Reuse is per paper: a chunk is matched only against
   its own paper's stored rows.
-* **Rule 3:** a stored row's identity is recomputed from the row's own
+* **Stored identity:** a stored row's identity is recomputed from the row's own
   ``body_text``, ``kind``, ``embedder_version`` and
   ``embed_input_policy_version`` columns.
 * **Re-embed path:** chunks with no match are embedded via
@@ -31,12 +31,15 @@ limits work to chunks whose embedding input actually changed.
   run would write (same chunk ids, chunker version, scalar fields and
   reuse identities) is skipped; any other paper's staged rows are
   replaced. A row a run under another ``CHUNKER_VERSION`` staged is
-  therefore rewritten, not kept (chunk-module-m2). No no-op flag
-  (closes E11_S01 F3 lesson).
-* **One-time id rotation (chunk-module-m2):** ADR rule 1 changed every
-  preamble-bearing arXiv chunk id. Run with ``--notebook <slug>`` into a
-  fresh staging table, then cut over; the bodies are unchanged, so
-  every vector is copied. See ``docs/ops/re-embed-runbook.md``.
+  therefore rewritten, not kept. No flag turns a run into a no-op.
+* **One-time id rotation:** ``CHUNKER_VERSION`` v1.3 stopped hashing the
+  preamble into arXiv chunk ids, so every preamble-bearing id changed.
+  The bodies are unchanged, so every vector is copied. Per notebook,
+  with its server stopped and any old ``lancedb-staging`` moved aside:
+  ``make re-embed ARGS="--notebook=<slug> --dry-run"`` (expect
+  ``reembed=0`` on every paper), ``make re-embed
+  ARGS="--notebook=<slug>"``, then ``make notebook-cutover
+  ARGS="--notebook=<slug> --force"``.
 """
 
 from __future__ import annotations
@@ -295,7 +298,7 @@ def _delete_staging_paper_rows(staging_path: Path, paper_id: str) -> None:
 #: Scalar columns a staged row must match for ``--resume`` to skip its paper.
 #: ``chunker_version`` is one of them: without it a row a run under another
 #: ``CHUNKER_VERSION`` staged, with an unchanged id, would be skipped and keep
-#: the old stamp (chunk-module-m2).
+#: the old stamp.
 _SIGNATURE_COLUMNS = (
     "chunk_id", "chunker_version", "kind", "section_path", "theorem_name",
     "theorem_label", "printed_number", "page_start", "page_end",
@@ -349,7 +352,7 @@ def _chunk_signature(chunk: ChunkRecord, target_embedder_version: str) -> tuple:
 
 
 # ---------------------------------------------------------------------------
-# Diff: which new chunks reuse a stored vector (ADR rule 2)
+# Diff: which new chunks reuse a stored vector
 # ---------------------------------------------------------------------------
 
 
@@ -405,8 +408,8 @@ _ACTIVE_COLUMNS = (
 def _index_active_table(active_lancedb_path: Path) -> dict[str, list[dict]]:
     """Read the active ``chunks`` table ONCE and group its rows by paper.
 
-    Closes adversary F1 (E11_S03): one scan at run start, so per-paper
-    lookups are dict-keyed rather than full-table scans. A table that
+    One scan at run start, so per-paper lookups are dict-keyed rather
+    than full-table scans. A table that
     predates a column (``embed_input_policy_version`` before the
     Bridgeland repair) reads it as NULL, which makes its rows
     non-reusable.
@@ -648,7 +651,7 @@ def run_re_embed(
     started_utc = _utc_iso()
     summary = ReEmbedSummary()
 
-    # Closes synthesis D6: read OLD_EMBEDDER_VERSION up front (state file;
+    # Read OLD_EMBEDDER_VERSION up front (state file;
     # a missing marker refuses the run). Reuse is decided per row by the
     # reuse identity, which already carries each row's embedder version
     # and policy, so a model or policy change needs no separate switch.
@@ -663,7 +666,7 @@ def run_re_embed(
         staging_lancedb_path, target_embedder_version
     )
 
-    # Closes adversary F1: scan the active LanceDB ONCE, grouped by paper.
+    # Scan the active LanceDB ONCE, grouped by paper.
     # Without this hoist every paper triggered a full-table scan and the
     # partial re-embed was O(N²) in I/O.
     old_by_paper = _index_active_table(active_lancedb_path)

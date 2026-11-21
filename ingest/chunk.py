@@ -1,9 +1,7 @@
-"""The chunk: the one module that declares what a chunk is (chunk-module-m1).
+"""The chunk: the one module that declares what a chunk is.
 
-Terms follow ``.claude/CONTEXT.md``; the id and reuse rules are
-``.claude/docs/adr-chunk-identity-and-reuse.md`` (rules 2 and 3 landed in
-chunk-module-m1, rule 1 in chunk-module-m2). Everything a caller needs to
-know about a chunk lives here and nowhere else:
+Everything a caller needs to know about a chunk lives here and nowhere
+else:
 
 - the record (:class:`ChunkRecord`) and :data:`CHUNKER_VERSION`;
 - the row of the LanceDB ``chunks`` table (:data:`CHUNKS_SCHEMA_V1`,
@@ -40,10 +38,10 @@ import pyarrow as pa
 # (theorem/proof detection, windowing, section extraction). The value
 # flows into every ChunkRecord's ``chunker_version`` field via the
 # dataclass default below, into the per-paper ``chunk_manifest.json``
-# (written by ``ingest.chunker``), and is what E04_S02's MVCC writer
-# uses to detect stale rows.
+# (written by ``ingest.chunker``), and is what the store's writers use
+# to detect stale rows.
 #
-# **Schema-migration constraint (E11_S03).** The CANONICAL-BYTES
+# **Schema-migration constraint.** The CANONICAL-BYTES
 # function :func:`_compute_chunk_id` below —
 # ``sha256(position + NFC(body_text))[:16]``, with ``position`` empty
 # for every arXiv chunk except a TeX-chunker-owned paper's — must remain
@@ -51,12 +49,12 @@ import pyarrow as pa
 # chunk_id even for byte-identical content. That is a SCHEMA migration
 # that needs this constant bumped in the same change, and the
 # ``tests/test_re_embed.py::TestChunkerVersionFreeze`` regression guard
-# re-pinned. Vector reuse no longer depends on the chunk id (ADR rule 2:
-# it is keyed on the reuse identity below), so the staging re-embed
-# copies a rotated chunk's vector instead of re-embedding it.
+# re-pinned. Vector reuse does not depend on the chunk id (it is keyed
+# on the reuse identity below), so the staging re-embed copies a
+# rotated chunk's vector instead of re-embedding it.
 #
-# v1.3 (chunk-module-m2, ADR rule 1): arXiv ids stopped hashing the
-# paper preamble. A table chunked by another version must be rotated
+# v1.3: arXiv ids stopped hashing the paper preamble, so an id hashes
+# the body only. A table chunked by another version must be rotated
 # through staging and cutover, never re-ingested in place
 # (``ingest.store.refuse_stale_chunker_rows``).
 CHUNKER_VERSION = "v1.3"
@@ -66,10 +64,10 @@ CHUNKER_VERSION = "v1.3"
 # ``ingest.schema`` re-export it.
 EMBEDDING_DIM = 1024
 
-# The named, versioned rule that turns a chunk into its embedding input
-# (CONTEXT.md "Embedding input policy"). ``body-first-v1`` is
-# ``NFC(body_text)``: it reads only ``body_text``, which every row stores,
-# so a stored row's input can always be recomputed (ADR rule 3).
+# The named, versioned rule that turns a chunk into its embedding input.
+# ``body-first-v1`` is ``NFC(body_text)``: it reads only ``body_text``,
+# which every row stores, so a stored row's input can always be
+# recomputed and its vector checked for reuse.
 EMBED_INPUT_POLICY_VERSION = "body-first-v1"
 
 # The policy every row embedded before the Bridgeland repair used: the
@@ -93,10 +91,10 @@ class ChunkRecord:
     chunk_id:
         Content-addressable identifier
         ``arxiv:<paper_id>:<sha256(NFC(body_text))[:16]>`` for arXiv
-        chunks (ADR rule 1, chunk-module-m2; a TeX-chunker-owned paper
-        prefixes the body with its ``tex-offset:<n>`` position value), or
+        chunks (a TeX-chunker-owned paper prefixes the body with its
+        ``tex-offset:<n>`` position value), or
         ``textbook:<slug>:<sha256(position + NFC(body_text))[:16]>`` for
-        textbook chunks (textbook-ingest-m1 + m2). The 16-hex-char suffix
+        textbook chunks. The 16-hex-char suffix
         is stable across re-runs of the same paper and changes
         deterministically when the body content (or the position value)
         changes; the paper preamble plays no part.
@@ -125,21 +123,21 @@ class ChunkRecord:
         A chunk is lossless: an over-long environment becomes several
         parts (``part_index`` / ``part_count``), never a truncated body.
         NOTE: stored bytes are NOT NFC-normalised — the chunk_id hash
-        (E02_S04) and the embedding input apply NFC, but the stored
-        body_text preserves the parser's exact output. Downstream
-        consumers that hash body_text for their own cache keys must
-        apply ``unicodedata.normalize("NFC", ...)`` to match the
-        chunk_id discipline (F3 closure).
+        and the embedding input apply NFC, but the stored body_text
+        preserves the parser's exact output. Downstream consumers that
+        hash body_text for their own cache keys must apply
+        ``unicodedata.normalize("NFC", ...)`` to match the chunk_id
+        discipline.
     body_tokens:
-        Whitespace-joined math-aware token stream produced by E02_S03's
+        Whitespace-joined math-aware token stream produced by
         ``ingest.tokenizer.tokenize_body``. The string the BM25 index
-        (E04_S04) splits at query time. ``None`` only when the chunker
-        emitted before E02_S03 wired this field in (legacy artifacts).
+        splits at query time. ``None`` only in legacy artifacts written
+        before the chunker filled this field.
     preamble_ref:
         First 16 hex chars of ``SHA-256(preamble_text)`` for the paper's
-        per-paper preamble (E02_S02). ``None`` when preamble extraction
-        failed for the paper (F3 fallback in E02_S02). The embedding
-        input no longer reads the preamble (``body-first-v1``).
+        per-paper preamble. ``None`` when preamble extraction failed for
+        the paper; the chunk is still emitted. The embedding input does
+        not read the preamble (``body-first-v1``).
     chunker_version:
         Stable version string for the chunking strategy. Defaults to
         :data:`CHUNKER_VERSION`. Bump the constant when chunking changes.
@@ -147,7 +145,7 @@ class ChunkRecord:
         ``True`` when a body was shortened. The store refuses such a chunk
         (a chunk is lossless); kept so legacy artifacts are recognisable.
 
-    Textbook-specific fields (textbook-ingest-m2). All optional; the
+    Textbook-specific fields. All optional; the
     arXiv chunking path leaves them at their defaults, and the schema
     enforces ``source_kind="arxiv"`` + ``license="arxiv-license"`` as
     the arXiv-corpus defaults.
@@ -160,9 +158,8 @@ class ChunkRecord:
         Free-text license token. Default ``"arxiv-license"`` for
         arXiv chunks; textbook chunks carry the textbook's license
         (e.g. ``"GFDL"`` for Stacks Project, ``"author-distributed"``
-        for lecture notes, etc.). Documentary only; no license value gates serving (the
-        ``truncated_for_license`` / e5 truncation gate was removed in
-        license-serving-removal-m1).
+        for lecture notes, etc.). Documentary only; no license value
+        gates serving.
     chapter:
         Textbook chapter name (``"Chapter 3: Schemes"``) or ``None``
         for arXiv.
@@ -192,15 +189,15 @@ class ChunkRecord:
     theorem_name: str | None
     theorem_label: str | None
     body_text: str
-    # E02_S03 populates this with a whitespace-joined string produced by
-    # `ingest.tokenizer.tokenize_body`. The annotation is `str | None`
+    # The chunker populates this with a whitespace-joined string produced
+    # by `ingest.tokenizer.tokenize_body`. The annotation is `str | None`
     # (NOT `list[str] | None`) to match the LanceDB schema's `string`
-    # column type — E04_S04's BM25 indexer does `body_tokens.split()`.
+    # column type — the BM25 indexer does `body_tokens.split()`.
     body_tokens: str | None = field(default=None)
     preamble_ref: str | None = field(default=None)
     chunker_version: str = field(default=CHUNKER_VERSION)
     truncated: bool = field(default=False)
-    # ---- textbook-ingest-m2 fields ----
+    # ---- textbook fields ----
     source_kind: str = field(default="arxiv")
     license: str = field(default="arxiv-license")
     chapter: str | None = field(default=None)
@@ -208,7 +205,7 @@ class ChunkRecord:
     page_end: int | None = field(default=None)
     textbook_slug: str | None = field(default=None)
     parser_used: str | None = field(default=None)
-    # ---- source-truth-m2 field (chunks schema v2) ----
+    # ---- source-truth field (chunks schema v2) ----
     printed_number: str | None = field(default=None)
     # ---- Bridgeland repair: lossless parts ----
     part_index: int = field(default=1)
@@ -264,7 +261,7 @@ class ChunkRecord:
 def _compute_chunk_id(paper_id: str, body_text: str, *, position: str = "") -> str:
     """Return ``arxiv:<paper_id>:<sha256(position + NFC(body_text))[:16]>``.
 
-    ADR rule 1: an arXiv chunk id hashes the body only, so ``position``
+    An arXiv chunk id hashes the body only, so ``position``
     defaults to ``""`` and the id is ``sha256(NFC(body_text))[:16]``.
     It does not depend on the paper preamble, on whether preamble
     extraction succeeded, or on the data root. ``body_text`` is
@@ -275,7 +272,8 @@ def _compute_chunk_id(paper_id: str, body_text: str, *, position: str = "") -> s
     context: only a TeX-chunker-owned paper passes one
     (``tex-offset:<n>``), because the same short proof recurs at
     different places in one source and both copies are kept. It is
-    hashed raw with no separator, so a TeX id is unchanged by rule 1.
+    hashed raw with no separator, so dropping the preamble from the hash
+    left TeX ids unchanged.
 
     The 16-hex-char suffix is 64 bits of entropy. At the project's 200K-
     paper end state (~20M chunks), the birthday-bound collision
@@ -299,7 +297,7 @@ def _compute_textbook_chunk_id(
     body, UTF-8 encode, 16-hex prefix) but emits the ``textbook:`` prefix
     so the id round-trips through ``ingest.identifiers.CHUNK_ID_PATTERN``.
     ``preamble_text`` is the caller's position value: identical text
-    recurs at different places in one textbook (ADR rule 1).
+    recurs at different places in one textbook.
     """
     body_normalized = unicodedata.normalize("NFC", body_text)
     digest = hashlib.sha256(
@@ -316,7 +314,7 @@ def _compute_textbook_chunk_id(
 #: order (stmt first, proof second, as declared in
 #: :data:`CHUNKS_SCHEMA_V1`). ``ingest.schema`` re-exports this, so
 #: readers that enumerate the searchable vector columns import it
-#: rather than literalize the names (E05_S02 F3).
+#: rather than literalize the names.
 EMBEDDING_COLUMN_NAMES = ("embedding_stmt", "embedding_proof")
 
 # Which vector column each route fills. The other column is NULL.
@@ -347,13 +345,13 @@ def embedding_input(body_text: str) -> str:
     ``NFC(body_text)``: the stored body is left raw (NFC is applied for
     the model only), and nothing else (no preamble, no heading) reaches
     the embedder. Because it reads only ``body_text``, a stored row's
-    input can be recomputed from the row alone (ADR rule 3).
+    input can be recomputed from the row alone.
     """
     return unicodedata.normalize("NFC", body_text)
 
 
 # ---------------------------------------------------------------------------
-# Reuse identity (ADR rules 2 and 3)
+# Reuse identity
 # ---------------------------------------------------------------------------
 
 #: First field of every reuse-identity digest. Changing the encoding below
@@ -378,7 +376,7 @@ def _digest(*parts: str) -> str:
 def reuse_identity(kind: str, body_text: str, *, embedder_version: str) -> str:
     """Return the reuse identity of a chunk embedded now.
 
-    The identity hashes exactly what ADR rule 2 names: the embedding
+    The identity hashes exactly what determines the vector: the embedding
     input, the embedder version, the embedding input policy (the current
     one: a freshly chunked chunk is always embedded under it) and the
     route. It never hashes the chunk id, the paper id or the chunker
@@ -399,7 +397,8 @@ def stored_reuse_identity(row: Mapping[str, object]) -> str | None:
     """Return the reuse identity of a stored ``chunks`` row, or ``None``.
 
     Recomputed only from the row's own ``body_text``, ``kind``,
-    ``embedder_version`` and ``embed_input_policy_version`` (ADR rule 3).
+    ``embedder_version`` and ``embed_input_policy_version``, so a row
+    needs no side file to be judged reusable.
     ``None`` means the row's vector is not reusable: its policy is NULL
     (a pre-repair row, which means :data:`LEGACY_EMBED_INPUT_POLICY_VERSION`),
     legacy or unknown, so its input cannot be recomputed from what the
@@ -423,8 +422,8 @@ def stored_reuse_identity(row: Mapping[str, object]) -> str | None:
 def stored_vector(row: Mapping[str, object]) -> Sequence[float] | None:
     """Return the vector a stored row carries on its kind's route, or ``None``.
 
-    A row whose vector sits in the other route's column (the 7b160a0 bug
-    class) has no vector on its own route and so reads as ``None``.
+    A row whose vector sits in the other route's column (stored on the
+    wrong route) has no vector on its own route and so reads as ``None``.
     """
     kind = row.get("kind")
     return row.get(_ROUTE_COLUMNS[route(kind if isinstance(kind, str) else None)])
@@ -458,13 +457,11 @@ def reusable_vectors(
 # The chunks-table row
 # ---------------------------------------------------------------------------
 
-# The risk note in the E04_S01 brief is explicit: "Nullable columns
-# for ``embedding_eq`` must be declared in PyArrow as
-# ``pa.field("embedding_eq", pa.list_(pa.float32(), 1024),
-# nullable=True)`` — omitting nullability would cause Arrow errors on
-# insertion." We declare every nullable field with ``nullable=True``
+# Nullable columns such as ``embedding_eq`` must be declared in PyArrow
+# with ``nullable=True``: omitting nullability causes Arrow errors on
+# insertion. We declare every nullable field with ``nullable=True``
 # and every required field with ``nullable=False``. Column order is a
-# fixed source literal so the schema bytes are deterministic (BP1).
+# fixed source literal so the schema bytes are deterministic.
 CHUNKS_SCHEMA_V1 = pa.schema(
     [
         # Identity columns (all required).
@@ -480,8 +477,8 @@ CHUNKS_SCHEMA_V1 = pa.schema(
         pa.field("body_text", pa.utf8(), nullable=False),
         # ``body_tokens`` is non-nullable here even though
         # ``ChunkRecord.body_tokens: str | None`` allows None for legacy
-        # pre-E02_S03 chunks. :func:`to_row` raises ``ValueError`` on a
-        # None at write time.
+        # chunks written before the chunker filled it. :func:`to_row`
+        # raises ``ValueError`` on a None at write time.
         pa.field("body_tokens", pa.utf8(), nullable=False),
         # Dual-column dense embeddings. Nullable per the dual-encoding
         # contract: ``kind="proof"`` chunks have ``embedding_proof``
@@ -498,7 +495,7 @@ CHUNKS_SCHEMA_V1 = pa.schema(
             pa.list_(pa.float32(), EMBEDDING_DIM),
             nullable=True,
         ),
-        # ``embedding_eq`` is reserved for E10_S03 (equation embeddings).
+        # ``embedding_eq`` is reserved for equation embeddings.
         # The embedder NEVER populates this; every row :func:`to_row`
         # builds has ``embedding_eq=None``.
         pa.field(
@@ -512,16 +509,14 @@ CHUNKS_SCHEMA_V1 = pa.schema(
         pa.field("chunker_version", pa.utf8(), nullable=False),
         pa.field("embedder_version", pa.utf8(), nullable=False),
         # ``preamble_ref`` is the SHA-256[:16] of the per-paper preamble;
-        # NULL when preamble extraction failed (F3 fallback in E02_S02).
+        # NULL when preamble extraction failed (the chunk is still kept).
         pa.field("preamble_ref", pa.utf8(), nullable=True),
-        # ---- textbook-ingest-m2 columns ----
+        # ---- textbook columns ----
         # All declared nullable=True so a freshly-created table at
         # this schema version accepts arXiv-only writes (NULL for the
-        # textbook-specific columns). The in-place schema-evolution
-        # migration that backfills these on a pre-m2 LanceDB table is
-        # the work of ``textbook-ingest-m2`` proper — NOT bundled with
-        # ``embedder-truncation-m1`` even though that milestone
-        # incorporated the schema additions. New writes always populate
+        # textbook-specific columns). Adding them to an older LanceDB
+        # table is the in-place schema migration's job, not the
+        # schema's. New writes always populate
         # ``source_kind`` and ``license`` (from ``ChunkRecord``
         # defaults); the four textbook-only columns stay NULL for
         # arXiv chunks.
@@ -533,12 +528,10 @@ CHUNKS_SCHEMA_V1 = pa.schema(
         # validated. Default ``"arxiv-license"`` for arXiv chunks;
         # textbook chunks carry the textbook's specific license token
         # (``"GFDL"`` for Stacks Project, ``"author-distributed"`` for
-        # lecture notes, etc.). licensing gates no serving
-        # decision — the ``truncated_for_license`` / e5 truncation gate was
-        # removed in license-serving-removal-m1.
+        # lecture notes, etc.). No serving decision reads it.
         pa.field("license", pa.utf8(), nullable=True),
         # Textbook chapter name (``"Chapter 3: Schemes"``). NULL for
-        # arXiv chunks; populated by the textbook chunker (e3).
+        # arXiv chunks; populated by the textbook chunker.
         pa.field("chapter", pa.utf8(), nullable=True),
         # Inclusive page range for textbook chunks. NULL for arXiv.
         pa.field("page_start", pa.int32(), nullable=True),
@@ -550,26 +543,25 @@ CHUNKS_SCHEMA_V1 = pa.schema(
         pa.field("textbook_slug", pa.utf8(), nullable=True),
         # Per-chunk parser provenance. Domain: :data:`ALLOWED_PARSER_USED`,
         # enforced at write time in :func:`to_row`. NULL = unknown /
-        # failure. Promoted from ``PaperOutcome`` in m2 so chunk-grain
-        # re-parse decisions are possible.
+        # failure. Kept per chunk, not only per paper (``PaperOutcome``),
+        # so re-parse decisions can be made at chunk grain.
         pa.field("parser_used", pa.utf8(), nullable=True),
-        # ---- source-truth-m2 columns (chunks schema v2) ----
+        # ---- source-truth columns (chunks schema v2) ----
         # All five declared nullable=True: a freshly-created table
         # accepts writes that leave the registry-derived columns NULL,
         # and the in-place migration of pre-v2 rows
         # (``_migrate_chunks_schema_if_needed``) rides the same SQL-dict
         # ``add_columns`` loop as the textbook columns above — one
-        # ``cast(NULL as ...)`` default each, NO struct branch (spike-4).
+        # ``cast(NULL as ...)`` default each, NO struct branch.
         #
         # ``source_revision_id`` — the authoritative pointer to the
-        # per-revision documents-registry row (source-truth-m1), stored
+        # per-revision documents-registry row, stored
         # as ``f"{work_id}@{arxiv_version}"`` or the bare ``work_id`` when
         # unversioned (the ``notebook_documents_backfill._label`` form).
         # NULL when the chunk's paper is unregistered or the registry has
         # >1 row for the work (defensive abstention). Hydrated by the
-        # backfill; a plain new write leaves it NULL (forward-wiring is a
-        # tracked fast-follow — no new-ingest driver consults the
-        # per-notebook registry yet).
+        # backfill; a plain new write leaves it NULL (no new-ingest
+        # driver consults the per-notebook registry yet).
         pa.field("source_revision_id", pa.utf8(), nullable=True),
         # ``source_span`` — a JSON *string* (NOT a struct, so it rides the
         # SQL-dict migration path unmodified), byte-stable via
@@ -577,7 +569,7 @@ CHUNKS_SCHEMA_V1 = pa.schema(
         # ``{"rev":<16-hex parse_artifact_sha256 prefix>,
         #    "txt":<64-hex sha256(NFC(ws-collapsed body_text))>,
         #    "id":<source element id or "">}``. ``txt`` is the
-        # authoritative resolving key (spike-3); ``rev`` is a redundant
+        # authoritative resolving key; ``rev`` is a redundant
         # cross-check; ``id`` is a non-authoritative debug hint. NULL when
         # ``source_revision_id`` is unresolved OR the backfill's chunk-id
         # re-derivation did not reproduce this row (abstention, counted).
@@ -593,14 +585,14 @@ CHUNKS_SCHEMA_V1 = pa.schema(
         # "1.5.1") extracted by ``ingest.chunker._extract_printed_number``
         # from the ``ltx_tag_theorem`` heading text. Chunker-native (every
         # new theorem-like/proof chunk gets it). NULL when genuinely
-        # unnumbered (F1), for ``kind`` in {proof-orphan, section}, or when
+        # unnumbered, for ``kind`` in {proof-orphan, section}, or when
         # the backfill's chunk-id match missed.
         pa.field("printed_number", pa.utf8(), nullable=True),
         # ``license_ref`` — the matched registry row's ``license_status``
         # value denormalized onto the chunk row (``eligible`` /
         # ``not-allowlisted-open`` / ``unknown``), NOT a second pointer.
-        # ADVISORY: changes no serving behavior until the owner-gated m4
-        # cutover. NULL exactly when ``source_revision_id`` is NULL.
+        # ADVISORY: no serving behavior reads it yet. NULL exactly when
+        # ``source_revision_id`` is NULL.
         pa.field("license_ref", pa.utf8(), nullable=True),
         # Bridgeland corpus repair: the embedding input policy the row's
         # vector was computed under (NULL on pre-repair rows, read as
@@ -674,10 +666,10 @@ def _check_record(record: ChunkRecord) -> None:
             "re-chunk the source with no-loss windows before storage"
         )
     if record.body_tokens is None:
-        # D8: body_tokens=None is a real bug (E02_S03 has shipped).
+        # Every chunker fills body_tokens, so a None is a real bug.
         raise ValueError(
             f"chunk {record.chunk_id} has body_tokens=None; "
-            "E02_S03 is required and must have populated this field"
+            "the chunker must have populated this field"
         )
     if record.kind not in ALLOWED_KINDS:
         raise ValueError(
@@ -690,7 +682,7 @@ def _check_record(record: ChunkRecord) -> None:
             f"{record.source_kind!r} which is not in the allowed "
             f"set {sorted(ALLOWED_SOURCE_KINDS)!r}"
         )
-    # textbook-ingest-m9 / e4 rect F6: the dense path filters on the
+    # The dense path filters on the
     # source_kind COLUMN while the BM25 path infers it from the chunk_id
     # PREFIX (server/retrieval/bm25.py); they must agree.
     expected_prefix = f"{record.source_kind}:"

@@ -153,9 +153,9 @@ def _build_table_from_html(
 
     ``resolve_preamble`` defaults to the hermetic empty-preamble seam
     (``lambda _pid: None``); pass a resolver returning a non-empty
-    ``PreambleDoc`` to build the table THROUGH a real preamble. Since
-    chunk-module-m2 (ADR rule 1) the stored chunk_ids are
-    ``hash(NFC(body_text))`` either way; only ``preamble_ref`` differs."""
+    ``PreambleDoc`` to build the table THROUGH a real preamble. The stored
+    chunk_ids are ``hash(NFC(body_text))`` either way; only
+    ``preamble_ref`` differs."""
     if resolve_preamble is None:
         resolve_preamble = lambda _pid: None  # noqa: E731
     with (
@@ -172,8 +172,8 @@ def _build_table_from_html(
 def _nonempty_preamble(paper_id: str) -> PreambleDoc:
     """A ``PreambleDoc`` with a stable NON-empty ``preamble_text`` — drives the
     ``preamble_doc is not None`` branch of ``_rechunk_paper`` that the
-    ``lambda _pid: None`` seam never exercises. Under ADR rule 1 it changes
-    ``preamble_ref`` only, never a chunk_id (``TestRuleOneBackfill``)."""
+    ``lambda _pid: None`` seam never exercises. It changes
+    ``preamble_ref`` only, never a chunk_id (``TestBodyOnlyIdsThroughBackfill``)."""
     text = "\\newcommand{\\R}{\\mathbb{R}}\n\\newcommand{\\Z}{\\mathbb{Z}}"
     return PreambleDoc(
         paper_id=paper_id,
@@ -595,7 +595,7 @@ class TestRealPreambleRoundTrip:
         resolver = lambda _pid: doc  # noqa: E731
 
         # Build the table THROUGH the non-empty preamble (NOT the None seam).
-        # The stored chunk_ids are hash(NFC(body)) (ADR rule 1); the preamble
+        # The stored chunk_ids are hash(NFC(body)); the preamble
         # shows only in preamble_ref.
         _build_table_from_html(
             tmp_path, base, parsed, PAPER, seed=21, resolve_preamble=resolver
@@ -643,11 +643,11 @@ class TestRealPreambleRoundTrip:
 
 
 # ---------------------------------------------------------------------------
-# M2 — the driver's own add_columns -> hydrate composition (pre-v2 -> v2 cols)
+# The driver's own add_columns -> hydrate composition (pre-v2 -> v2 cols)
 # ---------------------------------------------------------------------------
 
 
-# The five source-truth-m2 columns the backfill adds, and the columns added to
+# The five source-truth columns the backfill adds, and the columns added to
 # the schema after them, which a pre-v2 table cannot have either.
 _V2_COLUMNS = frozenset(
     {"source_revision_id", "source_span", "truncated", "printed_number", "license_ref"}
@@ -661,7 +661,7 @@ _POST_V2_COLUMNS = frozenset(
         "source_end",
     }
 )
-# The columns a pre-v2 table carries: the E04_S01 and textbook-ingest-m2 ones.
+# The columns a pre-v2 table carries: the original arXiv ones and the textbook ones.
 _PRE_V2_COLUMNS = frozenset(
     {
         "chunk_id", "paper_id", "kind", "section_path", "theorem_name",
@@ -686,7 +686,7 @@ class TestMigrateThenHydrate:
     def _build_pre_v2_table(
         self, tmp_path: Path, base: Path, parsed_root: Path, paper_id: str, *, seed: int
     ) -> None:
-        """Materialize the notebook's chunks table at the pre-source-truth-m2
+        """Materialize the notebook's chunks table at the pre-v2
         schema holding real, HIT-reproducible rows + embeddings — the live
         on-disk shape BEFORE the backfill adds the five v2 columns.
 
@@ -843,7 +843,7 @@ class TestRerunFailedAbstention:
         for cid, r in rows.items():
             assert r["source_revision_id"] == PAPER
             assert r["source_span"] is None  # abstained
-            # chunk-module-m2: a miss keeps the stored printed_number (the
+            # A miss keeps the stored printed_number (the
             # chunker wrote it at ingest) instead of nulling it.
             assert r["printed_number"] == stored_pn[cid]
             assert r["truncated"] is not None  # fallback still populates it
@@ -867,9 +867,9 @@ class TestSpanReattempt:
     original HTML -> a HIT -> source_span resolves. Embeddings stay
     byte-identical across both runs.
 
-    Before chunk-module-m2 run 1 forced its MISS with a different preamble.
-    Under ADR rule 1 the preamble no longer reaches the id, so that would be a
-    HIT (``TestRuleOneBackfill``); a changed body is now the only way to miss."""
+    Run 1 cannot force its MISS with a different preamble: the preamble does
+    not reach the id, so that would be a HIT
+    (``TestBodyOnlyIdsThroughBackfill``); a changed body is the only way to miss."""
 
     def test_span_null_rerun_reattempts_when_ids_reproduce(self, tmp_path):
         base = tmp_path / "notebooks"
@@ -954,13 +954,13 @@ def test_v2_defaults_match_store():
 
 
 # ---------------------------------------------------------------------------
-# chunk-module-m2 — ADR rule 1 through the backfill's own re-chunk
+# Body-only ids through the backfill's own re-chunk
 # ---------------------------------------------------------------------------
 
 
-class TestRuleOneBackfill:
+class TestBodyOnlyIdsThroughBackfill:
     """The backfill reproduces ids with its own re-chunk (``_rechunk_paper``),
-    so rule 1 must hold there as well as in ``chunk_paper``: the ids are
+    so body-only ids must hold there as well as in ``chunk_paper``: the ids are
     ``arxiv:<pid>:`` + ``sha256(NFC(body))[:16]`` whether or not a preamble
     resolves, and whatever preamble a data root holds."""
 
@@ -992,7 +992,7 @@ class TestRuleOneBackfill:
         assert sorted(rr.records) == sorted(chunker_ids)
 
     def test_table_built_without_a_preamble_hits_when_one_resolves(self, tmp_path):
-        # The live case rule 1 fixes: ingest ran before a preamble was
+        # The live case body-only ids fix: ingest ran before a preamble was
         # recovered (or on another data root), the backfill runs after.
         base = tmp_path / "notebooks"
         parsed = _parsed_root(tmp_path, {PAPER: HTML})
@@ -1007,8 +1007,8 @@ class TestRuleOneBackfill:
 
 
 class TestPrintedNumberKeptOnMiss:
-    """chunk-module-m2: a chunk-id MISS used to overwrite the stored
-    ``printed_number`` with NULL. The runbook re-runs the backfill after
+    """A chunk-id MISS used to overwrite the stored
+    ``printed_number`` with NULL. The backfill is re-run after
     every cutover, so each re-run would have erased numbers the chunker
     wrote at ingest for any row the backfill's re-chunk does not reproduce
     (labeled-result and hybrid-TeX chunks, textbook rows)."""
@@ -1050,7 +1050,7 @@ class TestPrintedNumberKeptOnMiss:
 
 
 class TestStaleChunkerRefusal:
-    """chunk-module-m2: against a table another chunker version wrote, every
+    """Against a table another chunker version wrote, every
     rotated row would MISS. The backfill refuses before touching the table,
     the schema migration included."""
 
@@ -1064,7 +1064,7 @@ class TestStaleChunkerRefusal:
         table = lancedb.connect(str(_lancedb_dir(base))).open_table("chunks")
         version_before = table.version
 
-        with pytest.raises(backfill.NotebookError, match="chunk-module-m2"):
+        with pytest.raises(backfill.NotebookError, match="make notebook-cutover"):
             _run(base, parsed)
 
         table = lancedb.connect(str(_lancedb_dir(base))).open_table("chunks")
@@ -1083,4 +1083,4 @@ class TestStaleChunkerRefusal:
         )
 
         assert backfill.main([SLUG]) == 1
-        assert "re-embed-runbook" in capsys.readouterr().err
+        assert "make re-embed" in capsys.readouterr().err

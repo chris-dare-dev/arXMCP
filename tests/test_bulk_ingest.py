@@ -42,7 +42,7 @@ def derived_builds(monkeypatch) -> list:
 
 @pytest.fixture(autouse=True)
 def _default_staging_in_tmp(tmp_path, monkeypatch):
-    """chunk-module-m2: ``run_bulk_ingest`` inspects its write target before
+    """``run_bulk_ingest`` inspects its write target before
     the first write. Most tests here omit ``lancedb_staging_path``, whose
     default is the real ``var/`` staging dataset; point the default into
     ``tmp_path`` so no test reads it."""
@@ -744,7 +744,7 @@ class TestDiagnoseEmptyRender:
 
 
 # ---------------------------------------------------------------------------
-# chunk-module-m2 — never re-chunk in place across a chunker version
+# Never re-chunk in place across a chunker version
 # ---------------------------------------------------------------------------
 
 
@@ -815,7 +815,7 @@ def _never_ingest(*_args, **_kwargs):
 
 
 class TestChunkerVersionGuard:
-    """The CRITICAL from chunk-module-m2 research: once v1.3 is on main, an
+    """Once v1.3 is the chunker version, an
     in-place re-ingest of a v1.2 table (``make ingest``, notebook ingest, the
     ``/ui/`` console) would ``merge_insert`` new-id rows beside the old ones,
     because ``write_chunks`` has no delete arm."""
@@ -824,7 +824,7 @@ class TestChunkerVersionGuard:
         self, tmp_path, monkeypatch, capsys
     ):
         # A refusal is not a crash: one "error:" line, no traceback, and
-        # exit 3 rather than the failure exit 1 (chunk-module-m2 rectify).
+        # exit 3 rather than the failure exit 1.
         import ingest.bulk_ingest as bulk
         from ingest.store import STALE_CHUNKER_EXIT_CODE, StaleChunkerRowsError
 
@@ -832,7 +832,7 @@ class TestChunkerVersionGuard:
         ids.write_text("2401.00001\n", encoding="utf-8")
 
         def _refuse(*_a, **_k):
-            raise StaleChunkerRowsError("rotate it first (re-embed-runbook)")
+            raise StaleChunkerRowsError("rotate it first (make re-embed)")
 
         monkeypatch.setattr(bulk, "run_bulk_ingest", _refuse)
         code = bulk._cli([
@@ -859,7 +859,7 @@ class TestChunkerVersionGuard:
         _write(path, [_row_chunk("2401.00001", "a" * 16, "v1.2")])
         with (
             patch("ingest.bulk_ingest.ingest_one_paper", _never_ingest),
-            pytest.raises(StaleChunkerRowsError, match="re-embed-runbook") as exc,
+            pytest.raises(StaleChunkerRowsError, match="make notebook-cutover") as exc,
         ):
             run_bulk_ingest(
                 ["2401.00001"],

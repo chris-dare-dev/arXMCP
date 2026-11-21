@@ -451,7 +451,7 @@ class TestRunDelta:
         from tools import ingest_sentinel
 
         def _refuse(**_k):
-            raise StaleChunkerRowsError("rotate it first (re-embed-runbook)")
+            raise StaleChunkerRowsError("rotate it first (make re-embed)")
 
         monkeypatch.setattr(ingest_sentinel, "is_paused", lambda: None)
         monkeypatch.setattr(delta, "run_delta", _refuse)
@@ -466,7 +466,7 @@ class TestRunDelta:
         assert "Traceback" not in err
 
     def test_refuses_a_staging_table_another_chunker_wrote(self, tmp_path):
-        """chunk-module-m2: the delta loop writes its staging table in place,
+        """The delta loop writes its staging table in place,
         so it refuses one holding arXiv rows another chunker version wrote,
         before handing any record to the pipeline."""
         import lancedb
@@ -495,7 +495,7 @@ class TestRunDelta:
 
         with (
             patch("ingest.oai_delta.ingest_one_paper", _never),
-            pytest.raises(StaleChunkerRowsError, match="chunk-module-m2"),
+            pytest.raises(StaleChunkerRowsError, match="make notebook-cutover"),
         ):
             run_delta(
                 sets=("math:math:AG",),

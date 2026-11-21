@@ -428,11 +428,11 @@ def test_ingest_fails_when_notebook_dir_missing(notebooks_base: Path) -> None:
 def test_ingest_refuses_a_table_another_chunker_wrote(
     notebooks_base: Path, monkeypatch: pytest.MonkeyPatch, capsys
 ) -> None:
-    """chunk-module-m2: the /ui/ console and `tools/notebook_ingest.py` write
+    """The /ui/ console and `tools/notebook_ingest.py` write
     the notebook's ACTIVE lancedb in place. Against a table holding v1.2
     arXiv rows that would double every preamble-bearing chunk, so the run
-    is refused (exit 3, distinct from a failure's 1) with a pointer to the
-    rotation runbook and writes nothing."""
+    is refused (exit 3, distinct from a failure's 1) with the rotation
+    commands and writes nothing."""
     import lancedb
     import pyarrow as pa
 
@@ -455,7 +455,7 @@ def test_ingest_refuses_a_table_another_chunker_wrote(
 
     assert notebook_ingest.main(["demo"]) == 3
     err = capsys.readouterr().err
-    assert "re-embed-runbook" in err and "v1.2" in err
+    assert "make notebook-cutover" in err and "v1.2" in err
     table = lancedb.connect(str(nb / "lancedb")).open_table("chunks")
     assert table.count_rows() == 1
 

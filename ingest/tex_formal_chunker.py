@@ -94,8 +94,8 @@ def chunk_tex_formals(paper_id: str) -> list[ChunkRecord]:
         for part_index, (window, local_start, local_end) in enumerate(windows, 1):
             # Repeated short proofs are distinct source events. Include the
             # TeX offset in the identity so dedup cannot erase either one.
-            # This is a position value, not the preamble, so ADR rule 1
-            # leaves these ids unchanged (chunk-module-m2).
+            # This is a position value, not the preamble, so dropping the
+            # preamble from arXiv ids left these ids unchanged.
             chunk_id = _compute_chunk_id(
                 paper_id, window, position=f"tex-offset:{begin.end() + local_start}"
             )

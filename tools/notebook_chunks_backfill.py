@@ -40,7 +40,7 @@ registry) gets ``source_span=null``, counted AND listed by reason code in a
 per-notebook report, never a best-guess anchor and never a silent null. Its
 ``printed_number`` keeps whatever the row already stored (the chunker wrote it
 at ingest): a miss means this run could not recompute it, not that it is
-wrong, so overwriting it with null would destroy data (chunk-module-m2). A
+wrong, so overwriting it with null would destroy data. A
 miss on a row with no stored value stays null. ``truncated`` is the
 one column with no null path: exact on a chunk-id hit, else a safe-direction
 token recount (``kind="proof"`` is always False; every other kind is
@@ -66,12 +66,13 @@ debug hint, never a resolution key — spike-3) is emitted as ``""`` because a
 NFC-normalized-body-text hash) are populated fully. Threading the element id
 through the chunker is a tracked follow-up, out of m2's 5-column scope.
 
-**Chunker version (chunk-module-m2).** The backfill reproduces chunk ids with
+**Chunker version.** The backfill reproduces chunk ids with
 THIS code's chunker, so against a table whose arXiv rows another chunker
 version wrote it would miss on every rotated row. It refuses such a table
 outright (``_refuse_stale_chunker_rows``); rotate the table through staging and
-cutover first (``docs/ops/re-embed-runbook.md``, "One-time id rotation"), then
-run the backfill.
+cutover first (with the server stopped: ``make re-embed
+ARGS="--notebook=<slug>"``, then ``make notebook-cutover
+ARGS="--notebook=<slug> --force"``), then run the backfill.
 
 **SAFETY — never run against a live corpus table without owner OK.** Build and
 smoke-test only against a COPY of a notebook's ``lancedb`` dir (and its
@@ -147,7 +148,7 @@ logger = logging.getLogger("notebook_chunks_backfill")
 # The LanceDB chunks table name. Literalized here (rather than imported from
 # ``ingest.schema``) so this driver's import lines stay limited to the chunk
 # module, the chunker and the tokenizer — the STRUCTURAL 0-re-embed guarantee
-# that ``TestZeroReEmbed`` checks. Since chunk-module-m1 the only ``ingest``
+# that ``TestZeroReEmbed`` checks. The only ``ingest``
 # module ``ingest.schema`` imports is ``ingest.chunk`` (not the embedder), so
 # importing the name from there would also be safe. The name is stable; a
 # rename is a one-line change.
@@ -313,7 +314,7 @@ def _rechunk_paper(
 
     ``resolve_preamble`` is a test seam defaulting (in ``run``) to
     ``ingest.chunker._resolve_preamble_doc`` — the exact function the real
-    chunker uses. It only stamps ``preamble_ref``: under ADR rule 1 the
+    chunker uses. It only stamps ``preamble_ref``: an arXiv
     chunk id is ``sha256(NFC(body_text))``, so whether a preamble resolves
     (and from which data root) cannot change which ids reproduce.
     """
@@ -520,7 +521,7 @@ def _print_report(report: _NotebookReport) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Chunker-version refusal (chunk-module-m2)
+# Chunker-version refusal
 # ---------------------------------------------------------------------------
 
 
@@ -531,7 +532,7 @@ def _refuse_stale_chunker_rows(
 
     The backfill keys every patch on reproducing the stored ``chunk_id`` with
     THIS code's chunker. Rows written by another ``CHUNKER_VERSION`` (v1.2
-    rows carry preamble-hashed ids, ADR rule 1) would all miss, so the run
+    rows carry preamble-hashed ids) would all miss, so the run
     would abstain on each of them. Textbook rows carry their own chunker
     versions and are not checked. Same rule as
     ``ingest.store.refuse_stale_chunker_rows``, applied to the rows this
@@ -550,8 +551,13 @@ def _refuse_stale_chunker_rows(
             f"chunked by chunker_version {versions} but this code is "
             f"{CHUNKER_VERSION!r}, so the backfill would reproduce none of "
             "their chunk ids. Rotate the table through staging and cutover "
-            "first (docs/ops/re-embed-runbook.md, 'One-time id rotation "
-            "(chunk-module-m2)'), then re-run the backfill."
+            "first, with the server stopped: "
+            f"make re-embed ARGS=\"--notebook={slug} --dry-run\" (check "
+            "each paper's copy/reembed/drop counts), then "
+            f"make re-embed ARGS=\"--notebook={slug}\", then "
+            f"make notebook-cutover ARGS=\"--notebook={slug} --force\" "
+            "(--force because a fresh staging table restarts its version "
+            "count). Then re-run the backfill."
         )
 
 
@@ -679,7 +685,7 @@ def _patch_notebook(
             # printed_number — from the fresh record on a hit. On a miss this
             # run cannot recompute it, so the stored value (written by the
             # chunker at ingest) stands; nulling it would destroy data the
-            # re-chunk merely failed to reproduce (chunk-module-m2).
+            # re-chunk merely failed to reproduce.
             if hit:
                 printed_number = rr.records[cid].printed_number
             else:

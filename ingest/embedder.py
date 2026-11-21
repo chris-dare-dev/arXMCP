@@ -37,8 +37,8 @@ also writes a sidecar
 ``var/arxmcp/corpus/embeddings/<paper_id>/embeddings_manifest.json``
 recording ``{chunker_version, embed_input_policy_version,
 embedded_chunks, embedder_version, paper_id}``; each ``embedded_chunks``
-entry carries the chunk's reuse identity (ADR rule 3: the sidecar has no
-chunk bodies, so the identity is stored). On re-run, the embedder loads
+entry carries the chunk's reuse identity (the sidecar has no chunk
+bodies, so the identity is stored). On re-run, the embedder loads
 the paper's chunks, computes their reuse identities and skips the paper
 iff:
 
@@ -47,7 +47,7 @@ iff:
   3. ``sidecar.embedder_version == EMBEDDER_VERSION`` and the sidecar's
      policy is the current one, AND
   4. every current chunk has a sidecar entry with its ``chunk_id`` (the
-     NPZ is keyed by it) AND its reuse identity (ADR rule 2).
+     NPZ is keyed by it) AND its reuse identity.
 
 If any condition fails, the entire paper is re-encoded (NPZ rewrite
 is atomic via tmp + ``os.replace``; ``np.savez`` does not support
@@ -78,7 +78,7 @@ import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 
-# E03_S02: alias rather than redefine. ``CHUNKER_VERSION`` lives in
+# Alias rather than redefine. ``CHUNKER_VERSION`` lives in
 # ``ingest.chunk`` as the SINGLE source of truth (locked by
 # ``tests/test_chunker_ids.py::TestSingleVersionDefinition``). Defining
 # ``EXPECTED_CHUNKER_VERSION`` as a fresh string literal here would
@@ -144,7 +144,7 @@ BGE_M3_COMMIT_SHA = "5617a9f61b028005a4858fdac845db406aefb181"
 # ``chunker_version`` (single source of truth in ``ingest.chunk``). It names
 # the model weights only: a change to pooling, normalisation or tokenizer
 # arguments in ``_encode_batch`` must bump it (or the embedding input
-# policy), because reuse matches on it (ADR rule 2).
+# policy), because reuse matches on it.
 EMBEDDER_VERSION = f"bge-m3@{BGE_M3_COMMIT_SHA[:8]}"
 
 # Maximum number of tokens BGE-M3 attends to. The chunker already enforces
@@ -580,8 +580,8 @@ def _write_embeddings_manifest(
 
     ``reuse_identity`` is :func:`ingest.chunk.reuse_identity` of the
     entry's chunk under this sidecar's embedder version and policy. The
-    sidecar holds no chunk bodies, so ADR rule 3 stores the identity here
-    instead of recomputing it.
+    sidecar holds no chunk bodies, so the identity is stored here
+    instead of recomputed.
 
     The ``embedded_chunks`` list is written in document order (the same
     order as ``chunk_manifest.json``) so BP1 byte-stability holds: two
@@ -654,12 +654,11 @@ def _paper_is_up_to_date(paper_id: str, current: dict[str, str]) -> bool:
        AND
     5. every current chunk has a sidecar entry with the same ``chunk_id``
        (the NPZ is keyed by it) whose ``reuse_identity`` equals the
-       chunk's current identity (ADR rule 2: same embedding input,
-       embedder version, policy and route). An entry without a
-       ``reuse_identity`` — every sidecar written before chunk-module-m1 —
-       never matches, so such a paper is re-embedded once. Orphan entries
-       (chunks no longer current) are tolerated; orphan vectors are GC'd
-       by E04_S02 (F7).
+       chunk's current identity (same embedding input, embedder
+       version, policy and route). An entry without a
+       ``reuse_identity`` (an older sidecar) never matches, so such a
+       paper is re-embedded once. Orphan entries (chunks no longer
+       current) are tolerated.
 
     Any failure of any condition triggers re-embed.
 
@@ -667,7 +666,7 @@ def _paper_is_up_to_date(paper_id: str, current: dict[str, str]) -> bool:
     here as defense-in-depth, even though every public caller already
     validates.
 
-    Closes F9: a malformed sidecar (a non-list ``embedded_chunks``, an
+    A malformed sidecar (a non-list ``embedded_chunks``, an
     entry that is not a dict or has no string ``chunk_id``) is not up to
     date, so the paper gets a clean re-embed that regenerates it.
     """
@@ -870,9 +869,9 @@ def _embed_paper_impl(paper_id: str, batch_size: int) -> EmbedStats:
     start = time.monotonic()
 
     # The skip pre-flight needs each current chunk's reuse identity, which
-    # hashes its embedding input, so it reads the chunk bodies. (E03_S02 F3
-    # once skipped on the manifest + sidecar alone; that compared chunk ids,
-    # which ADR rule 2 forbids as a reuse key.) A missing manifest is the
+    # hashes its embedding input, so it reads the chunk bodies. (Skipping
+    # on the manifest + sidecar alone would compare chunk ids, and a chunk
+    # id is not a reuse key.) A missing manifest is the
     # routine "chunker has not run yet" wait-state and returns no chunks.
     chunks = _load_chunks(paper_id)
     if not chunks:
@@ -993,7 +992,7 @@ def _embed_paper_impl(paper_id: str, batch_size: int) -> EmbedStats:
     # and re-embeds (also the migration path from pre-E03_S02 NPZs).
     # ``embedded_chunks`` is in document order (matches manifest order)
     # so BP1 byte-stability holds across hosts. Each entry carries the
-    # chunk's kind and its reuse identity (ADR rule 3), which the next
+    # chunk's kind and its reuse identity, which the next
     # run's skip check compares against.
     sidecar_path = EMBEDDINGS_DIR / paper_id / EMBEDDINGS_MANIFEST_NAME
     embedded_chunks = [

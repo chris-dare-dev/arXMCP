@@ -33,8 +33,8 @@ Determinism (BP1)
 *Output bytes are reproducible.*  Dict keys are sorted before JSON
 serialisation (see :meth:`~ingest.chunk.ChunkRecord.to_dict`).
 No timestamps, no random content. Chunk IDs are content-addressable
-``arxiv:<paper_id>:<sha256(NFC(body_text))[:16]>`` (E02_S04; the
-preamble left the hash in chunk-module-m2, ADR rule 1). The hash input
+``arxiv:<paper_id>:<sha256(NFC(body_text))[:16]>`` (the body only; the
+paper preamble is not hashed). The hash input
 uses the NFC-normalised
 ``body_text`` so the chunk_id is stable across hosts even when the
 HTML parser emits NFD bytes; the stored ``chunk.body_text`` is left
@@ -844,7 +844,7 @@ def _extract_chunks_from_container(
         # ----------------------------------------------------------------
         kind = _env_kind(env_name)
         # Enforce stmt budget. Closes F5: surface truncation via the
-        # Windows retain every source character. Closes F6:
+        # Windows retain every source character; to do that,
         # use character-offset slicing, not encode/decode round-trip.
         stmt_windows = _window_text_spans(stmt_text, STMT_MAX_TOKENS)
         for part_index, (window, source_start, source_end) in enumerate(stmt_windows, 1):
@@ -1379,12 +1379,11 @@ def _chunk_paper_impl(paper_id: str) -> list[ChunkRecord]:
     if not all_chunks:
         all_chunks = _extract_body_fallback_chunks(root, paper_id, counter)
 
-    # E02_S02 wire-in: resolve the per-paper preamble to stamp
-    # ``preamble_ref`` (its hash). The preamble no longer reaches the
-    # chunk id (ADR rule 1, chunk-module-m2) nor the embedding input
-    # (``body-first-v1``). When extraction fails, ``preamble_doc`` is None
-    # and the chunker remains functional (F3 graceful degradation); the
-    # ids are the same either way.
+    # Resolve the per-paper preamble to stamp ``preamble_ref`` (its
+    # hash). The preamble reaches neither the chunk id nor the embedding
+    # input (``body-first-v1``). When extraction fails, ``preamble_doc``
+    # is None and the chunker still emits every chunk; the ids are the
+    # same either way.
     preamble_doc = _resolve_preamble_doc(paper_id)
     if preamble_doc is not None:
         for chunk in all_chunks:
@@ -1399,8 +1398,8 @@ def _chunk_paper_impl(paper_id: str) -> list[ChunkRecord]:
 
     # E02_S04 wire-in: replace the monotonic ``arxiv:<paper_id>:idx<N>``
     # placeholder with the content-addressable
-    # ``arxiv:<paper_id>:<sha256(NFC(body_text))[:16]>`` (ADR rule 1: the
-    # body only, no position value). TeX proofs merged in above for the
+    # ``arxiv:<paper_id>:<sha256(NFC(body_text))[:16]>`` (the body only,
+    # no position value). TeX proofs merged in above for the
     # hybrid papers lose their ``tex-offset`` ids here and take the same
     # body-only id; only a TeX-chunker-owned paper (the early return at the
     # top of this function) keeps its position value. See
@@ -1486,7 +1485,7 @@ def _resolve_preamble_doc(paper_id: str):
 
     Returns the full ``PreambleDoc``; the chunker reads its
     ``preamble_hash`` for the chunk's ``preamble_ref`` field. The
-    preamble does not reach the chunk id (ADR rule 1).
+    preamble does not reach the chunk id.
     """
     from ingest.preamble import (
         PER_PAPER_FAILURE_EXCEPTIONS as PREAMBLE_FAILURES,

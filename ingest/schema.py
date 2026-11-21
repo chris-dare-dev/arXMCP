@@ -1,8 +1,8 @@
-"""LanceDB table names, storage options and schemas (E04_S01).
+"""LanceDB table names, storage options and schemas.
 
 The ``chunks`` table schema, :data:`CHUNKS_SCHEMA_V1`, is declared in
-:mod:`ingest.chunk` with the rest of the chunk's facts (chunk-module-m1)
-and re-exported here, so readers that import it from this module (the
+:mod:`ingest.chunk` with the rest of the chunk's facts and re-exported
+here, so readers that import it from this module (the
 store, the MCP server, the eval harness) keep working and nothing
 re-declares a schema inline. This module keeps the table names
 (:data:`CHUNKS_TABLE_NAME` is defined only here), the Lance storage
@@ -96,8 +96,9 @@ EQUATIONS_TABLE_NAME = "equations"
 
 # ``EMBEDDING_COLUMN_NAMES`` (the two dual-encoding vector columns, stmt
 # first, proof second) is a chunk fact declared in ``ingest.chunk`` next
-# to ``CHUNKS_SCHEMA_V1`` and re-exported here for the E05_S02 readers
-# (F3). Its order mirrors the ``EmbedRecord`` field ordering.
+# to ``CHUNKS_SCHEMA_V1`` and re-exported here for readers that import
+# it from this module. Its order mirrors the ``EmbedRecord`` field
+# ordering.
 
 
 # ---------------------------------------------------------------------------

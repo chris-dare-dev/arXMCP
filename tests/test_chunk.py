@@ -1,9 +1,8 @@
-"""Interface tests for ``ingest.chunk`` (chunk-module-m1).
+"""Interface tests for ``ingest.chunk``.
 
 Everything here goes through the module's interface: the record and its
 row mapping, chunk ids, the route, the embedding input and the reuse
-identity (ADR ``.claude/docs/adr-chunk-identity-and-reuse.md`` rules 2
-and 3). ``TestLanceDBRoundTrip`` takes records through a real temporary
+identity. ``TestLanceDBRoundTrip`` takes records through a real temporary
 LanceDB table and back.
 """
 
@@ -124,7 +123,7 @@ class TestImportBoundary:
 
 class TestChunkIds:
     def test_arxiv_id_hashes_the_nfc_body_only(self):
-        # ADR rule 1 (chunk-module-m2): no preamble, no separator.
+        # The body only: no preamble, no separator.
         body = "Let étale X be a scheme."  # NFD é
         expected = hashlib.sha256(
             unicodedata.normalize("NFC", body).encode("utf-8")
@@ -182,7 +181,7 @@ class TestRouteAndInput:
 
 
 # ---------------------------------------------------------------------------
-# Reuse identity (ADR rules 2 and 3)
+# Reuse identity
 # ---------------------------------------------------------------------------
 
 
@@ -231,7 +230,7 @@ class TestReuseIdentity:
     def test_stored_vector_reads_the_route_column_only(self):
         proof = _row(_record(kind="proof"), seed=3)
         assert stored_vector(proof) == _vector(3).tolist()
-        # The 7b160a0 shape: a proof row whose vector sits in the
+        # The wrong-route shape: a proof row whose vector sits in the
         # statement column has no vector on its own route.
         proof["embedding_stmt"], proof["embedding_proof"] = proof["embedding_proof"], None
         assert stored_vector(proof) is None

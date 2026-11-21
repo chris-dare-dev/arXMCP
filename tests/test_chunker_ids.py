@@ -16,13 +16,13 @@ Regression guards from Phase 3 critique:
 Coverage map (acceptance criteria → test):
 
 * ``chunk_id`` matches ``arxiv:<paper_id>:<sha256(NFC(body_text))[:16]>``
-  (ADR rule 1, chunk-module-m2) → ``TestChunkIDFormat``
+  (the body only) → ``TestChunkIDFormat``
 * Re-running chunker on an unchanged paper produces byte-identical chunk_ids
   → ``TestChunkIDDeterminism::test_two_runs_same_paper_identical_ids``
 * Modifying ``body_text`` produces a different chunk_id
   → ``TestChunkIDDeterminism::test_body_mutation_changes_chunk_id``
 * The preamble, whether it resolved, and the data root do not change an id
-  → ``TestRuleOneBodyOnly``; a TeX position value does
+  → ``TestIdHashesBodyOnly``; a TeX position value does
   → ``TestChunkIDDeterminism::test_position_value_changes_chunk_id``
 * ``chunker_version: CHUNKER_VERSION`` on every chunk; defined as a single constant
   → ``TestChunkerVersionConstant``
@@ -116,7 +116,7 @@ class TestChunkIDFormat:
         assert a == b
 
     def test_compute_chunk_id_uses_documented_formula(self):
-        # Spec (ADR rule 1): chunk_id = arxiv:<paper_id>:<sha256(NFC(body))[:16]>
+        # Spec: chunk_id = arxiv:<paper_id>:<sha256(NFC(body))[:16]>
         paper_id = "2307.00001"
         body = "Theorem text"
         expected_digest = hashlib.sha256(
@@ -212,7 +212,7 @@ class TestChunkIDDeterminism:
 
 
 # ===========================================================================
-# TestRuleOneBodyOnly — ADR rule 1 (chunk-module-m2)
+# TestIdHashesBodyOnly — an arXiv id hashes the body only
 # ===========================================================================
 
 
@@ -238,7 +238,7 @@ def _run_with_preamble(tmp_path: Path, paper_id: str, doc):
         return chunk_paper(paper_id)
 
 
-class TestRuleOneBodyOnly:
+class TestIdHashesBodyOnly:
     """An arXiv id is ``arxiv:<pid>:`` + ``sha256(NFC(body))[:16]``.
 
     The golden fixtures cannot prove this: they are generated with the
@@ -334,12 +334,12 @@ def _tex_chunks(tmp_path: Path, monkeypatch, paper_id: str = "1309.5035"):
 
 
 class TestTexPositionValue:
-    """ADR rule 1 clarification (chunk-module-m2): a TeX-chunker-owned paper
+    """A TeX-chunker-owned paper
     keeps ``tex-offset:<n>`` in its id hash, because the same short proof
     recurs at different places in one source and both copies are kept."""
 
     #: The first "Clear." proof's id (offset 122). Computed with BOTH the
-    #: v1.2 function at 2b05e7a (``_compute_chunk_id(pid, "tex-offset:122",
+    #: v1.2 function (``_compute_chunk_id(pid, "tex-offset:122",
     #: "Clear.")``) and the v1.3 one, which agree. Pinned so a change to
     #: either the id function or the TeX chunker's position value fails here.
     PINNED_FIRST_PROOF_ID = "arxiv:1309.5035:2c5e961813f0a6a9"
@@ -644,7 +644,7 @@ class TestF1FailureLeavesEmptyDir:
 
 
 class TestF2DuplicateContentDeduped:
-    """F2 (MEDIUM): two chunks with byte-identical body_text must de-dupe
+    """Two chunks with byte-identical body_text must de-dupe
     to one chunk, NOT raise the whole paper out via the
     PER_PAPER_FAILURE_EXCEPTIONS envelope."""
 

@@ -1151,7 +1151,7 @@ class TestB2BudgetBumpTakesEffect:
     actually rotates chunk_ids of previously-truncated chunks.
 
     The chunk_id is body-content-addressable
-    (``sha256(NFC(body_text))[:16]`` since chunk-module-m2) — it is NOT
+    (``sha256(NFC(body_text))[:16]``, the body only) — it is NOT
     version-keyed. The post-bump test must therefore prove that a
     body whose token count is between the old budget (512) and the
     new budget (2048) now flows through unclipped, and its chunk_id

@@ -90,7 +90,7 @@ import pyarrow as pa
 
 # ALLOWED_KINDS is re-exported (``__all__``): server/handlers/search.py
 # derives its proof-route ``excluded_kinds`` from ``ingest.store.ALLOWED_KINDS``
-# (retrieval-unlocks-m2). The write-time checks themselves are ingest.chunk's.
+# so the two cannot drift. The write-time checks themselves are ingest.chunk's.
 from ingest.chunk import (
     ALLOWED_KINDS,
     CHUNKER_VERSION,
@@ -431,7 +431,7 @@ def _build_arrow_table(
     The list a chunk's vector is found in must be the chunk's own route
     (:func:`ingest.chunk.route`): a proof chunk whose vector sits in the
     statement list raises instead of being stored with the wrong column
-    filled (the 7b160a0 bug class). The per-record checks and the row
+    filled. The per-record checks and the row
     shape are :func:`ingest.chunk.to_row` / :func:`ingest.chunk.to_arrow_table`.
     """
     if not chunks:
@@ -712,7 +712,7 @@ def write_corpus_version_marker(
 
 
 # ---------------------------------------------------------------------------
-# In-place write guard (chunk-module-m2)
+# In-place write guard
 # ---------------------------------------------------------------------------
 
 
@@ -723,8 +723,9 @@ class StaleChunkerRowsError(RuntimeError):
 #: Exit code the ingest CLIs (``ingest.bulk_ingest``, ``ingest.oai_delta``,
 #: ``tools/notebook_ingest.py``) return when they refuse a target with
 #: :class:`StaleChunkerRowsError`. A refusal is a state the operator must act
-#: on (rotate the table, ``docs/ops/re-embed-runbook.md``), not a fault, so it
-#: does not share exit 1 with a failed paper; 2 is argparse's usage error.
+#: on (rotate the table through staging and a cutover; the error message
+#: names the commands), not a fault, so it does not share exit 1 with a
+#: failed paper; 2 is argparse's usage error.
 STALE_CHUNKER_EXIT_CODE = 3
 
 
@@ -736,7 +737,7 @@ def refuse_stale_chunker_rows(
     :func:`write_chunks` upserts by ``chunk_id`` and its ``merge_insert``
     has no delete arm, so re-chunking a paper in place leaves every row
     whose id changed beside its replacement. A chunker version bump can
-    change ids (v1.3 dropped the preamble from arXiv ids, ADR rule 1) or
+    change ids (v1.3 dropped the preamble from arXiv ids) or
     bodies, so a table whose arXiv rows another version wrote must be
     re-chunked through a fresh staging table and a cutover, never written
     in place. This runs once per run, before the first write, from the
@@ -776,9 +777,15 @@ def refuse_stale_chunker_rows(
         f"chunked by another chunker_version (seen: {found}), and this code "
         f"is {chunker_version!r}. Writing in place would leave each re-chunked "
         "row beside its replacement (merge_insert has no delete arm). "
-        "Re-chunk through a fresh staging table and a cutover instead: "
-        "docs/ops/re-embed-runbook.md, 'One-time id rotation "
-        "(chunk-module-m2)'."
+        "Re-chunk through a fresh staging table and a cutover instead, "
+        "with the server stopped. For a notebook: "
+        "make re-embed ARGS=\"--notebook=<slug> --dry-run\" (check each "
+        "paper's copy/reembed/drop counts), then "
+        "make re-embed ARGS=\"--notebook=<slug>\", then "
+        "make notebook-cutover ARGS=\"--notebook=<slug> --force\" "
+        "(--force because a fresh staging table restarts its version "
+        "count). For the shared corpus: make re-embed, make watchdog, "
+        "then make cutover."
     )
 
 

@@ -358,12 +358,12 @@ re-embed:
 	@# re-chunks every paper with the current chunker_version, copies
 	@# the stored vector of every new chunk whose reuse identity
 	@# (embedding input, embedder version, policy, route) matches a
-	@# stored row (chunk-module-m1; the chunk id plays no part), and
+	@# stored row (the chunk id plays no part), and
 	@# re-runs the embedder only for the rest. Writes to the staging
 	@# LanceDB; active corpus-version.json is NEVER advanced (that
-	@# is E11_S05's atomic cutover). ARGS="--notebook=<slug>" re-embeds
-	@# one notebook (its lancedb -> its lancedb-staging); the one-time
-	@# chunk-module-m2 id rotation runs this way.
+	@# is the cutover's job). ARGS="--notebook=<slug>" re-embeds
+	@# one notebook (its lancedb -> its lancedb-staging); a chunk-id
+	@# rotation runs this way, one notebook at a time.
 	@#
 	@# NOTE on ARGS: paths inside ARGS must not contain spaces —
 	@# Make's shell expansion splits at whitespace before argparse
@@ -383,8 +383,8 @@ ingest-recover-preambles:
 	@#
 	@# ARXMCP_CONTACT_EMAIL is optional contact information for the User-Agent.
 	@#
-	@# Recovering a preamble changes no chunk id (since chunk-module-m2
-	@# an arXiv id hashes the body only) and no vector (body-first-v1
+	@# Recovering a preamble changes no chunk id (an arXiv id
+	@# hashes the body only) and no vector (body-first-v1
 	@# never embeds the preamble); it only fills preamble_ref.
 	@#
 	@# NOTE on ARGS: paths inside ARGS must not contain spaces. Use
@@ -403,15 +403,16 @@ re-embed-all:
 	@# Discovers every LanceDB dataset under var/arxmcp/notebooks/
 	@# (plus the shared corpus if non-empty) and invokes the single-
 	@# path re_embed driver against each, for token-budget or embedder
-	@# changes that mandate corpus-wide rebuilds (embedder-truncation-m1:
-	@# expect a multi-hour run for >10K chunks when vectors change).
-	@# Since chunk-module-m1 reuse is by identity, so a chunker bump that
-	@# changes no body only copies vectors. For the one-time
-	@# chunk-module-m2 id rotation use `make re-embed
-	@# ARGS="--notebook=<slug>"` one notebook at a time, per
-	@# docs/ops/re-embed-runbook.md, not this target: ARGS="--dry-run"
-	@# here only lists datasets and cannot run that procedure's
-	@# per-paper reembed=0 check. ARGS forwards to the driver.
+	@# changes that mandate corpus-wide rebuilds (expect a multi-hour
+	@# run for >10K chunks when vectors change). Reuse is by
+	@# identity, so a chunker bump that changes no body only copies
+	@# vectors. Not for a chunk-id rotation: ARGS="--dry-run" here
+	@# only lists datasets and cannot show the per-paper reembed=0
+	@# check. Rotate one notebook at a time with its server stopped:
+	@# make re-embed ARGS="--notebook=<slug> --dry-run" (expect
+	@# reembed=0 on every paper), make re-embed ARGS="--notebook=<slug>",
+	@# then make notebook-cutover ARGS="--notebook=<slug> --force".
+	@# ARGS forwards to the driver.
 	@#
 	@# NOTE on ARGS: paths inside ARGS must not contain spaces —
 	@# Make's shell expansion splits at whitespace before argparse
@@ -473,10 +474,13 @@ notebook-cutover:
 	@#
 	@# STOP the server before a cutover and START it after. An open
 	@# table does not serve the old data across the swap: its reads
-	@# fail (lancedb 0.30.2, Linux; chunk-module-m2). The cutover
+	@# fail (lancedb 0.30.2, Linux). The cutover
 	@# deletes the notebook's Tier-1 cache and every bm25/v<N> dir,
-	@# since a fresh staging restarts version numbering. Operator
-	@# workflow: see docs/ops/re-embed-runbook.md.
+	@# since a fresh staging restarts version numbering. For staging
+	@# built by `make re-embed ARGS="--notebook=<slug>"`, the cutover
+	@# refuses on staging version <= active; check that staging's
+	@# re-embed-progress.json reports complete with papers_failed_count
+	@# 0, then re-run with ARGS="--notebook=<slug> --force".
 	@#
 	@# NOTE on ARGS: paths inside ARGS must not contain spaces — Make's
 	@# shell expansion splits at whitespace before argparse sees them.

@@ -665,7 +665,7 @@ def _write_sidecar(
 ) -> None:
     paper_dir.mkdir(parents=True)
     if npz:
-        # Closes F1: the helper requires the NPZ to exist alongside the
+        # The helper requires the NPZ to exist alongside the
         # sidecar; a stub file is enough for the helper.
         (paper_dir / "embeddings.npz").write_bytes(b"")
     (paper_dir / EMBEDDINGS_MANIFEST_NAME).write_text(
@@ -733,8 +733,8 @@ class TestPaperUpToDateHelper:
             )
 
     def test_entry_without_reuse_identity_forces_reembed(self, tmp_path):
-        # Every sidecar written before chunk-module-m1 has bare
-        # {chunk_id, kind} entries; it is never a source of reuse.
+        # An older sidecar has bare {chunk_id, kind} entries; it is never
+        # a source of reuse.
         _write_sidecar(
             tmp_path / "2307.00173", [{"chunk_id": self.A, "kind": "stmt"}]
         )
@@ -758,7 +758,7 @@ class TestPaperUpToDateHelper:
             )
 
     def test_returns_false_on_malformed_sidecar_entry(self, tmp_path):
-        # Closes F9: an entry that is a dict missing chunk_id must force
+        # An entry that is a dict missing chunk_id must force
         # a re-embed.
         _write_sidecar(tmp_path / "2307.00173", [{"kind": "stmt"}])
         with patch("ingest.embedder.EMBEDDINGS_DIR", tmp_path):
@@ -767,9 +767,8 @@ class TestPaperUpToDateHelper:
             )
 
     def test_orphan_chunks_in_sidecar_do_not_block_skip(self, tmp_path):
-        # Closes F7: a sidecar with MORE chunks than the paper now has is
-        # still up to date for the current chunks; orphan vectors are
-        # GC'd by E04_S02.
+        # A sidecar with MORE chunks than the paper now has is still up
+        # to date for the current chunks; the orphan entries are ignored.
         _write_sidecar(
             tmp_path / "2307.00173",
             [
@@ -791,7 +790,7 @@ class TestPaperUpToDateHelper:
 
 
 class TestReuseIdentitySkip:
-    """ADR rules 2 and 3 at the embedder: the sidecar stores each chunk's
+    """Reuse by identity at the embedder: the sidecar stores each chunk's
     reuse identity, and a paper is skipped only when every current chunk's
     identity matches. A chunk id match alone never reuses a vector."""
 
@@ -840,7 +839,7 @@ class TestReuseIdentitySkip:
         assert model.call_count == 0
 
     def test_same_chunk_id_on_other_route_is_reembedded(self, tmp_path):
-        # The 7b160a0 case: the chunk id does not hash the kind, so a
+        # The wrong-route case: the chunk id does not hash the kind, so a
         # re-chunk can return the same id on the proof route.
         paper_id = "2307.00192"
         _stage_chunk_dir(

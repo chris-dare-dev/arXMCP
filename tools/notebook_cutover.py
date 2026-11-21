@@ -20,7 +20,7 @@ that comparison. Run the measurement first, then::
 the notebook's active ``lancedb`` directly. So this cutover DOES change what is
 served. **Stop the server before a cutover and start it after.** A reader
 holding an open table across the swap does not keep serving the old data:
-measured on Linux with lancedb 0.30.2 (chunk-module-m2 research), its cached
+measured on Linux with lancedb 0.30.2, its cached
 row count and version go stale while ``to_arrow()`` and vector search raise
 ``Object ... not found``, because the old dataset's files moved with it.
 Windows was not measured.
@@ -221,13 +221,15 @@ def perform_cutover(
     - if a re-embed progress sentinel exists, it must report ``complete``
       with zero failed papers.
     - staging ``corpus_version`` ≤ active version → refuse unless ``force``
-      (AC3 downgrade guard). Version integers count commits within one
+      (the downgrade guard). Version integers count commits within one
       dataset, and ``ingest.re_embed`` builds staging as a NEW dataset, so its
       version restarts and is usually LOWER than a long-lived active's: the
       guard does not detect a downgrade, it flags a comparison between two
       counters. A re-embed or id rotation into a fresh staging (the supported
-      path, chunk-module-m2) therefore needs ``--force``; check the staged
-      re-embed sentinel and row counts first (``docs/ops/re-embed-runbook.md``).
+      path) therefore needs ``--force``; check first that the staged
+      ``re-embed-progress.json`` reports ``complete`` with
+      ``papers_failed_count: 0`` and that each paper's staged row count equals
+      the active one.
     - first-ingest case (no active dir): promote staging with NO backup.
 
     Then perform the two-rename swap with an EXDEV guard +
@@ -270,7 +272,7 @@ def perform_cutover(
         # A missing/corrupt active marker is treated as version -1 so any
         # healthy staging promotes over it (it is effectively a recovery).
         active_version = active_info.version if active_info is not None else -1
-        # F3: the two integers count commits in two DIFFERENT datasets, so
+        # The two integers count commits in two DIFFERENT datasets, so
         # "<=" is a prompt to check, not proof of a downgrade (see the
         # docstring). A corrupt active marker → -1, so any healthy staging
         # (>= 1) promotes (recovery).
@@ -312,7 +314,7 @@ def perform_cutover(
             ) from exc
         backup_name = backup.name
 
-    # chunk-module-m2: the swap has COMMITTED. Drop the caches keyed by a bare
+    # The swap has COMMITTED. Drop the caches keyed by a bare
     # version integer; a stale one would serve another dataset's chunk ids
     # (Tier-1) or block startup (BM25). A failure here is NOT swallowed: the
     # promotion stands, but the operator must clear the named paths before
@@ -391,7 +393,7 @@ def perform_rollback(slug: str, *, base: Path | None = None) -> dict:
         raise CutoverError(
             f"notebook {slug!r}: rollback failed at step 2 ({exc}); restored"
         ) from exc
-    # chunk-module-m2: a rollback is a swap too. While the demoted dataset
+    # A rollback is a swap too. While the demoted dataset
     # was active, its caches were written under ITS versions, which can equal
     # the restored dataset's after a forced cutover.
     try:
@@ -435,8 +437,7 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--force", action="store_true",
         help="promote even though staging version <= active (expected for a "
-             "staging re-embedded from scratch, e.g. the chunk-module-m2 id "
-             "rotation)",
+             "staging re-embedded from scratch, e.g. a chunk-id rotation)",
     )
     return p
 

@@ -22,7 +22,7 @@ Acceptance criteria → test:
 - F5 single-level back  → test_rollback_is_single_level
 - F6 backup collision   → test_backup_name_collision_refused
 - F8 discover skips bare→ test_discover_skips_staging_without_marker
-- chunk-module-m2       → test_cutover_drops_caches_keyed_by_the_promoted_version /
+- version-keyed caches  → test_cutover_drops_caches_keyed_by_the_promoted_version /
                           test_rollback_drops_caches_keyed_by_the_restored_version /
                           test_a_refused_cutover_keeps_the_caches /
                           test_cache_delete_failure_is_reported_after_the_swap
@@ -437,7 +437,7 @@ def test_backup_name_collision_refused(nb_base, monkeypatch) -> None:
 
 
 # ---------------------------------------------------------------------------
-# chunk-module-m2 — version-keyed caches after a swap
+# Version-keyed caches after a swap
 # ---------------------------------------------------------------------------
 
 
@@ -599,4 +599,4 @@ def test_makefile_recipe_does_not_say_the_cutover_builds_bm25() -> None:
     block = text[start:text.index("tools.notebook_cutover", start)]
     assert "building the staging BM25" not in block
     assert "BM25 is not built here" in block
-    assert "re-embed-runbook" in block
+    assert 'ARGS="--notebook=<slug> --force"' in block

@@ -25,7 +25,7 @@ Design (textbook-ingest-m12 research synthesis):
   ``embed_paper`` / the global-store NPZ round-trip (which assumes the
   global ``var/arxmcp/corpus/chunks`` layout, not the notebook scope).
   The proof/stmt routing rule is :func:`ingest.chunk.route`, never copied
-  (m12 FM-1: a wrong-column placement retrieves the wrong body; the store
+  (a wrong-column placement retrieves the wrong body; the store
   now refuses one, see ``ingest.store._build_arrow_table``).
 - **Always writes the PER-NOTEBOOK LanceDB** (``notebook_lancedb_path(slug)``),
   NEVER the global ``DEFAULT_LANCEDB_PATH`` (m12 FM-3: writing textbook rows
@@ -99,7 +99,7 @@ def _build_embed_record(
     flow EXACTLY, but operates on :class:`ChunkRecord` objects and returns
     the ``EmbedRecord`` in-memory (no NPZ round-trip). The embedding input
     and the route come from :mod:`ingest.chunk`, the same single source the
-    embedder uses (m12 FM-1).
+    embedder uses, so a vector cannot land in the wrong column.
 
     ``encoder`` is injectable (default the real :func:`_encode_batch`) so
     tests pass synthetic L2-normalized vectors and never load the model.

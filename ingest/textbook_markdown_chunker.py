@@ -17,7 +17,7 @@ clean and complete (ATX ``#``/``##`` headings, paragraph breaks, ``$...$`` /
 - and produces fine, token-bounded chunks instead of one truncated chunk per section.
 
 The chunk identity / store contract is IDENTICAL to the HTML path: ``chunk_id`` via
-:func:`ingest.chunk._compute_textbook_chunk_id` (so the m9 ``textbook:``
+:func:`ingest.chunk._compute_textbook_chunk_id` (so the ``textbook:``
 prefix <-> ``source_kind`` invariant + dedup hold), ``source_kind="textbook"``,
 ``preamble_text=""`` (m8 OQ-1: PDF textbooks have no author macros). Only the
 ``chunker_version`` (``tmd0.1``) and ``parser_used`` (``mineru+markdown``) differ, so

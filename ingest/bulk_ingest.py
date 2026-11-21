@@ -45,7 +45,7 @@ marked sanity test gates on the operator's actual run.
 is sequential at the write boundary. No parallel ``write_chunks``
 calls.
 
-**Chunker-version guard (chunk-module-m2):** a run refuses, before
+**Chunker-version guard:** a run refuses, before
 its first write, a target whose arXiv rows another
 ``CHUNKER_VERSION`` wrote (:func:`ingest.store.refuse_stale_chunker_rows`).
 Re-chunking such rows in place would leave every row whose id changed
@@ -411,8 +411,7 @@ def run_bulk_ingest(
     re-runs are safe: the embedder's per-paper sidecar carries the
     versions and each chunk's reuse identity, so already-processed
     papers short-circuit at the embed step regardless (a sidecar
-    written before chunk-module-m1 has no identity and re-embeds
-    once).
+    that records no reuse identity re-embeds once).
     """
     if progress_interval <= 0:
         # Closes F8: a positive interval is the only sane value; 0
@@ -428,7 +427,7 @@ def run_bulk_ingest(
             parsed_dir=parsed_dir,
         )
 
-    # chunk-module-m2: never re-chunk in place across a chunker version.
+    # Never re-chunk in place across a chunker version.
     refuse_stale_chunker_rows(lancedb_staging_path)
 
     work = paper_ids if limit is None else paper_ids[:limit]

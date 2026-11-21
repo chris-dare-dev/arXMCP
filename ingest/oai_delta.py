@@ -726,7 +726,7 @@ def run_delta(
     if sleep_between_pages is None:
         sleep_between_pages = _politeness_sleep_since
 
-    # chunk-module-m2: never re-chunk in place across a chunker version.
+    # Never re-chunk in place across a chunker version.
     # Refuse BEFORE the harvest: harvest_set persists last_harvest_date
     # after every page, so a refusal after it would spend the window it
     # fetched and never ingest it. A dry run writes nothing, so it is
