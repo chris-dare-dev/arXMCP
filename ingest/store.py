@@ -82,6 +82,8 @@ from pathlib import Path
 import numpy as np
 import pyarrow as pa
 
+from ingest.application_paths import ApplicationPaths
+
 # ALLOWED_KINDS is re-exported (``__all__``): server/handlers/search.py
 # derives its proof-route ``excluded_kinds`` from ``ingest.store.ALLOWED_KINDS``
 # so the two cannot drift. The write-time checks themselves are ingest.chunk's.
@@ -111,7 +113,6 @@ from ingest.schema import (
     EmbedRecord,
 )
 from ingest.write_lock import holds_dataset_write_lock, write_lock_path
-from server.application_paths import ApplicationPaths
 
 # NB: ``server.corpus.read_corpus_version`` is imported function-locally
 # inside ``write_chunks`` (the WAP gate, corpus-integrity-completion-e1).
@@ -817,7 +818,7 @@ def _table_state(target_path: Path, tbl) -> tuple[int, int, int]:
 def _scan_paper_ids(tbl, chunk_count: int) -> set[str]:
     # Function-local for the same circular-import reason as
     # ``read_corpus_version`` (see the module-level NB).
-    from server.corpus import project_column  # noqa: PLC0415
+    from ingest.corpus import project_column  # noqa: PLC0415
 
     projected = project_column(tbl, "paper_id", expected_rows=chunk_count)
     if projected is None:
@@ -1115,7 +1116,7 @@ def write_chunks(
     # above for why this cannot be a top-level ``from server.corpus
     # import read_corpus_version`` (circular import with
     # ``server/corpus.py:101``).
-    from server.corpus import read_corpus_version  # noqa: PLC0415
+    from ingest.corpus import read_corpus_version  # noqa: PLC0415
 
     # rect F2: wrap the gate body in try/finally so _append_store_stats
     # lands on the failure path too. The LanceDB rows and indices are
@@ -1266,7 +1267,7 @@ def _marker_embed_record(path: Path) -> EmbedRecord | None:
     input-policy versions over instead of guessing them. ``None`` when
     there is no marker.
     """
-    from server.corpus import read_corpus_version  # noqa: PLC0415
+    from ingest.corpus import read_corpus_version  # noqa: PLC0415
 
     marker = read_corpus_version(path)
     if marker is None:
@@ -1341,7 +1342,7 @@ def _delete_theorem_names(path: Path, paper_id: str) -> None:
     import asyncio  # noqa: PLC0415
 
     from ingest.index_theorem_names import default_db_path  # noqa: PLC0415
-    from server.theorem_names_store import TheoremNamesStore  # noqa: PLC0415
+    from ingest.theorem_names_store import TheoremNamesStore  # noqa: PLC0415
 
     db_path = default_db_path(path)
     if not db_path.is_file():

@@ -60,11 +60,11 @@ from typing import Any
 import pyarrow as pa
 from bs4 import BeautifulSoup, Tag
 
+from ingest.application_paths import ApplicationPaths
 from ingest.identifiers import is_valid_arxiv_paper_id
 from ingest.index_equations import open_or_create_equations_table
 from ingest.schema import EQUATIONS_SCHEMA_V1
 from ingest.write_lock import exits_when_write_locked, holds_dataset_write_lock
-from server.application_paths import ApplicationPaths
 
 logger = logging.getLogger(__name__)
 

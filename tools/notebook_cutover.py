@@ -65,7 +65,7 @@ import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
-from server.corpus import read_corpus_version
+from ingest.corpus import read_corpus_version
 from tools._notebook_common import (
     NOTEBOOKS_BASE,
     NotebookError,

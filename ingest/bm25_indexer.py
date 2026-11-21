@@ -5,7 +5,7 @@ custom analyzer. See H4 remediation.
 
 Builds a per-corpus-version BM25 index by reading every chunk's
 ``body_tokens`` from the pinned LanceDB dataset version (E04_S02
-:func:`server.corpus.open_chunks_table`) and feeding the
+:func:`ingest.corpus.open_chunks_table`) and feeding the
 whitespace-split token streams to :class:`rank_bm25.BM25Okapi`. The
 fitted index is pickled to ``<lancedb>/derived/bm25/v<N>/bm25.pkl`` and
 the row-aligned chunk_id list is written as ``chunk_ids.json`` next to
@@ -84,8 +84,8 @@ from pathlib import Path
 
 from rank_bm25 import BM25Okapi
 
-from server.application_paths import ApplicationPaths
-from server.corpus import open_chunks_table, project_columns
+from ingest.application_paths import ApplicationPaths
+from ingest.corpus import open_chunks_table, project_columns
 
 logger = logging.getLogger(__name__)
 
@@ -118,7 +118,7 @@ def resolve_bm25_root(
     """
     if index_root is not None:
         return Path(index_root)
-    from server.application_paths import derived_index_path
+    from ingest.application_paths import derived_index_path
 
     return derived_index_path(lancedb_path, BM25_DIR_NAME)
 
@@ -268,7 +268,7 @@ def build_bm25_index(
     """Build and persist the BM25 index for ``corpus_version``.
 
     Reads every chunk's ``(chunk_id, body_tokens)`` pair from the pinned
-    LanceDB dataset version (via :func:`server.corpus.open_chunks_table`),
+    LanceDB dataset version (via :func:`ingest.corpus.open_chunks_table`),
     fits a :class:`rank_bm25.BM25Okapi` over the whitespace-split token
     streams, and writes ``bm25.pkl`` + ``chunk_ids.json`` to
     ``<index_root>/v<corpus_version>/`` atomically (where ``index_root``

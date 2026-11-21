@@ -16,12 +16,12 @@
 //! The self-authored arm is the one place this binary comes near
 //! reimplementing `ApplicationPaths`, and it deliberately ports exactly ONE
 //! function: `platform_data_root` mirrors
-//! `server/application_paths.py::_platform_data_root` (:81-89). The two are
+//! `ingest/application_paths.py::_platform_data_root` (:81-89). The two are
 //! held together by RUNNING BOTH across an env-var matrix
 //! (`tests/test_desktop_self_authored_launch.py`), never by inspection —
 //! a hand-copied port with no executable pin is the silent-drift hazard both
 //! m10 research briefs named. The canonicalize-then-contain check on the
-//! derived `child_argv[0]` mirrors `server/application_paths.py::_inside`
+//! derived `child_argv[0]` mirrors `ingest/application_paths.py::_inside`
 //! (:59-67); it is component-wise, not a string prefix test.
 
 mod events;
@@ -301,7 +301,7 @@ fn pathlib_normalize(raw: &str) -> PathBuf {
     PathBuf::from(out)
 }
 
-/// Rust port of `server/application_paths.py::_platform_data_root` (:81-89).
+/// Rust port of `ingest/application_paths.py::_platform_data_root` (:81-89).
 ///
 /// ONE deliberate divergence, asserted rather than hidden: Python falls back
 /// to `Path.home()` (a passwd-database read) when the platform branch needs a
@@ -351,7 +351,7 @@ fn wire_path(path: &Path) -> String {
 }
 
 /// Canonicalize BOTH sides, then require component-wise containment —
-/// mirroring `server/application_paths.py::_inside` (:59-67) rather than a
+/// mirroring `ingest/application_paths.py::_inside` (:59-67) rather than a
 /// string-prefix test, so a `payload-root-evil` sibling cannot pass and a
 /// symlink out of the payload root cannot either.
 ///

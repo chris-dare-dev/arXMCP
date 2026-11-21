@@ -53,6 +53,7 @@ from pathlib import Path
 
 from bs4 import BeautifulSoup, Tag
 
+from ingest.application_paths import ApplicationPaths
 from ingest.chunk import ChunkRecord, _compute_textbook_chunk_id
 from ingest.chunker import (
     PER_PAPER_FAILURE_EXCEPTIONS,
@@ -63,7 +64,6 @@ from ingest.chunker import (
     _validate_paper_id,
 )
 from ingest.tokenizer import tokenize_body
-from server.application_paths import ApplicationPaths
 from tools._notebook_common import NotebookError, notebook_dir
 
 logger = logging.getLogger(__name__)

@@ -38,7 +38,7 @@ from pathlib import Path
 
 import pytest
 
-from server.application_paths import _platform_data_root
+from ingest.application_paths import _platform_data_root
 from server.desktop_child import COMPONENT as _DESKTOP_CHILD_COMPONENT
 
 

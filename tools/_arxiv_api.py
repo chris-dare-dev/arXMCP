@@ -26,7 +26,7 @@ Capabilities:
   — identical to the pre-m2 single-fetch behaviour.
 
 No new pip dependency: stdlib ``urllib`` + ``defusedxml`` (already a project
-dep, used by ``server/retrieval/equations.py``). No-fork: reimplemented
+dep, used by ``ingest/mathml_tree.py``). No-fork: reimplemented
 natively, nothing lifted from ``arxiv.py`` or other arxiv-mcp code.
 """
 
@@ -168,7 +168,7 @@ def parse_atom_feed(xml_bytes: bytes) -> list[Candidate]:
     redirect page instead of Atom, which ``DET.fromstring`` raises as a
     ``ParseError`` — a ``SyntaxError`` subclass that callers' ``RuntimeError``
     handlers would otherwise miss, surfacing as a 500). Mirrors the
-    ``server/retrieval/equations.py`` ``DET.ParseError`` precedent.
+    ``ingest/mathml_tree.py`` ``DET.ParseError`` precedent.
     """
     try:
         root = DET.fromstring(xml_bytes)

@@ -63,7 +63,7 @@ from tools._notebook_common import (
 if TYPE_CHECKING:
     from mcp.server.fastmcp import FastMCP
 
-    from server.application_paths import ApplicationPaths
+    from ingest.application_paths import ApplicationPaths
     from server.notebooks_store import NotebooksStore
 
 logger = logging.getLogger(__name__)

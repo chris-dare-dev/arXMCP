@@ -35,8 +35,8 @@ from typing import Any
 import pyarrow as pa
 import pytest
 
+from ingest.corpus import CorpusVersionInfo, DegradedState, project_column
 from ingest.schema import CHUNKS_SCHEMA_V1
-from server.corpus import CorpusVersionInfo, DegradedState, project_column
 from server.resources import Resources, _escalate, reconcile_corpus_marker
 
 EMBEDDING_DIM = 1024
@@ -328,7 +328,7 @@ def test_ranked_reasons_are_all_known_to_the_metrics_gauge() -> None:
 # ---------------------------------------------------------------------------
 def test_the_tip_lookup_reads_a_row(tmp_path: Path) -> None:
     """A healthy dataset resolves its tip."""
-    from server.corpus import _dataset_tip_version
+    from ingest.corpus import _dataset_tip_version
 
     _table(tmp_path, 12, papers=4)
     assert _dataset_tip_version(tmp_path / "lancedb") == 1
@@ -342,7 +342,7 @@ def test_an_unreadable_tip_yields_no_version(tmp_path: Path) -> None:
     went on to tell the operator "The data is NOT corrupt". With the tip
     smoke-read, the lookup returns None and that claim is never reached.
     """
-    from server.corpus import _dataset_tip_version
+    from ingest.corpus import _dataset_tip_version
 
     _table(tmp_path, 12, papers=4)
     data_dir = tmp_path / "lancedb" / "chunks.lance" / "data"

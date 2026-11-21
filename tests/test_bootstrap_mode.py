@@ -56,7 +56,7 @@ from server.tools import (
 def _make_corpus_version_info(version: int = 1, chunk_count: int = 10):
     """Return a CorpusVersionInfo-compatible namespace for tests that need
     a marker without writing real LanceDB data."""
-    from server.corpus import CorpusVersionInfo
+    from ingest.corpus import CorpusVersionInfo
 
     return CorpusVersionInfo(
         version=version,

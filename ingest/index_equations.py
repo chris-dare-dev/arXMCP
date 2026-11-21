@@ -33,17 +33,17 @@ from typing import Any
 
 import pyarrow as pa
 
+from ingest.mathml_tree import (
+    MATHML_TREE_NORMALIZER_VERSION,
+    parse_mathml_to_tree,
+    tree_to_json,
+)
 from ingest.schema import (
     EQUATIONS_SCHEMA_V1,
     EQUATIONS_TABLE_NAME,
     LANCE_STORAGE_OPTIONS,
 )
 from ingest.write_lock import exits_when_write_locked, holds_dataset_write_lock
-from server.retrieval.equations import (
-    MATHML_TREE_NORMALIZER_VERSION,
-    parse_mathml_to_tree,
-    tree_to_json,
-)
 
 logger = logging.getLogger(__name__)
 

@@ -1228,7 +1228,7 @@ class TestOneTimeIdRotation:
     def test_cutover_promotes_the_rotation_and_drops_version_keyed_caches(
         self, tmp_path
     ):
-        from server.corpus import read_corpus_version
+        from ingest.corpus import read_corpus_version
         from tools import notebook_cutover as nc
 
         corpus, active, stored = self._setup(tmp_path)

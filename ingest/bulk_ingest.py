@@ -84,6 +84,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from ingest.application_paths import ApplicationPaths
 from ingest.ar5iv_fetch import (
     DEFAULT_AR5IV_CACHE_DIR,
     DEFAULT_PARSED_DIR,
@@ -105,8 +106,6 @@ from ingest.store import (
     write_chunks,
 )
 from ingest.write_lock import dataset_write_lock, exits_when_write_locked
-from server.application_paths import ApplicationPaths
-from server.ssl_pin import arxiv_ssl_context_from_env
 
 logger = logging.getLogger(__name__)
 
@@ -252,6 +251,8 @@ def _parse_via_ar5iv(
     parsed_dir: Path,
 ) -> Ar5ivResult:
     """Try ar5iv; return the result without raising."""
+    from server.ssl_pin import arxiv_ssl_context_from_env  # noqa: PLC0415
+
     try:
         return try_cache(
             paper_id,

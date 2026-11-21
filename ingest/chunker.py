@@ -59,13 +59,14 @@ from typing import TYPE_CHECKING
 
 from bs4 import BeautifulSoup, NavigableString, Tag
 
+from ingest.application_paths import ApplicationPaths
+
 # The record, its version and the chunk-id hash live in ingest.chunk. The id
 # function is imported under its bare name so ``_chunk_paper_impl`` resolves
 # it in this module's namespace (tests patch ``ingest.chunker._compute_chunk_id``
 # and ``TestChunkerVersionFreeze`` pins its source through this re-export).
 from ingest.chunk import CHUNKER_VERSION, ChunkRecord, _compute_chunk_id
 from ingest.tokenizer import tokenize_body
-from server.application_paths import ApplicationPaths
 
 if TYPE_CHECKING:
     pass

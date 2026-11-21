@@ -3,8 +3,8 @@ from pathlib import Path
 import kuzu
 import pytest
 
-import server.application_paths as paths_module
-from server.application_paths import (
+import ingest.application_paths as paths_module
+from ingest.application_paths import (
     COMPATIBILITY_ALIAS_FIELDS,
     ApplicationPathError,
     ApplicationPaths,

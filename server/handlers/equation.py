@@ -38,8 +38,8 @@ from typing import Annotated, Any
 from latex2mathml.converter import convert as latex2mathml_convert
 from pydantic import Field
 
+from ingest.mathml_tree import EquationIndex, looks_like_mathml
 from server.query_encoder import encode_query
-from server.retrieval.equations import EquationIndex, looks_like_mathml
 from server.tools import cap_result_list, envelope, get_resources
 
 logger = logging.getLogger(__name__)

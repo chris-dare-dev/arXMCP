@@ -79,6 +79,8 @@ import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from ingest.application_paths import ApplicationPaths
+
 # Alias rather than redefine. ``CHUNKER_VERSION`` lives in
 # ``ingest.chunk`` as the SINGLE source of truth (locked by
 # ``tests/test_chunker_ids.py::TestSingleVersionDefinition``). Defining
@@ -101,7 +103,6 @@ from ingest.chunker import (
     _sanitize_log_field,
     _validate_paper_id,
 )
-from server.application_paths import ApplicationPaths
 
 logger = logging.getLogger(__name__)
 

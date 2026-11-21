@@ -37,8 +37,8 @@ from fastapi.responses import HTMLResponse, Response
 from fastapi.templating import Jinja2Templates
 from markupsafe import Markup
 
+from ingest.application_paths import ApplicationPaths
 from ingest.identifiers import is_valid_arxiv_paper_id
-from server.application_paths import ApplicationPaths
 from server.middleware import CONTENT_SECURITY_POLICY_PREVIEW
 from server.routes.notebooks import (
     _discover_results_fragment,

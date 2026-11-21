@@ -30,8 +30,8 @@ from unittest.mock import Mock
 
 import pytest
 
+from ingest.corpus import DegradedState
 from server.config import Config
-from server.corpus import DegradedState
 from server.resources import Resources, compute_chunk_count_divergence
 
 # corpus-integrity-completion-m3 rect F3: `_seed_corpus` and

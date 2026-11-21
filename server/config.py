@@ -30,7 +30,7 @@ from pathlib import Path
 from pydantic import Field, PrivateAttr, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from server.application_paths import (
+from ingest.application_paths import (
     COMPATIBILITY_ALIAS_FIELDS,
     ApplicationPaths,
     derived_index_path,
@@ -310,7 +310,7 @@ class Config(BaseSettings):
     # --- Retrieval tuning ------------------------------------------------
 
     #: Linear-combination weight α for the equation-similarity fusion
-    #: in ``server.retrieval.equations.EquationIndex`` (E10_S03).
+    #: in ``ingest.mathml_tree.EquationIndex`` (E10_S03).
     #: ``final_score = α * (1 - normalized_ted) + (1 - α) * cosine``.
     #: α=0 collapses to pure cosine (dense-only); α=1 collapses to
     #: pure tree-edit distance. Default 0.5 (equal weights). Operators

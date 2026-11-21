@@ -637,7 +637,7 @@ class TestDeletePaper:
         import asyncio
 
         from ingest.index_theorem_names import default_db_path
-        from server.theorem_names_store import TheoremNamesStore
+        from ingest.theorem_names_store import TheoremNamesStore
 
         async def run():
             store = await TheoremNamesStore.open(default_db_path(path))

@@ -244,7 +244,7 @@ class TestExtractEquationsForPaper:
         trees rooted at ``math`` and the structural similarity is
         recoverable.
         """
-        from server.retrieval.equations import (
+        from ingest.mathml_tree import (
             normalized_ted,
             parse_mathml_to_tree,
         )

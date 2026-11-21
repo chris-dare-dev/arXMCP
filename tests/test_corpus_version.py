@@ -7,7 +7,7 @@ Coverage map:
   version field matches write_chunks return                  -> TestWriteOnIngest
   Atomic write (tmp + rename, no leak)                       -> TestAtomicWrite
   read_corpus_version → typed dataclass                      -> TestReadMarker
-  Cache contract comment in server/corpus.py docstring       -> TestCacheContract
+  Cache contract comment in ingest/corpus.py docstring       -> TestCacheContract
   Two ingest runs → version increments                       -> TestVersionIncrements
 
 Plus regression tests for missing/corrupt marker handling, default
@@ -22,13 +22,13 @@ import json
 import pytest
 
 from ingest.chunk import CHUNKER_VERSION
+from ingest.corpus import CorpusVersionInfo, read_corpus_version
 from ingest.embedder import EMBEDDER_VERSION
 from ingest.store import (
     CORPUS_VERSION_MARKER_NAME,
     write_chunks,
     write_corpus_version_marker,
 )
-from server.corpus import CorpusVersionInfo, read_corpus_version
 
 # Reuse the synthetic-corpus helpers from test_store.py so the
 # integration test exercises the actual write_chunks → marker
@@ -361,8 +361,8 @@ class TestReadMarker:
 
     def test_default_path_via_monkeypatch(self, tmp_path, monkeypatch):
         # ``lancedb_path=None`` falls back to DEFAULT_LANCEDB_PATH.
+        import ingest.corpus as corpus_mod
         import ingest.store as store_mod
-        import server.corpus as corpus_mod
 
         monkeypatch.setattr(store_mod, "DEFAULT_LANCEDB_PATH", tmp_path)
         monkeypatch.setattr(corpus_mod, "DEFAULT_LANCEDB_PATH", tmp_path)
@@ -380,17 +380,17 @@ class TestReadMarker:
 
 
 # ===========================================================================
-# TestCacheContract — server/corpus.py module docstring contains the contract
+# TestCacheContract — ingest/corpus.py module docstring contains the contract
 # ===========================================================================
 
 
 class TestCacheContract:
     def test_corpus_module_docstring_states_cache_contract(self):
         """Brief AC: 'Cache contract comment is present in
-        server/corpus.py'. Whitespace-collapsed substring match so the
+        ingest/corpus.py'. Whitespace-collapsed substring match so the
         sentence can wrap across source lines without breaking the test.
         """
-        import server.corpus as corpus_mod
+        import ingest.corpus as corpus_mod
 
         doc = corpus_mod.__doc__ or ""
         doc_collapsed = " ".join(doc.split())
@@ -400,7 +400,7 @@ class TestCacheContract:
             "in their keys."
         )
         assert required in doc_collapsed, (
-            "server/corpus.py module docstring must contain the cache "
+            "ingest/corpus.py module docstring must contain the cache "
             "contract sentence verbatim per E04_S03 deliverables"
         )
 
@@ -426,7 +426,7 @@ class TestThreat1Deferral:
 
     def test_reader_docstring_carries_threat1_deferral(self):
         """Closes M2: same discipline for ``read_corpus_version``."""
-        from server.corpus import read_corpus_version
+        from ingest.corpus import read_corpus_version
 
         doc = read_corpus_version.__doc__ or ""
         doc_collapsed = " ".join(doc.split())

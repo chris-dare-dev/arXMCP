@@ -56,6 +56,7 @@ from pathlib import Path
 
 import numpy as np
 
+from ingest.application_paths import ApplicationPaths
 from ingest.bulk_ingest import DEFAULT_LANCEDB_STAGING_PATH
 from ingest.chunk import (
     CHUNKER_VERSION,
@@ -82,7 +83,6 @@ from ingest.store import (
     write_chunks,
 )
 from ingest.write_lock import exits_when_write_locked, holds_dataset_write_lock
-from server.application_paths import ApplicationPaths
 
 logger = logging.getLogger(__name__)
 

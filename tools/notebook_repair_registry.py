@@ -51,7 +51,7 @@ def _read_marker_safely(
     server-down path produces the same response classification as the
     server-up REST endpoint.
     """
-    from server.corpus import read_corpus_version  # local
+    from ingest.corpus import read_corpus_version  # local
 
     try:
         info = read_corpus_version(notebook_lance_path)

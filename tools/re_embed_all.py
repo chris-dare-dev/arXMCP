@@ -45,7 +45,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-from server.application_paths import ApplicationPaths
+from ingest.application_paths import ApplicationPaths
 
 logger = logging.getLogger("re_embed_all")
 

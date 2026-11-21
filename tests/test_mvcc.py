@@ -25,7 +25,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from server.corpus import open_chunks_table
+from ingest.corpus import open_chunks_table
 
 # Reuse the synthetic-corpus helpers from test_store.py rather than
 # duplicating the bodies. Direct module import is the cleanest bridge —
@@ -259,55 +259,55 @@ class TestDocstringContract:
 
 class TestSingleSourceOfTruth:
     def test_corpus_imports_table_name_does_not_redefine(self):
-        """``server/corpus.py`` must reference the table by importing
+        """``ingest/corpus.py`` must reference the table by importing
         ``CHUNKS_TABLE_NAME`` from ``ingest.schema`` — never via the
         bare string literal ``"chunks"``. Mirrors the BGE_M3_COMMIT_SHA
         single-source-of-truth scan from ``test_query_encoder.py``.
         """
         repo_root = Path(__file__).parent.parent
-        corpus_text = (repo_root / "server" / "corpus.py").read_text(encoding="utf-8")
+        corpus_text = (repo_root / "ingest" / "corpus.py").read_text(encoding="utf-8")
         # The string literal "chunks" (with quotes) must not appear.
         # The import line ``from ingest.schema import CHUNKS_TABLE_NAME``
         # is the only allowed reference.
         assert '"chunks"' not in corpus_text, (
-            'server/corpus.py must not contain the literal "chunks"; '
+            'ingest/corpus.py must not contain the literal "chunks"; '
             "import CHUNKS_TABLE_NAME from ingest.schema instead"
         )
         assert "'chunks'" not in corpus_text, (
-            "server/corpus.py must not contain the literal 'chunks'; "
+            "ingest/corpus.py must not contain the literal 'chunks'; "
             "import CHUNKS_TABLE_NAME from ingest.schema instead"
         )
 
     def test_corpus_table_name_resolves_to_schema_constant(self):
         """Object-identity check that ``CHUNKS_TABLE_NAME`` referenced
-        in ``server.corpus`` is the SAME object as in ``ingest.schema``.
+        in ``ingest.corpus`` is the SAME object as in ``ingest.schema``.
         """
+        import ingest.corpus
         import ingest.schema
-        import server.corpus
 
-        # server.corpus imports the symbol; verify it's the same object.
-        assert server.corpus.CHUNKS_TABLE_NAME is ingest.schema.CHUNKS_TABLE_NAME
+        # ingest.corpus imports the symbol; verify it's the same object.
+        assert ingest.corpus.CHUNKS_TABLE_NAME is ingest.schema.CHUNKS_TABLE_NAME
 
     def test_corpus_imports_default_path_from_store(self):
-        """Closes F3 from the E04_S02 critique: server.corpus and
+        """Closes F3 from the E04_S02 critique: ingest.corpus and
         ingest.store share the same ``DEFAULT_LANCEDB_PATH`` constant.
         Asymmetric defaults would force every reader to hard-code the
         path."""
+        import ingest.corpus
         import ingest.store
-        import server.corpus
 
         assert (
-            server.corpus.DEFAULT_LANCEDB_PATH
+            ingest.corpus.DEFAULT_LANCEDB_PATH
             is ingest.store.DEFAULT_LANCEDB_PATH
         )
 
     def test_corpus_docstring_states_mvcc_handshake(self):
         """Closes F16 from the E04_S02 critique: extend the docstring
-        contract scan to cover ``server.corpus`` too. The verbatim AC5
+        contract scan to cover ``ingest.corpus`` too. The verbatim AC5
         sentence MUST appear in both the writer (ingest.store) and
-        the reader (server.corpus) — drift in either direction would
+        the reader (ingest.corpus) — drift in either direction would
         be silent without this test."""
-        import server.corpus as corpus_mod
+        import ingest.corpus as corpus_mod
 
         doc = corpus_mod.__doc__ or ""
         doc_collapsed = " ".join(doc.split())
@@ -317,7 +317,7 @@ class TestSingleSourceOfTruth:
             "dataset.checkout(version=N)."
         )
         assert required in doc_collapsed, (
-            "server/corpus.py docstring must contain the AC5 MVCC handshake "
+            "ingest/corpus.py docstring must contain the AC5 MVCC handshake "
             "sentence so doc-drift between reader and writer is regression-locked"
         )
 

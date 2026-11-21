@@ -100,8 +100,8 @@ from typing import Any
 
 import kuzu
 
+from ingest.application_paths import ApplicationPaths
 from ingest.kuzudb_schema import apply_schema
-from server.application_paths import ApplicationPaths
 from tools.arxiv_fetch import (
     DEFAULT_503_BACKOFF_SECONDS,
     MAX_503_BACKOFF_SECONDS,

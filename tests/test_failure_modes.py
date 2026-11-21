@@ -265,7 +265,7 @@ def _readable_table(version: int) -> SimpleNamespace:
 
 class TestLanceDBCorruptionFallback:
     """The fallback decision tree lives in
-    ``server.corpus.open_chunks_table_with_fallback``. The tests
+    ``ingest.corpus.open_chunks_table_with_fallback``. The tests
     inject failures by monkey-patching ``open_chunks_table`` to
     raise on the live tip and succeed on N-1. A truly
     representative test would need a real LanceDB on disk with
@@ -274,7 +274,7 @@ class TestLanceDBCorruptionFallback:
     docs/ops/failure-modes.md."""
 
     def test_happy_path_returns_none_for_degraded(self, monkeypatch):
-        from server import corpus as corpus_mod  # noqa: PLC0415
+        from ingest import corpus as corpus_mod  # noqa: PLC0415
 
         fake_table = _readable_table(5)
         calls: list[int] = []
@@ -292,7 +292,7 @@ class TestLanceDBCorruptionFallback:
         assert calls == [5]
 
     def test_falls_back_to_n_minus_1_on_lance_error(self, monkeypatch):
-        from server import corpus as corpus_mod  # noqa: PLC0415
+        from ingest import corpus as corpus_mod  # noqa: PLC0415
 
         fallback_table = _readable_table(4)
         calls: list[int] = []
@@ -333,7 +333,7 @@ class TestLanceDBCorruptionFallback:
         assert calls == [5, None, 4]
 
     def test_raises_at_floor_when_version_is_1(self, monkeypatch):
-        from server import corpus as corpus_mod  # noqa: PLC0415
+        from ingest import corpus as corpus_mod  # noqa: PLC0415
 
         def fake_open(lancedb_path=None, version=None):
             raise OSError("manifest truncated")
@@ -345,7 +345,7 @@ class TestLanceDBCorruptionFallback:
             )
 
     def test_raises_when_both_versions_corrupt(self, monkeypatch):
-        from server import corpus as corpus_mod  # noqa: PLC0415
+        from ingest import corpus as corpus_mod  # noqa: PLC0415
 
         def fake_open(lancedb_path=None, version=None):
             raise OSError(f"manifest v={version} truncated")
@@ -366,7 +366,7 @@ class TestDegradedReadyz:
         """Build a minimal Resources duck and call readyz
         directly. The full ASGI test path is heavier; this is the
         contract check."""
-        from server.corpus import DegradedState  # noqa: PLC0415
+        from ingest.corpus import DegradedState  # noqa: PLC0415
 
         # Build a fake Resources with .warm=True + .degraded set.
         # readyz introspects the dataclass shape; a SimpleNamespace

@@ -38,7 +38,7 @@ from ingest.index_theorem_names import (
     index_theorem_names_for_paper,
 )
 from ingest.schema import CHUNKS_SCHEMA_V1
-from server.theorem_names_store import (
+from ingest.theorem_names_store import (
     DEFAULT_JACCARD_THRESHOLD,
     SCHEMA_VERSION,
     TheoremNamesStore,

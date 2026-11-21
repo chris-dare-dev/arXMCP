@@ -86,7 +86,7 @@ def smoke_check_lancedb(restore_path: Path) -> int:
             f"restored LanceDB missing under {restore_path} "
             f"(no corpus-version.json found via rglob)"
         )
-    from server.corpus import (  # noqa: PLC0415
+    from ingest.corpus import (  # noqa: PLC0415
         open_chunks_table,
         read_corpus_version,
     )

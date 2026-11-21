@@ -54,9 +54,9 @@ import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 
+from ingest.application_paths import ApplicationPaths
 from ingest.chunker import STRUCTURE_SIGNAL_CLASSES
 from ingest.identifiers import is_valid_arxiv_paper_id
-from server.application_paths import ApplicationPaths
 from tools.arxiv_fetch import parse_retry_after
 
 logger = logging.getLogger(__name__)

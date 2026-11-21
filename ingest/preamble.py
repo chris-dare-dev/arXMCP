@@ -46,6 +46,8 @@ import unicodedata
 import uuid
 from pathlib import Path
 
+from ingest.application_paths import ApplicationPaths
+
 # Reuse the chunker's paper_id validator + log-field sanitiser to avoid
 # duplicating the regex and to inherit its security guarantees (Threat 1).
 from ingest.chunker import (
@@ -53,7 +55,6 @@ from ingest.chunker import (
     _validate_paper_id,
 )
 from ingest.preamble_types import PreambleDoc
-from server.application_paths import ApplicationPaths
 
 # Reuse the existing root-tex heuristic from the fetcher tooling rather than
 # re-implementing it. The function lives in tools/arxiv_fetch.py and the

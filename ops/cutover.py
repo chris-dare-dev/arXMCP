@@ -539,7 +539,7 @@ def verify_lancedb_integrity(
     has rows and that its vector indexes cover every row.
 
     Replaces the brief's fictional `lancedb verify` CLI. Lazy-
-    imports `server.corpus.open_chunks_table` so the cutover
+    imports `ingest.corpus.open_chunks_table` so the cutover
     module is cheap to import for unit tests.
 
     The index check matters because ``ingest.re_embed`` writes staging
@@ -559,7 +559,7 @@ def verify_lancedb_integrity(
             ),
         )
     try:
-        from server.corpus import (  # noqa: PLC0415
+        from ingest.corpus import (  # noqa: PLC0415
             open_chunks_table,
             read_corpus_version,
         )

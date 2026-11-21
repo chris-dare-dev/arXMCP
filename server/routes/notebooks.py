@@ -64,8 +64,8 @@ from fastapi import (
 from fastapi.responses import HTMLResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
+from ingest.application_paths import ApplicationPaths
 from ingest.identifiers import is_valid_arxiv_paper_id, is_valid_paper_id
-from server.application_paths import ApplicationPaths
 from server.operator_settings import get_contact_email
 from tools._notebook_common import (
     NOTEBOOKS_BASE,
@@ -1152,7 +1152,7 @@ def _read_marker_safely(
     the walk loop in ``repair_registry`` keeps going across the
     remaining dirs.
     """
-    from server.corpus import read_corpus_version  # local
+    from ingest.corpus import read_corpus_version  # local
 
     try:
         info = read_corpus_version(notebook_lance_path)
@@ -1175,7 +1175,7 @@ def _recount_notebook_lancedb(
     snapshot — m3 synthesis FM-1 / FM-2: concurrent-ingest-safe) and
     return ``(chunk_count, distinct_paper_count)``.
 
-    Uses ``server.corpus.open_chunks_table(...)`` which calls
+    Uses ``ingest.corpus.open_chunks_table(...)`` which calls
     ``tbl.checkout(version)`` in-place — confirmed snapshot-consistent
     by ``tests/test_mvcc.py::TestVersionPinning``. The handle is
     read-only after checkout; concurrent ``tbl.add()`` from an
@@ -1188,7 +1188,7 @@ def _recount_notebook_lancedb(
     """
     import pyarrow.compute as pc  # noqa: PLC0415
 
-    from server.corpus import open_chunks_table, project_columns  # local
+    from ingest.corpus import open_chunks_table, project_columns  # local
 
     tbl = open_chunks_table(notebook_lance_path, version=version)
     chunk_count = tbl.count_rows()

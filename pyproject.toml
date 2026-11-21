@@ -266,7 +266,7 @@ dependencies = [
     "kuzu==0.11.3",
     # defusedxml: XXE/billion-laughs-safe replacement for
     #   ``xml.etree.ElementTree`` (E10_S03). Used by
-    #   ``server.retrieval.equations`` to parse MathML from caller input
+    #   ``ingest.mathml_tree`` to parse MathML from caller input
     #   to the find_equation handler. Pure-Python stdlib drop-in;
     #   defense-in-depth for the per-handler max_length=4000 cap.
     #   License: Python Software Foundation License (PSF) 2.0, on the
@@ -276,7 +276,7 @@ dependencies = [
     #   (E10_S03). Pure Python, no compiled deps. Last release 2018-03-12
     #   (maintenance-frozen but stable — the algorithm is closed-form and
     #   the project's use is narrow). Used in ingest.index_equations (build
-    #   time) and server.retrieval.equations (query time). License:
+    #   time) and ingest.mathml_tree (query time). License:
     #   BSD-3-Clause (verified from the LICENSE bundled in the wheel; the
     #   PyPI metadata does not surface this — both research briefs
     #   reported MIT but the actual bundled license is BSD-3-Clause,

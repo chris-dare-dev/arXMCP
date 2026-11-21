@@ -505,7 +505,7 @@ class TestE09S03RectificationGuards:
         import lancedb
         import pyarrow as pa
 
-        from server.corpus import open_chunks_table
+        from ingest.corpus import open_chunks_table
 
         pinned_id = f"arxiv:{P_B}:0000000000000001"
         tip_id = f"arxiv:{P_B}:0000000000000000"

@@ -67,6 +67,7 @@ import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from ingest.application_paths import ApplicationPaths
 from ingest.ar5iv_fetch import DEFAULT_AR5IV_CACHE_DIR, DEFAULT_PARSED_DIR
 from ingest.bulk_ingest import (
     DEFAULT_LANCEDB_STAGING_PATH,
@@ -85,7 +86,6 @@ from ingest.store import (
     refuse_stale_chunker_rows,
 )
 from ingest.write_lock import exits_when_write_locked, holds_dataset_write_lock
-from server.application_paths import ApplicationPaths
 
 logger = logging.getLogger(__name__)
 

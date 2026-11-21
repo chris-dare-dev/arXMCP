@@ -9,9 +9,9 @@ from pathlib import Path
 
 import numpy as np
 
+from ingest.application_paths import ApplicationPaths
 from ingest.chunk import EMBED_INPUT_POLICY_VERSION, stored_vector
 from ingest.embedder import EMBEDDER_VERSION
-from server.application_paths import ApplicationPaths
 from tools.arxiv_fetch import find_main_tex
 
 REQUIRED_FORMAL = {

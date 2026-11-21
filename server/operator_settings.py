@@ -68,7 +68,7 @@ import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
 
-from server.application_paths import ApplicationPaths, legacy_source_path
+from ingest.application_paths import ApplicationPaths, legacy_source_path
 
 logger = logging.getLogger(__name__)
 

@@ -76,15 +76,15 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, TypeVar
 
-from server import query_encoder
-from server.config import Config
-from server.corpus import (
+from ingest.corpus import (
     CorpusVersionInfo,
     DegradedState,
     open_chunks_table_with_fallback,
     project_column,
     read_corpus_version,
 )
+from server import query_encoder
+from server.config import Config
 from server.corpus_freshness import (
     DEFAULT_FRESHNESS_INTERVAL_SECONDS,
     FreshnessGate,
@@ -2127,7 +2127,7 @@ async def _open_theorem_names_store(config: Config, *, caller: str) -> Any | Non
     #207; see that function's docstring for why.
     """
     try:
-        from server.theorem_names_store import (  # noqa: PLC0415
+        from ingest.theorem_names_store import (  # noqa: PLC0415
             TheoremNamesSchemaStale,
             TheoremNamesStore,
         )

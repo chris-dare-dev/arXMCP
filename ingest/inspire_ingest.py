@@ -101,6 +101,7 @@ from typing import Any
 
 import kuzu
 
+from ingest.application_paths import ApplicationPaths
 from ingest.graph_ingest import (
     _merge_cite,
     _serialize_failures,
@@ -109,7 +110,6 @@ from ingest.graph_ingest import (
 )
 from ingest.identifiers import is_valid_arxiv_paper_id
 from ingest.kuzudb_schema import apply_schema
-from server.application_paths import ApplicationPaths
 from tools.arxiv_fetch import (
     DEFAULT_503_BACKOFF_SECONDS,
     MAX_503_BACKOFF_SECONDS,

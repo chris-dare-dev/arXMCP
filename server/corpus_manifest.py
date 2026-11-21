@@ -12,7 +12,7 @@ snapshot on-read from the already-live sources — there is NO persisted
   (:class:`server.documents_store.DocumentsStore`, m1) — per-revision
   checksums + license status + active/withdrawn/superseded status.
 - The per-notebook ``corpus-version.json`` marker
-  (:func:`server.corpus.read_corpus_version`) — the corpus epoch +
+  (:func:`ingest.corpus.read_corpus_version`) — the corpus epoch +
   chunker / embedder version stamps + counts.
 - The ``operator_settings`` key-value table in ``notebooks.db``
   (written by :class:`server.operator_settings.OperatorSettingsStore`;
@@ -65,8 +65,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from ingest.corpus import read_corpus_version
 from server import operator_settings
-from server.corpus import read_corpus_version
 from server.documents_store import (
     DOCUMENT_STATUS_ACTIVE,
     DOCUMENT_STATUS_SUPERSEDED,
@@ -82,7 +82,7 @@ from tools.oai_license import (
 )
 
 if TYPE_CHECKING:
-    from server.corpus import CorpusVersionInfo
+    from ingest.corpus import CorpusVersionInfo
     from server.documents_store import DocumentRecord
     from server.notebooks_store import NotebooksStore
 

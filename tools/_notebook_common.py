@@ -21,7 +21,7 @@ import tarfile
 import urllib.error
 from pathlib import Path
 
-from server.application_paths import ApplicationPaths
+from ingest.application_paths import ApplicationPaths
 from server.ssl_pin import arxiv_ssl_context_from_env
 
 logger = logging.getLogger("notebook_common")

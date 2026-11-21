@@ -40,9 +40,9 @@ def build_derived_indexes(lancedb_path: str | Path) -> DerivedIndexSummary:
     version it already holds, and the other two replace their rows.
     """
     from ingest.bm25_indexer import build_bm25_index
+    from ingest.corpus import read_corpus_version
     from ingest.index_definitions import index_definitions_for_corpus
     from ingest.index_theorem_names import build_theorem_names_index
-    from server.corpus import read_corpus_version
 
     path = Path(lancedb_path)
     info = read_corpus_version(lancedb_path=path)

@@ -67,10 +67,10 @@ from typing import Any
 import kuzu
 from bs4 import BeautifulSoup
 
+from ingest.application_paths import ApplicationPaths
 from ingest.graph_ingest import _merge_cite, save_checkpoint
 from ingest.identifiers import is_valid_arxiv_paper_id
 from ingest.kuzudb_schema import apply_schema
-from server.application_paths import ApplicationPaths
 
 logger = logging.getLogger(__name__)
 
@@ -245,7 +245,7 @@ def _open_chunks_table_or_none(lancedb_path: Path) -> Any | None:
     """
     if not Path(lancedb_path).exists():
         return None
-    from server.corpus import open_chunks_table
+    from ingest.corpus import open_chunks_table
 
     try:
         return open_chunks_table(lancedb_path=str(lancedb_path), version=None)
@@ -427,7 +427,7 @@ def _list_paper_ids_from_lancedb(lancedb_path: Path) -> list[str]:
     """
     if not lancedb_path.exists():
         return []
-    from server.corpus import open_chunks_table
+    from ingest.corpus import open_chunks_table
 
     try:
         table = open_chunks_table(lancedb_path=str(lancedb_path), version=None)

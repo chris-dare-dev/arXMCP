@@ -380,7 +380,7 @@ def test_server_ingest_child_uses_application_paths(
     env["PYTHONPATH"] = str(REPO_ROOT)
     probe = (
         "import json\n"
-        "import server.application_paths as application_paths\n"
+        "import ingest.application_paths as application_paths\n"
         "application_paths._source_checkout_root = lambda: None\n"
         "from tools.notebook_ingest import runtime_paths_report\n"
         "print(json.dumps(runtime_paths_report(), sort_keys=True))\n"
@@ -409,7 +409,7 @@ def test_installed_writer_probe_is_independent_of_cwd(tmp_path: Path) -> None:
     )
     reports: list[dict[str, str]] = []
     probe = (
-        "import server.application_paths as application_paths\n"
+        "import ingest.application_paths as application_paths\n"
         "application_paths._source_checkout_root = lambda: None\n"
         + wheel_install_check._WRITER_PROBE
     )

@@ -16,7 +16,7 @@ central ``notebooks.db``:
   not belong in the ``synchronous=FULL`` + ``fullfsync=ON``
   non-regenerable ``notebooks.db``; it takes the ``NORMAL``
   durability tier of :mod:`server.cache_sqlite` /
-  :mod:`server.theorem_names_store`.
+  :mod:`ingest.theorem_names_store`.
 - Per-notebook files match the fork-C isolation precedent
   (``lancedb/``, ``cache/retrieval.db``) and keep
   the CLI-writer / server-reader split off the daemon's live
