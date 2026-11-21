@@ -166,15 +166,19 @@ X_FRAME_OPTIONS = b"DENY"
 #:   Guarded by ``tests/test_ui_delegated_listeners.py`` (no inline
 #:   ``<script>`` survives in any template) and by the header
 #:   assertions in ``tests/test_ui_html_pages.py``.
-#: - ``style-src 'self' 'unsafe-inline'`` — RETAINED, and its stated
-#:   rationale is now stale: the templates carry ZERO inline
-#:   ``style=`` attributes (measured 2026-08-22, all three templates
-#:   and every Python-rendered fragment). It is left in place because
-#:   #483 scoped itself to ``script-src`` and tightening styles wants
-#:   its own browser verification — htmx mutates element styles at
-#:   runtime during swaps, and while CSSOM writes are not governed by
-#:   ``style-src``, that deserves proving rather than assuming.
-#:   Tracked separately; do not remove this token untested.
+#: - ``style-src 'self' 'unsafe-inline'`` — the console's own markup
+#:   needs no inline style: the templates, the Python-rendered
+#:   fragments, ``ui.js`` and ``favicon.svg`` carry no ``style=``
+#:   attribute and no ``<style>`` element. The token is kept for the
+#:   vendored htmx, which on ``DOMContentLoaded`` appends a
+#:   ``<style>`` element to ``<head>`` holding its default
+#:   ``.htmx-indicator`` rules unless ``htmx.config``'s
+#:   ``includeIndicatorStyles`` is false. The console never uses the
+#:   ``.htmx-indicator`` class (``app.css`` styles ``.htmx-request``
+#:   directly), so turning that off with an ``htmx-config`` meta tag
+#:   in ``base.html`` removes the last inline style. Drop the token
+#:   only after that, and after a console session in a browser shows
+#:   no style-src violation.
 #: - ``img-src 'self' data:`` — same-origin + ``data:`` URIs.
 #: - ``connect-src 'self'`` — only same-origin fetch/XHR.
 #: - ``frame-ancestors 'none'`` — no one may frame us (parity
