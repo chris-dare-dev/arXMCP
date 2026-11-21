@@ -487,6 +487,45 @@ class TestReuseByIdentity:
         assert proof["embedding_stmt"] is None
         assert proof["embedding_proof"] is not None
 
+    def test_a_paper_written_in_several_batches_is_copied_whole(self, tmp_path):
+        # Each write adds a fragment, so the paper's rows sit in three
+        # fragments of the active table, interleaved with another paper's.
+        other = "2401.00002"
+        first = [_make_chunk(PAPER, _cid(PAPER, 1))]
+        middle = [_make_chunk(other, _cid(other, 1))]
+        last = [
+            _make_chunk(PAPER, _cid(PAPER, 2), kind="proof"),
+            _make_chunk(PAPER, _cid(PAPER, 3)),
+        ]
+        active = _active(tmp_path, first, seed=10)
+        write_chunks(middle, _record(middle, seed=20), lancedb_path=active,
+                     build_indices=False)
+        write_chunks(last, _record(last, seed=30), lancedb_path=active,
+                     build_indices=False)
+
+        summary, embedder = _run(
+            tmp_path, active, {PAPER: first + last, other: middle}
+        )
+
+        assert summary.papers_failed == []
+        assert summary.chunks_source == 4
+        assert summary.chunks_copied == 4
+        assert embedder.calls == []
+        staged = _staged(tmp_path)
+        assert _bytes(staged[_cid(PAPER, 1)]["embedding_stmt"]) == _bytes(
+            _normalized(10)
+        )
+        assert _bytes(staged[_cid(other, 1)]["embedding_stmt"]) == _bytes(
+            _normalized(20)
+        )
+        assert _bytes(staged[_cid(PAPER, 2)]["embedding_proof"]) == _bytes(
+            _normalized(30)
+        )
+        assert staged[_cid(PAPER, 2)]["embedding_stmt"] is None
+        assert _bytes(staged[_cid(PAPER, 3)]["embedding_stmt"]) == _bytes(
+            _normalized(31)
+        )
+
 
 class TestResume:
     def test_resume_skips_a_paper_already_staged_identically(self, tmp_path):
