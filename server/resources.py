@@ -58,6 +58,9 @@ exits non-zero, ``/readyz`` never opens). Specifically:
 - LanceDB open failure → propagates the underlying exception
   (``FileNotFoundError`` for missing path, ``ValueError`` for an
   unknown version per :func:`server.corpus.open_chunks_table`).
+- BM25 artifact load or auto-build failure is NOT fatal: no served
+  tool reads the BM25 phase, so ``bm25_phase`` stays ``None`` and a
+  WARNING says why (see :func:`_open_bm25_phase`).
 
 The single-worker BGE-M3 executor in :mod:`server.query_encoder` is
 shut down via :func:`server.query_encoder.shutdown_executor` from
@@ -573,6 +576,8 @@ class Resources:
     rerank_singleflight: Singleflight
     reranker_model: Any | None = None  # populated when enable_rerank=True
     # server.retrieval.BM25Phase; duck-typed to keep this import light.
+    # ``None`` when the artifact could not be loaded or built: no served
+    # tool reads it, so its absence degrades nothing a caller sees.
     bm25_phase: Any | None = None
     # server.retrieval.ANNPhase; duck-typed (E07_S02). Phase-2 dual-ANN
     # retrieval over embedding_stmt + embedding_proof columns plus RRF
@@ -918,13 +923,11 @@ class Resources:
         # opens via fstat-then-load to close TOCTOU (E07_S01 F1),
         # checks the parent directory (F2), and cross-checks the
         # chunk_ids against the LIVE LanceDB table (F4) so a
-        # tampered or stale artifact is rejected at startup rather
-        # than producing phantom candidates. Failure raises
-        # :class:`server.retrieval.BM25IndexUnavailableError` which
-        # propagates through the lifespan's broad exception
-        # handler — server refuses to open ``/readyz``.
-        from server.retrieval import BM25Phase
-
+        # tampered or stale artifact is rejected rather than
+        # producing phantom candidates. A rejected or unbuildable
+        # artifact leaves ``bm25_phase`` as ``None``; see
+        # :func:`_open_bm25_phase` for why that is not fatal.
+        #
         # The live chunk_id set from the table opened in step 2, projected
         # at the scanner. `to_arrow()` here read all fourteen columns —
         # including both 1024-float vector columns — to keep one string
@@ -940,15 +943,11 @@ class Resources:
             if _projected_ids is not None
             else set(chunks_table.to_arrow().column("chunk_id").to_pylist())
         )
-        bm25_phase = await BM25Phase.startup(
-            lancedb_path=config.lancedb_path,
+        bm25_phase = await _open_bm25_phase(
+            config,
             corpus_version=corpus_info.version,
             live_chunk_ids=live_chunk_ids,
-            bm25_index_root=config.bm25_index_root,
-        )
-        logger.info(
-            "Resources.startup: BM25Phase warm (corpus_size=%d)",
-            bm25_phase.corpus_size,
+            caller="Resources.startup",
         )
 
         # 4c. ANN Phase 2 (E07_S02). Cheap construction — just caches
@@ -1319,7 +1318,7 @@ class Resources:
             #    materialization — off-loop (it was on the event loop in
             #    the pre-#207 ``late_bind``, which was fine at cold start
             #    and is not fine on a live rebind).
-            from server.retrieval import ANNPhase, BM25Phase  # noqa: PLC0415
+            from server.retrieval import ANNPhase  # noqa: PLC0415
 
             # Same projection as the startup site. This one had no scan
             # limit of any kind, so on a large corpus the rebind allocated the
@@ -1333,11 +1332,13 @@ class Resources:
                 return set(chunks_table.to_arrow().column("chunk_id").to_pylist())
 
             live_chunk_ids = await loop.run_in_executor(None, _live_chunk_ids)
-            bm25_phase = await BM25Phase.startup(
-                lancedb_path=config.lancedb_path,
+            # A BM25 failure must not abandon the rebind: that would keep
+            # a fresh ingest invisible over a phase no tool reads.
+            bm25_phase = await _open_bm25_phase(
+                config,
                 corpus_version=corpus_info.version,
                 live_chunk_ids=live_chunk_ids,
-                bm25_index_root=config.bm25_index_root,
+                caller=caller,
             )
 
             # 4. ANN phase — cheap; just caches the table reference.
@@ -2175,6 +2176,58 @@ async def _open_theorem_names_store(config: Config, *, caller: str) -> Any | Non
     except Exception as exc:  # noqa: BLE001 — non-critical enrichment
         logger.warning("%s: could not open theorem_names store: %s", caller, exc)
         return None
+
+
+async def _open_bm25_phase(
+    config: Config,
+    *,
+    corpus_version: int,
+    live_chunk_ids: set[str],
+    caller: str,
+) -> Any | None:
+    """Load (auto-building if missing) the BM25 phase, or return ``None``.
+
+    No served tool reads BM25: ``search_papers`` runs the dense route and
+    says so in ``retrieval_mode``, whether or not this phase loaded. A
+    failure here therefore changes no answer, and refusing ``/readyz`` (or
+    abandoning a rebind, which leaves a fresh ingest invisible) over it
+    would take the server down for a component that contributes nothing.
+    The index lives inside the dataset, so a read-only dataset mount or a
+    corpus with no ``body_tokens`` is enough to make the auto-build fail.
+
+    An artifact that fails the pickle file-safety check is never loaded
+    either way; it is logged at ERROR because it may mean tampering,
+    not just a missing build. Never raises.
+    """
+    from server.retrieval import BM25Phase  # noqa: PLC0415
+    from server.retrieval.bm25 import BM25IndexUnsafeError  # noqa: PLC0415
+
+    try:
+        phase = await BM25Phase.startup(
+            lancedb_path=config.lancedb_path,
+            corpus_version=corpus_version,
+            live_chunk_ids=live_chunk_ids,
+            bm25_index_root=config.bm25_index_root,
+        )
+    except BM25IndexUnsafeError as exc:
+        logger.error(
+            "%s: BM25 artifact refused by the file-safety check and NOT "
+            "loaded: %s. Serving without the BM25 phase; search_papers is "
+            "unaffected (it runs dense-only).",
+            caller,
+            exc,
+        )
+        return None
+    except Exception as exc:  # noqa: BLE001 — the phase serves no tool
+        logger.warning(
+            "%s: BM25 phase unavailable: %s. Serving without it; "
+            "search_papers is unaffected (it runs dense-only).",
+            caller,
+            exc,
+        )
+        return None
+    logger.info("%s: BM25Phase warm (corpus_size=%d)", caller, phase.corpus_size)
+    return phase
 
 
 async def _close_quietly(handle: Any, *, label: str) -> None:

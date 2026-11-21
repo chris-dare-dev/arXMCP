@@ -35,6 +35,12 @@ from typing import Annotated, Any
 from pydantic import Field
 
 from ingest.identifiers import is_valid_chunk_id
+from server.handlers.corpus_route import (
+    NOTEBOOK_ARG_DESCRIPTION,
+    CorpusRoute,
+    parse_notebook,
+    resolve_corpus,
+)
 from server.observability.sanitize import sanitize_retrieved_text
 from server.proof_linkage import resolve_referenced
 from server.tools import (
@@ -73,6 +79,9 @@ async def handle_get_chunk(
             )
         ),
     ] = False,
+    notebook: Annotated[
+        str | None, Field(description=NOTEBOOK_ARG_DESCRIPTION)
+    ] = None,
 ) -> dict[str, Any]:
     """Fetch one chunk by id, or a batch of up to 20.
 
@@ -89,6 +98,10 @@ async def handle_get_chunk(
     the corpus yields a per-chunk ``found: false`` (batch elements stay
     positionally aligned with the request so a caller can map a miss
     back to its id).
+
+    ``notebook`` reads that notebook's corpus, so an id returned by a
+    notebook-scoped ``search_papers`` is found, and the envelope echoes
+    that notebook's ``corpus_version``.
     """
     # Validate BEFORE touching Resources: a malformed / injection-shaped
     # id (or an over-cap batch) must be rejected without the handler ever
@@ -112,23 +125,35 @@ async def handle_get_chunk(
                 f"chunk_id {cid!r} does not match "
                 f"arxiv:<paper_id>:<16-hex> format"
             )
+    notebook_slug = (
+        parse_notebook(notebook, arg="notebook") if notebook is not None else None
+    )
 
     r = get_resources()
+    route = await resolve_corpus(r, notebook_slug, arg="notebook")
     # The row fetch and the proof-linkage queries are blocking LanceDB
     # reads; the server runs one event loop for every tool, the console
     # and the health probes, so they run on a worker thread.
     return await asyncio.to_thread(
-        _get_chunks, r, ids, batch, include_referenced
+        _get_chunks, r, route, ids, batch, include_referenced
     )
 
 
 def _get_chunks(
-    r: Any, ids: list[str], batch: bool, include_referenced: bool
+    r: Any,
+    route: CorpusRoute,
+    ids: list[str],
+    batch: bool,
+    include_referenced: bool,
 ) -> dict[str, Any]:
-    row_map = _fetch_chunk_rows(r, ids)
+    table = route.table
+    row_map = _fetch_chunk_rows(table, ids)
     if not batch:
         return envelope(
-            _build_chunk_result(ids[0], row_map.get(ids[0]), include_referenced, r)
+            _build_chunk_result(
+                ids[0], row_map.get(ids[0]), include_referenced, table
+            ),
+            override_corpus_version=route.corpus_version,
         )
     # Per-element byte budget: each element gets result_byte_cap // n,
     # and a primary body over its share is truncated to a resource_link
@@ -141,7 +166,7 @@ def _get_chunks(
         {
             "chunks": [
                 _build_chunk_result(
-                    cid, row_map.get(cid), include_referenced, r,
+                    cid, row_map.get(cid), include_referenced, table,
                     byte_cap=per_elem_cap,
                 )
                 for cid in ids
@@ -149,7 +174,7 @@ def _get_chunks(
         },
         list_key="chunks",
     )
-    return envelope(structured)
+    return envelope(structured, override_corpus_version=route.corpus_version)
 
 
 async def read_chunk_in_full(chunk_id: str) -> dict[str, Any]:
@@ -171,13 +196,15 @@ async def read_chunk_in_full(chunk_id: str) -> dict[str, Any]:
 
 
 def _read_chunk_in_full(r: Any, chunk_id: str) -> dict[str, Any]:
-    row = _fetch_chunk_rows(r, [chunk_id]).get(chunk_id)
+    row = _fetch_chunk_rows(r.chunks_table, [chunk_id]).get(chunk_id)
     return envelope(
-        _build_chunk_result(chunk_id, row, False, r, byte_cap=sys.maxsize)
+        _build_chunk_result(
+            chunk_id, row, False, r.chunks_table, byte_cap=sys.maxsize
+        )
     )
 
 
-def _fetch_chunk_rows(r, ids: list[str]) -> dict[str, Any]:  # noqa: ANN001
+def _fetch_chunk_rows(table: Any, ids: list[str]) -> dict[str, Any]:
     """One LanceDB lookup for all requested ids -> {chunk_id: row}.
 
     A single ``chunk_id IN (...)`` query serves both the scalar path
@@ -185,7 +212,7 @@ def _fetch_chunk_rows(r, ids: list[str]) -> dict[str, Any]:  # noqa: ANN001
     """
     ids_escaped = ", ".join(f"'{_escape_lance_str(c)}'" for c in ids)
     arrow = (
-        r.chunks_table.search()
+        table.search()
         .where(f"chunk_id IN ({ids_escaped})", prefilter=True)
         .limit(len(ids))
         .to_arrow()
@@ -197,7 +224,7 @@ def _build_chunk_result(
     chunk_id: str,
     row: dict[str, Any] | None,
     include_referenced: bool,
-    r: Any,
+    table: Any,
     byte_cap: int | None = None,
 ) -> dict[str, Any]:
     """Build the per-chunk result object (used for both the scalar
@@ -206,7 +233,8 @@ def _build_chunk_result(
     batch element is self-contained. ``byte_cap`` overrides the global
     per-response cap for a batch element (its share of the total); a
     ``found:false`` batch element also carries ``chunk_id`` so a miss is
-    identifiable without positional bookkeeping."""
+    identifiable without positional bookkeeping. ``table`` is the corpus
+    the row came from; proof linkage is resolved within it."""
     if row is None:
         miss: dict[str, Any] = {
             "chunk": None,
@@ -290,7 +318,7 @@ def _build_chunk_result(
     # an undecidable unlabeled pairing reports ``ambiguous``, neither
     # collapsing into a silently empty list (trust-language-policy §5d).
     if include_referenced:
-        linkage = resolve_referenced(r.chunks_table, row)
+        linkage = resolve_referenced(table, row)
         # Threat 2: referenced bodies are author-controlled corpus text,
         # exactly like the primary body, so they take the same
         # sanitize-then-wrap path. Both steps happen here rather than in

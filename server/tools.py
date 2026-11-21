@@ -264,7 +264,16 @@ logger = logging.getLogger(__name__)
 #: ``pytest --update-tool-schema-hash --allow-version-bump``. No tool
 #: description is edited, so BP1 does not move. Both result schemas bump
 #: 24 -> 25 in lockstep.
-TOOL_SCHEMA_VERSION: int = 25
+#:
+#: 25 -> 26: get_chunk, get_paper and cite_neighbors take an optional
+#: ``notebook`` argument that reads the notebook search_papers'
+#: ``filters.notebook`` named, so an id a notebook-scoped search returned
+#: resolves in the follow-up call. Three inputSchemas grow, so
+#: EXPECTED_TOOL_SCHEMA_SHA256 re-pins via ``pytest
+#: --update-tool-schema-hash --allow-version-bump``. No tool description
+#: is edited, so BP1 does not move. Both result schemas bump 25 -> 26 in
+#: lockstep.
+TOOL_SCHEMA_VERSION: int = 26
 
 #: URI scheme for chunk resource_links per the design note. Used by
 #: handlers that switch to resource_link mode when payloads exceed

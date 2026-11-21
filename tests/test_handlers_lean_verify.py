@@ -249,7 +249,9 @@ class TestToolRegistration:
         # 24->25: lean_status gains "crashed" and "unavailable", so a REPL
         # failure stops reading as "available" or "disabled". Hash moves,
         # BP1 does not.
-        assert TOOL_SCHEMA_VERSION == 25
+        # 25->26: three tools take an optional notebook argument; the
+        # lean_verify result shape is unchanged. Hash moves, BP1 does not.
+        assert TOOL_SCHEMA_VERSION == 26
 
         schema_path = (
             Path(__file__).parent.parent

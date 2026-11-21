@@ -32,6 +32,12 @@ store read error degrades the same way (metadata is an enrichment,
 never a 5xx).
 
 When the paper_id is unknown, returns ``{found: false, ...}``.
+
+``notebook`` reads that notebook's chunks table (see
+:mod:`server.handlers.corpus_route`), so a paper_id returned by a
+notebook-scoped ``search_papers`` is found there. The metadata overlay
+reads the same store ``search_papers`` titles its rows from: a paper's
+title and authors do not depend on which notebook holds its chunks.
 """
 
 from __future__ import annotations
@@ -42,6 +48,11 @@ from typing import Annotated, Any
 
 from pydantic import Field
 
+from server.handlers.corpus_route import (
+    NOTEBOOK_ARG_DESCRIPTION,
+    parse_notebook,
+    resolve_corpus,
+)
 from server.observability.sanitize import sanitize_retrieved_text
 from server.source_kinds import (
     ALL_SOURCE_KINDS,
@@ -145,6 +156,9 @@ def _unsupported_envelope(
 
 async def handle_get_paper(
     paper_id: Annotated[str, Field(min_length=1, description="arXiv paper id")],
+    notebook: Annotated[
+        str | None, Field(description=NOTEBOOK_ARG_DESCRIPTION)
+    ] = None,
 ) -> dict[str, Any]:
     # There is no ``version`` argument: the corpus stores no per-version
     # rows, and an agent that needs one already carries the ``vN`` suffix
@@ -152,11 +166,15 @@ async def handle_get_paper(
     # Validate before paper_id reaches the WHERE clause. Every id kind
     # search_papers can return is admitted: textbook rows live in the same
     # chunks table under the same column.
+    notebook_slug = (
+        parse_notebook(notebook, arg="notebook") if notebook is not None else None
+    )
     try:
         admit_paper_id(paper_id, SUPPORTED_SOURCE_KINDS)
     except UnsupportedSourceKind as exc:
         return _cap(_unsupported_envelope(paper_id, exc))
     r = get_resources()
+    route = await resolve_corpus(r, notebook_slug, arg="notebook")
 
     # LanceDB has no group-by, so pull the paper's rows and aggregate
     # here. Only the columns read below: without a select, every row
@@ -165,18 +183,21 @@ async def handle_get_paper(
     # chunks is counted and summarised in full rather than at a cap.
     paper_filter = f"paper_id = '{_escape(paper_id)}'"
     chunk_count, arrow = await asyncio.to_thread(
-        _paper_summary_rows, r.chunks_table, paper_filter
+        _paper_summary_rows, route.table, paper_filter
     )
 
     if chunk_count == 0:
-        return envelope(_cap(
-            {
-                "found": False,
-                "metadata_status": "synthesized_from_chunks",
-                "paper": None,
-                "paper_id": paper_id,
-            }
-        ))
+        return envelope(
+            _cap(
+                {
+                    "found": False,
+                    "metadata_status": "synthesized_from_chunks",
+                    "paper": None,
+                    "paper_id": paper_id,
+                }
+            ),
+            override_corpus_version=route.corpus_version,
+        )
 
     section_first = set()
     for sp in arrow.column("section_path").to_pylist():
@@ -242,7 +263,7 @@ async def handle_get_paper(
                 wrap_retrieved_text(a, kind="chunk")
                 for a in capped_paper["authors"]
             ]
-    return envelope(structured)
+    return envelope(structured, override_corpus_version=route.corpus_version)
 
 
 def _paper_summary_rows(table: Any, paper_filter: str) -> tuple[int, Any]:

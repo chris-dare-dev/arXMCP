@@ -130,8 +130,8 @@ DEFERRED_FILTER_KEYS: frozenset[str] = frozenset(
 
 class BM25IndexUnavailableError(RuntimeError):
     """Raised when the BM25 artifact cannot be loaded AND auto-build
-    fails. Lifted to a startup-time error by ``Resources.startup``
-    so ``/readyz`` never opens on a half-warm BM25 phase."""
+    fails. ``Resources`` catches it and serves without the phase,
+    which no served tool reads, rather than refusing ``/readyz``."""
 
 
 class BM25IndexUnsafeError(BM25IndexUnavailableError):

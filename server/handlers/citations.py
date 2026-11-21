@@ -9,7 +9,9 @@ citation-graph read path shipped in E09_S03.
 and LanceDB paths passed to the library are derived from
 :class:`server.config.Config` via :func:`server.tools.get_resources` —
 NEVER from agent-supplied JSON arguments. The agent controls only
-``chunk_id``, ``direction``, ``depth``, and ``limit``. This closes the
+``chunk_id``, ``direction``, ``depth``, ``limit`` and ``notebook`` (a
+validated slug that selects a notebook's chunks table through
+:mod:`server.handlers.corpus_route`, never a path). This closes the
 contract the library docstring defers to "the E06_S04 / E09_S04
 tool-input boundary".
 
@@ -39,6 +41,11 @@ from pydantic import Field
 
 from ingest.identifiers import is_valid_chunk_id
 from server.graph_queries import cite_neighbors
+from server.handlers.corpus_route import (
+    NOTEBOOK_ARG_DESCRIPTION,
+    parse_notebook,
+    resolve_corpus,
+)
 from server.metadata_enrich import enrich_rows_with_titles
 from server.tools import cap_result_list, envelope, get_resources
 
@@ -78,6 +85,9 @@ async def handle_cite_neighbors(
     ] = "cites",
     depth: Annotated[int, Field(ge=1, le=2, description="Hop count (1 or 2)")] = 2,
     limit: Annotated[int, Field(ge=1, le=100, description="Max neighbors returned")] = 30,
+    notebook: Annotated[
+        str | None, Field(description=NOTEBOOK_ARG_DESCRIPTION)
+    ] = None,
 ) -> dict[str, Any]:
     # E13_S01 D3 — Threat-1 (path traversal) coverage. ``chunk_id``
     # flows into the citation-graph query layer; validate the format
@@ -91,6 +101,9 @@ async def handle_cite_neighbors(
             f"chunk_id does not match the expected format "
             f"arxiv:<paper_id>:<16-hex>; got {chunk_id!r}"
         )
+    notebook_slug = (
+        parse_notebook(notebook, arg="notebook") if notebook is not None else None
+    )
 
     # F2 path-validation contract: the Kùzu and LanceDB paths come
     # from Config via the Resources singleton — never from the agent's
@@ -99,6 +112,10 @@ async def handle_cite_neighbors(
     resources = get_resources()
     config = resources.config
     kuzu_path = config.kuzu_path
+    # The graph itself is shared; the chunks table it resolves the source
+    # chunk and each neighbour's representative chunk_id against is the
+    # caller's corpus, so get_chunk(..., notebook=...) finds every one.
+    route = await resolve_corpus(resources, notebook_slug, arg="notebook")
 
     neighbors: list[dict[str, Any]] = []
     if not kuzu_path.exists():
@@ -114,9 +131,10 @@ async def handle_cite_neighbors(
                 max_results=limit,
                 kuzudb_path=str(kuzu_path),
                 lancedb_path=str(config.lancedb_path),
-                # Resolve chunk_ids at the corpus version every other
-                # handler reads, so get_chunk finds each one.
-                chunks_table=resources.chunks_table,
+                # Resolve chunk_ids in the same corpus get_chunk reads
+                # for this notebook (or the shared one), so it finds
+                # each one.
+                chunks_table=route.table,
             )
         except RuntimeError as exc:
             # The Kùzu path exists but is not a queryable graph — a
@@ -143,8 +161,9 @@ async def handle_cite_neighbors(
             # envelope()'s _sort_dict sorts dict keys, not list order.
             neighbors = [dataclasses.asdict(n) for n in results]
             # #84: join paper title/year onto each neighbor row from the
-            # shared PaperMetadataStore (cite_neighbors has no notebook
-            # routing, so the shared store is the correct source).
+            # shared PaperMetadataStore, the same source search_papers
+            # titles its rows from (a title does not depend on which
+            # notebook holds the paper's chunks).
             # Null-safe: absent store / un-backfilled paper → title:null.
             await enrich_rows_with_titles(
                 getattr(get_resources(), "paper_metadata_store", None), neighbors
@@ -161,4 +180,4 @@ async def handle_cite_neighbors(
             "neighbors": neighbors,
         },
         chunk_id,
-    ))
+    ), override_corpus_version=route.corpus_version)
