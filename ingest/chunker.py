@@ -2,8 +2,9 @@
 
 Public API
 ----------
-chunk_paper(paper_id: str) -> list[ChunkRecord]
-    Walk ``var/arxmcp/corpus/parsed/<paper_id>/index.html``, extract all
+chunk_paper(paper_id: str, *, parsed_dir: Path | None = None) -> list[ChunkRecord]
+    Walk ``<parsed_dir>/<paper_id>/index.html`` (``parsed_dir`` defaults to
+    ``var/arxmcp/corpus/parsed``), extract all
     theorem, proof, definition, section, and similar environments, and return
     a list of :class:`~ingest.chunk.ChunkRecord` objects.  Output
     JSON files are written to ``var/arxmcp/corpus/chunks/<paper_id>/``.
@@ -1244,13 +1245,20 @@ def _extract_body_fallback_chunks(
 # ---------------------------------------------------------------------------
 
 
-def chunk_paper(paper_id: str) -> list[ChunkRecord]:
+def chunk_paper(
+    paper_id: str, *, parsed_dir: Path | None = None
+) -> list[ChunkRecord]:
     """Chunk one paper and write output JSON files.
 
     Parameters
     ----------
     paper_id:
         Canonical arXiv ID, e.g. ``"2307.01156"``.
+    parsed_dir:
+        Root of the parsed-HTML tree; the paper is read from
+        ``<parsed_dir>/<paper_id>/index.html``. Defaults to
+        :data:`PARSED_DIR`. Pass the same directory the HTML was fetched
+        into (for example ``ingest.ar5iv_fetch.try_cache(parsed_dir=...)``).
 
     Returns
     -------
@@ -1273,7 +1281,7 @@ def chunk_paper(paper_id: str) -> list[ChunkRecord]:
 
     start = time.monotonic()
     try:
-        return _chunk_paper_impl(paper_id)
+        return _chunk_paper_impl(paper_id, parsed_dir)
     except PER_PAPER_FAILURE_EXCEPTIONS as exc:
         # Closes F8: catch only the resilience-pattern exception set, NOT a
         # bare `except Exception`. Programmer bugs (AttributeError, KeyError,
@@ -1284,7 +1292,7 @@ def chunk_paper(paper_id: str) -> list[ChunkRecord]:
         return []
 
 
-def _chunk_paper_impl(paper_id: str) -> list[ChunkRecord]:
+def _chunk_paper_impl(paper_id: str, parsed_dir: Path | None) -> list[ChunkRecord]:
     if paper_id in {"1309.5035", "1802.01134"}:
         # These authentic sources have incomplete LaTeXML renders. Keep the
         # verified TeX extraction behind the public chunker entry point so
@@ -1295,7 +1303,8 @@ def _chunk_paper_impl(paper_id: str) -> list[ChunkRecord]:
         _write_chunk_set(CHUNKS_DIR / paper_id, paper_id, chunks)
         return chunks
 
-    parsed_html = PARSED_DIR / paper_id / "index.html"
+    parsed_root = PARSED_DIR if parsed_dir is None else parsed_dir
+    parsed_html = parsed_root / paper_id / "index.html"
     if not parsed_html.exists():
         raise FileNotFoundError(
             f"parsed HTML not found at {parsed_html}; "

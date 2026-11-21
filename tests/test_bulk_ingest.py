@@ -437,6 +437,63 @@ class TestActiveCorpusVersionUntouched:
         assert after == before
 
 
+class TestParsedDirReachesTheChunker:
+    """A caller's ``parsed_dir`` is where ar5iv writes the HTML and where
+    the chunker reads it, so a non-default tree still chunks."""
+
+    def test_ar5iv_html_in_a_custom_parsed_dir_is_chunked(self, tmp_path):
+        from pathlib import Path
+
+        from ingest.embedder import EmbedStats
+
+        paper_id = "2307.00001"
+        fixture = (
+            Path(__file__).parent / "fixtures" / "chunker" / paper_id / "index.html"
+        )
+
+        class _Response:
+            status = 200
+            headers: dict[str, str] = {}
+            url = f"https://ar5iv.labs.arxiv.org/html/{paper_id}"
+
+            def read(self, _amt=None):
+                return fixture.read_bytes()
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+        parsed_dir = tmp_path / "custom" / "parsed"
+        chunks_dir = tmp_path / "chunks"
+        with (
+            patch("ingest.ar5iv_fetch.urllib.request.urlopen", return_value=_Response()),
+            patch("ingest.chunker.PARSED_DIR", tmp_path / "default-parsed"),
+            patch("ingest.chunker.CHUNKS_DIR", chunks_dir),
+            patch("ingest.chunker._resolve_preamble_doc", return_value=None),
+            patch(
+                "ingest.bulk_ingest.embed_paper",
+                return_value=EmbedStats(
+                    paper_id=paper_id, chunks_processed=0, chunks_skipped=0,
+                    truncated_count=0, elapsed_s=0.0, status="fail",
+                    error="stop after chunking", error_class="stopped",
+                ),
+            ),
+        ):
+            outcome = ingest_one_paper(
+                paper_id,
+                lancedb_staging_path=tmp_path / "lancedb-staging",
+                ar5iv_cache_dir=tmp_path / "cache",
+                parsed_dir=parsed_dir,
+            )
+
+        assert outcome.parser_used == "ar5iv"
+        assert (parsed_dir / paper_id / "index.html").is_file()
+        assert outcome.failure_reason == "embedder_failed:stopped"
+        assert (chunks_dir / paper_id / "chunk_manifest.json").is_file()
+
+
 # ---------------------------------------------------------------------------
 # Rectification regression guards
 # ---------------------------------------------------------------------------

@@ -248,8 +248,7 @@ def _parse_via_ar5iv(
 def _has_local_parsed_html(paper_id: str, parsed_dir: Path) -> bool:
     """Return True if a parsed HTML file exists for the paper.
 
-    The chunker reads from
-    ``var/arxmcp/corpus/parsed/<paper_id>/index.html``. v1's
+    The chunker reads ``<parsed_dir>/<paper_id>/index.html``. v1's
     LaTeXML-fallback path assumes the operator has already
     run ``tools/arxiv_fetch.py`` (or similar) to produce this
     file. Bulk ingest does NOT itself fetch raw .tex or invoke
@@ -343,7 +342,7 @@ def ingest_one_paper(
                 outcome.failure_reason = "no_parsed_html"
                 return outcome
         # Step 3: chunk + embed + store.
-        chunks = chunk_paper(paper_id)
+        chunks = chunk_paper(paper_id, parsed_dir=parsed_dir)
         if not chunks:
             # ingest-robustness-m1 (AC4): distinguish a structurally
             # unchunkable render (math, but no sections/theorems, and no
@@ -548,11 +547,9 @@ def _cli(argv: list[str]) -> int:
         type=Path,
         help=f"ar5iv on-disk cache (default: {DEFAULT_AR5IV_CACHE_DIR})",
     )
-    # Closes F2: --parsed-dir was a CLI footgun. The chunker reads
-    # from a hardcoded module-level PARSED_DIR; honoring the CLI
-    # override at the ar5iv-write step but ignoring it at the chunker
-    # step caused silent "chunker_returned_empty" failures. The
-    # parsed-dir is now fixed at ``ingest.chunker.PARSED_DIR``.
+    # No --parsed-dir flag: the CLI fetches into and chunks from the
+    # default parsed tree. Python callers may pass ``parsed_dir``, which
+    # reaches both the ar5iv write and the chunker read.
     parser.add_argument(
         "--limit",
         type=int,
