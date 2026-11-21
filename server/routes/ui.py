@@ -476,6 +476,29 @@ async def ui_index(
     )
 
 
+#: Rows per page of the notebook page's papers table. Above this the table
+#: is split across ``?page=N`` URLs, so a large notebook neither renders
+#: every row nor stats every row's preview file on each page load.
+_PAPERS_PAGE_SIZE: int = 50
+
+
+def _papers_page(raw: str | None, total: int) -> tuple[int, int]:
+    """Resolve ``?page=`` to ``(page, page_count)`` for ``total`` papers.
+
+    The value is CLAMPED, never refused: this is a link-clicked HTML route,
+    and a stale bookmark to page 9 of a notebook that has since shrunk to
+    two pages should land on page 2, not on an error. A missing,
+    non-numeric or below-one value is page 1; a value past the end is the
+    last page. An empty notebook still has one (empty) page.
+    """
+    page_count = max(1, -(-total // _PAPERS_PAGE_SIZE))
+    try:
+        page = int(raw) if raw is not None else 1
+    except ValueError:
+        page = 1
+    return min(max(page, 1), page_count), page_count
+
+
 #: How many candidates the Discover view shows. The same page size the
 #: Discover button's POST asks for, so a reload of the pushed URL shows the
 #: list the button showed.
@@ -520,6 +543,7 @@ async def ui_notebook_detail(
     slug: str,
     request: Request,
     discover: str | None = None,
+    page: str | None = None,
     store: NotebooksStore = Depends(get_notebooks_store),  # noqa: B008  (FastAPI DI pattern)
     paths: ApplicationPaths = Depends(get_application_paths),  # noqa: B008
 ) -> HTMLResponse:
@@ -533,6 +557,11 @@ async def ui_notebook_detail(
     The results are not stored anywhere, so loading the URL re-runs
     discovery — which is what the panel already tells the operator to do.
     Any other value of ``discover`` is the plain page.
+
+    ``?page=N`` selects a page of the papers table, ``_PAPERS_PAGE_SIZE``
+    rows each, in the store's ``added_at DESC`` order. ``page`` is taken as
+    a string and clamped by ``_papers_page`` rather than declared ``int``,
+    because FastAPI would answer a non-numeric value with a JSON 422.
 
     404 if the slug doesn't exist; 422 on a malformed slug — both rendered as
     HTML (issue #456), not as the raw JSON body an ``HTTPException`` produces.
@@ -568,11 +597,15 @@ async def ui_notebook_detail(
                 "renamed or deleted."
             ),
         )
-    papers = await store.list_papers(slug)
+    all_papers = await store.list_papers(slug)
+    paper_count = len(all_papers)
+    page_number, page_count = _papers_page(page, paper_count)
+    page_offset = (page_number - 1) * _PAPERS_PAGE_SIZE
+    papers = all_papers[page_offset : page_offset + _PAPERS_PAGE_SIZE]
     # m10 AC #2 — annotate each paper row with on-disk preview existence
     # so the template can conditionally render the Preview link vs a
-    # "no preview available" tooltip. Two filesystem stats per paper
-    # (notebook-scoped + corpus-global); loopback-only deployment makes
+    # "no preview available" tooltip. Two filesystem stats per paper on
+    # this page (notebook-scoped + corpus-global); loopback-only deployment makes
     # this cheap. ``store.list_papers`` returns ``list[dict[str, str]]``;
     # we widen the value type to include the new bool but the template
     # only reads it via ``p.has_preview`` style access so the existing
@@ -613,6 +646,10 @@ async def ui_notebook_detail(
             "notebook": notebook,
             "lancedb_location": lancedb_location,
             "papers": annotated_papers,
+            "paper_count": paper_count,
+            "page": page_number,
+            "page_count": page_count,
+            "page_first_row": page_offset + 1,
             "latest_run": latest_run,
             "parse_status_css": parse_status_css,
             "discover_results": discover_results,
