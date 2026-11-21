@@ -78,6 +78,12 @@ arxmcp_cache_bytes{tier="3"} 1.1e+06
 # TYPE arxmcp_cache_payload_skips_total counter
 # HELP arxmcp_retrieval_cap_rejections_total Total number of `tools/call` requests rejected by the per-MCP-session retrieval cap. Labeled by tool name (`search_papers` or `get_chunk`). When this rises, the configured caps may be too tight or an upstream agent may be in a runaway-retrieval loop.
 # TYPE arxmcp_retrieval_cap_rejections_total counter
+# HELP arxmcp_session_cap_fail_open_total Total number of `tools/call` requests forwarded without the per-session and hourly cap checks because the check failed. Any non-zero value means the caps are not being enforced.
+# TYPE arxmcp_session_cap_fail_open_total counter
+arxmcp_session_cap_fail_open_total 0.0
+# HELP arxmcp_session_cap_fail_open_created Total number of `tools/call` requests forwarded without the per-session and hourly cap checks because the check failed. Any non-zero value means the caps are not being enforced.
+# TYPE arxmcp_session_cap_fail_open_created gauge
+arxmcp_session_cap_fail_open_created 1.785537614618891e+09
 # HELP arxmcp_latexml_drift_detected_total Total number of fixture diffs that detected LaTeXML output drift since the cron process started. Each increment is one fixture whose freshly-rendered MathML differed from the checked-in expected baseline. Operators should re-run the extractor + indexer (see docs/ops/latexml-drift-runbook.md) and regenerate fixtures via `python -m ops.drift_check --update-fixtures` after confirming the LaTeXML upgrade is intentional.
 # TYPE arxmcp_latexml_drift_detected_total counter
 # HELP arxmcp_latexml_drift_fixtures Number of LaTeXML fixtures currently in drift state, rehydrated from var/arxmcp/ops/drift-detected.flag at scrape time. 0 means no drift; >0 means the operator should run the recovery procedure documented in docs/ops/latexml-drift-runbook.md.
