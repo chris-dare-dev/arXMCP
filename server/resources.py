@@ -549,6 +549,36 @@ def reconcile_corpus_marker(
     )
 
 
+#: The resources ``/readyz`` and ``arxmcp_resources_warm`` report on, in
+#: report order. ``is_resource_warm`` raises on any other name.
+WARM_RESOURCE_NAMES: tuple[str, ...] = ("embedder", "lancedb", "reranker")
+
+
+@dataclass
+class StartupProgress:
+    """Which resources have finished loading, one flag each.
+
+    :meth:`Resources.startup` flips each flag the moment that resource
+    is loaded, not when the whole sequence finishes, so a reader holding
+    this object while startup is still running sees exactly what is
+    still cold. The lifespan attaches it to ``app.state.startup_progress``
+    BEFORE startup begins; ``/readyz`` reads it while
+    ``app.state.resources`` is still unset, and the finished
+    :class:`Resources` keeps it as :attr:`Resources.progress`.
+
+    The flags never infer one resource from another: the LanceDB table
+    opens before BGE-M3 starts loading, and ``reranker`` stays False for
+    the life of a process started with reranking disabled.
+    """
+
+    embedder: bool = False
+    lancedb: bool = False
+    reranker: bool = False
+
+    def as_map(self) -> dict[str, bool]:
+        return {name: getattr(self, name) for name in WARM_RESOURCE_NAMES}
+
+
 @dataclass
 class Resources:
     """Process-wide state for the FastAPI app.
@@ -626,6 +656,10 @@ class Resources:
     lean_repl: Any | None = None
     process_start_time_seconds: float = field(default_factory=time.time)
     warm: bool = False
+    #: Per-resource load state, shared with the lifespan while startup
+    #: runs (see :class:`StartupProgress`). ``warm`` says whether the
+    #: process serves; this says which resources are loaded.
+    progress: StartupProgress = field(default_factory=StartupProgress)
     #: Failure-mode degradation marker (E14_S05 D2). ``None`` on
     #: the happy path. Set to a :class:`ingest.corpus.DegradedState`
     #: when ``open_chunks_table_with_fallback`` activated the N-1
@@ -707,8 +741,15 @@ class Resources:
     # ------------------------------------------------------------------
 
     @classmethod
-    async def startup(cls, config: Config) -> Resources:
+    async def startup(
+        cls, config: Config, progress: StartupProgress | None = None
+    ) -> Resources:
         """Eagerly load every long-lived resource.
+
+        ``progress`` is flipped per resource as each one finishes
+        loading, so a caller that published it before awaiting this
+        can report what is still cold mid-startup. One is created when
+        the caller passes none.
 
         Order of operations (load-bearing — failures earlier in the
         chain should not leave half-initialized state behind):
@@ -729,6 +770,9 @@ class Resources:
         6. Set ``warm = True``. ``/readyz`` flips to 200 only after
            this returns successfully.
         """
+        if progress is None:
+            progress = StartupProgress()
+
         # 1. Corpus marker — REFUSE TO START on absent (synthesis D5).
         # onboarding-uplift-m4: bootstrap_mode=True + absent marker → skip
         # CorpusNotIngestedError and return a stub instance immediately.
@@ -765,6 +809,7 @@ class Resources:
                 rerank_semaphore=rerank_semaphore,
                 rerank_singleflight=rerank_singleflight,
                 warm=False,
+                progress=progress,
                 bootstrap_mode_active=True,
             )
             return stub
@@ -820,6 +865,7 @@ class Resources:
                 "Resources.startup: opened LanceDB chunks at version=%d",
                 corpus_info.version,
             )
+        progress.lancedb = True
 
         # 2b. Marker reconciliation — the SHARED validator (issue #448).
         # Startup, late_bind and refresh_corpus_if_stale must reach identical
@@ -909,6 +955,7 @@ class Resources:
         await loop.run_in_executor(None, query_encoder._get_tokenizer)
         await loop.run_in_executor(None, query_encoder._get_model)
         logger.info("Resources.startup: BGE-M3 embedder warm")
+        progress.embedder = True
 
         # 4. Reranker — only when enabled (synthesis D6: refuse on
         #    failure, do not silently disable).
@@ -916,6 +963,7 @@ class Resources:
         if config.enable_rerank:
             reranker_model = await _load_reranker_or_raise()
             logger.info("Resources.startup: BGE-reranker-v2-m3 warm")
+            progress.reranker = True
 
         # 4b. BM25 Phase 1 (E07_S01). Loads the per-corpus-version
         # ``bm25.pkl`` artifact built by ``ingest.bm25_indexer``;
@@ -1153,6 +1201,7 @@ class Resources:
             paper_metadata_store=paper_metadata_store,
             lean_repl=None,
             warm=True,
+            progress=progress,
             degraded=degraded,
             startup_chunk_count=startup_chunk_count,
             startup_unindexed_rows=startup_unindexed_rows,
@@ -1387,6 +1436,7 @@ class Resources:
                 )
                 self.reranker_model = await _load_reranker_or_raise()
                 logger.info("%s: BGE-reranker-v2-m3 warm", caller)
+                self.progress.reranker = True
 
             rerank_phase = RerankPhase(
                 chunks_table=chunks_table,
@@ -1430,6 +1480,10 @@ class Resources:
             self.degraded = degraded
             self.startup_chunk_count = startup_chunk_count
             self.startup_unindexed_rows = startup_unindexed_rows
+            # The embedder flag is deliberately left alone: a bind opens
+            # no model, and after a bootstrap promotion BGE-M3 loads on
+            # the first query instead, which this flag does not track.
+            self.progress.lancedb = True
             self.warm = True
 
         except Exception:  # noqa: BLE001 — see docstring
@@ -2011,21 +2065,25 @@ class Resources:
     # ------------------------------------------------------------------
 
     def is_resource_warm(self, name: str) -> bool:
-        """Per-resource warm-state for ``/metrics`` exposition.
+        """Whether the named resource is loaded and this process serves.
 
-        Returns 1 (truthy) when the named resource is loaded and
-        usable, 0 otherwise. ``name`` ∈ {"embedder", "lancedb",
-        "reranker"}; unknown names raise ``KeyError`` so a typo in a
-        future metric label fires loudly.
+        ``name`` is one of :data:`WARM_RESOURCE_NAMES`; an unknown name
+        raises ``KeyError`` so a typo in a metric label fires loudly.
+        Each resource answers from its own load state
+        (:attr:`progress`, and the reranker's model handle), so the
+        embedder and LanceDB can disagree. Every answer is False once
+        ``warm`` is, which is the state after shutdown begins.
         """
-        if name == "embedder" or name == "lancedb":
-            return self.warm
+        if name not in WARM_RESOURCE_NAMES:
+            raise KeyError(
+                f"unknown resource {name!r}; expected one of "
+                f"{set(WARM_RESOURCE_NAMES)!r}"
+            )
+        if not self.warm:
+            return False
         if name == "reranker":
-            return self.warm and self.reranker_model is not None
-        raise KeyError(
-            f"unknown resource {name!r}; expected one of "
-            f"{{'embedder', 'lancedb', 'reranker'}}"
-        )
+            return self.reranker_model is not None
+        return bool(getattr(self.progress, name))
 
 
 # ---------------------------------------------------------------------------

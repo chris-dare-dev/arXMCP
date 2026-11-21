@@ -8,8 +8,11 @@ The long-running ``arxmcp-server`` process. Wires:
 - :mod:`server.health` (``/healthz``, ``/readyz``).
 - ``prometheus_client.make_asgi_app()`` (``/metrics``).
 - The MCP ``FastMCP`` server mounted at ``/mcp`` via
-  :func:`server.mcp_mount.mount_mcp` (no tools registered yet —
-  E06_S03 lands the tool implementations).
+  :func:`server.mcp_mount.mount_mcp`, carrying the tools registered by
+  :func:`server.tools.register_all` and the ``arxmcp://`` resources
+  registered by :func:`server.mcp_resources.register_resources`.
+- The security middleware stack; :mod:`server.middleware` lists the
+  mount order.
 
 **Run via**: the ``arxmcp-server`` console script (issue #206), or
 ``python -m server.main``, or ``make up`` — all three are the same code
@@ -46,11 +49,12 @@ mcp_server.session_manager.run()`` from inside the parent
 lifespan.
 
 **Body-size middleware (synthesis D13, F1 fix).** A pure-ASGI
-middleware enforces the 256 KB inline-payload cap on every
-response EXCEPT ``/metrics`` (Prometheus exposition can grow
-large), the health endpoints (negligible size), and the ``/mcp``
-endpoint (Streamable HTTP carries SSE streams that defeat
-buffering). The original ``BaseHTTPMiddleware`` implementation was
+middleware enforces the ``ARXMCP_RESULT_BYTE_CAP`` response cap
+(256 KB by default) on every response EXCEPT the paths
+:func:`_is_exempt_path` names: ``/metrics`` (Prometheus exposition
+can grow large), the health probes, ``/mcp`` (Streamable HTTP
+carries SSE streams that defeat buffering), the console's static
+assets, and the notebook export stream. The original ``BaseHTTPMiddleware`` implementation was
 a silent no-op because Starlette wraps every response in a
 ``_StreamingResponse`` whose body lives in ``body_iterator``, not
 ``body`` — see F1 in the E06_S01 critique. The new pure-ASGI
@@ -58,12 +62,15 @@ implementation observes ``http.response.body`` events and
 short-circuits with a 413 if the cumulative bytes exceed the cap
 on a non-exempt path.
 
-**Why eager startup is load-bearing**. ``/readyz`` returns 503 until
+**Why eager startup is load-bearing**. ``/readyz`` is not green until
 the embedder + LanceDB are warm. Lazy load would make the first
 ``tools/call`` hang for ~5–30s while a green ``/readyz`` lied. The
 lifespan eager-loads BGE-M3 BEFORE ``yield``, so a green readiness
 truly means "this process can serve a query in milliseconds, not
-seconds."
+seconds." uvicorn opens the socket only after that, so during
+warm-up a probe gets no answer; the per-resource progress the
+lifespan publishes on ``app.state.startup_progress`` is what an
+in-process reader sees.
 """
 
 from __future__ import annotations
@@ -86,7 +93,7 @@ from prometheus_client import make_asgi_app
 from ingest.arxiv_fetch import LATEXML_TIMEOUT_ENV
 from ingest.textbook_parser import MINERU_BIN_ENV, MINERU_TIMEOUT_ENV
 from server import session
-from server.config import Config
+from server.config import CONFIG_REFERENCE_HINT, Config
 from server.health import (
     refresh_metrics_from_singleton_state,
 )
@@ -95,7 +102,7 @@ from server.health import (
 )
 from server.model_loader import TRUST_REMOTE_CODE_ENV
 from server.observability.sanitize import SANITIZE_ENV_VAR
-from server.resources import Resources
+from server.resources import Resources, StartupProgress
 
 logger = logging.getLogger(__name__)
 
@@ -369,21 +376,21 @@ def _format_unknown_arxmcp_env_var(
     if suggestions:
         return f"  - {env_name}: did you mean {suggestions[0]}?"
 
-    # Short-form fallback — top 3 nearest at cutoff=0.0, NOT the full
-    # 32-var dump. ``cutoff=0.0`` still applies SequenceMatcher ordering;
-    # an empty result here is only possible when ``declared`` itself is
-    # empty (impossible at runtime — Config has 32 declared fields).
+    # Short-form fallback — top 3 nearest at cutoff=0.0, NOT a dump of
+    # every declared var. ``cutoff=0.0`` still applies SequenceMatcher
+    # ordering; an empty result here is only possible when ``declared``
+    # itself is empty, which cannot happen while Config declares fields.
     nearest = difflib.get_close_matches(
         env_name, sorted(declared), n=3, cutoff=0.0
     )
     if nearest:
         return (
             f"  - {env_name} is not a declared ARXMCP_* var; nearest: "
-            f"{', '.join(nearest)}. Full list: server/config.py::Config."
+            f"{', '.join(nearest)}. Full list: arxmcp-server --list-config."
         )
     return (  # pragma: no cover — declared is non-empty at runtime
         f"  - {env_name} is not a declared ARXMCP_* var. See "
-        f"server/config.py::Config for the full list."
+        f"arxmcp-server --list-config for the full list."
     )
 
 
@@ -457,7 +464,10 @@ def _scan_unknown_arxmcp_env_vars(config: Config) -> None:
     # catches it and presents the clean one-line FATAL an operator sees.
     raise ValueError(
         "unknown ARXMCP_* environment variables — each would silently "
-        "bypass the documented config; fix or remove:\n" + hints
+        "bypass the documented config; fix or remove:\n"
+        + hints
+        + "\n"
+        + CONFIG_REFERENCE_HINT
     )
 
 
@@ -470,7 +480,10 @@ def _scan_unknown_arxmcp_env_vars(config: Config) -> None:
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Startup → yield → shutdown.
 
-    Startup: build :class:`Resources`, attach to ``app.state.resources``.
+    Startup: publish a :class:`StartupProgress` on
+    ``app.state.startup_progress``, then build :class:`Resources` (which
+    flips that progress per resource) and attach it to
+    ``app.state.resources``.
     Also threads the MCP session-manager lifespan into the parent
     lifespan (F2 fix); without that, MCP requests raise
     ``RuntimeError: Task group is not initialized`` on the first
@@ -494,10 +507,16 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     setup_tracing(config)
 
+    # Published before the heavy loads so ``/readyz`` can name what is
+    # still cold while ``app.state.resources`` is unset. Resources.startup
+    # flips each flag as that resource finishes loading.
+    progress = StartupProgress()
+    app.state.startup_progress = progress
+
     # F9 fix: catch the broad Exception so LanceDB errors get the
     # FATAL prefix too.
     try:
-        resources = await Resources.startup(config)
+        resources = await Resources.startup(config, progress=progress)
     except Exception as exc:
         logger.error("FATAL: Resources.startup failed: %s", exc)
         raise
@@ -741,7 +760,10 @@ def create_app(config: Config | None = None) -> FastAPI:
     #
     #   request flow: SecurityHeaders -> SecFetchSite -> OriginValidation
     #                 -> HostValidation -> RequestBodySizeLimit
-    #                 -> SessionCap -> BodySizeCap -> handler
+    #                 -> InitializeParams -> SessionCap -> BodySizeCap
+    #                 -> TracingContext -> RequestLineSizeLimit -> handler
+    #
+    # The :mod:`server.middleware` docstring says what each layer does.
     #
     # SecurityHeaders is OUTERMOST so even error responses from inner
     # middlewares (e.g. OriginValidation's 403, BodySizeCap's 413)
@@ -756,23 +778,23 @@ def create_app(config: Config | None = None) -> FastAPI:
         InitializeParamsMiddleware,
         OriginValidationMiddleware,
         RequestBodySizeLimitMiddleware,
-    RequestLineSizeLimitMiddleware,
+        RequestLineSizeLimitMiddleware,
         SecFetchSiteMiddleware,
         SecurityHeadersMiddleware,
         SessionCapMiddleware,
         TracingContextMiddleware,
     )
 
+    # Bound the request target and header block, the two
+    # attacker-controlled inputs the 1 MB body cap does not cover.
+    # Added first, so it is the innermost layer.
+    app.add_middleware(RequestLineSizeLimitMiddleware)
     # E14_S02: copy ``Mcp-Session-Id`` + ``Arxmcp-Agent-Role`` headers
-    # into ContextVars for the OTel parent span. Added FIRST so it
-    # becomes the innermost middleware — runs LAST on the request path,
-    # right before FastMCP dispatches to the handler. This guarantees
-    # the ContextVars are populated when ``_wrap_with_observability``
+    # into ContextVars for the OTel parent span. Added second, so it
+    # runs just before FastMCP dispatches to the handler and the
+    # ContextVars are populated when ``_wrap_with_observability``
     # opens the parent span. Pure-ASGI; the project bans
     # ``BaseHTTPMiddleware`` (E06_S01 F1).
-    # issue #471: bound the request target and header block, the two
-    # attacker-controlled inputs the 1 MB body cap did not cover.
-    app.add_middleware(RequestLineSizeLimitMiddleware)
     app.add_middleware(TracingContextMiddleware)
     # Universal response body-size cap (pure ASGI — closes F1).
     app.add_middleware(BodySizeCapMiddleware, byte_cap=cfg.result_byte_cap)

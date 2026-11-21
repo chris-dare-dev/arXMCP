@@ -14,7 +14,8 @@ Hanging the console script off ``server.main:main`` would therefore run
 ``arxmcp-server --help``, and would exit non-zero on any config error
 before argparse ever saw the ``--help``. This module imports
 :mod:`server.main` lazily, *inside* :func:`main`, so ``--help`` and
-``--version`` are pure argparse and cost nothing.
+``--version`` are pure argparse and cost nothing; ``--list-config``
+imports only :mod:`server.config`.
 
 **Config comes from the environment, not from flags.** The CLI surface is
 deliberately minimal: bind host/port, data dir, log level and every other
@@ -22,7 +23,9 @@ knob are ``ARXMCP_*`` env vars parsed by :class:`server.config.Config`
 (and an unknown ``ARXMCP_*`` var is a startup error — see
 :func:`server.main._scan_unknown_arxmcp_env_vars`). Adding flags here
 would create a second source of truth that the container, the systemd
-unit and ``make up`` would all have to mirror.
+unit and ``make up`` would all have to mirror. ``--list-config`` prints
+the whole set from ``Config.model_fields``, and every config error at
+startup points at it.
 
 ``python -m server.main`` remains the equivalent invocation and is what
 ``docker/Dockerfile.server`` and ``make up`` use; it delegates here so the
@@ -32,8 +35,12 @@ two entry points cannot drift.
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import os
+import re
+import sys
+import textwrap
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +59,9 @@ configuration:
     ARXMCP_LOG_FORMAT     json (default) or text
     ARXMCP_BOOTSTRAP_MODE 1 to boot with no corpus present, for a
                           first-run install where ingest has not run yet
+
+  arxmcp-server --list-config prints every one of them with its default
+  and what it does.
 
   An unrecognized ARXMCP_* variable is a startup ERROR, not a warning --
   a typo'd knob must never look like it took effect.
@@ -86,6 +96,53 @@ def _version() -> str:
         return "unknown"
 
 
+def _type_label(annotation: object) -> str:
+    name = getattr(annotation, "__name__", None)
+    if name is not None and not getattr(annotation, "__args__", None):
+        return name
+    label = str(annotation).replace("pydantic.types.", "")
+    return re.sub(r"\bpathlib\.(?:_local\.)?", "", label)
+
+
+def _default_label(name: str, info: object) -> str:
+    from pathlib import Path  # noqa: PLC0415
+
+    default = info.get_default(call_default_factory=True)  # type: ignore[attr-defined]
+    if isinstance(default, Path):
+        # Path defaults are rewritten onto the install's data root when
+        # Config loads, so the declared spelling would mislead.
+        return "the data root" if name == "data_dir" else "under the data root"
+    if default is None:
+        return "unset"
+    if isinstance(default, bool):
+        return "true" if default else "false"
+    if isinstance(default, list):
+        return json.dumps(default)
+    return str(default)
+
+
+def config_reference() -> str:
+    """Every ``ARXMCP_*`` setting with its type, default and description.
+
+    Read from ``Config.model_fields``, so a field added to
+    :class:`server.config.Config` appears here without another edit.
+    """
+    from server.config import Config  # noqa: PLC0415
+
+    blocks = []
+    for name, info in Config.model_fields.items():
+        env = f"{Config.model_config['env_prefix']}{name.upper()}"
+        head = f"{env}  ({_type_label(info.annotation)}; default {_default_label(name, info)})"
+        body = textwrap.fill(
+            info.description or "(no description)",
+            width=78,
+            initial_indent="    ",
+            subsequent_indent="    ",
+        )
+        blocks.append(f"{head}\n{body}")
+    return "\n\n".join(blocks) + "\n"
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="arxmcp-server",
@@ -100,6 +157,11 @@ def _build_parser() -> argparse.ArgumentParser:
         "--version",
         action="version",
         version=f"arxmcp-server {_version()}",
+    )
+    parser.add_argument(
+        "--list-config",
+        action="store_true",
+        help=("print every ARXMCP_* setting with its default and description, then exit"),
     )
     return parser
 
@@ -158,11 +220,21 @@ def _format_config_error(exc: BaseException) -> str:
         details = errors()
     except Exception:  # noqa: BLE001 — never let formatting mask the error
         return str(exc)
+    from server.config import CONFIG_REFERENCE_HINT, Config  # noqa: PLC0415
+
+    prefix = Config.model_config["env_prefix"]
     lines = []
     for detail in details:
-        location = ".".join(str(part) for part in detail.get("loc", ())) or "config"
+        parts = [str(part) for part in detail.get("loc", ())]
+        # Name the variable the operator set, not the attribute it fills.
+        if parts and parts[0] in Config.model_fields:
+            parts[0] = f"{prefix}{parts[0].upper()}"
+        location = ".".join(parts) or "config"
         lines.append(f"{location}: {detail.get('msg', 'invalid value')}")
-    return "; ".join(lines) if lines else str(exc)
+    if not lines:
+        return str(exc)
+
+    return "; ".join(lines).rstrip(".") + ". " + CONFIG_REFERENCE_HINT
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -175,7 +247,10 @@ def main(argv: list[str] | None = None) -> int:
     ``server/main.py``, moved verbatim so the console script and
     ``python -m server.main`` cannot diverge.
     """
-    _build_parser().parse_args(argv)
+    args = _build_parser().parse_args(argv)
+    if args.list_config:
+        sys.stdout.write(config_reference())
+        return 0
 
     # IS3+IS4 fix: this path uses Config to source the bind host/port, so
     # ``ARXMCP_BIND_HOST`` / ``ARXMCP_BIND_PORT`` are honored. Use this
