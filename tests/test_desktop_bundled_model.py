@@ -81,7 +81,7 @@ def _probe_env(tmp_path: Path) -> dict[str, str]:
     """Explicit launch environment for a real-model subprocess.
 
     Never inherits the runner's: ``tests/conftest.py`` sets
-    ``KMP_DUPLICATE_LIB_OK`` session-wide and the desktop launch contract
+    ``KMP_DUPLICATE_LIB_OK`` on macOS and the desktop launch contract
     forbids it (AC3). ``HOME`` is the real one because that is where the
     EXTERNAL HuggingFace cache lives; the offline flags prove the run resolves
     the pinned revisions from that cache rather than downloading them.

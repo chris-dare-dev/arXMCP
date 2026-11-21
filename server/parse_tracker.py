@@ -2,8 +2,8 @@
 
 Mirrors :mod:`server.ingest_tracker` for textbook PDF parsing. Where
 ``IngestTaskTracker`` spawns ``tools/notebook_ingest.py`` as a Python
-subprocess, ``ParseTaskTracker`` runs the work in the daemon's event
-loop via :func:`asyncio.to_thread`: the heavy lifting (MinerU,
+subprocess, ``ParseTaskTracker`` drives the work from the daemon's event
+loop and runs it on a dedicated daemon thread: the heavy lifting (MinerU,
 LaTeXML) is already-subprocess-isolated by m5's
 :func:`ingest.textbook_parser.run_mineru_sandboxed` and m6's
 :func:`ingest.textbook_renderer.render_mineru_to_html` (which delegates
@@ -13,9 +13,13 @@ overhead.
 
 Architectural choices (from research-synthesis §D1 + §3):
 
-- **In-process asyncio task + thread-offload over Python subprocess** —
-  MinerU and LaTeXML are already subprocess-isolated. The tracker
-  needs only an event-loop-friendly wrapper.
+- **In-process asyncio task + daemon-thread offload over Python
+  subprocess** — MinerU and LaTeXML are already subprocess-isolated.
+  The tracker needs only an event-loop-friendly wrapper. The thread is
+  a daemon thread of its own rather than a default-executor worker
+  because a thread cannot be cancelled: the loop's teardown and the
+  interpreter's exit both join executor workers, so a render still
+  running at shutdown would hold the process open until it finished.
 - **Global concurrency cap of 1** — ``asyncio.Semaphore(1)`` prevents
   GPU/MLX memory pressure (synthesis FM-3). MinerU on Apple Silicon
   with MLX takes ~2-3 GB working set; two parallel parses would
@@ -29,7 +33,11 @@ Architectural choices (from research-synthesis §D1 + §3):
   happen even if the callback is delayed. Every path out of the
   worker attempts a terminal write: a row left ``running`` blocks
   every later upload to that notebook until a restart.
-- **Lifespan shutdown cancels in-flight tasks** then a startup-time
+- **Lifespan shutdown stops in-flight work and records what happened**
+  — a queued parse is recorded as never started, a MinerU run is
+  terminated and recorded as stopped, a parse that finishes inside the
+  shutdown grace is recorded complete, and one still running when the
+  grace ends is recorded as abandoned. A startup-time
   ``mark_orphaned_parses_failed()`` sweep cleans up any leftover
   ``running`` rows from a hard crash (synthesis FM-4).
 """
@@ -41,8 +49,10 @@ import contextlib
 import html
 import logging
 import re
+import threading
+from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from ingest.textbook_parser import MinerUResult
@@ -105,6 +115,51 @@ _COMPLETE_WRITE_RETRY_DELAYS_S: tuple[float, ...] = (0.25, 1.0)
 
 _ABS_PATH_PREFIX_RE = re.compile(r"[/\\][\w /\\.\-]*?var[/\\]arxmcp[/\\]")
 
+#: Seconds :meth:`ParseTaskTracker.shutdown` allows for the final status
+#: writes once it has given up waiting on a parse's thread.
+_ABANDON_WRITE_TIMEOUT_S: float = 2.0
+
+
+class _StoppedBeforeRender(Exception):
+    """MinerU finished after shutdown began, so rendering was skipped."""
+
+
+def _run_on_daemon_thread(fn: Callable[[], Any], *, name: str) -> asyncio.Future:
+    """Run ``fn`` on a new daemon thread and return a future for its result.
+
+    A daemon thread is never joined: not by the event loop's teardown and
+    not at interpreter exit, both of which join default-executor workers.
+    So abandoning the future really does release the process. The future
+    is only settled while its loop is still open; a result that arrives
+    after the loop has closed is dropped.
+    """
+    loop = asyncio.get_running_loop()
+    fut: asyncio.Future = loop.create_future()
+
+    def _settle(result: Any, exc: BaseException | None) -> None:
+        if fut.done():
+            return
+        if exc is not None:
+            fut.set_exception(exc)
+        else:
+            fut.set_result(result)
+
+    def _target() -> None:
+        try:
+            result = fn()
+        except BaseException as exc:  # noqa: BLE001 -- handed to the awaiting task
+            outcome: tuple[Any, BaseException | None] = (None, exc)
+        else:
+            outcome = (result, None)
+        with contextlib.suppress(RuntimeError):  # loop already closed
+            loop.call_soon_threadsafe(_settle, *outcome)
+
+    # An abandoned future's exception is never awaited; retrieve it here so
+    # it is not reported as "never retrieved" when it is collected.
+    fut.add_done_callback(lambda f: f.cancelled() or f.exception())
+    threading.Thread(target=_target, name=name, daemon=True).start()
+    return fut
+
 
 def redact_html_path(output_html_path: Path) -> str:
     """Return the ``var/arxmcp/``-relative form of a rendered html
@@ -132,13 +187,13 @@ class ParseTaskTracker:
 
     Mirrors :class:`server.ingest_tracker.IngestTaskTracker` with
     in-process worker semantics. The worker invokes the m5 MinerU
-    driver and the m6 renderer in :func:`asyncio.to_thread` — both
+    driver and the m6 renderer on one daemon thread per parse — both
     helpers are sync and spawn their own subprocesses internally,
     so a single thread-offload is sufficient.
 
     Construct via :meth:`__init__` and attach to ``app.state.parse_tracker``.
-    Call :meth:`shutdown` from the lifespan finally to cancel
-    in-flight tasks on daemon stop.
+    Call :meth:`shutdown` from the lifespan finally to stop in-flight
+    parses on daemon stop.
     """
 
     def __init__(self) -> None:
@@ -251,62 +306,80 @@ class ParseTaskTracker:
         Bounded by the global semaphore so at most one parse runs at
         a time across all notebooks. The two heavy subprocess-spawning
         helpers (``run_mineru_sandboxed`` and ``render_mineru_to_html``)
-        are sync and offloaded via :func:`asyncio.to_thread` so the
-        event loop stays responsive to other requests.
+        are sync and run back to back on a daemon thread so the event
+        loop stays responsive to other requests.
+
+        Cancellation (only :meth:`shutdown` cancels) cannot stop that
+        thread, so the first cancel does not end the task. It asks the
+        thread to skip rendering and keeps waiting, so the row records
+        what the thread actually did: complete if it finished, failed
+        with its error if MinerU was terminated under it. A second
+        cancel means shutdown has stopped waiting, and the row says the
+        parse was abandoned while still running.
         """
         # Lazy imports — avoid pulling MinerU / LaTeXML helpers into
         # the daemon's import graph until a parse actually runs.
-        from ingest.textbook_parser import run_mineru_sandboxed
-        from ingest.textbook_renderer import render_mineru_to_html
+        from ingest import textbook_parser, textbook_renderer
 
-        async with self._global_cap:
-            try:
-                mineru_result: MinerUResult = await asyncio.to_thread(
-                    run_mineru_sandboxed,
-                    pdf_path,
-                    output_dir,
+        try:
+            await self._global_cap.acquire()
+        except asyncio.CancelledError:
+            await self._record_failed(
+                store, slug,
+                "cancelled at daemon shutdown before it started "
+                "(it was queued behind another parse)",
+            )
+            raise
+        try:
+            stop = threading.Event()
+            stage = ["MinerU"]
+
+            def _work() -> tuple[MinerUResult, Any]:
+                mineru = textbook_parser.run_mineru_sandboxed(pdf_path, output_dir)
+                if stop.is_set():
+                    raise _StoppedBeforeRender(
+                        "MinerU finished, rendering was skipped",
+                    )
+                stage[0] = "rendering"
+                rendered = textbook_renderer.render_mineru_to_html(
+                    mineru, parsed_dir, paper_id,
                 )
-                render_result = await asyncio.to_thread(
-                    render_mineru_to_html,
-                    mineru_result,
-                    parsed_dir,
-                    paper_id,
-                )
-            except asyncio.CancelledError:
-                # Mark the row as failed on lifespan shutdown — same
-                # contract as IngestTaskTracker's cancel path. The
-                # subprocess hierarchy (MinerU + LaTeXML) cannot be
-                # signalled from here directly (we are in a thread-
-                # offload); they will see their own wall-timeout
-                # expire and terminate.
+                return mineru, rendered
+
+            work = _run_on_daemon_thread(_work, name=f"parse:{slug}")
+            interrupted = False
+            while True:
                 try:
-                    await store.update_parse_status(
-                        slug,
-                        store.PARSE_STATUS_FAILED,
-                        parse_error=html.escape(
-                            "cancelled at daemon shutdown",
-                        ),
-                    )
-                except Exception:  # noqa: BLE001
+                    mineru_result, render_result = await asyncio.shield(work)
+                    break
+                except asyncio.CancelledError:
+                    if interrupted:
+                        await self._record_failed(
+                            store, slug,
+                            "abandoned at daemon shutdown while "
+                            f"{stage[0]} was still running; any output it "
+                            "writes afterwards is not recorded",
+                        )
+                        raise
+                    interrupted = True
+                    stop.set()
+                except Exception as e:  # noqa: BLE001
+                    if interrupted:
+                        detail = (
+                            str(e) if isinstance(e, _StoppedBeforeRender)
+                            else f"{type(e).__name__}: {e}"
+                        )
+                        await self._record_failed(
+                            store, slug, f"stopped at daemon shutdown: {detail}",
+                        )
+                        raise asyncio.CancelledError from e
                     logger.exception(
-                        "parse cancel-path DB write failed for slug=%s; "
-                        "orphan-recovery will pick this up on next boot",
-                        slug,
+                        "parse pipeline for slug=%s failed", slug,
                     )
-                raise
-            except Exception as e:  # noqa: BLE001
-                logger.exception(
-                    "parse pipeline for slug=%s failed", slug,
-                )
-                with contextlib.suppress(Exception):
-                    await store.update_parse_status(
-                        slug,
-                        store.PARSE_STATUS_FAILED,
-                        parse_error=_format_parse_error(
-                            f"{type(e).__name__}: {e}"
-                        ),
+                    await self._record_failed(
+                        store, slug, f"{type(e).__name__}: {e}",
                     )
-                return
+                    return
 
             # Success: record the parsed_html_path scrubbed to its
             # ``var/arxmcp/``-relative form. Storing the absolute path
@@ -323,15 +396,11 @@ class ParseTaskTracker:
                     "parse for slug=%s finished but its status could not "
                     "be recorded", slug,
                 )
-                with contextlib.suppress(Exception):
-                    await store.update_parse_status(
-                        slug,
-                        store.PARSE_STATUS_FAILED,
-                        parse_error=_format_parse_error(
-                            "parse finished but recording it failed: "
-                            f"{type(e).__name__}: {e}"
-                        ),
-                    )
+                await self._record_failed(
+                    store, slug,
+                    "parse finished but recording it failed: "
+                    f"{type(e).__name__}: {e}",
+                )
                 return
             logger.info(
                 "parse complete: slug=%s html=%s errors=%d "
@@ -340,31 +409,55 @@ class ParseTaskTracker:
                 render_result.latex_error_annotations,
                 mineru_result.wall_clock_s, render_result.wall_clock_s,
             )
+            if interrupted:
+                raise asyncio.CancelledError
+        finally:
+            self._global_cap.release()
+
+    @staticmethod
+    async def _record_failed(
+        store: NotebooksStore, slug: str, message: str,
+    ) -> None:
+        """Write a terminal ``failed`` row; a failed write is logged.
+
+        The startup orphan sweep still covers a row this cannot write.
+        """
+        try:
+            await store.update_parse_status(
+                slug,
+                store.PARSE_STATUS_FAILED,
+                parse_error=_format_parse_error(message),
+            )
+        except Exception:  # noqa: BLE001
+            logger.exception(
+                "parse status write failed for slug=%s; orphan-recovery "
+                "will pick this up on next boot", slug,
+            )
 
     async def shutdown(self, *, timeout_seconds: float = 5.0) -> None:
-        """Cancel every in-flight parse task AND terminate MinerU.
+        """Stop every in-flight parse, recording each outcome, in bounded time.
 
-        Issue #500. Cancelling the task is not enough and never was:
-        ``run_mineru_sandboxed`` runs through :func:`asyncio.to_thread`, so
-        ``CancelledError`` reaches the awaiting coroutine while the THREAD
-        stays blocked in ``proc.communicate()`` until MinerU exits on its own
-        wall timeout -- minutes, typically. Nothing else could reach it
-        either: ``start_new_session=True`` puts MinerU in its own process
-        group, outside what the supervisor's group sweep can signal
-        (issues #467, #499). So the spawner is asked to stop it, since it is
-        the only holder of the handle and has no race.
+        Cancelling the task does not stop the thread doing the work, and
+        MinerU runs in its own session, outside any process group the
+        supervisor signals. So shutdown, in order:
 
-        Killing the subprocess is also what UNBLOCKS the offloaded thread, so
-        it happens before the gather rather than after: cancel, terminate,
-        then wait for the wrappers to unwind.
+        1. cancels every task. A queued one records that it never started;
+           a running one asks its thread to skip rendering and keeps
+           waiting on it;
+        2. terminates live MinerU subprocesses, which is what unblocks a
+           thread waiting on MinerU;
+        3. waits up to ``timeout_seconds`` for the tasks to record what
+           their threads did;
+        4. cancels whatever is still waiting, so it records the parse as
+           abandoned, and allows a short, fixed time for those writes.
 
-        The ordering leaves the DB row correct either way -- ``_run_parse``'s
-        ``CancelledError`` branch writes the failed row, and the lifespan
-        ``mark_orphaned_parses_failed`` still covers a row this misses.
+        The threads are daemon threads, so one still rendering does not
+        hold the process open after this returns.
         """
         if not self._tasks:
             return
-        for task in self._tasks.values():
+        tasks_snapshot = list(self._tasks.values())
+        for task in tasks_snapshot:
             if not task.done():
                 task.cancel()
         # Lazy import, matching `_run_parse`: the MinerU helpers stay out of
@@ -382,18 +475,26 @@ class ParseTaskTracker:
                 "subprocess(es)",
                 terminated,
             )
-        tasks_snapshot = list(self._tasks.values())
-        try:
-            await asyncio.wait_for(
-                asyncio.gather(*tasks_snapshot, return_exceptions=True),
-                timeout=timeout_seconds,
-            )
-        except TimeoutError:
+        _, pending = await asyncio.wait(tasks_snapshot, timeout=timeout_seconds)
+        if not pending:
+            return
+        # A MinerU spawned after the first sweep would otherwise outlive us.
+        await asyncio.to_thread(terminate_live_mineru)
+        logger.warning(
+            "ParseTaskTracker.shutdown: %d parse(s) still running after "
+            "%.1fs; abandoning",
+            len(pending), timeout_seconds,
+        )
+        for task in pending:
+            task.cancel()
+        _, unsettled = await asyncio.wait(
+            pending, timeout=_ABANDON_WRITE_TIMEOUT_S,
+        )
+        if unsettled:
             logger.warning(
-                "ParseTaskTracker.shutdown: %d task(s) did not exit "
-                "within %.1fs; abandoning",
-                sum(1 for t in tasks_snapshot if not t.done()),
-                timeout_seconds,
+                "ParseTaskTracker.shutdown: %d parse status write(s) did not "
+                "finish; orphan-recovery will settle them on next boot",
+                len(unsettled),
             )
 
 

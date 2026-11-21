@@ -1005,9 +1005,24 @@ def _build_module_app() -> FastAPI:
     """Wrapper for the module-level ``app`` singleton. Catches
     :class:`pydantic.ValidationError` from :class:`Config` (e.g.
     ``ARXMCP_BIND_HOST=0.0.0.0``) and exits with a clear message
-    rather than a multi-screen pydantic stack."""
+    rather than a multi-screen pydantic stack.
+
+    Also installs the Threat-8 log redaction, so it holds however the
+    app is served. ``uvicorn server.main:app`` reaches no other
+    installer; the CLI and the desktop child import this module after
+    configuring logging themselves, and ``ensure_configured`` then
+    leaves their level and format alone. It runs before ``create_app``
+    so FastMCP's ``logging.basicConfig`` finds a handler on root and
+    adds none of its own.
+    """
     try:
-        return create_app()
+        from server.observability.logging_setup import (  # noqa: PLC0415
+            ensure_configured,
+        )
+
+        cfg = Config()
+        ensure_configured(cfg.log_level, cfg.log_format)
+        return create_app(cfg)
     except Exception as exc:
         # issue #475: same compact formatting as the CLI path. pydantic's
         # ValidationError stringifies its whole input, so this handler echoed

@@ -16,6 +16,8 @@ import dataclasses
 import os
 import sqlite3
 import subprocess
+import threading
+import time
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
@@ -447,3 +449,217 @@ class TestShutdownTerminatesMineru:
         with textbook_parser._LIVE_LOCK:
             assert not textbook_parser._LIVE_MINERU
         assert textbook_parser.terminate_live_mineru() == 0
+
+
+class TestShutdownRecordsWhatHappened:
+    """Shutdown ends in bounded time and each row says what the work did.
+
+    The work runs on a thread that cancellation cannot stop, so the row
+    must follow the thread, not the cancel.
+    """
+
+    _WAIT_S = 10.0
+
+    @staticmethod
+    def _start(tracker: ParseTaskTracker, slug: str, tmp_path: Path, store):
+        return tracker.start_parse(
+            slug=slug,
+            pdf_path=tmp_path / "x.pdf",
+            paper_id="textbook:x",
+            output_dir=tmp_path / "out",
+            parsed_dir=tmp_path / "parsed",
+            store=store,
+        )
+
+    @staticmethod
+    def _rows(store: MagicMock) -> dict[str, tuple[str, str | None]]:
+        rows: dict[str, tuple[str, str | None]] = {}
+        for call in store.update_parse_status.call_args_list:
+            rows[call.args[0]] = (call.args[1], call.kwargs.get("parse_error"))
+        return rows
+
+    def test_queued_parse_is_recorded_as_never_started(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        store = _make_store_mock()
+        release = threading.Event()
+        started = threading.Event()
+
+        def fake_mineru(pdf_path, output_dir):  # noqa: ARG001
+            started.set()
+            release.wait(self._WAIT_S)
+            raise RuntimeError("mineru exited -15")
+
+        def fake_terminate(**_kwargs) -> int:
+            release.set()
+            return 1
+
+        monkeypatch.setattr(textbook_parser, "run_mineru_sandboxed", fake_mineru)
+        monkeypatch.setattr(textbook_parser, "terminate_live_mineru", fake_terminate)
+
+        async def _run() -> None:
+            tracker = ParseTaskTracker()
+            self._start(tracker, "first", tmp_path, store)
+            self._start(tracker, "queued", tmp_path, store)
+            await asyncio.to_thread(started.wait, self._WAIT_S)
+            await tracker.shutdown(timeout_seconds=5.0)
+
+        try:
+            asyncio.run(_run())
+        finally:
+            release.set()
+        status, error = self._rows(store)["queued"]
+        assert status == "failed"
+        assert "before it started" in error
+
+    def test_terminated_mineru_is_recorded_as_stopped(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        store = _make_store_mock()
+        release = threading.Event()
+        started = threading.Event()
+        rendered: list[object] = []
+
+        def fake_mineru(pdf_path, output_dir):  # noqa: ARG001
+            started.set()
+            release.wait(self._WAIT_S)
+            raise RuntimeError("mineru exited -15")
+
+        def fake_terminate(**_kwargs) -> int:
+            release.set()
+            return 1
+
+        from ingest import textbook_renderer
+        monkeypatch.setattr(textbook_parser, "run_mineru_sandboxed", fake_mineru)
+        monkeypatch.setattr(textbook_parser, "terminate_live_mineru", fake_terminate)
+        monkeypatch.setattr(
+            textbook_renderer, "render_mineru_to_html",
+            lambda *a: rendered.append(a),
+        )
+
+        async def _run() -> None:
+            tracker = ParseTaskTracker()
+            self._start(tracker, "s", tmp_path, store)
+            await asyncio.to_thread(started.wait, self._WAIT_S)
+            await tracker.shutdown(timeout_seconds=5.0)
+
+        try:
+            asyncio.run(_run())
+        finally:
+            release.set()
+        status, error = self._rows(store)["s"]
+        assert status == "failed"
+        assert "stopped at daemon shutdown" in error
+        assert "mineru exited -15" in error
+        assert rendered == []
+
+    def test_mineru_finishing_during_shutdown_skips_rendering(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        store = _make_store_mock()
+        mineru_result = _make_mineru_result(tmp_path)
+        release = threading.Event()
+        started = threading.Event()
+        rendered: list[object] = []
+
+        def fake_mineru(pdf_path, output_dir):  # noqa: ARG001
+            started.set()
+            release.wait(self._WAIT_S)
+            return mineru_result
+
+        def fake_terminate(**_kwargs) -> int:
+            release.set()
+            return 0
+
+        from ingest import textbook_renderer
+        monkeypatch.setattr(textbook_parser, "run_mineru_sandboxed", fake_mineru)
+        monkeypatch.setattr(textbook_parser, "terminate_live_mineru", fake_terminate)
+        monkeypatch.setattr(
+            textbook_renderer, "render_mineru_to_html",
+            lambda *a: rendered.append(a),
+        )
+
+        async def _run() -> None:
+            tracker = ParseTaskTracker()
+            self._start(tracker, "s", tmp_path, store)
+            await asyncio.to_thread(started.wait, self._WAIT_S)
+            await tracker.shutdown(timeout_seconds=5.0)
+
+        try:
+            asyncio.run(_run())
+        finally:
+            release.set()
+        status, error = self._rows(store)["s"]
+        assert status == "failed"
+        assert "rendering was skipped" in error
+        assert rendered == []
+
+    def test_render_finishing_within_the_grace_is_recorded_complete(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        store = _make_store_mock()
+        mineru_result = _make_mineru_result(tmp_path)
+        render_result = _make_render_result(tmp_path)
+        started = threading.Event()
+
+        def fake_render(r, p, pid):  # noqa: ARG001
+            started.set()
+            time.sleep(0.3)
+            return render_result
+
+        from ingest import textbook_renderer
+        monkeypatch.setattr(
+            textbook_parser, "run_mineru_sandboxed", lambda *a: mineru_result,
+        )
+        monkeypatch.setattr(textbook_parser, "terminate_live_mineru", lambda **k: 0)
+        monkeypatch.setattr(textbook_renderer, "render_mineru_to_html", fake_render)
+
+        async def _run() -> None:
+            tracker = ParseTaskTracker()
+            self._start(tracker, "s", tmp_path, store)
+            await asyncio.to_thread(started.wait, self._WAIT_S)
+            await tracker.shutdown(timeout_seconds=5.0)
+
+        asyncio.run(_run())
+        status, _ = self._rows(store)["s"]
+        assert status == "complete"
+
+    def test_render_outliving_the_grace_does_not_hold_the_process(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        store = _make_store_mock()
+        mineru_result = _make_mineru_result(tmp_path)
+        started = threading.Event()
+        never = threading.Event()
+
+        def fake_render(r, p, pid):  # noqa: ARG001
+            started.set()
+            never.wait(60)
+            raise RuntimeError("released by the test")
+
+        from ingest import textbook_renderer
+        monkeypatch.setattr(
+            textbook_parser, "run_mineru_sandboxed", lambda *a: mineru_result,
+        )
+        monkeypatch.setattr(textbook_parser, "terminate_live_mineru", lambda **k: 0)
+        monkeypatch.setattr(textbook_renderer, "render_mineru_to_html", fake_render)
+
+        async def _run() -> None:
+            tracker = ParseTaskTracker()
+            self._start(tracker, "s", tmp_path, store)
+            await asyncio.to_thread(started.wait, self._WAIT_S)
+            await tracker.shutdown(timeout_seconds=0.5)
+
+        began = time.monotonic()
+        try:
+            # The whole event loop, teardown included: a render still
+            # running must not keep it from closing.
+            asyncio.run(_run())
+            elapsed = time.monotonic() - began
+        finally:
+            never.set()
+        assert elapsed < 10.0
+        status, error = self._rows(store)["s"]
+        assert status == "failed"
+        assert "abandoned at daemon shutdown" in error
+        assert "rendering" in error

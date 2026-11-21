@@ -65,7 +65,7 @@ from pathlib import Path
 import pytest
 
 # E13_S03: pytest's KMP_DUPLICATE_LIB_OK guard (CLAUDE.md §8 gotcha 1)
-# is set by tests/conftest.py and is load-bearing — do not remove.
+# is set by tests/conftest.py on macOS and is load-bearing there — do not remove.
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures" / "latexml"
 
