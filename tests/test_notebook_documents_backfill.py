@@ -24,7 +24,9 @@ from pathlib import Path
 
 import pytest
 
+from ingest.arxiv_fetch import POLITENESS_SLEEP_SECONDS
 from ingest.chunk import CHUNKER_VERSION
+from ingest.notebooks import NotebookError
 from server.documents_store import (
     DOCUMENTS_DB_FILENAME,
     RAW_SOURCE_STATUS_PRESENT,
@@ -32,8 +34,6 @@ from server.documents_store import (
     DocumentsStore,
 )
 from tools import notebook_documents_backfill
-from tools._notebook_common import NotebookError
-from tools.arxiv_fetch import POLITENESS_SLEEP_SECONDS
 
 SLUG = "bridgeland-stability"
 NONEXCLUSIVE = "http://arxiv.org/licenses/nonexclusive-distrib/1.0/"

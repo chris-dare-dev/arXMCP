@@ -37,7 +37,7 @@ import json
 import sys
 
 from ingest.identifiers import is_valid_arxiv_paper_id
-from tools._notebook_common import (
+from ingest.notebooks import (
     NotebookError,
     notebook_dir,
     read_paper_ids_from_papers_txt,

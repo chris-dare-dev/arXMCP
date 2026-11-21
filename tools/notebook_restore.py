@@ -55,13 +55,13 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Final
 
-from server.notebooks_store import open_sync
-from tools._notebook_common import (
+from ingest.notebooks import (
     NOTEBOOKS_BASE,
     NotebookError,
     notebook_dir,
     validate_slug,
 )
+from server.notebooks_store import open_sync
 
 logger = logging.getLogger(__name__)
 

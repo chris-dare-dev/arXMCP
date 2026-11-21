@@ -16,7 +16,7 @@ Owns the three expensive, long-lived objects that the
    reasonably expects the next query to see the result. The handle is
    still opened once per version and never ``checkout``-ed in place
    (that would corrupt other readers' views per
-   :mod:`server.corpus`) — a version change opens a NEW handle and
+   :mod:`ingest.corpus`) — a version change opens a NEW handle and
    swaps it in via :meth:`Resources._bind_corpus`. See
    :mod:`server.corpus_freshness` for what triggers that and what it
    does not cover.
@@ -57,7 +57,7 @@ exits non-zero, ``/readyz`` never opens). Specifically:
   operator's choice; refuse to start).
 - LanceDB open failure → propagates the underlying exception
   (``FileNotFoundError`` for missing path, ``ValueError`` for an
-  unknown version per :func:`server.corpus.open_chunks_table`).
+  unknown version per :func:`ingest.corpus.open_chunks_table`).
 - BM25 artifact load or auto-build failure is NOT fatal: no served
   tool reads the BM25 phase, so ``bm25_phase`` stays ``None`` and a
   WARNING says why (see :func:`_open_bm25_phase`).
@@ -79,15 +79,15 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, TypeVar
 
-from server import query_encoder
-from server.config import Config
-from server.corpus import (
+from ingest.corpus import (
     CorpusVersionInfo,
     DegradedState,
     open_chunks_table_with_fallback,
     project_column,
     read_corpus_version,
 )
+from server import query_encoder
+from server.config import Config
 from server.corpus_freshness import (
     DEFAULT_FRESHNESS_INTERVAL_SECONDS,
     FreshnessGate,
@@ -123,7 +123,7 @@ class CorpusNotIngestedError(ResourceStartupError):
     """Raised when ``corpus-version.json`` is absent at startup.
 
     Synthesis D5: the server REFUSES TO START on cold-start. The
-    "live-tip fallback" path that :func:`server.corpus.read_corpus_version`
+    "live-tip fallback" path that :func:`ingest.corpus.read_corpus_version`
     supports is for the eval harness, not the long-running server.
     Run the ingest pipeline first, then start the server.
     """
@@ -627,7 +627,7 @@ class Resources:
     process_start_time_seconds: float = field(default_factory=time.time)
     warm: bool = False
     #: Failure-mode degradation marker (E14_S05 D2). ``None`` on
-    #: the happy path. Set to a :class:`server.corpus.DegradedState`
+    #: the happy path. Set to a :class:`ingest.corpus.DegradedState`
     #: when ``open_chunks_table_with_fallback`` activated the N-1
     #: fallback. Read by :func:`server.health.readyz` (degraded body)
     #: and by ``server.observability.metrics.DEGRADED_MODE_ACTIVE``
@@ -716,7 +716,7 @@ class Resources:
         1. Read ``corpus-version.json`` (raise
            :class:`CorpusNotIngestedError` on absent).
         2. Open LanceDB chunks table at the pinned version. Per the
-           ``server.corpus.open_chunks_table`` contract, the table
+           ``ingest.corpus.open_chunks_table`` contract, the table
            handle is fresh; we cache it for process lifetime and
            never re-checkout.
         3. Eager-load BGE-M3 (forces ``query_encoder._get_model()``
@@ -1592,7 +1592,7 @@ class Resources:
         version than the one being served. Returns ``True`` iff a
         rebind actually landed (issue #207).
 
-        This is the seam ``server/corpus.py``'s cache-invalidation
+        This is the seam ``ingest/corpus.py``'s cache-invalidation
         contract has always described and never had. Two callers:
 
         * :func:`server.tools._wrap_with_observability` — the PULL path,
@@ -1760,7 +1760,7 @@ class Resources:
         gate = self._get_notebook_gate(slug)
 
         async def _probe() -> bool:
-            from tools._notebook_common import (  # noqa: PLC0415
+            from ingest.notebooks import (  # noqa: PLC0415
                 notebook_lancedb_path,
             )
 
@@ -1831,10 +1831,10 @@ class Resources:
         Safety + correctness:
 
         * **Threat-1 (m2 FM-4).** ``slug`` is validated by
-          :func:`tools._notebook_common.validate_slug` (regex + the
+          :func:`ingest.notebooks.validate_slug` (regex + the
           ``notebook_dir`` symlink rejection + containment) BEFORE any
           path construction or I/O. A traversal / symlink / malformed
-          slug raises :class:`tools._notebook_common.NotebookError`.
+          slug raises :class:`ingest.notebooks.NotebookError`.
         * **Un-ingested notebook (m2 FM-5a).** A valid slug whose
           ``lancedb`` has no ``corpus-version.json`` marker raises
           :class:`CorpusNotIngestedError` — the SAME typed error the
@@ -1855,11 +1855,11 @@ class Resources:
           corpus_info)`` for process lifetime with no re-check, which is
           what let a mid-session ingest go unnoticed.
         """
-        # Defer the import: tools._notebook_common is the shared C/A
-        # seam (validate_slug + notebook_lancedb_path). Lazy keeps the
-        # server→tools import off the module-load path for the common
+        # Defer the import: ingest.notebooks is the shared notebook
+        # seam (validate_slug + notebook_lancedb_path), and loading it
+        # lazily keeps it off the module-load path for the common
         # (no-notebook) query.
-        from tools._notebook_common import (  # noqa: PLC0415
+        from ingest.notebooks import (  # noqa: PLC0415
             notebook_lancedb_path,
             validate_slug,
         )
@@ -2128,7 +2128,7 @@ async def _open_theorem_names_store(config: Config, *, caller: str) -> Any | Non
     #207; see that function's docstring for why.
     """
     try:
-        from server.theorem_names_store import (  # noqa: PLC0415
+        from ingest.theorem_names_store import (  # noqa: PLC0415
             TheoremNamesSchemaStale,
             TheoremNamesStore,
         )

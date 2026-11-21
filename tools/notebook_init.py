@@ -17,7 +17,7 @@ running.
 **m2 extension:** ``--email <addr>`` persists the contact email to
 ``operator_settings`` (m2 synthesis §3 D4). Subsequent CLI fetch
 tools (``tools/notebook_fetch.py``, etc.) read the value via
-``tools/_notebook_common.py::resolve_contact_email`` without needing
+``ingest/notebooks.py::resolve_contact_email`` without needing
 ``ARXMCP_CONTACT_EMAIL`` in the env.
 
 Idempotent at every level — re-running on an existing notebook is a
@@ -47,7 +47,7 @@ import sys
 from datetime import UTC, date, datetime
 from pathlib import Path
 
-from tools._notebook_common import (
+from ingest.notebooks import (
     NotebookError,
     notebook_dir,
     notebook_lancedb_path,
@@ -278,7 +278,7 @@ def run(
     # so tests can redirect ``tools/notebook_init.run`` away from the
     # operator's real ``var/arxmcp/notebooks/`` tree. Production
     # callers pass ``None`` and the helper resolves to
-    # :data:`tools._notebook_common.NOTEBOOKS_BASE`.
+    # :data:`ingest.notebooks.NOTEBOOKS_BASE`.
     nb_dir = notebook_dir(slug, base=notebooks_base)
 
     # On-disk scaffold — original idempotent behavior preserved.

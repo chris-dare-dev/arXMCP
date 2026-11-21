@@ -56,6 +56,7 @@ from pathlib import Path
 
 import numpy as np
 
+from ingest.application_paths import ApplicationPaths
 from ingest.bulk_ingest import DEFAULT_LANCEDB_STAGING_PATH
 from ingest.chunk import (
     CHUNKER_VERSION,
@@ -82,7 +83,6 @@ from ingest.store import (
     write_chunks,
 )
 from ingest.write_lock import exits_when_write_locked, holds_dataset_write_lock
-from server.application_paths import ApplicationPaths
 
 logger = logging.getLogger(__name__)
 
@@ -758,8 +758,8 @@ def run_re_embed(
     if paper_ids is not None:
         work_papers = paper_ids
     elif notebook_slug is not None:
+        from ingest.notebooks import read_paper_ids_from_papers_txt
         from ingest.textbook_chunker import _resolve_notebook_dir
-        from tools._notebook_common import read_paper_ids_from_papers_txt
         notebook = _resolve_notebook_dir(notebook_slug)
         seeded = read_paper_ids_from_papers_txt(notebook / "papers.txt")
         work_papers = sorted(active.paper_ids() | set(seeded))
@@ -1079,7 +1079,7 @@ def _cli(argv: list[str]) -> int:
         # Late import: tools/ depends on ingest/, not the other way round
         # at module load. notebook_dir validates the slug and refuses a
         # symlinked or escaping notebook dir (Threat-1).
-        from tools._notebook_common import notebook_dir  # noqa: PLC0415
+        from ingest.notebooks import notebook_dir  # noqa: PLC0415
 
         nb = notebook_dir(args.notebook)
         active_path = active_path or nb / "lancedb"

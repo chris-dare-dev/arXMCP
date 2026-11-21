@@ -52,12 +52,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from ingest.identifiers import is_valid_arxiv_paper_id
-from ingest.preamble import (
-    PER_PAPER_FAILURE_EXCEPTIONS as PREAMBLE_FAILURES,
-)
-from ingest.preamble import extract_preamble
-from server.ssl_pin import arxiv_ssl_context_from_env
-from tools._notebook_common import (
+from ingest.notebooks import (
     CORPUS_PARSED_DIR,
     CORPUS_RAW_DIR,
     NOTEBOOKS_BASE,
@@ -65,6 +60,11 @@ from tools._notebook_common import (
     read_paper_ids_from_papers_txt,
     validate_slug,
 )
+from ingest.preamble import (
+    PER_PAPER_FAILURE_EXCEPTIONS as PREAMBLE_FAILURES,
+)
+from ingest.preamble import extract_preamble
+from server.ssl_pin import arxiv_ssl_context_from_env
 
 logger = logging.getLogger("recover_preambles")
 
@@ -121,7 +121,7 @@ def _fetch_raw_tex_with_503_backoff(paper_id: str) -> str:
     (disk), or ``tarfile.TarError`` (malformed archive) would
     propagate and abort the entire back-fill mid-loop, contradicting
     ``run()``'s docstring contract. The envelope is now the same
-    superset the per-paper helper uses (``_notebook_common.py``).
+    superset the per-paper helper uses (``ingest/notebooks.py``).
 
     The notebook `fetch_raw_tex_if_missing` helper swallows 503
     (logs and returns False); for the back-fill we want explicit
@@ -136,7 +136,7 @@ def _fetch_raw_tex_with_503_backoff(paper_id: str) -> str:
     # loop and re-use it only for the final success-path side effects
     # (logging at INFO + writing to extraction dir). Cleaner: call
     # fetch_eprint directly with our retry logic, then return "ok".
-    from tools.arxiv_fetch import (  # noqa: PLC0415
+    from ingest.arxiv_fetch import (  # noqa: PLC0415
         fetch_eprint,
         parse_retry_after,
     )
@@ -176,7 +176,7 @@ def _fetch_raw_tex_with_503_backoff(paper_id: str) -> str:
             # F1 rect: catch RuntimeError instead of letting it
             # propagate. F2 rect: disambiguate path-traversal from
             # the 100 MB Content-Length cap — both raise RuntimeError
-            # from tools/arxiv_fetch.py but the operator response
+            # from ingest/arxiv_fetch.py but the operator response
             # differs (security investigation vs retry-after-bug-fix).
             msg = str(exc)
             if "outside dest" in msg:

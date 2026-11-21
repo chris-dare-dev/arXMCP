@@ -275,7 +275,7 @@ def _lookup_chunk_ids_for_papers(
 
         # Local import to avoid pulling lancedb / pyarrow on the cold
         # path (e.g. tests that don't need the chunk-id lookup).
-        from server.corpus import open_chunks_table
+        from ingest.corpus import open_chunks_table
 
         try:
             table = open_chunks_table(lancedb_path=str(path), version=None)
@@ -382,7 +382,7 @@ async def cite_neighbors(
         critique flagged this as a HIGH-severity contract risk;
         the project pattern is to keep library functions trusting
         and lock the contract at the tool-input boundary (mirrors
-        ``server.corpus.open_chunks_table``'s warning).
+        ``ingest.corpus.open_chunks_table``'s warning).
     """
     if max_results <= 0:
         return []

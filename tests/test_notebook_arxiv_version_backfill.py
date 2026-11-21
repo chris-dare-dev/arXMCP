@@ -7,7 +7,7 @@ would be the exact failure #171 was filed about, one layer down: a version
 number that nothing establishes.
 
 No network. The OAI-PMH fetch is injected, which is also how
-`tools/oai_license.py`'s own tests do it.
+`ingest/oai_license.py`'s own tests do it.
 """
 
 from __future__ import annotations
@@ -121,7 +121,7 @@ def test_a_non_xml_body_is_raised_rather_than_read_as_no_versions() -> None:
 
 
 def test_the_plain_arxiv_namespace_is_not_read_by_accident() -> None:
-    """`tools/oai_license.py` requests `metadataPrefix=arXiv`, whose records
+    """`ingest/oai_license.py` requests `metadataPrefix=arXiv`, whose records
     live in a different namespace and carry no `<version>` elements. If this
     parser matched on local name alone it would silently return `[]` for a
     correctly-fetched record and for a wrongly-fetched one alike."""

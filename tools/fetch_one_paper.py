@@ -19,11 +19,11 @@ import argparse
 import sys
 from pathlib import Path
 
-from server.ssl_pin import arxiv_ssl_context_from_env
-from tools.arxiv_fetch import (
+from ingest.arxiv_fetch import (
     fetch_eprint,
     parse_with_latexml,
 )
+from server.ssl_pin import arxiv_ssl_context_from_env
 from tools.fetch_seed import PER_PAPER_FAILURE_EXCEPTIONS
 
 REPO_ROOT = Path(__file__).resolve().parent.parent

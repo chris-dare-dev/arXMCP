@@ -30,7 +30,7 @@ from pathlib import Path
 from pydantic import Field, PrivateAttr, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from server.application_paths import (
+from ingest.application_paths import (
     COMPATIBILITY_ALIAS_FIELDS,
     ApplicationPaths,
     derived_index_path,
@@ -121,7 +121,7 @@ class Config(BaseSettings):
     #: that corpus is empty). The eventual per-call multi-notebook
     #: mode (``filters.notebook=<slug>``, fork A) layers on top and
     #: reuses the same
-    #: :func:`tools._notebook_common.notebook_lancedb_path` helper.
+    #: :func:`ingest.notebooks.notebook_lancedb_path` helper.
     notebook: str | None = None
 
     #: Repo-relative or absolute path to the Kùzu citation-graph DB
@@ -310,7 +310,7 @@ class Config(BaseSettings):
     # --- Retrieval tuning ------------------------------------------------
 
     #: Linear-combination weight α for the equation-similarity fusion
-    #: in ``server.retrieval.equations.EquationIndex`` (E10_S03).
+    #: in ``ingest.mathml_tree.EquationIndex`` (E10_S03).
     #: ``final_score = α * (1 - normalized_ted) + (1 - α) * cosine``.
     #: α=0 collapses to pure cosine (dense-only); α=1 collapses to
     #: pure tree-edit distance. Default 0.5 (equal weights). Operators
@@ -497,7 +497,7 @@ class Config(BaseSettings):
     #:
     #: When ``True`` (E13_S07c wiring), the two arxiv-rooted fetch
     #: sites — ``ingest/ar5iv_fetch.py::try_cache`` and
-    #: ``tools/arxiv_fetch.py::fetch_eprint`` — use an
+    #: ``ingest/arxiv_fetch.py::fetch_eprint`` — use an
     #: ``ssl.SSLContext`` built from a pinned CA bundle instead of
     #: the system trust store. The bundle defaults to the vendored
     #: ISRG Root X1 PEM at ``server/ca/arxiv-ca-bundle.pem``
@@ -593,7 +593,7 @@ class Config(BaseSettings):
         Safety + clarity:
 
         * The slug is validated (regex + symlink rejection + containment)
-          by :func:`tools._notebook_common.notebook_lancedb_path`, which
+          by :func:`ingest.notebooks.notebook_lancedb_path`, which
           raises ``NotebookError`` (re-wrapped as ``ValueError`` →
           pydantic ``ValidationError``) for any path-traversal attempt
           (Threat 1).
@@ -634,11 +634,11 @@ class Config(BaseSettings):
                 f"lancedb_path={self.lancedb_path!s}). ARXMCP_NOTEBOOK "
                 "derives the lancedb path from the notebook slug."
             )
-        # Defer the import: tools._notebook_common is the shared seam
-        # (also called by the future fork-A per-request path). Keeping
-        # it lazy avoids a server→tools import at module load for the
-        # common (notebook-unset) case.
-        from tools._notebook_common import (  # noqa: PLC0415
+        # Defer the import: ingest.notebooks is the shared seam
+        # (also called by the future fork-A per-request path). Loading
+        # it lazily keeps it off the module-load path for the common
+        # (notebook-unset) case.
+        from ingest.notebooks import (  # noqa: PLC0415
             NotebookError,
             notebook_lancedb_path,
         )

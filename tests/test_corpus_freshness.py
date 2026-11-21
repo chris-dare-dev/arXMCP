@@ -1,6 +1,6 @@
 """Corpus-freshness seam (issue #207).
 
-``server/corpus.py`` declared cache invalidation on a corpus-version
+``ingest/corpus.py`` declared cache invalidation on a corpus-version
 change a MUST and asserted the implementation honored it. It did not:
 ``purge_other_corpus_versions`` had zero callers repo-wide,
 ``Resources.notebook_table`` memoized ``(table, corpus_info)`` with no
@@ -257,7 +257,7 @@ class TestFreshnessGate:
 
 class TestReadMarkerOffLoop:
     def test_reads_a_valid_marker(self, tmp_path) -> None:
-        from server.corpus import read_corpus_version
+        from ingest.corpus import read_corpus_version
 
         seed_corpus(tmp_path / "lancedb", n=2)
         info = _run(
@@ -269,7 +269,7 @@ class TestReadMarkerOffLoop:
         assert info.version >= 1
 
     def test_absent_marker_returns_none(self, tmp_path) -> None:
-        from server.corpus import read_corpus_version
+        from ingest.corpus import read_corpus_version
 
         info = _run(
             read_marker_off_loop(tmp_path / "nope", reader=read_corpus_version)
@@ -282,7 +282,7 @@ class TestReadMarkerOffLoop:
         """A half-written marker is the NORMAL state during an ingest's
         atomic-rename window. Raising here would turn a routine race
         into operator-visible tool failures."""
-        from server.corpus import read_corpus_version
+        from ingest.corpus import read_corpus_version
 
         lancedb_path = tmp_path / "lancedb"
         lancedb_path.mkdir(parents=True)
@@ -371,7 +371,7 @@ class TestPurgeIsWired:
         cache_src = inspect.getsource(cache_mod)
         assert "purge_other_corpus_versions(" in cache_src, (
             "server/cache.py must CALL purge_other_corpus_versions — the "
-            "cache-invalidation MUST in server/corpus.py depends on it"
+            "cache-invalidation MUST in ingest/corpus.py depends on it"
         )
         resources_src = inspect.getsource(resources_mod)
         assert "purge_other_versions=True" in resources_src, (
@@ -479,8 +479,8 @@ class TestNotebookTableFreshness:
         """Fake the path helper, marker reader and table opener; keep the
         REAL ``validate_slug``. ``version_box`` is the on-disk version the
         test mutates to simulate an ingest."""
+        import ingest.notebooks as nc
         import server.resources as res_mod
-        import tools._notebook_common as nc
 
         monkeypatch.setattr(
             nc, "notebook_lancedb_path",

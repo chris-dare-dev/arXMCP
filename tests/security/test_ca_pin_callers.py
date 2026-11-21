@@ -26,9 +26,9 @@ from pathlib import Path
 import pytest
 
 from ingest import bulk_ingest
+from ingest import notebooks as _notebook_common
 from server.ssl_pin import VENDORED_ARXIV_CA_BUNDLE
 from tools import (
-    _notebook_common,
     fetch_one_paper,
     fetch_seed,
     notebook_fetch,

@@ -306,7 +306,7 @@ def open_or_create_definitions_table(
     any column :data:`DEFINITIONS_SCHEMA_V1` has that it lacks.
 
     Returns a LanceDB ``Table`` handle. The path is resolved exactly
-    like the chunks-table path in :mod:`server.corpus`; callers should
+    like the chunks-table path in :mod:`ingest.corpus`; callers should
     pass the same ``lancedb_path`` they use for the chunks table.
 
     Lazy import of ``lancedb`` keeps the test surface lean: a test

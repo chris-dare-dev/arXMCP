@@ -45,7 +45,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-from server.application_paths import ApplicationPaths
+from ingest.application_paths import ApplicationPaths
 
 logger = logging.getLogger("re_embed_all")
 
@@ -93,7 +93,7 @@ def discover_targets(
         for nb_dir in sorted(notebooks_base.iterdir()):
             # F3 (rect): refuse symlinked notebook dirs to align with
             # the project-wide m6 F3 symlink-rejection contract codified
-            # at tools/_notebook_common.py::notebook_dir. A symlinked
+            # at ingest/notebooks.py::notebook_dir. A symlinked
             # notebook dir is a red flag and is excluded from re-embed
             # discovery; check BEFORE is_dir() because is_dir follows
             # symlinks and would report True for a symlink-to-dir.

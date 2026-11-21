@@ -37,7 +37,7 @@ MathML, an oversized body, an off-domain redirect).
 retries above.
 
 **Politeness contract is separate from arxiv.org.** The 3-second
-``POLITENESS_SLEEP_SECONDS`` discipline from `tools/arxiv_fetch.py`
+``POLITENESS_SLEEP_SECONDS`` discipline from `ingest/arxiv_fetch.py`
 applies to ``export.arxiv.org`` (the e-print and OAI-PMH
 endpoints), not to ``ar5iv.labs.arxiv.org``. Mixing them in one
 sleep budget would needlessly slow down ar5iv-hit-heavy runs.
@@ -54,10 +54,10 @@ import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 
+from ingest.application_paths import ApplicationPaths
+from ingest.arxiv_fetch import parse_retry_after
 from ingest.chunker import STRUCTURE_SIGNAL_CLASSES
 from ingest.identifiers import is_valid_arxiv_paper_id
-from server.application_paths import ApplicationPaths
-from tools.arxiv_fetch import parse_retry_after
 
 logger = logging.getLogger(__name__)
 

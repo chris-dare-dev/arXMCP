@@ -15,13 +15,12 @@ result set, and that a reader can reproduce any query against any
 historical dataset version.
 
 **Why a separate module rather than re-exporting from ingest.store.**
-``ingest.store`` is the *writer*; ``server.corpus`` is the *reader*.
+``ingest.store`` is the *writer*; ``ingest.corpus`` is the *reader*.
 LanceDB's ``checkout`` API is read-only — calling it on a table object
 that's also being used to write would corrupt the writer's view. By
-isolating the reader in a server-layer module we make the
-read-vs-write distinction explicit at the import-graph level: nothing
-in ``ingest/`` imports ``server.corpus``, and nothing in
-``server.corpus`` writes to LanceDB.
+isolating the reader in its own module we make the read-vs-write
+distinction explicit at the import-graph level: nothing in
+``ingest.corpus`` writes to LanceDB.
 
 **checkout mutates in place.** ``tbl.checkout(N)`` is an in-place
 mutation of the table object that pins reads to version ``N``. A
@@ -124,14 +123,11 @@ from typing import TYPE_CHECKING
 
 from ingest.schema import CHUNKS_TABLE_NAME
 
-# Import the writer's default path so reader and writer have a
-# symmetric default — closes F3 from the E04_S02 critique. Both
-# modules now share a single source of truth for where the LanceDB
-# dataset lives. ``ingest.store`` does NOT import from ``server.*``,
-# so this dependency is one-way and does not close a cycle.
-#
-# E04_S03: also pull in the marker filename constant so reader and
-# writer agree on the on-disk path.
+# Import the writer's default path and marker filename so reader and
+# writer share one source of truth for where the LanceDB dataset and
+# its marker live. ``ingest.store`` imports this module only inside
+# functions, so this module-level import does not close a cycle at
+# load time.
 from ingest.store import CORPUS_VERSION_MARKER_NAME, DEFAULT_LANCEDB_PATH
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -537,7 +533,7 @@ class CorpusVersionInfo:
     :func:`ingest.store.write_corpus_version_marker`. Server startup
     code reads this dataclass via :func:`read_corpus_version` and uses
     ``version`` to call
-    ``server.corpus.open_chunks_table(path, version=info.version)``.
+    ``open_chunks_table(path, version=info.version)``.
 
     The ``version`` integer is also the **cache namespace key** for
     all server-side caches per the cache contract in this module's

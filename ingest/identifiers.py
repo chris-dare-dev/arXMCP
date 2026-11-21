@@ -33,7 +33,7 @@ import re
 #:    inner regex (``[a-z][a-z0-9-]{2,30}``). The ``textbook:`` prefix
 #:    is PART OF the paper_id; there is no symmetric ``arxiv:`` prefix
 #:    on arXiv paper_ids because arXiv was the historical default.
-#:    Slug source-of-truth is ``tools/_notebook_common.py::SLUG_RE``.
+#:    Slug source-of-truth is ``ingest/notebooks.py::SLUG_RE``.
 #:    Lands via textbook-ingest-m1.
 #:
 #: Independent anchoring matches the historical pattern shared with

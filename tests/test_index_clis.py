@@ -15,9 +15,9 @@ import pyarrow as pa
 
 from ingest import index_definitions
 from ingest.index_equations import open_or_create_equations_table
+from ingest.mathml_tree import MATHML_TREE_NORMALIZER_VERSION
 from ingest.preamble import PreambleDoc
 from ingest.schema import CHUNKS_SCHEMA_V1, EQUATIONS_SCHEMA_V1
-from server.retrieval.equations import MATHML_TREE_NORMALIZER_VERSION
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 

@@ -1,7 +1,7 @@
 """``find_lemma_by_name`` handler — FTS5 + Jaccard fallback (E10_S02).
 
 Three-step lookup against the SQLite-backed
-:class:`server.theorem_names_store.TheoremNamesStore`:
+:class:`ingest.theorem_names_store.TheoremNamesStore`:
 
 1. **Exact match** on the normalized form
    (``retrieval_mode="fts5_exact"``).
@@ -40,19 +40,19 @@ from typing import Annotated, Any
 
 from pydantic import Field
 
+from ingest.theorem_names_store import (
+    TheoremNamesStore,
+    TheoremRow,
+    dedup_key,
+    normalize_name,
+    serialize_section_path,
+)
 from server.observability.sanitize import sanitize_retrieved_text
 from server.source_kinds import (
     ALL_SOURCE_KINDS,
     UnsupportedSourceKind,
     admit_paper_id,
     unsupported_outcome,
-)
-from server.theorem_names_store import (
-    TheoremNamesStore,
-    TheoremRow,
-    dedup_key,
-    normalize_name,
-    serialize_section_path,
 )
 from server.tools import (
     cap_result_list,

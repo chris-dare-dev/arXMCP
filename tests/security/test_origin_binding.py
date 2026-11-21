@@ -106,7 +106,7 @@ def _build_test_client(
         monkeypatch.delenv("ARXMCP_ALLOWED_HOSTS", raising=False)
     monkeypatch.delenv("ARXMCP_UNSAFE_NETWORK_BIND", raising=False)
     # `ARXMCP_CONTACT_EMAIL` is not a Config field — it's used by
-    # `tools/arxiv_fetch.py`. The server-side env-var scanner
+    # `ingest/arxiv_fetch.py`. The server-side env-var scanner
     # rejects it as unknown if set during create_app(). Strip it.
     monkeypatch.delenv("ARXMCP_CONTACT_EMAIL", raising=False)
     cfg = Config()

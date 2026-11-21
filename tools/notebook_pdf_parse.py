@@ -51,13 +51,13 @@ import sys
 from pathlib import Path
 
 from ingest.identifiers import is_valid_paper_id
+from ingest.notebooks import NotebookError, notebook_dir, validate_slug
 from ingest.textbook_parser import (
     _TIMEOUT_MAX_S,
     _TIMEOUT_MIN_S,
     run_mineru_sandboxed,
 )
 from ingest.textbook_renderer import _flat_paper_id, render_mineru_to_html
-from tools._notebook_common import NotebookError, notebook_dir, validate_slug
 
 logger = logging.getLogger("notebook_pdf_parse")
 

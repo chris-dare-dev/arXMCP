@@ -52,7 +52,7 @@ def parse_notebook(value: object, *, arg: str) -> str:
         raise ValueError(
             f"{arg} must be a str (a notebook slug), got {type(value).__name__}"
         )
-    from tools._notebook_common import (  # noqa: PLC0415
+    from ingest.notebooks import (  # noqa: PLC0415
         NotebookError,
         validate_slug,
     )
@@ -74,8 +74,8 @@ async def resolve_corpus(r: Any, notebook: str | None, *, arg: str) -> CorpusRou
     """
     if notebook is None:
         return CorpusRoute(table=r.chunks_table, corpus_version=None, notebook=None)
+    from ingest.notebooks import NotebookError  # noqa: PLC0415
     from server.resources import CorpusNotIngestedError  # noqa: PLC0415
-    from tools._notebook_common import NotebookError  # noqa: PLC0415
 
     try:
         table, corpus_info = await r.notebook_table(notebook)

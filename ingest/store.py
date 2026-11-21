@@ -52,7 +52,7 @@ around the lock is caught by the write-audit gate, which names it.
 **MVCC handshake (E04_S02).** No symlink swaps. LanceDB version int IS
 the corpus_version. Writers use the current dataset; readers call
 dataset.checkout(version=N). (The reader-side wrapper lives in
-:func:`server.corpus.open_chunks_table`.)
+:func:`ingest.corpus.open_chunks_table`.)
 
 The integer returned by :func:`write_chunks` is the LanceDB dataset
 version AFTER ``_create_indices`` has run — i.e. the post-index version,
@@ -81,6 +81,8 @@ from pathlib import Path
 
 import numpy as np
 import pyarrow as pa
+
+from ingest.application_paths import ApplicationPaths
 
 # ALLOWED_KINDS is re-exported (``__all__``): server/handlers/search.py
 # derives its proof-route ``excluded_kinds`` from ``ingest.store.ALLOWED_KINDS``
@@ -112,12 +114,11 @@ from ingest.schema import (
     add_missing_columns,
 )
 from ingest.write_lock import holds_dataset_write_lock, write_lock_path
-from server.application_paths import ApplicationPaths
 
-# NB: ``server.corpus.read_corpus_version`` is imported function-locally
+# NB: ``ingest.corpus.read_corpus_version`` is imported function-locally
 # inside ``write_chunks`` (the WAP gate, corpus-integrity-completion-e1).
-# A module-level ``from server.corpus import read_corpus_version`` here
-# would form a circular import — ``server/corpus.py:101`` already imports
+# A module-level ``from ingest.corpus import read_corpus_version`` here
+# would form a circular import — ``ingest/corpus.py`` already imports
 # ``CORPUS_VERSION_MARKER_NAME`` and ``DEFAULT_LANCEDB_PATH`` back from
 # this module, and Python sees ``ingest.store`` mid-load with those names
 # not yet bound. The spike-1 §5 rect F5 import-direction analysis cited
@@ -503,16 +504,16 @@ def write_corpus_version_marker(
 
     The marker file is the **authoritative server startup config**:
     on boot, the MCP server (E06) reads it to determine which LanceDB
-    dataset version to pin via :func:`server.corpus.open_chunks_table`.
+    dataset version to pin via :func:`ingest.corpus.open_chunks_table`.
     The ``version`` integer also serves as the cache namespace key for
     all server-side caches (E08_S03) — see the cache contract in
-    :mod:`server.corpus`'s module docstring.
+    :mod:`ingest.corpus`'s module docstring.
 
     .. warning::
 
        Path-traversal validation (Threat 1) is **left to the
        tool-input boundary** (TODO(E06)) — same discipline as
-       :func:`server.corpus.open_chunks_table`. This function trusts
+       :func:`ingest.corpus.open_chunks_table`. This function trusts
        ``lancedb_path`` as config-derived. Callers passing
        user-supplied paths MUST validate against an allowlisted
        corpus root first (closes M2 from the E04_S03 critique).
@@ -704,7 +705,7 @@ def _table_state(target_path: Path, tbl) -> tuple[int, int, int]:
 def _scan_paper_ids(tbl, chunk_count: int) -> set[str]:
     # Function-local for the same circular-import reason as
     # ``read_corpus_version`` (see the module-level NB).
-    from server.corpus import project_column  # noqa: PLC0415
+    from ingest.corpus import project_column  # noqa: PLC0415
 
     projected = project_column(tbl, "paper_id", expected_rows=chunk_count)
     if projected is None:
@@ -994,10 +995,10 @@ def write_chunks(
     # marker writers (m3 follow-up F2-extension).
     #
     # Function-local import: see the comment at the module's import block
-    # above for why this cannot be a top-level ``from server.corpus
+    # above for why this cannot be a top-level ``from ingest.corpus
     # import read_corpus_version`` (circular import with
-    # ``server/corpus.py:101``).
-    from server.corpus import read_corpus_version  # noqa: PLC0415
+    # ``ingest/corpus.py``).
+    from ingest.corpus import read_corpus_version  # noqa: PLC0415
 
     # rect F2: wrap the gate body in try/finally so _append_store_stats
     # lands on the failure path too. The LanceDB rows and indices are
@@ -1148,7 +1149,7 @@ def _marker_embed_record(path: Path) -> EmbedRecord | None:
     input-policy versions over instead of guessing them. ``None`` when
     there is no marker.
     """
-    from server.corpus import read_corpus_version  # noqa: PLC0415
+    from ingest.corpus import read_corpus_version  # noqa: PLC0415
 
     marker = read_corpus_version(path)
     if marker is None:
@@ -1223,7 +1224,7 @@ def _delete_theorem_names(path: Path, paper_id: str) -> None:
     import asyncio  # noqa: PLC0415
 
     from ingest.index_theorem_names import default_db_path  # noqa: PLC0415
-    from server.theorem_names_store import TheoremNamesStore  # noqa: PLC0415
+    from ingest.theorem_names_store import TheoremNamesStore  # noqa: PLC0415
 
     db_path = default_db_path(path)
     if not db_path.is_file():

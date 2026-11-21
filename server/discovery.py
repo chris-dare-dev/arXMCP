@@ -2,7 +2,7 @@
 """Discover new arXiv papers for a notebook's topic (notebook-paper-discovery-m3).
 
 Given a notebook slug, reads its ``discovery_category`` + ``description`` (m1
-topic metadata), queries the arXiv Atom API via ``tools/_arxiv_api.py`` (m2),
+topic metadata), queries the arXiv Atom API via ``ingest/arxiv_api.py`` (m2),
 deduplicates the results against the notebook's ``notebook_papers`` junction,
 and returns a ranked candidate list of papers NOT yet in the notebook.
 
@@ -12,12 +12,12 @@ console panel). Ranking is
 arXiv's ``sortBy=submittedDate&sortOrder=descending`` order, preserved through
 the dedup filter, so output is deterministic for a fixed API response.
 
-Politeness is inherited from ``_arxiv_api.fetch_candidates`` (per-page 3s sleep;
+Politeness is inherited from ``arxiv_api.fetch_candidates`` (per-page 3s sleep;
 for ``max_results <= 2000`` — typical for a notebook — a single request with no
 sleep). A future multi-notebook caller (m4) owns any inter-notebook delay.
 
 Usage:
-    python -m tools.discover_for_notebook <slug> [--max-results N] [--email you@x] [--json]
+    python -m server.discovery <slug> [--max-results N] [--email you@x] [--json]
 """
 
 from __future__ import annotations
@@ -31,17 +31,17 @@ from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
+from ingest.arxiv_api import fetch_candidates
+from ingest.notebooks import NotebookError, validate_slug
 from server.notebooks_store import NotebooksStore
 from server.operator_settings import DEFAULT_DB_PATH
-from tools._arxiv_api import fetch_candidates
-from tools._notebook_common import NotebookError, validate_slug
 
 
 @dataclass(frozen=True)
 class DiscoveryCandidate:
     """A proposed paper for a notebook — exactly the m3 output contract.
 
-    Decoupled from ``_arxiv_api.Candidate`` (which also carries arXiv-internal
+    Decoupled from ``arxiv_api.Candidate`` (which also carries arXiv-internal
     fields like ``n_authors`` / ``primary_category``); this is the stable shape
     the m4 console panel consumes.
     """
@@ -53,7 +53,7 @@ class DiscoveryCandidate:
 
 
 def _strip_version(paper_id: str) -> str:
-    """Drop the trailing ``vN`` suffix, mirroring ``_arxiv_api.parse_atom_feed``.
+    """Drop the trailing ``vN`` suffix, mirroring ``arxiv_api.parse_atom_feed``.
 
     The junction may store a versioned id (URL-paste route), while feed
     candidates are already un-versioned; normalising both to this key makes the

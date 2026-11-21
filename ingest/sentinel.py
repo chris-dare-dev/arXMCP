@@ -25,7 +25,7 @@ Producers + consumers:
   below 10 GB free; :func:`clear_pause` once free climbs back above 15
   GB (hysteresis).
 - **Producer (manual):** the operator can run
-  ``python -m tools.ingest_sentinel write --reason=maintenance``
+  ``python -m ingest.sentinel write --reason=maintenance``
   before manual maintenance.
 - **Consumer (cron):** ``ops/cron/arxmcp-delta.sh`` checks for the
   file and exits 0.
@@ -51,17 +51,17 @@ import pathlib
 import sys
 from dataclasses import dataclass
 
+from ingest.application_paths import ApplicationPaths
+
 logger = logging.getLogger(__name__)
 
 
-REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
-
-#: Default sentinel path. The runtime resolves it via
-#: ``Config.data_dir`` so a non-default ``ARXMCP_DATA_DIR`` is
-#: honored. The fallback below is used by the CLI when no
-#: explicit path is given.
+#: Default sentinel path, in the resolved ops directory so an installed
+#: wheel never writes beside its own modules. The server resolves its
+#: copy from ``Config.data_dir``; the CLI uses this one when no explicit
+#: path is given.
 DEFAULT_SENTINEL_PATH: pathlib.Path = (
-    REPO_ROOT / "var" / "arxmcp" / "ops" / "ingest-paused"
+    ApplicationPaths.resolve().ops / "ingest-paused"
 )
 
 
@@ -189,7 +189,7 @@ def is_paused(path: pathlib.Path | None = None) -> dict | None:
 
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(
-        prog="tools.ingest_sentinel",
+        prog="ingest.sentinel",
         description=(
             "Manage the var/arxmcp/ops/ingest-paused sentinel. "
             "When present, the delta cron wrapper and "

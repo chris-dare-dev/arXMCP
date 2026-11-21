@@ -36,14 +36,14 @@ import sys
 
 from ingest.bm25_indexer import resolve_bm25_root
 from ingest.bulk_ingest import run_bulk_ingest
-from ingest.store import STALE_CHUNKER_EXIT_CODE, StaleChunkerRowsError
-from ingest.write_lock import exits_when_write_locked
-from tools._notebook_common import (
+from ingest.notebooks import (
     NotebookError,
     notebook_dir,
     read_paper_ids_from_papers_txt,
     validate_slug,
 )
+from ingest.store import STALE_CHUNKER_EXIT_CODE, StaleChunkerRowsError
+from ingest.write_lock import exits_when_write_locked
 
 logger = logging.getLogger("notebook_ingest")
 
@@ -51,7 +51,7 @@ logger = logging.getLogger("notebook_ingest")
 def runtime_paths_report() -> dict[str, str]:
     """Return every mutable default reached by the ingest child boundary."""
     from ingest import ar5iv_fetch, bulk_ingest, chunker, embedder, store
-    from server.application_paths import ApplicationPaths
+    from ingest.application_paths import ApplicationPaths
 
     paths = ApplicationPaths.resolve()
     return {

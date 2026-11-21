@@ -555,7 +555,7 @@ class TestHardErrors:
     def test_missing_chunks_table_raises(self, tmp_path):
         base = tmp_path / "notebooks"
         (base / SLUG).mkdir(parents=True)  # notebook dir but no lancedb table
-        from tools._notebook_common import NotebookError
+        from ingest.notebooks import NotebookError
 
         with pytest.raises(NotebookError, match="no 'chunks'"):
             backfill.run(SLUG, base=base, corpus_parsed_dir=tmp_path / "parsed")
@@ -563,7 +563,7 @@ class TestHardErrors:
     def test_main_returns_1_on_notebook_error(self, monkeypatch, capsys):
         """``main`` translates a NotebookError (bad slug, no table) into exit 1
         with a message on stderr, never a traceback."""
-        from tools._notebook_common import NotebookError
+        from ingest.notebooks import NotebookError
 
         def _raise(_slug):
             raise NotebookError("boom")

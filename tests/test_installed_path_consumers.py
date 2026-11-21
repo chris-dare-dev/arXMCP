@@ -15,6 +15,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from mcp.server.fastmcp import FastMCP
 
+from ingest import notebooks as _notebook_common
 from server.config import Config
 from server.ingest_tracker import IngestTaskTracker
 from server.mcp_resources import (
@@ -27,7 +28,7 @@ from server.notebooks_store import NotebooksStore
 from server.routes.notebooks import router as notebooks_router
 from server.routes.ui import router as ui_router
 from server.tools import reset_resources_for_tests, set_resources
-from tools import _notebook_common, wheel_install_check
+from tools import wheel_install_check
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -380,7 +381,7 @@ def test_server_ingest_child_uses_application_paths(
     env["PYTHONPATH"] = str(REPO_ROOT)
     probe = (
         "import json\n"
-        "import server.application_paths as application_paths\n"
+        "import ingest.application_paths as application_paths\n"
         "application_paths._source_checkout_root = lambda: None\n"
         "from tools.notebook_ingest import runtime_paths_report\n"
         "print(json.dumps(runtime_paths_report(), sort_keys=True))\n"
@@ -409,7 +410,7 @@ def test_installed_writer_probe_is_independent_of_cwd(tmp_path: Path) -> None:
     )
     reports: list[dict[str, str]] = []
     probe = (
-        "import server.application_paths as application_paths\n"
+        "import ingest.application_paths as application_paths\n"
         "application_paths._source_checkout_root = lambda: None\n"
         + wheel_install_check._WRITER_PROBE
     )

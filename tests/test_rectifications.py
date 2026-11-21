@@ -16,8 +16,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from tools import fetch_seed
-from tools.arxiv_fetch import (
+from ingest.arxiv_fetch import (
     MAX_RESPONSE_BYTES,
     FetchResult,
     ParseResult,
@@ -26,6 +25,7 @@ from tools.arxiv_fetch import (
     fetch_eprint,
     parse_with_latexml,
 )
+from tools import fetch_seed
 from tools.fetch_seed import (
     EXPECTED_SEED_COUNT,
     Outcome,

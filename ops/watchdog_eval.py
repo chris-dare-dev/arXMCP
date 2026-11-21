@@ -700,9 +700,9 @@ def _default_compute_eval(
     the ``run_watchdog(compute_eval=...)`` seam. Lazy-imports the
     server stack so the watchdog module remains cheap to import.
     """
+    from ingest.corpus import open_chunks_table  # noqa: PLC0415
     from ops.retrieval_eval import run_hybrid_against_corpus  # noqa: PLC0415
     from server.config import Config  # noqa: PLC0415
-    from server.corpus import open_chunks_table  # noqa: PLC0415
     from server.query_encoder import encode_query  # noqa: PLC0415
 
     # Build a Config with the requested rerank flag. Mirrors the

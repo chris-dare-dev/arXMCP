@@ -104,7 +104,7 @@ def _source_checkout_root() -> Path | None:
     source_module_dir = Path(__file__).resolve().parent
     if (
         (root / "pyproject.toml").is_file()
-        and (root / "server").resolve() == source_module_dir
+        and (root / "ingest").resolve() == source_module_dir
     ):
         return root
     return None

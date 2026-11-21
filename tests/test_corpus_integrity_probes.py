@@ -36,7 +36,7 @@ from pathlib import Path
 import pytest
 
 REPO_ROOT: Path = Path(__file__).resolve().parents[1]
-CORPUS_PY: str = (REPO_ROOT / "server" / "corpus.py").read_text(encoding="utf-8")
+CORPUS_PY: str = (REPO_ROOT / "ingest" / "corpus.py").read_text(encoding="utf-8")
 RESOURCES_PY: str = (REPO_ROOT / "server" / "resources.py").read_text(encoding="utf-8")
 
 
@@ -93,10 +93,10 @@ def _enclosing_call(source: str, needle: str) -> str:
 def test_the_table_open_path_reads_a_row() -> None:
     """A manifest that parses is not a corpus that answers."""
     assert "def _smoke_read(" in CORPUS_PY, (
-        "server/corpus.py must prove the table is READABLE, not merely "
+        "ingest/corpus.py must prove the table is READABLE, not merely "
         "openable (#428)"
     )
-    from server.corpus import _smoke_read
+    from ingest.corpus import _smoke_read
 
     body = _function_body(_smoke_read)
     assert ".limit(1)" in body, "the probe must stay bounded to one row"
@@ -114,7 +114,7 @@ def test_the_smoke_read_arms_the_existing_fallback() -> None:
     because nothing in the open path touched the data. The probe has to sit
     INSIDE the try for the corruption handler to see it.
     """
-    from server.corpus import open_chunks_table_with_fallback
+    from ingest.corpus import open_chunks_table_with_fallback
 
     source = inspect.getsource(open_chunks_table_with_fallback)
     primary = source.index("tbl = open_chunks_table(lancedb_path, version=version)")
@@ -128,7 +128,7 @@ def test_the_smoke_read_arms_the_existing_fallback() -> None:
 
 def test_the_fallback_target_is_proved_too() -> None:
     """Falling back to a second unreadable version relocates the lie."""
-    from server.corpus import open_chunks_table_with_fallback
+    from ingest.corpus import open_chunks_table_with_fallback
 
     source = inspect.getsource(open_chunks_table_with_fallback)
     assert source.count("_smoke_read(") == 2, (
@@ -142,7 +142,7 @@ def test_an_empty_table_is_not_treated_as_corruption() -> None:
     Conflating "no rows" with "cannot read rows" would refuse to start on
     exactly the first-run corpus #426 exists to make bootable.
     """
-    from server.corpus import _smoke_read
+    from ingest.corpus import _smoke_read
 
     doc = _smoke_read.__doc__ or ""
     assert "EMPTY table is not a failure" in doc, (

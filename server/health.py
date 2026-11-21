@@ -1191,8 +1191,8 @@ def refresh_disk_free_metric(data_dir: Path) -> None:
     DISK_FREE_BYTES.labels(path=str(data_dir)).set(usage.free)
 
     # Sentinel management. Importing lazily so a test fixture can
-    # monkey-patch tools.ingest_sentinel cleanly.
-    from tools import ingest_sentinel  # noqa: PLC0415
+    # monkey-patch ingest.sentinel cleanly.
+    from ingest import sentinel as ingest_sentinel  # noqa: PLC0415
 
     sentinel_path = Path(data_dir) / "ops" / "ingest-paused"
     if usage.free < DISK_PAUSE_THRESHOLD_BYTES:

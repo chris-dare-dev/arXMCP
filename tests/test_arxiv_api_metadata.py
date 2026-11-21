@@ -1,4 +1,4 @@
-"""Tests for the paper-metadata-m1 additions to ``tools._arxiv_api``.
+"""Tests for the paper-metadata-m1 additions to ``ingest.arxiv_api``.
 
 Covers the t-atom-mapper acceptance (old-style Atom entry → record
 with title/authors/abstract/year/categories; ``math/0212237v1`` →
@@ -18,7 +18,7 @@ import urllib.parse
 
 import pytest
 
-from tools._arxiv_api import (
+from ingest.arxiv_api import (
     MAX_RESULTS_PER_PAGE,
     build_id_list_url,
     extract_paper_id_from_abs_url,

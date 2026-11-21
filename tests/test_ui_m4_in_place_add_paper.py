@@ -32,6 +32,7 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.testclient import TestClient
 
+from ingest import notebooks as _notebook_common
 from server.notebooks_store import NotebooksStore
 from server.routes import notebooks as notebooks_module
 from server.routes.notebooks import (
@@ -41,7 +42,6 @@ from server.routes.notebooks import (
     router as notebooks_router,
 )
 from server.routes.ui import router as ui_router
-from tools import _notebook_common
 
 REPO_ROOT: Path = Path(__file__).resolve().parents[1]
 FRONTEND_STATIC: Path = REPO_ROOT / "server" / "frontend" / "static"

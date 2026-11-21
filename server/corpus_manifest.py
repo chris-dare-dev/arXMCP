@@ -12,7 +12,7 @@ snapshot on-read from the already-live sources — there is NO persisted
   (:class:`server.documents_store.DocumentsStore`, m1) — per-revision
   checksums + license status + active/withdrawn/superseded status.
 - The per-notebook ``corpus-version.json`` marker
-  (:func:`server.corpus.read_corpus_version`) — the corpus epoch +
+  (:func:`ingest.corpus.read_corpus_version`) — the corpus epoch +
   chunker / embedder version stamps + counts.
 - The ``operator_settings`` key-value table in ``notebooks.db``
   (written by :class:`server.operator_settings.OperatorSettingsStore`;
@@ -65,8 +65,14 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from ingest.corpus import read_corpus_version
+from ingest.notebooks import NotebookError, notebook_dir, notebook_lancedb_path
+from ingest.oai_license import (
+    LICENSE_STATUS_ELIGIBLE,
+    LICENSE_STATUS_NOT_ALLOWLISTED_OPEN,
+    LICENSE_STATUS_UNKNOWN,
+)
 from server import operator_settings
-from server.corpus import read_corpus_version
 from server.documents_store import (
     DOCUMENT_STATUS_ACTIVE,
     DOCUMENT_STATUS_SUPERSEDED,
@@ -74,15 +80,9 @@ from server.documents_store import (
     DOCUMENTS_DB_FILENAME,
     DocumentsStore,
 )
-from tools._notebook_common import NotebookError, notebook_dir, notebook_lancedb_path
-from tools.oai_license import (
-    LICENSE_STATUS_ELIGIBLE,
-    LICENSE_STATUS_NOT_ALLOWLISTED_OPEN,
-    LICENSE_STATUS_UNKNOWN,
-)
 
 if TYPE_CHECKING:
-    from server.corpus import CorpusVersionInfo
+    from ingest.corpus import CorpusVersionInfo
     from server.documents_store import DocumentRecord
     from server.notebooks_store import NotebooksStore
 
@@ -213,7 +213,7 @@ def _corpus_fields(cv: CorpusVersionInfo | None) -> dict[str, Any]:
 def _license_summary(records: list[DocumentRecord]) -> dict[str, int]:
     """3-way license census + total (CLAUDE.md §4.9 / brief-2 §4.9).
 
-    The vocabulary keys come from ``tools.oai_license``'s constants,
+    The vocabulary keys come from ``ingest.oai_license``'s constants,
     never re-typed as string literals. ``unknown`` (a genuine data gap)
     is NEVER folded into ``not-allowlisted-open`` (a real license,
     allowlist decision pending) or vice versa — conflating them would
@@ -542,7 +542,7 @@ async def build_manifest(
 
     ``base`` (notebooks root) and ``settings_db_path`` (the
     ``operator_settings`` DB) are test seams; production callers pass
-    nothing and get :data:`tools._notebook_common.NOTEBOOKS_BASE` /
+    nothing and get :data:`ingest.notebooks.NOTEBOOKS_BASE` /
     :data:`server.operator_settings.DEFAULT_DB_PATH`. ``settings_db_path``
     is resolved at CALL time (attribute access) so the test-suite's
     autouse redirect of ``DEFAULT_DB_PATH`` is honored.

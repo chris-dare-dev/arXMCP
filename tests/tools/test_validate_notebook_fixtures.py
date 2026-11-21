@@ -26,7 +26,8 @@ from pathlib import Path
 
 import pytest
 
-from tools import _notebook_common, validate_notebook_fixtures
+from ingest import notebooks as _notebook_common
+from tools import validate_notebook_fixtures
 from tools.validate_notebook_fixtures import (
     MIN_NOTEBOOK_QUERIES,
     FixtureValidationError,

@@ -266,7 +266,7 @@ class TestKnownGoodQueries:
     ):
         """Every returned chunk_id must exist in the LanceDB chunks
         table — closes the brief AC literally."""
-        from server.corpus import open_chunks_table
+        from ingest.corpus import open_chunks_table
 
         lancedb_path, version = _seeded_lancedb
         tbl = open_chunks_table(lancedb_path, version=version)
@@ -742,7 +742,7 @@ class TestChunkIdsLiveCrossCheck:
         )
 
         # Build live_chunk_ids from the actual table.
-        from server.corpus import open_chunks_table
+        from ingest.corpus import open_chunks_table
 
         tbl = open_chunks_table(lancedb_path, version=version)
         live_ids = set(tbl.to_arrow().column("chunk_id").to_pylist())

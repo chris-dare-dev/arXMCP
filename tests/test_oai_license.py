@@ -1,4 +1,4 @@
-"""Tests for ``tools.oai_license`` (source-truth-m1).
+"""Tests for ``ingest.oai_license`` (source-truth-m1).
 
 Mirrors the ``tests/test_oai_delta.py`` / ``tests/test_arxiv_api*.py``
 style: canned OAI-PMH XML fed to the parser, and the HTTP layer mocked
@@ -20,8 +20,8 @@ from unittest.mock import patch
 
 import pytest
 
-import tools.oai_license as oai_license
-from tools.oai_license import (
+import ingest.oai_license as oai_license
+from ingest.oai_license import (
     LICENSE_STATUS_ELIGIBLE,
     LICENSE_STATUS_NOT_ALLOWLISTED_OPEN,
     LICENSE_STATUS_UNKNOWN,
@@ -295,7 +295,7 @@ class TestFetchLicense:
             calls.append(url)
             return _getrecord("math/0212237", license_uri=None)
 
-        with patch("tools.oai_license.time.sleep") as mock_sleep:
+        with patch("ingest.oai_license.time.sleep") as mock_sleep:
             fetch_license(
                 "math/0212237", user_agent="ua", fetch=_fake_fetch,
             )
@@ -321,7 +321,7 @@ class TestFetchRecordHTTP:
             return _FakeResponse(_getrecord("2006.10956"), url)
 
         sleeps: list[float] = []
-        with patch("tools.oai_license.urllib.request.urlopen", _fake_urlopen):
+        with patch("ingest.oai_license.urllib.request.urlopen", _fake_urlopen):
             body = oai_license._fetch_record(
                 url, user_agent="ua", sleep=sleeps.append,
             )
@@ -341,7 +341,7 @@ class TestFetchRecordHTTP:
         # A fake monotonic that jumps past the retry cap after one wait.
         ticks = iter([0.0, 0.0, 10_000.0, 10_000.0, 10_000.0])
         with (
-            patch("tools.oai_license.urllib.request.urlopen", _always_503),
+            patch("ingest.oai_license.urllib.request.urlopen", _always_503),
             pytest.raises(RuntimeError, match="retry cap"),
         ):
             oai_license._fetch_record(
@@ -360,7 +360,7 @@ class TestFetchRecordHTTP:
             )
 
         with (
-            patch("tools.oai_license.urllib.request.urlopen", _fake_urlopen),
+            patch("ingest.oai_license.urllib.request.urlopen", _fake_urlopen),
             pytest.raises(urllib.error.HTTPError),
         ):
             oai_license._fetch_record(url, user_agent="ua")
@@ -377,7 +377,7 @@ class TestFetchRecordHTTP:
             )
 
         with (
-            patch("tools.oai_license.urllib.request.urlopen", _fake_urlopen),
+            patch("ingest.oai_license.urllib.request.urlopen", _fake_urlopen),
             pytest.raises(RuntimeError, match="redirected off"),
         ):
             oai_license._fetch_record(url, user_agent="ua")
@@ -392,7 +392,7 @@ class TestFetchRecordHTTP:
             )
 
         with (
-            patch("tools.oai_license.urllib.request.urlopen", _fake_urlopen),
+            patch("ingest.oai_license.urllib.request.urlopen", _fake_urlopen),
             pytest.raises(RuntimeError, match="Threat 7"),
         ):
             oai_license._fetch_record(url, user_agent="ua")
@@ -414,7 +414,7 @@ class TestFetchRecordHTTP:
             return _FakeResponse(_getrecord("2006.10956"), url)
 
         sleeps: list[float] = []
-        with patch("tools.oai_license.urllib.request.urlopen", _fake_urlopen):
+        with patch("ingest.oai_license.urllib.request.urlopen", _fake_urlopen):
             oai_license._fetch_record(
                 url, user_agent="ua", sleep=sleeps.append,
             )
@@ -433,7 +433,7 @@ class TestFetchRecordHTTP:
             return _FakeResponse(b"x" * 20, url)
 
         with (
-            patch("tools.oai_license.urllib.request.urlopen", _fake_urlopen),
+            patch("ingest.oai_license.urllib.request.urlopen", _fake_urlopen),
             pytest.raises(RuntimeError, match="exceeded cap"),
         ):
             oai_license._fetch_record(url, user_agent="ua")

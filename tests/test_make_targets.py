@@ -217,7 +217,7 @@ class TestMakeInit:
 
 
 class TestResolveContactEmail:
-    """``tools._notebook_common.resolve_contact_email`` is the
+    """``ingest.notebooks.resolve_contact_email`` is the
     priority chain: explicit arg → SQLite operator_settings →
     ARXMCP_CONTACT_EMAIL env var → ``None`` when no address is set. Tested against an isolated
     tmp_path SQLite to avoid polluting the shared notebooks.db.
@@ -231,8 +231,8 @@ class TestResolveContactEmail:
         return tmp_path / "notebooks.db"
 
     def test_explicit_arg_wins_outright(self, isolated_db):
+        from ingest.notebooks import resolve_contact_email
         from server.operator_settings import set_setting
-        from tools._notebook_common import resolve_contact_email
 
         set_setting("contact_email", "sqlite@x", db_path=isolated_db)
         os.environ["ARXMCP_CONTACT_EMAIL"] = "env@x"
@@ -247,8 +247,8 @@ class TestResolveContactEmail:
     def test_sqlite_wins_over_env_var(self, isolated_db):
         """m2 synthesis §3 D1 / FM-3: SQLite is the sticky pref;
         env var is the historical fallback."""
+        from ingest.notebooks import resolve_contact_email
         from server.operator_settings import set_setting
-        from tools._notebook_common import resolve_contact_email
 
         set_setting("contact_email", "sqlite@x", db_path=isolated_db)
         os.environ["ARXMCP_CONTACT_EMAIL"] = "env@x"
@@ -263,7 +263,7 @@ class TestResolveContactEmail:
     def test_env_var_used_when_sqlite_empty(self, isolated_db):
         """Cold-bootstrap case: no operator_settings yet, the env var
         is the only source. Historical pre-m2 behaviour."""
-        from tools._notebook_common import resolve_contact_email
+        from ingest.notebooks import resolve_contact_email
 
         # isolated_db does NOT exist (the fixture doesn't create it).
         os.environ["ARXMCP_CONTACT_EMAIL"] = "env-only@x"
@@ -276,7 +276,7 @@ class TestResolveContactEmail:
             os.environ.pop("ARXMCP_CONTACT_EMAIL", None)
 
     def test_missing_address_is_optional(self, isolated_db):
-        from tools._notebook_common import resolve_contact_email
+        from ingest.notebooks import resolve_contact_email
 
         os.environ.pop("ARXMCP_CONTACT_EMAIL", None)
         assert resolve_contact_email(None, db_path=isolated_db) is None
@@ -291,8 +291,8 @@ class TestResolveContactEmail:
         (synthesis §3 D1) but discoverable per FM-3."""
         import logging
 
+        from ingest.notebooks import resolve_contact_email
         from server.operator_settings import set_setting
-        from tools._notebook_common import resolve_contact_email
 
         set_setting("contact_email", "sqlite@x", db_path=isolated_db)
         os.environ["ARXMCP_CONTACT_EMAIL"] = "env@x"
@@ -323,8 +323,8 @@ class TestResolveContactEmail:
         values. Just SQLite + no env var must NOT log."""
         import logging
 
+        from ingest.notebooks import resolve_contact_email
         from server.operator_settings import set_setting
-        from tools._notebook_common import resolve_contact_email
 
         set_setting("contact_email", "sqlite@x", db_path=isolated_db)
         os.environ.pop("ARXMCP_CONTACT_EMAIL", None)

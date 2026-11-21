@@ -124,7 +124,7 @@ class TestReadOnlyFilesystemSurvival:
                 total=100, used=100, free=1  # far below the 10 GB pause floor
             ),
         )
-        from tools import ingest_sentinel
+        from ingest import sentinel as ingest_sentinel
 
         def _readonly(*_a, **_k):
             raise OSError(30, "Read-only file system")

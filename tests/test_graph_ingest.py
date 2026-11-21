@@ -609,7 +609,7 @@ class TestPolitePool:
         """A configured address is optional contact on the app identity."""
         # build_user_agent is the helper we delegate to. Invoke directly
         # to confirm the format string is the one the AC pins.
-        from tools.arxiv_fetch import build_user_agent
+        from ingest.arxiv_fetch import build_user_agent
 
         ua = build_user_agent("operator@example.com")
         assert ua.startswith(
@@ -842,7 +842,7 @@ class TestRectificationGuards:
         anything > 10 MB is a misroute, not a real response."""
         assert graph_ingest.OPENALEX_MAX_RESPONSE_BYTES <= 10 * 1024 * 1024
         # The arXiv tarball cap should NOT be the value we use for OpenAlex.
-        from tools.arxiv_fetch import MAX_RESPONSE_BYTES as ARXIV_CAP
+        from ingest.arxiv_fetch import MAX_RESPONSE_BYTES as ARXIV_CAP
 
         assert graph_ingest.OPENALEX_MAX_RESPONSE_BYTES < ARXIV_CAP
 

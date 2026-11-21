@@ -33,13 +33,13 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from ingest.write_lock import exits_when_write_locked, holds_dataset_write_lock
-from server.theorem_names_store import (
+from ingest.theorem_names_store import (
     TheoremNamesStore,
     TheoremRow,
     dedup_key,
     serialize_section_path,
 )
+from ingest.write_lock import exits_when_write_locked, holds_dataset_write_lock
 
 logger = logging.getLogger(__name__)
 
@@ -189,7 +189,7 @@ def default_db_path(lancedb_path: str | Path) -> Path:
     """Where the theorem-name index of the dataset at ``lancedb_path`` lives:
     inside the dataset, so cutover and rollback move it with the chunks it
     indexes. The server derives the same path."""
-    from server.application_paths import derived_index_path
+    from ingest.application_paths import derived_index_path
 
     return derived_index_path(Path(lancedb_path).resolve(), "theorem_names.db")
 

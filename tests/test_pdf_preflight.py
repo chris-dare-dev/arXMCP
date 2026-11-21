@@ -24,6 +24,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from ingest import notebooks as _notebook_common
 from server.notebooks_store import NotebooksStore
 from server.routes import notebooks as notebooks_module
 from server.routes.notebooks import (
@@ -33,7 +34,6 @@ from server.routes.notebooks import (
 from server.routes.notebooks import (
     router as notebooks_router,
 )
-from tools import _notebook_common
 
 
 @pytest.fixture
@@ -493,10 +493,10 @@ class TestNoForkPolicy:
         """
         from pathlib import Path
         repo_root = Path(__file__).parent.parent
-        pdfid_path = repo_root / "tools" / "security" / "pdfid.py"
+        pdfid_path = repo_root / "ingest" / "security" / "pdfid.py"
         line_count = len(pdfid_path.read_text().splitlines())
         assert 30 <= line_count <= 200, (
-            f"tools/security/pdfid.py is {line_count} LOC — outside "
+            f"ingest/security/pdfid.py is {line_count} LOC — outside "
             f"the [30, 200] band. Below 30 may indicate a missing "
             f"feature; above 200 may indicate a vendored upstream "
             f"copy (no-fork policy violation)."
@@ -509,7 +509,7 @@ class TestNoForkPolicy:
         """
         from pathlib import Path
         repo_root = Path(__file__).parent.parent
-        src = (repo_root / "tools" / "security" / "pdfid.py").read_text()
+        src = (repo_root / "ingest" / "security" / "pdfid.py").read_text()
         # Source-text fingerprints from the upstream tool.
         forbidden = (
             "PDFiD",        # the upstream class name
@@ -518,18 +518,18 @@ class TestNoForkPolicy:
         )
         for needle in forbidden:
             assert needle not in src, (
-                f"tools/security/pdfid.py contains {needle!r} — looks "
+                f"ingest/security/pdfid.py contains {needle!r} — looks "
                 f"like a copy of upstream source (no-fork policy "
                 f"violation)"
             )
 
     def test_security_readme_documents_vendoring(self) -> None:
-        """The tools/security/README.md must document the no-fork
+        """The ingest/security/README.md must document the no-fork
         discipline and credit the upstream algorithm.
         """
         from pathlib import Path
         repo_root = Path(__file__).parent.parent
-        readme = (repo_root / "tools" / "security" / "README.md").read_text()
+        readme = (repo_root / "ingest" / "security" / "README.md").read_text()
         # Must mention the no-fork policy AND the upstream credit.
         assert "no-fork" in readme.lower()
         assert "Didier Stevens" in readme
@@ -800,7 +800,7 @@ class TestSecurityDocSymbolContract:
         """F2: the threat-table JS row enumerates 7 active-content
         tokens; pin DANGEROUS_PDF_NAMES to exactly that set so adding a
         token forces a doc update."""
-        from tools.security.pdfid import DANGEROUS_PDF_NAMES
+        from ingest.security.pdfid import DANGEROUS_PDF_NAMES
 
         expected = frozenset({
             "/JS", "/JavaScript", "/OpenAction", "/AA",

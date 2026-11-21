@@ -37,10 +37,10 @@ from pathlib import Path
 
 from ingest.chunk import ChunkRecord, _compute_textbook_chunk_id
 from ingest.chunker import PER_PAPER_FAILURE_EXCEPTIONS, _validate_paper_id
+from ingest.notebooks import NotebookError
 from ingest.textbook_chunker import _flat_paper_id, _resolve_notebook_dir
 from ingest.textbook_renderer import _ATX_HEADING_RE
 from ingest.tokenizer import tokenize_body
-from tools._notebook_common import NotebookError
 
 logger = logging.getLogger(__name__)
 

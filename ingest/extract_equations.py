@@ -17,7 +17,7 @@ top (matches chunker discipline at ``ingest/chunker.py::_element_text``).
 
 **`mathml` is the serialized `<math>` element** including the wrapper,
 so the downstream tree indexer at
-:func:`server.retrieval.equations.parse_mathml_to_tree` can re-parse
+:func:`ingest.mathml_tree.parse_mathml_to_tree` can re-parse
 via ``defusedxml.ElementTree.fromstring`` without surgery.
 
 **`label` is the LaTeXML sequential id suffix** (e.g. ``E1`` from
@@ -66,11 +66,11 @@ from typing import Any, NamedTuple
 import pyarrow as pa
 from bs4 import BeautifulSoup, Tag
 
+from ingest.application_paths import ApplicationPaths
 from ingest.identifiers import is_valid_arxiv_paper_id
 from ingest.index_equations import open_or_create_equations_table
 from ingest.schema import CHUNKS_TABLE_NAME, EQUATIONS_SCHEMA_V1
 from ingest.write_lock import exits_when_write_locked, holds_dataset_write_lock
-from server.application_paths import ApplicationPaths
 
 logger = logging.getLogger(__name__)
 

@@ -15,8 +15,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from ingest.notebooks import REPO_ROOT, NotebookError
 from tools import notebook_pdf_parse
-from tools._notebook_common import REPO_ROOT, NotebookError
 
 FLAT = "2602.24016"  # an arXiv id has no slash/colon, so flat == id
 

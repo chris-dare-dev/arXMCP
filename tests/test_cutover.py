@@ -1090,7 +1090,7 @@ def _write_staging(path: Path, chunks, *, build_indices: bool, seed: int = 0) ->
 
 
 def _index_names(path: Path) -> set[str]:
-    from server.corpus import open_chunks_table, read_corpus_version
+    from ingest.corpus import open_chunks_table, read_corpus_version
 
     info = read_corpus_version(lancedb_path=path)
     table = open_chunks_table(lancedb_path=path, version=info.version)
@@ -1191,8 +1191,8 @@ class TestStagingVectorIndexCoverage:
     ):
         """The reviewed scenario end to end: every other criterion passes,
         the re-embed ended ``complete_with_failures``, staging is unindexed."""
+        from ingest.corpus import read_corpus_version
         from ingest.store import CORPUS_VERSION_MARKER_NAME
-        from server.corpus import read_corpus_version
 
         active = tmp_path / "lancedb"
         _write_marker(active, version=7)

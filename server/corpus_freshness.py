@@ -1,7 +1,7 @@
 """Corpus-freshness seam — who owns "is the served corpus still the
 corpus on disk?" (issue #207).
 
-Before this module existed, nothing did. :mod:`server.corpus`'s
+Before this module existed, nothing did. :mod:`ingest.corpus`'s
 module docstring declared cache invalidation on a corpus-version
 change a MUST and asserted the implementation honored it; the
 implementation did not. Concretely, at the time #207 was filed:
@@ -97,7 +97,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, TypeVar
 
 if TYPE_CHECKING:  # pragma: no cover
-    from server.corpus import CorpusVersionInfo
+    from ingest.corpus import CorpusVersionInfo
 
 logger = logging.getLogger(__name__)
 
@@ -251,7 +251,7 @@ async def read_marker_off_loop(
 ) -> CorpusVersionInfo | None:
     """Read ``corpus-version.json`` in the default executor.
 
-    Returns the parsed :class:`server.corpus.CorpusVersionInfo`, or
+    Returns the parsed :class:`ingest.corpus.CorpusVersionInfo`, or
     ``None`` when the marker is absent, unreadable, or malformed.
 
     **Every failure collapses to ``None`` on purpose.** This runs on
@@ -264,7 +264,7 @@ async def read_marker_off_loop(
     ``Resources.startup`` on the next restart and by ``/readyz``.
 
     ``reader`` is injected (rather than importing
-    :func:`server.corpus.read_corpus_version` here) so the caller's own
+    :func:`ingest.corpus.read_corpus_version` here) so the caller's own
     module-level binding is the one exercised — that keeps the existing
     ``monkeypatch.setattr(server.resources, "read_corpus_version", ...)``
     test idiom effective through this helper.

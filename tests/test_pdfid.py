@@ -1,4 +1,4 @@
-"""Unit tests for ``tools.security.pdfid`` (textbook-ingest-m4).
+"""Unit tests for ``ingest.security.pdfid`` (textbook-ingest-m4).
 
 Lock the detection contract for each of the 7 dangerous PDF name
 tokens, plus the limitations the module's docstring acknowledges
@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import pytest
 
-from tools.security.pdfid import (
+from ingest.security.pdfid import (
     DANGEROUS_PDF_NAMES,
     find_javascript,
 )

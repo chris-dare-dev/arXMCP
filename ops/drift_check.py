@@ -98,7 +98,7 @@ class DriftResult:
 def _require_latexmlc() -> str:
     """Return the absolute path to ``latexmlc`` or raise.
 
-    Mirrors ``tools/arxiv_fetch.py::_require_latexmlc`` discipline —
+    Mirrors ``ingest/arxiv_fetch.py::_require_latexmlc`` discipline —
     operator-facing error message tells the user how to install on
     macOS / Debian.
     """
@@ -140,8 +140,8 @@ def render_fixture(tex_path: Path) -> str:
         # _latexmlc_argv_prefix handles the Windows latexmlc.BAT shim (whose
         # `perl -x -S` body fails on a backslash path, exit 29) by invoking
         # the extensionless Perl script under perl.exe. No-op on POSIX.
-        # Shared with tools/arxiv_fetch.py::parse_with_latexml.
-        from tools.arxiv_fetch import _latexmlc_argv_prefix
+        # Shared with ingest/arxiv_fetch.py::parse_with_latexml.
+        from ingest.arxiv_fetch import _latexmlc_argv_prefix
 
         cmd = [
             *_latexmlc_argv_prefix(latexmlc),
@@ -151,14 +151,14 @@ def render_fixture(tex_path: Path) -> str:
         ]
         # E13_S03b — Threat 3 sandbox wiring. Apply the same
         # production sandbox (sandbox-exec on macOS / bwrap on
-        # Linux) used by ``tools/arxiv_fetch.py::parse_with_latexml``.
+        # Linux) used by ``ingest/arxiv_fetch.py::parse_with_latexml``.
         # render_fixture runs latexmlc on potentially-untrusted
         # .tex fixtures (drift-check inputs), so the same
         # mitigation applies. ``_build_sandbox_cmd`` returns
         # ``cmd`` unchanged when no sandbox layer is available
         # (degraded path; Windows + un-installed bwrap fall
         # through cleanly).
-        from tools.arxiv_fetch import _build_sandbox_cmd
+        from ingest.arxiv_fetch import _build_sandbox_cmd
 
         sandbox_tmpdir = tmp / "_sandbox_tmp"
         sandbox_tmpdir.mkdir(exist_ok=True)

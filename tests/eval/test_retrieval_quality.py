@@ -47,7 +47,7 @@ skip-on-cold-start protocol keeps cycle time fast.
 - ``ops/eval_metrics.py`` — pure ``ndcg_at_k`` / ``recall_at_k`` /
   ``assert_threshold`` (unit-tested in ``tests/eval/test_metrics.py``).
 - ``server/query_encoder.py`` — async ``encode_query`` (E03_S03).
-- ``server/corpus.py`` — ``open_chunks_table`` + ``read_corpus_version``
+- ``ingest/corpus.py`` — ``open_chunks_table`` + ``read_corpus_version``
   (E04_S02 + E04_S03).
 - ``tools/validate_eval_fixtures.py`` — fixture validator (E05_S01).
 """
@@ -148,7 +148,7 @@ def test_retrieval_quality(
     # Import deferred so a fully-cold dev box (no LanceDB installed)
     # does not import-error here. Skipping is the right signal.
     try:
-        from server.corpus import open_chunks_table, read_corpus_version
+        from ingest.corpus import open_chunks_table, read_corpus_version
         from server.query_encoder import encode_query
     except ImportError as exc:
         pytest.skip(

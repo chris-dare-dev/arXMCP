@@ -23,12 +23,12 @@ import pytest
 
 import server.handlers.equation as eq_handler_mod
 import server.tools as server_tools
-from server.handlers.equation import _convert_latex_to_mathml
-from server.retrieval.equations import (
+from ingest.mathml_tree import (
     looks_like_mathml,
     parse_mathml_to_tree,
     tree_to_json,
 )
+from server.handlers.equation import _convert_latex_to_mathml
 
 from .test_equation_index import (  # reuse the built harness
     _build_chunks_table,

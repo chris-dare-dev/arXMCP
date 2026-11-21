@@ -2,7 +2,7 @@
 
 Extracted from ``tools/curate_seed.py`` so the m3 notebook-discovery driver
 and the curate-seed CLI share ONE arXiv-query surface. Mirrors the
-``tools/_notebook_common.py`` shared-module pattern: a leading-underscore
+``ingest/notebooks.py`` shared-module pattern: a leading-underscore
 internal helper module, ``from __future__ import annotations``, an
 ``__all__`` export list, and ``if … raise`` validation (never ``assert`` —
 ``-O`` strips them, CLAUDE.md §4.7).
@@ -21,12 +21,12 @@ Capabilities:
 - ``fetch_candidates`` — fetch + paginate + parse, returning ``list[Candidate]``.
   Pagination is bounded by the requested ``max_results`` (≤2000/page per the
   arXiv API), with an injectable ``sleep`` honoured BETWEEN pages so the
-  politeness contract (``tools.arxiv_fetch.POLITENESS_SLEEP_SECONDS`` = 3s) is
+  politeness contract (``ingest.arxiv_fetch.POLITENESS_SLEEP_SECONDS`` = 3s) is
   preserved. For ``max_results`` ≤ 2000 this is a single request with no sleep
   — identical to the pre-m2 single-fetch behaviour.
 
 No new pip dependency: stdlib ``urllib`` + ``defusedxml`` (already a project
-dep, used by ``server/retrieval/equations.py``). No-fork: reimplemented
+dep, used by ``ingest/mathml_tree.py``). No-fork: reimplemented
 natively, nothing lifted from ``arxiv.py`` or other arxiv-mcp code.
 """
 
@@ -42,11 +42,11 @@ from datetime import datetime
 
 import defusedxml.ElementTree as DET
 
-from ingest.identifiers import ARXIV_PAPER_ID_RE
-from tools.arxiv_fetch import (
+from ingest.arxiv_fetch import (
     POLITENESS_SLEEP_SECONDS,
     build_user_agent,
 )
+from ingest.identifiers import ARXIV_PAPER_ID_RE
 
 ARXIV_API_URL = "https://export.arxiv.org/api/query"
 ATOM_NS = {
@@ -168,7 +168,7 @@ def parse_atom_feed(xml_bytes: bytes) -> list[Candidate]:
     redirect page instead of Atom, which ``DET.fromstring`` raises as a
     ``ParseError`` — a ``SyntaxError`` subclass that callers' ``RuntimeError``
     handlers would otherwise miss, surfacing as a 500). Mirrors the
-    ``server/retrieval/equations.py`` ``DET.ParseError`` precedent.
+    ``ingest/mathml_tree.py`` ``DET.ParseError`` precedent.
     """
     try:
         root = DET.fromstring(xml_bytes)
@@ -438,7 +438,7 @@ def parse_atom_metadata(xml_bytes: bytes) -> list[PaperMetadata]:
 def _fetch_url(url: str, contact_email: str | None = None) -> bytes:
     """GET ``url`` from the arXiv API with the polite User-Agent.
 
-    Private so tests monkeypatch ``_arxiv_api._fetch_url`` (the
+    Private so tests monkeypatch ``ingest.arxiv_api._fetch_url`` (the
     ``graph_ingest._fetch_openalex_work`` pattern) instead of patching
     ``urllib.request.urlopen`` globally. Reads at most ``MAX_RESPONSE_BYTES``.
     """

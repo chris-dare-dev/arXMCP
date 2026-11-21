@@ -18,7 +18,7 @@ Two things break, and they are the reason this is not cosmetic:
 
 ## Where the version comes from, and why not from the obvious place
 
-**Not from the arXiv API.** ``tools/_arxiv_api.py`` already parses an Atom feed
+**Not from the arXiv API.** ``ingest/arxiv_api.py`` already parses an Atom feed
 whose ``<id>`` is ``http://arxiv.org/abs/math/0212237v3``, and
 ``extract_paper_id_from_abs_url`` deliberately throws the ``v3`` away. Taking
 it instead would record *the version that is latest right now*, which is a
@@ -50,7 +50,7 @@ whose version could not be established, which is what makes the resolver's
 guard stay correct after this lands.
 
 Politeness contract (arXiv ToU), inherited unchanged from
-:mod:`tools.oai_license`: one ``GetRecord`` per work, a 3-second sleep before
+:mod:`ingest.oai_license`: one ``GetRecord`` per work, a 3-second sleep before
 every request except the first, and 503/``Retry-After`` backoff.
 
 Usage::
@@ -81,18 +81,18 @@ from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
 from pathlib import Path
 
-from server.documents_store import DOCUMENTS_DB_FILENAME
-from tools import oai_license
-from tools._notebook_common import (
+from ingest import oai_license
+from ingest.arxiv_fetch import POLITENESS_SLEEP_SECONDS, build_user_agent
+from ingest.notebooks import (
     NotebookError,
     notebook_dir,
     resolve_contact_email,
     validate_slug,
 )
-from tools.arxiv_fetch import POLITENESS_SLEEP_SECONDS, build_user_agent
+from server.documents_store import DOCUMENTS_DB_FILENAME
 
 #: ``arXivRaw`` is the only arXiv OAI-PMH format that carries version history.
-#: The plain ``arXiv`` prefix (which ``tools/oai_license.py`` uses, correctly,
+#: The plain ``arXiv`` prefix (which ``ingest/oai_license.py`` uses, correctly,
 #: for the ``<license>`` element) omits it. Same choice ``ingest/oai_delta.py``
 #: made at its synthesis D5.
 METADATA_PREFIX: str = "arXivRaw"

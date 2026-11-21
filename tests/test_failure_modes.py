@@ -23,13 +23,13 @@ from types import SimpleNamespace
 import pytest
 
 # ---------------------------------------------------------------------------
-# D4 — tools/ingest_sentinel.py
+# D4 — ingest/sentinel.py
 # ---------------------------------------------------------------------------
 
 
 class TestIngestSentinel:
     def test_write_then_is_paused_reads_back(self, tmp_path):
-        from tools.ingest_sentinel import is_paused, write_pause  # noqa: PLC0415
+        from ingest.sentinel import is_paused, write_pause  # noqa: PLC0415
 
         p = tmp_path / "ingest-paused"
         write_pause(
@@ -48,12 +48,12 @@ class TestIngestSentinel:
         assert record["written_at"].endswith("Z")
 
     def test_is_paused_returns_none_when_absent(self, tmp_path):
-        from tools.ingest_sentinel import is_paused  # noqa: PLC0415
+        from ingest.sentinel import is_paused  # noqa: PLC0415
 
         assert is_paused(path=tmp_path / "absent") is None
 
     def test_clear_pause_removes_sentinel(self, tmp_path):
-        from tools.ingest_sentinel import (  # noqa: PLC0415
+        from ingest.sentinel import (  # noqa: PLC0415
             clear_pause,
             is_paused,
             write_pause,
@@ -71,7 +71,7 @@ class TestIngestSentinel:
     def test_overwrite_with_different_reason(self, tmp_path):
         """Second write with a different reason overwrites — the
         sentinel is one-at-a-time by design (latest writer wins)."""
-        from tools.ingest_sentinel import is_paused, write_pause  # noqa: PLC0415
+        from ingest.sentinel import is_paused, write_pause  # noqa: PLC0415
 
         p = tmp_path / "ingest-paused"
         write_pause(reason="disk_low", path=p)
@@ -84,7 +84,7 @@ class TestIngestSentinel:
         ``{"reason": "malformed_sentinel"}`` so callers don't have
         to handle ``json.JSONDecodeError`` — operators see a
         clear "honor the pause" signal."""
-        from tools.ingest_sentinel import is_paused  # noqa: PLC0415
+        from ingest.sentinel import is_paused  # noqa: PLC0415
 
         p = tmp_path / "ingest-paused"
         p.write_text("{not valid json", encoding="utf-8")
@@ -100,11 +100,11 @@ class TestDiskFullSentinelLogic:
     def test_writes_sentinel_when_free_below_threshold(
         self, tmp_path, monkeypatch
     ):
+        from ingest.sentinel import is_paused  # noqa: PLC0415
         from server.health import (  # noqa: PLC0415
             DISK_PAUSE_THRESHOLD_BYTES,
             refresh_disk_free_metric,
         )
-        from tools.ingest_sentinel import is_paused  # noqa: PLC0415
 
         # 5 GB free — well under the 10 GB threshold.
         fake_usage = SimpleNamespace(
@@ -152,7 +152,7 @@ class TestDiskFullSentinelLogic:
         assert sentinel.read_bytes() == first
 
     def test_low_disk_keeps_an_operator_pause(self, tmp_path, monkeypatch):
-        from tools.ingest_sentinel import is_paused, write_pause  # noqa: PLC0415
+        from ingest.sentinel import is_paused, write_pause  # noqa: PLC0415
 
         data_dir = tmp_path / "data"
         (data_dir / "ops").mkdir(parents=True)
@@ -168,8 +168,8 @@ class TestDiskFullSentinelLogic:
     def test_clears_sentinel_when_free_above_hysteresis_band(
         self, tmp_path, monkeypatch
     ):
+        from ingest.sentinel import is_paused, write_pause  # noqa: PLC0415
         from server.health import refresh_disk_free_metric  # noqa: PLC0415
-        from tools.ingest_sentinel import is_paused, write_pause  # noqa: PLC0415
 
         data_dir = tmp_path / "data"
         (data_dir / "ops").mkdir(parents=True)
@@ -193,8 +193,8 @@ class TestDiskFullSentinelLogic:
         """The auto-clear logic only clears sentinels with
         ``reason=disk_low``. An operator's manual maintenance
         sentinel survives auto-recovery."""
+        from ingest.sentinel import is_paused, write_pause  # noqa: PLC0415
         from server.health import refresh_disk_free_metric  # noqa: PLC0415
-        from tools.ingest_sentinel import is_paused, write_pause  # noqa: PLC0415
 
         data_dir = tmp_path / "data"
         (data_dir / "ops").mkdir(parents=True)
@@ -219,8 +219,8 @@ class TestDiskFullSentinelLogic:
         """When free is between 10 GB and 15 GB (the hysteresis
         band), the refresh neither writes nor clears. Avoids the
         boundary-flap pattern."""
+        from ingest.sentinel import is_paused  # noqa: PLC0415
         from server.health import refresh_disk_free_metric  # noqa: PLC0415
-        from tools.ingest_sentinel import is_paused  # noqa: PLC0415
 
         data_dir = tmp_path / "data"
         (data_dir / "ops").mkdir(parents=True)
@@ -265,7 +265,7 @@ def _readable_table(version: int) -> SimpleNamespace:
 
 class TestLanceDBCorruptionFallback:
     """The fallback decision tree lives in
-    ``server.corpus.open_chunks_table_with_fallback``. The tests
+    ``ingest.corpus.open_chunks_table_with_fallback``. The tests
     inject failures by monkey-patching ``open_chunks_table`` to
     raise on the live tip and succeed on N-1. A truly
     representative test would need a real LanceDB on disk with
@@ -274,7 +274,7 @@ class TestLanceDBCorruptionFallback:
     docs/ops/failure-modes.md."""
 
     def test_happy_path_returns_none_for_degraded(self, monkeypatch):
-        from server import corpus as corpus_mod  # noqa: PLC0415
+        from ingest import corpus as corpus_mod  # noqa: PLC0415
 
         fake_table = _readable_table(5)
         calls: list[int] = []
@@ -292,7 +292,7 @@ class TestLanceDBCorruptionFallback:
         assert calls == [5]
 
     def test_falls_back_to_n_minus_1_on_lance_error(self, monkeypatch):
-        from server import corpus as corpus_mod  # noqa: PLC0415
+        from ingest import corpus as corpus_mod  # noqa: PLC0415
 
         fallback_table = _readable_table(4)
         calls: list[int] = []
@@ -333,7 +333,7 @@ class TestLanceDBCorruptionFallback:
         assert calls == [5, None, 4]
 
     def test_raises_at_floor_when_version_is_1(self, monkeypatch):
-        from server import corpus as corpus_mod  # noqa: PLC0415
+        from ingest import corpus as corpus_mod  # noqa: PLC0415
 
         def fake_open(lancedb_path=None, version=None):
             raise OSError("manifest truncated")
@@ -345,7 +345,7 @@ class TestLanceDBCorruptionFallback:
             )
 
     def test_raises_when_both_versions_corrupt(self, monkeypatch):
-        from server import corpus as corpus_mod  # noqa: PLC0415
+        from ingest import corpus as corpus_mod  # noqa: PLC0415
 
         def fake_open(lancedb_path=None, version=None):
             raise OSError(f"manifest v={version} truncated")
@@ -366,7 +366,7 @@ class TestDegradedReadyz:
         """Build a minimal Resources duck and call readyz
         directly. The full ASGI test path is heavier; this is the
         contract check."""
-        from server.corpus import DegradedState  # noqa: PLC0415
+        from ingest.corpus import DegradedState  # noqa: PLC0415
 
         # Build a fake Resources with .warm=True + .degraded set.
         # readyz introspects the dataclass shape; a SimpleNamespace
@@ -585,7 +585,7 @@ class TestF2CronSentinelPathDrift:
     def test_cron_wrapper_references_arxmcp_data_dir(self):
         """Scrape the cron wrapper and confirm the pause-flag path
         uses ARXMCP_DATA_DIR with the same fallback precedence as
-        tools.ingest_sentinel._resolve_sentinel_path."""
+        ingest.sentinel._resolve_sentinel_path."""
         import pathlib  # noqa: PLC0415
 
         repo_root = pathlib.Path(__file__).resolve().parents[1]
@@ -600,5 +600,5 @@ class TestF2CronSentinelPathDrift:
         # the Python module uses (``/ops/ingest-paused``).
         assert "/ops/ingest-paused" in content, (
             "ops/cron/arxmcp-delta.sh must use the ops/ingest-paused "
-            "suffix that matches tools.ingest_sentinel"
+            "suffix that matches ingest.sentinel"
         )

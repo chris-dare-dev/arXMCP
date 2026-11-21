@@ -40,7 +40,7 @@ import sys
 import uuid
 from pathlib import Path
 
-from tools._notebook_common import (
+from ingest.notebooks import (
     NotebookError,
     notebook_lancedb_path,
     validate_slug,
@@ -62,7 +62,7 @@ def _recount_lancedb(
     MVCC-pinned ``count_rows`` + distinct paper_id via PyArrow."""
     import pyarrow.compute as pc  # noqa: PLC0415
 
-    from server.corpus import open_chunks_table  # local
+    from ingest.corpus import open_chunks_table  # local
 
     tbl = open_chunks_table(lance_path, version=version)
     chunk_count = tbl.count_rows()
@@ -106,7 +106,7 @@ def _reconcile_one(lance_path: Path, *, label: str) -> int:
 
     Returns 0 on success, 1 on operational failure.
     """
-    from server.corpus import read_corpus_version  # local
+    from ingest.corpus import read_corpus_version  # local
 
     try:
         old_info = read_corpus_version(lance_path)

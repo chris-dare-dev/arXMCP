@@ -783,7 +783,7 @@ class TestM10RectifyDiscoverPanel:
         m10's remedy put the IDENTICAL ``abstract_head`` in both the
         ``<summary>`` and the ``<p>``. A ``<summary>`` is the disclosure's
         accessible NAME, and ``abstract_head`` is the untruncated arXiv
-        abstract (``tools/_arxiv_api.py`` builds it as
+        abstract (``ingest/arxiv_api.py`` builds it as
         ``" ".join(summary.split())``) — normally 800-1500 characters. So the
         control was named with an entire abstract, and because
         ``.discover-abstract[open] > summary`` releases the clamp, opening it
@@ -842,11 +842,11 @@ class TestM10RectifyDiscoverPanel:
 
     def test_the_fragment_does_not_render_the_abstract_twice(self) -> None:
         """The end-to-end shape of the same defect, over the real builder."""
+        from server.discovery import (  # noqa: PLC0415
+            DiscoveryCandidate,
+        )
         from server.routes.notebooks import (  # noqa: PLC0415
             _discover_results_fragment,
-        )
-        from tools.discover_for_notebook import (  # noqa: PLC0415
-            DiscoveryCandidate,
         )
 
         abstract = "Sentence about sheaves. " * 60

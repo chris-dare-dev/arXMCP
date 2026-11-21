@@ -11,7 +11,7 @@ This is the operator-run cleanup::
 **What it keeps.**
 
 - The version ``corpus-version.json`` pins. Readers open that one.
-- The version before it: :func:`server.corpus.open_chunks_table_with_fallback`
+- The version before it: :func:`ingest.corpus.open_chunks_table_with_fallback`
   reopens it when the pinned version fails to open.
 - Every later version, and every version younger than ``--keep-days``
   (default 7, LanceDB's own default), which covers a reader still pinned
@@ -108,7 +108,7 @@ def plan_prune(
     now: datetime | None = None,
 ) -> PrunePlan:
     """Work out which versions a prune of ``lancedb_path`` would remove."""
-    from server.corpus import read_corpus_version
+    from ingest.corpus import read_corpus_version
 
     if keep_days < 0:
         raise ValueError(f"keep_days must be >= 0; got {keep_days}")

@@ -11,9 +11,9 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools.packages.find]
 # Scoped discovery over the six package trees. The ``*`` globs are
 # load-bearing: a bare list of top-level names (server, ingest, tools, shim)
-# OMITS subpackages — server.handlers, server.routes, tools.security, etc. —
+# OMITS subpackages — server.handlers, server.routes, ingest.security, etc. —
 # so a built wheel raises ModuleNotFoundError at runtime (e.g. the container
-# crash on ``from tools.security.pdfid import ...``). Scoping the include to
+# crash on ``from ingest.security.pdfid import ...``). Scoping the include to
 # these patterns still avoids the "multiple top-level packages discovered
 # in a flat-layout" error that an unscoped find would raise on var/, infra/,
 # docker/. ``shim`` (E06_S02) carries the arxmcp-shim console-script below.
@@ -266,7 +266,7 @@ dependencies = [
     "kuzu==0.11.3",
     # defusedxml: XXE/billion-laughs-safe replacement for
     #   ``xml.etree.ElementTree`` (E10_S03). Used by
-    #   ``server.retrieval.equations`` to parse MathML from caller input
+    #   ``ingest.mathml_tree`` to parse MathML from caller input
     #   to the find_equation handler. Pure-Python stdlib drop-in;
     #   defense-in-depth for the per-handler max_length=4000 cap.
     #   License: Python Software Foundation License (PSF) 2.0, on the
@@ -276,7 +276,7 @@ dependencies = [
     #   (E10_S03). Pure Python, no compiled deps. Last release 2018-03-12
     #   (maintenance-frozen but stable — the algorithm is closed-form and
     #   the project's use is narrow). Used in ingest.index_equations (build
-    #   time) and server.retrieval.equations (query time). License:
+    #   time) and ingest.mathml_tree (query time). License:
     #   BSD-3-Clause (verified from the LICENSE bundled in the wheel; the
     #   PyPI metadata does not surface this — both research briefs
     #   reported MIT but the actual bundled license is BSD-3-Clause,

@@ -16,8 +16,8 @@ from unittest.mock import patch
 import pytest
 
 from ingest.ar5iv_fetch import Ar5ivResult
+from ingest.notebooks import fetch_raw_tex_if_missing
 from tools import notebook_fetch
-from tools._notebook_common import fetch_raw_tex_if_missing
 
 
 def _local_cache_hit(paper_id: str, **_kwargs) -> Ar5ivResult:
@@ -116,7 +116,7 @@ class TestNotebookFetchRun:
 
         The batch test above mocks that boundary, so it cannot pin the
         exception TYPE. This test drives the real helper (offline:
-        ``validate_paper_id`` raises at ``tools/arxiv_fetch.py:273`` BEFORE
+        ``validate_paper_id`` raises at ``ingest/arxiv_fetch.py:273`` BEFORE
         the ``urlopen`` at ``:282``, so no network egress occurs) and locks
         the contract. If a refactor ever changed the raised type, this
         fails — catching the type-drift the over-mocked test cannot.

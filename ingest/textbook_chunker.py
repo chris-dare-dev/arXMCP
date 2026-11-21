@@ -53,6 +53,7 @@ from pathlib import Path
 
 from bs4 import BeautifulSoup, Tag
 
+from ingest.application_paths import ApplicationPaths
 from ingest.chunk import ChunkRecord, _compute_textbook_chunk_id
 from ingest.chunker import (
     PER_PAPER_FAILURE_EXCEPTIONS,
@@ -62,9 +63,8 @@ from ingest.chunker import (
     _sanitize_log_field,
     _validate_paper_id,
 )
+from ingest.notebooks import NotebookError, notebook_dir
 from ingest.tokenizer import tokenize_body
-from server.application_paths import ApplicationPaths
-from tools._notebook_common import NotebookError, notebook_dir
 
 logger = logging.getLogger(__name__)
 
@@ -104,7 +104,7 @@ def _flat_paper_id(paper_id: str) -> str:
 def _resolve_notebook_dir(slug: str) -> Path:
     """Return the symlink-checked, containment-checked notebook dir.
 
-    Routes through ``tools._notebook_common.notebook_dir`` (m6 F3) so
+    Routes through ``ingest.notebooks.notebook_dir`` (m6 F3) so
     the textbook chunker shares the same belt-and-braces posture as the
     rest of the notebook surface (notebook_init / fetch / ingest /
     purge): ``validate_slug`` (primary regex defense) + symlink refusal

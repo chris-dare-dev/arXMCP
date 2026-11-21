@@ -16,7 +16,7 @@ central ``notebooks.db``:
   not belong in the ``synchronous=FULL`` + ``fullfsync=ON``
   non-regenerable ``notebooks.db``; it takes the ``NORMAL``
   durability tier of :mod:`server.cache_sqlite` /
-  :mod:`server.theorem_names_store`.
+  :mod:`ingest.theorem_names_store`.
 - Per-notebook files match the fork-C isolation precedent
   (``lancedb/``, ``cache/retrieval.db``) and keep
   the CLI-writer / server-reader split off the daemon's live
@@ -76,7 +76,7 @@ class PaperMetadataRecord:
     intact (``math/0212237``, never ``0212237`` or
     ``math/0212237v1``) — the t-atom-mapper round-trip contract.
     ``year == 0`` means "unparseable ``<published>``" (mirrors the
-    ``Candidate.submitted_year`` convention in ``tools/_arxiv_api``).
+    ``Candidate.submitted_year`` convention in ``ingest/arxiv_api``).
     """
 
     paper_id: str

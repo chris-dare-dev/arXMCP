@@ -447,8 +447,8 @@ class TestRunDelta:
         # The nightly timer's journal gets one "error:" line, not a stack
         # trace, and exit 3 rather than the failure exit 1.
         import ingest.oai_delta as delta
+        from ingest import sentinel as ingest_sentinel
         from ingest.store import STALE_CHUNKER_EXIT_CODE, StaleChunkerRowsError
-        from tools import ingest_sentinel
 
         def _refuse(**_k):
             raise StaleChunkerRowsError("rotate it first (make re-embed)")

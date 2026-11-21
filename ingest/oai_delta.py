@@ -67,6 +67,7 @@ import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from ingest.application_paths import ApplicationPaths
 from ingest.ar5iv_fetch import DEFAULT_AR5IV_CACHE_DIR, DEFAULT_PARSED_DIR
 from ingest.bulk_ingest import (
     DEFAULT_LANCEDB_STAGING_PATH,
@@ -86,7 +87,6 @@ from ingest.store import (
     refuse_stale_chunker_rows,
 )
 from ingest.write_lock import exits_when_write_locked, holds_dataset_write_lock
-from server.application_paths import ApplicationPaths
 
 logger = logging.getLogger(__name__)
 
@@ -423,7 +423,7 @@ def _fetch_page(
 def _politeness_sleep_since(start_monotonic: float) -> None:
     """Block so the next request is ≥ ``POLITENESS_SLEEP_SECONDS``
     after ``start_monotonic``. Mirrors
-    :func:`tools.arxiv_fetch.politeness_sleep`."""
+    :func:`ingest.arxiv_fetch.politeness_sleep`."""
     elapsed = time.monotonic() - start_monotonic
     if elapsed < POLITENESS_SLEEP_SECONDS:
         time.sleep(POLITENESS_SLEEP_SECONDS - elapsed)
@@ -914,14 +914,14 @@ def _cli(argv: list[str]) -> int:
     # invocations (``python -m ingest.oai_delta``) also honor the
     # pause so an operator pausing for maintenance doesn't get
     # surprised by their own ad-hoc invocation later.
-    from tools import ingest_sentinel  # noqa: PLC0415
+    from ingest import sentinel as ingest_sentinel  # noqa: PLC0415
 
     record = ingest_sentinel.is_paused()
     if record is not None:
         reason = record.get("reason", "unknown")
         print(
             f"INFO: ingest paused (reason={reason}); skipping delta "
-            f"run. Clear with: python -m tools.ingest_sentinel clear",
+            f"run. Clear with: python -m ingest.sentinel clear",
             file=sys.stderr,
         )
         return 0

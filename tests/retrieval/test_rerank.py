@@ -132,7 +132,7 @@ def _seeded_lancedb(tmp_path) -> tuple[Path, int]:
 
 
 def _open_chunks_table(lancedb_path: Path, version: int) -> Any:
-    from server.corpus import open_chunks_table
+    from ingest.corpus import open_chunks_table
 
     return open_chunks_table(lancedb_path, version=version)
 

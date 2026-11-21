@@ -123,11 +123,11 @@ class TestSmokeCheckLancedb:
 
         with (
             patch(
-                "server.corpus.read_corpus_version",
+                "ingest.corpus.read_corpus_version",
                 return_value=_FakeInfo(),
             ),
             patch(
-                "server.corpus.open_chunks_table",
+                "ingest.corpus.open_chunks_table",
                 return_value=_FakeTable(),
             ),
         ):
@@ -151,11 +151,11 @@ class TestSmokeCheckLancedb:
 
         with (
             patch(
-                "server.corpus.read_corpus_version",
+                "ingest.corpus.read_corpus_version",
                 return_value=_FakeInfo(),
             ),
             patch(
-                "server.corpus.open_chunks_table",
+                "ingest.corpus.open_chunks_table",
                 return_value=_FakeTable(),
             ),
             pytest.raises(RuntimeError, match="zero rows"),
@@ -193,11 +193,11 @@ class TestSmokeCheckLancedb:
 
         with (
             patch(
-                "server.corpus.read_corpus_version",
+                "ingest.corpus.read_corpus_version",
                 return_value=_FakeInfo(),
             ),
             patch(
-                "server.corpus.open_chunks_table",
+                "ingest.corpus.open_chunks_table",
                 return_value=_FakeTable(),
             ),
         ):
@@ -297,11 +297,11 @@ class TestRunCheck:
 
         with (
             patch(
-                "server.corpus.read_corpus_version",
+                "ingest.corpus.read_corpus_version",
                 return_value=_FakeInfo(),
             ),
             patch(
-                "server.corpus.open_chunks_table",
+                "ingest.corpus.open_chunks_table",
                 return_value=_FakeTable(),
             ),
         ):
@@ -348,9 +348,9 @@ class TestRunCheck:
                 return 7
 
         with (
-            patch("server.corpus.read_corpus_version",
+            patch("ingest.corpus.read_corpus_version",
                   return_value=_FakeInfo()),
-            patch("server.corpus.open_chunks_table",
+            patch("ingest.corpus.open_chunks_table",
                   return_value=_FakeTable()),
         ):
             flag = tmp_path / "drill.flag"

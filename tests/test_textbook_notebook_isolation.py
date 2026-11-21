@@ -8,7 +8,7 @@ radius for textbook chunks.
 **What this test pins.** The notebook-scoped storage layout
 (``var/arxmcp/notebooks/<slug>/lancedb/`` per m6) is the only blast-
 radius boundary between the shared arXiv corpus and textbook chunks.
-``ingest.store.write_chunks`` and ``server.corpus.open_chunks_table``
+``ingest.store.write_chunks`` and ``ingest.corpus.open_chunks_table``
 both accept an explicit ``lancedb_path`` argument; this test exercises
 both APIs against two distinct paths in the same test invocation and
 verifies neither writer corrupts the other dataset, neither reader
@@ -37,10 +37,10 @@ import numpy as np
 import pytest
 
 from ingest.chunk import CHUNKER_VERSION, ChunkRecord
+from ingest.corpus import open_chunks_table
 from ingest.embedder import EMBEDDER_VERSION, EMBEDDING_DIM
 from ingest.schema import EmbedRecord
 from ingest.store import write_chunks
-from server.corpus import open_chunks_table
 
 
 def _make_arxiv_chunk() -> ChunkRecord:

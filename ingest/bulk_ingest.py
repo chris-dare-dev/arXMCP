@@ -84,6 +84,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from ingest.application_paths import ApplicationPaths
 from ingest.ar5iv_fetch import (
     DEFAULT_AR5IV_CACHE_DIR,
     DEFAULT_PARSED_DIR,
@@ -107,8 +108,6 @@ from ingest.store import (
     write_chunks,
 )
 from ingest.write_lock import dataset_write_lock, exits_when_write_locked
-from server.application_paths import ApplicationPaths
-from server.ssl_pin import arxiv_ssl_context_from_env
 
 logger = logging.getLogger(__name__)
 
@@ -254,6 +253,8 @@ def _parse_via_ar5iv(
     parsed_dir: Path,
 ) -> Ar5ivResult:
     """Try ar5iv; return the result without raising."""
+    from server.ssl_pin import arxiv_ssl_context_from_env  # noqa: PLC0415
+
     try:
         return try_cache(
             paper_id,
@@ -282,7 +283,7 @@ def _has_local_parsed_html(paper_id: str, parsed_dir: Path) -> bool:
 
     The chunker reads ``<parsed_dir>/<paper_id>/index.html``. v1's
     LaTeXML-fallback path assumes the operator has already
-    run ``tools/arxiv_fetch.py`` (or similar) to produce this
+    run ``ingest/arxiv_fetch.py`` (or similar) to produce this
     file. Bulk ingest does NOT itself fetch raw .tex or invoke
     LaTeXML — those are operator-side concerns.
     """
@@ -331,7 +332,7 @@ def ingest_one_paper(
 
     1. ar5iv cache check (unless ``skip_ar5iv``).
     2. On miss: check for pre-parsed HTML on disk (LaTeXML output
-       from the operator's prior `tools/arxiv_fetch.py` run).
+       from the operator's prior `ingest/arxiv_fetch.py` run).
     3. If neither: skip-and-log; outcome has
        ``parser_used = None`` and ``failure_reason`` set.
     4. If parsed HTML exists: invoke chunker → embedder →

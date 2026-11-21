@@ -2,7 +2,7 @@
 
 Implements **Strategy A** from research-synthesis §D1: wraps MinerU's
 markdown output as a minimal LaTeX document and passes it through
-``tools/arxiv_fetch.py::parse_with_latexml`` for the HTML5+MathML
+``ingest/arxiv_fetch.py::parse_with_latexml`` for the HTML5+MathML
 conversion. The math syntax (``$...$`` / ``$$...$$``) survives the
 wrap-as-LaTeX pass.
 
@@ -27,7 +27,7 @@ Cross-references
 ----------------
 - ``ingest/textbook_parser.py::MinerUResult`` — the m5 contract this
   module consumes.
-- ``tools/arxiv_fetch.py::parse_with_latexml`` — the LaTeXML subprocess
+- ``ingest/arxiv_fetch.py::parse_with_latexml`` — the LaTeXML subprocess
   helper this module delegates to (inherits process-group kill, sandbox
   profile, timeout discipline).
 - ``ingest/textbook_parser.py`` — the latexmlc invocation in the
@@ -43,8 +43,8 @@ import shutil
 import time
 from pathlib import Path
 
+from ingest.arxiv_fetch import _CONFIGURED_LATEXML_TIMEOUT_S, parse_with_latexml
 from ingest.textbook_parser import MinerUResult
-from tools.arxiv_fetch import _CONFIGURED_LATEXML_TIMEOUT_S, parse_with_latexml
 
 logger = logging.getLogger(__name__)
 
