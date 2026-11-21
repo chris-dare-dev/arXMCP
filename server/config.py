@@ -262,6 +262,18 @@ class Config(BaseSettings):
     #: A Job-Object-based equivalent for Windows is not built yet.
     lean_rlimit_as_bytes: int = 4 * 1024 * 1024 * 1024  # 4 GiB
 
+    #: Per-query wall-clock budget (seconds) for one Lean REPL round-trip,
+    #: the guard against a runaway elaboration: when it fires the REPL is
+    #: killed and respawned and ``lean_verify`` answers ``status="timeout"``.
+    #: The default suits small snippets; a cold ``import Mathlib`` can take
+    #: minutes, so raise this when callers import Mathlib into a fresh
+    #: environment. On Windows and macOS it is also the only memory
+    #: backstop (``lean_rlimit_as_bytes`` is not enforced there). Must be
+    #: finite and positive. The default must equal
+    #: ``server.lean_repl.DEFAULT_QUERY_TIMEOUT_S``. Set via
+    #: ``ARXMCP_LEAN_QUERY_TIMEOUT_S``.
+    lean_query_timeout_s: float = 30.0
+
     # --- Concurrency -----------------------------------------------------
 
     #: Throughput cap on DISTINCT-query embedding calls per
@@ -896,6 +908,24 @@ class Config(BaseSettings):
                 f"ARXMCP_CORPUS_FRESHNESS_INTERVAL_SECONDS must be finite; "
                 f"got {v!r}. Use a negative value to disable the "
                 f"request-path freshness probe."
+            )
+        return v
+
+    @field_validator("lean_query_timeout_s")
+    @classmethod
+    def validate_lean_query_timeout(cls, v: float) -> float:
+        """The Lean per-query timeout must be finite and positive.
+
+        ``0`` or a negative value would time out every query, and ``nan``
+        makes ``asyncio.wait_for`` misbehave; ``inf`` would remove the
+        runaway-elaboration guard entirely.
+        """
+        import math  # noqa: PLC0415
+
+        if not math.isfinite(v) or v <= 0:
+            raise ValueError(
+                f"ARXMCP_LEAN_QUERY_TIMEOUT_S must be a finite number of "
+                f"seconds > 0; got {v!r}."
             )
         return v
 
