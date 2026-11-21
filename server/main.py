@@ -93,7 +93,7 @@ from prometheus_client import make_asgi_app
 from ingest.arxiv_fetch import LATEXML_TIMEOUT_ENV
 from ingest.textbook_parser import MINERU_BIN_ENV, MINERU_TIMEOUT_ENV
 from server import session
-from server.config import Config
+from server.config import CONFIG_REFERENCE_HINT, Config
 from server.health import (
     refresh_metrics_from_singleton_state,
 )
@@ -386,11 +386,11 @@ def _format_unknown_arxmcp_env_var(
     if nearest:
         return (
             f"  - {env_name} is not a declared ARXMCP_* var; nearest: "
-            f"{', '.join(nearest)}. Full list: server/config.py::Config."
+            f"{', '.join(nearest)}. Full list: arxmcp-server --list-config."
         )
     return (  # pragma: no cover — declared is non-empty at runtime
         f"  - {env_name} is not a declared ARXMCP_* var. See "
-        f"server/config.py::Config for the full list."
+        f"arxmcp-server --list-config for the full list."
     )
 
 
@@ -464,7 +464,10 @@ def _scan_unknown_arxmcp_env_vars(config: Config) -> None:
     # catches it and presents the clean one-line FATAL an operator sees.
     raise ValueError(
         "unknown ARXMCP_* environment variables — each would silently "
-        "bypass the documented config; fix or remove:\n" + hints
+        "bypass the documented config; fix or remove:\n"
+        + hints
+        + "\n"
+        + CONFIG_REFERENCE_HINT
     )
 
 
