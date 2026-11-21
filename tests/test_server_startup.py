@@ -311,6 +311,19 @@ class TestReadinessTransition:
             "reranker": False,
         }
 
+    def test_readyz_503_after_shutdown(self, seeded_lancedb, mocked_bge_m3):
+        """Once the lifespan has shut down, the still-attached Resources
+        reports not ready, with every resource cold."""
+        app = create_app(Config(lancedb_path=seeded_lancedb))
+        with TestClient(app):
+            pass
+        r = TestClient(app).get("/readyz")
+        assert r.status_code == 503
+        assert r.json() == {
+            "status": "not_ready",
+            "warm": {"embedder": False, "lancedb": False, "reranker": False},
+        }
+
 
 class TestToolResourcesLifetime:
     def test_tool_handlers_are_refused_once_shutdown_begins(

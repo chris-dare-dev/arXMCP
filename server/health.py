@@ -253,11 +253,22 @@ async def healthz() -> dict[str, str]:
     """Liveness probe.
 
     Always 200 if the process can respond at all. Does NOT inspect
-    resource warm state — a process loading the BGE-M3 model still
-    returns 200 here (and 503 from ``/readyz``). The brief AC:
-    *"returns 200 before readiness."*
+    resource warm state, so it stays 200 while ``/readyz`` is 503 (a
+    degraded corpus, or a drain after shutdown has begun). Under
+    uvicorn neither probe answers while the BGE-M3 model loads: the
+    lifespan runs :meth:`Resources.startup` before the socket is bound.
     """
     return {"status": "ok"}
+
+
+def _warm_map(resources: Resources | None) -> dict[str, bool]:
+    """The per-resource warm map every ``/readyz`` body carries."""
+    if resources is None:
+        return {"embedder": False, "lancedb": False, "reranker": False}
+    return {
+        name: resources.is_resource_warm(name)
+        for name in ("embedder", "lancedb", "reranker")
+    }
 
 
 @router.get("/readyz")
@@ -265,14 +276,19 @@ async def readyz(request: Request) -> Response:
     """Readiness probe.
 
     Returns 200 only after :meth:`server.resources.Resources.startup`
-    has completed and ``Resources.warm`` is True. Returns 503 with a
-    JSON body naming the un-warm resources during the window between
-    process start and readiness.
+    has completed and ``Resources.warm`` is True, and 503 otherwise:
+    before Resources is attached, after shutdown has begun, or when
+    the corpus is degraded in a way that puts answers at risk.
 
     The body shape is documented for ops dashboards:
 
         {"status": "ready" | "not_ready",
          "warm": {"embedder": bool, "lancedb": bool, "reranker": bool}}
+
+    The map tells reranking apart from the rest: ``reranker`` is False
+    on a ready server started with reranking disabled. The embedder and
+    LanceDB are loaded together by one startup call, so they are warm
+    or cold together; a not-ready body reports every resource cold.
     """
     resources: Resources | None = getattr(
         request.app.state, "resources", None
@@ -283,39 +299,19 @@ async def readyz(request: Request) -> Response:
     # defeating the wizard flow. Return 200 so the shim forwards MCP calls
     # (which the orchestrator-level stub-check in tools.py handles).
     if resources is not None and getattr(resources, "bootstrap_mode_active", False):
-        warm_map = {
-            "embedder": False,
-            "lancedb": False,
-            "reranker": False,
-        }
         return JSONResponse(
             status_code=200,
             content={
                 "status": "bootstrap",
                 "bootstrap_mode_active": True,
-                "warm": warm_map,
+                "warm": _warm_map(resources),
             },
         )
 
-    # Resources not yet attached → still in lifespan startup window.
     if resources is None or not resources.warm:
-        # Probe the per-resource state if we have a partial Resources
-        # object; otherwise return all-False.
-        if resources is None:
-            warm_map = {
-                "embedder": False,
-                "lancedb": False,
-                "reranker": False,
-            }
-        else:
-            warm_map = {
-                "embedder": resources.is_resource_warm("embedder"),
-                "lancedb": resources.is_resource_warm("lancedb"),
-                "reranker": resources.is_resource_warm("reranker"),
-            }
         return JSONResponse(
             status_code=503,
-            content={"status": "not_ready", "warm": warm_map},
+            content={"status": "not_ready", "warm": _warm_map(resources)},
         )
 
     # E14_S05 D2: degraded body. When the answers themselves are at
@@ -333,11 +329,7 @@ async def readyz(request: Request) -> Response:
                 "reason": resources.degraded.reason,
                 "fallback_version": resources.degraded.fallback_version,
                 "original_version": resources.degraded.original_version,
-                "warm": {
-                    "embedder": resources.is_resource_warm("embedder"),
-                    "lancedb": resources.is_resource_warm("lancedb"),
-                    "reranker": resources.is_resource_warm("reranker"),
-                },
+                "warm": _warm_map(resources),
             },
         )
 
@@ -353,11 +345,7 @@ async def readyz(request: Request) -> Response:
         "status": "ready",
         "chunk_count": None if startup_count < 0 else startup_count,
         "marker_chunk_count": resources.corpus_info.chunk_count,
-        "warm": {
-            "embedder": resources.is_resource_warm("embedder"),
-            "lancedb": resources.is_resource_warm("lancedb"),
-            "reranker": resources.is_resource_warm("reranker"),
-        },
+        "warm": _warm_map(resources),
     }
     if degraded is not None:
         content["degraded"] = {"reason": degraded.reason}
