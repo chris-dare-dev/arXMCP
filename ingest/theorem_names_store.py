@@ -50,6 +50,7 @@ import sqlite3
 import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
+from typing import NamedTuple
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +73,18 @@ DEDUP_KEY_LEN: int = 16
 #: "riemanroch" (Jaccard ≈ 0.45) without flooding with unrelated
 #: hits.
 DEFAULT_JACCARD_THRESHOLD: float = 0.3
+
+#: Row count above which the Jaccard fallback stops scoring every row.
+#: Past it, :meth:`TheoremNamesStore.fuzzy_jaccard` scores only the
+#: FTS5 trigram candidates (see :data:`JACCARD_CAPPED_CANDIDATES`) and
+#: reports ``capped=True``. The count is taken over the rows the query
+#: can reach, so a ``paper_id``-scoped lookup stays exhaustive.
+JACCARD_ROW_CEILING: int = 250_000
+
+#: How many FTS5 trigram candidates the capped fallback scores. They
+#: are the rows sharing the most query trigrams, ranked by FTS5's
+#: bm25; a row sharing none has a Jaccard score of zero anyway.
+JACCARD_CAPPED_CANDIDATES: int = 2_000
 
 
 # ---------------------------------------------------------------------------
@@ -199,6 +212,18 @@ class TheoremRow:
     display_name: str
     section_path: list[str]
     confidence: float
+
+
+class FuzzyResult(NamedTuple):
+    """Rows from :meth:`TheoremNamesStore.fuzzy_jaccard`.
+
+    ``capped`` is True when the table was past
+    :data:`JACCARD_ROW_CEILING` and only FTS5 trigram candidates were
+    scored, so a row with a qualifying score may have been missed.
+    """
+
+    rows: list[TheoremRow]
+    capped: bool
 
 
 # ---------------------------------------------------------------------------
@@ -521,33 +546,46 @@ class TheoremNamesStore:
         paper_id: str | None,
         limit: int,
         threshold: float = DEFAULT_JACCARD_THRESHOLD,
-    ) -> list[TheoremRow]:
+    ) -> FuzzyResult:
         """Step 3: Python-side trigram Jaccard fallback.
 
-        Loads every ``normalized_name`` row (optionally filtered by
-        ``paper_id``), scores each against the query's trigram set,
-        returns rows with score ≥ ``threshold`` sorted by score
-        descending. This is the AC4-satisfying path.
+        Scores ``normalized_name`` rows (optionally filtered by
+        ``paper_id``) against the query's trigram set and returns rows
+        with score >= ``threshold``, sorted by score descending. This
+        is the AC4-satisfying path.
 
-        Scale note: at corpus scale (~50K rows), the SELECT pulls
-        ~5MB and the scoring is ~50ms. Acceptable for a fallback
-        that fires only when exact + FTS5 both return empty.
+        Up to :data:`JACCARD_ROW_CEILING` reachable rows, every row is
+        scored (~50ms at ~50K rows). Past it, only the top
+        :data:`JACCARD_CAPPED_CANDIDATES` FTS5 matches on any single
+        query trigram are scored, and the result says ``capped=True``.
         """
         if not normalized_query:
-            return []
+            return FuzzyResult([], capped=False)
+        ceiling = JACCARD_ROW_CEILING
+        candidate_limit = JACCARD_CAPPED_CANDIDATES
         async with self._lock:
-            def _read_sync() -> list[TheoremRow]:
+            def _read_sync() -> FuzzyResult:
                 conn = self._conn
-                sql = (
-                    "SELECT dedup_key, normalized_name, display_name,"
-                    "       paper_id, chunk_id, section_path, confidence "
-                    "FROM theorem_names"
-                )
+                count_sql = "SELECT COUNT(*) FROM theorem_names"
                 params: list[object] = []
                 if paper_id is not None:
-                    sql += " WHERE paper_id = ?"
+                    count_sql += " WHERE paper_id = ?"
                     params.append(paper_id)
-                candidates = list(conn.execute(sql, params))
+                reachable = int(conn.execute(count_sql, params).fetchone()[0])
+                capped = reachable > ceiling
+                if capped:
+                    candidates = _trigram_candidates(
+                        conn, normalized_query, paper_id, candidate_limit
+                    )
+                else:
+                    sql = (
+                        "SELECT dedup_key, normalized_name, display_name,"
+                        "       paper_id, chunk_id, section_path, confidence "
+                        "FROM theorem_names"
+                    )
+                    if paper_id is not None:
+                        sql += " WHERE paper_id = ?"
+                    candidates = list(conn.execute(sql, params))
                 scored: list[tuple[float, tuple]] = []
                 for row in candidates:
                     score = trigram_jaccard(
@@ -556,7 +594,8 @@ class TheoremNamesStore:
                     if score >= threshold:
                         scored.append((score, row))
                 scored.sort(key=lambda p: (-p[0], p[1][4]))  # -score, chunk_id
-                return [_row_from_sql(p[1]) for p in scored[:limit]]
+                rows = [_row_from_sql(p[1]) for p in scored[:limit]]
+                return FuzzyResult(rows, capped=capped)
 
             return await asyncio.to_thread(_read_sync)
 
@@ -572,6 +611,39 @@ class TheoremNamesStore:
                 )
 
             return await asyncio.to_thread(_count_sync)
+
+
+def _trigram_candidates(
+    conn: sqlite3.Connection,
+    normalized_query: str,
+    paper_id: str | None,
+    limit: int,
+) -> list[tuple]:
+    """Rows sharing at least one trigram with the query, best first.
+
+    Each trigram is phrase-quoted and the set OR-ed, so FTS5 returns
+    any row containing one of them; bm25 ranks rows that contain more
+    of them higher. A query shorter than three characters has no
+    trigram FTS5 can match and yields no candidates.
+    """
+    grams = sorted(trigrams(normalized_query))
+    if not grams or len(grams[0]) < 3:
+        return []
+    match = " OR ".join(fts5_phrase_quote(g) for g in grams)
+    sql = (
+        "SELECT t.dedup_key, t.normalized_name, t.display_name,"
+        "       t.paper_id, t.chunk_id, t.section_path, t.confidence "
+        "FROM theorem_names_fts JOIN theorem_names AS t"
+        "  ON t.rowid = theorem_names_fts.rowid "
+        "WHERE theorem_names_fts MATCH ?"
+    )
+    params: list[object] = [match]
+    if paper_id is not None:
+        sql += " AND t.paper_id = ?"
+        params.append(paper_id)
+    sql += " ORDER BY theorem_names_fts.rank LIMIT ?"
+    params.append(int(limit))
+    return list(conn.execute(sql, params))
 
 
 def _row_from_sql(row: tuple) -> TheoremRow:
@@ -596,7 +668,10 @@ def _row_from_sql(row: tuple) -> TheoremRow:
 
 __all__ = [
     "DEFAULT_JACCARD_THRESHOLD",
+    "JACCARD_CAPPED_CANDIDATES",
+    "JACCARD_ROW_CEILING",
     "SCHEMA_VERSION",
+    "FuzzyResult",
     "TheoremNamesSchemaStale",
     "TheoremNamesStore",
     "TheoremRow",

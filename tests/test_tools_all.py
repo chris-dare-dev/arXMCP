@@ -448,6 +448,7 @@ class TestToolsSmoke:
             "fts5_exact",
             "fts5_trigram",
             "fuzzy_jaccard",
+            "fts5_trigram_capped",
         )
         # The seeded corpus has theorem_name="Riemann-Roch" on chunk 0.
         assert len(sc["matches"]) >= 1

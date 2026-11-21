@@ -15,6 +15,9 @@ Three-step lookup against the SQLite-backed
    substrings of the indexed ``"riemannroch"``. The Jaccard step
    scores by trigram-set overlap which tolerates inner-character
    typos.
+   Past :data:`ingest.theorem_names_store.JACCARD_ROW_CEILING` rows
+   it scores only the FTS5 trigram candidates instead of every row
+   (``retrieval_mode="fts5_trigram_capped"``).
 
 The optional ``paper_id`` argument restricts the search to one paper
 on all three steps (SQL WHERE on steps 1 and 2; Python filter on
@@ -166,11 +169,12 @@ async def handle_find_lemma_by_name(
     # Step 3: Python-side trigram Jaccard (typo-tolerant). This is
     # what makes AC4 satisfiable — FTS5 alone fails the
     # "riemanroch" → "Riemann-Roch" case.
-    hits = await store.fuzzy_jaccard(normalized, paper_id, k)
+    fuzzy = await store.fuzzy_jaccard(normalized, paper_id, k)
+    mode = "fts5_trigram_capped" if fuzzy.capped else "fuzzy_jaccard"
     return envelope(_cap(
         {
-            "matches": [_row_to_match(h) for h in hits],
-            "retrieval_mode": "fuzzy_jaccard",
+            "matches": [_row_to_match(h) for h in fuzzy.rows],
+            "retrieval_mode": mode,
         }
     ))
 

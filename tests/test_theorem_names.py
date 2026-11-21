@@ -31,6 +31,7 @@ from typing import Any
 import pyarrow as pa
 import pytest
 
+import ingest.theorem_names_store as store_mod
 import server.handlers.lemma as lemma_handler_mod
 import server.tools as server_tools
 from ingest.index_theorem_names import (
@@ -365,7 +366,7 @@ class TestTheoremNamesStore:
             fts_hits = _run(store.fts5_match("riemanroch", None, 10))
             assert fts_hits == []
             # Jaccard succeeds:
-            jac_hits = _run(store.fuzzy_jaccard("riemanroch", None, 10))
+            jac_hits = _run(store.fuzzy_jaccard("riemanroch", None, 10)).rows
             assert len(jac_hits) == 1
             assert jac_hits[0].display_name == "Riemann-Roch"
         finally:
@@ -928,3 +929,117 @@ class TestServedProcessNeverRebuildsTheStore:
 
         assert result["retrieval_mode"] == "in_memory_scan_fallback"
         assert len(result["matches"]) == 1
+
+
+def _named_row(paper_id: str, name: str, n: int) -> TheoremRow:
+    return TheoremRow(
+        dedup_key=dedup_key(paper_id, name, "[]"),
+        paper_id=paper_id,
+        chunk_id=f"arxiv:{paper_id}:{n:016d}",
+        theorem_name=name,
+        display_name=name,
+        section_path=[],
+        confidence=1.0,
+    )
+
+
+class TestJaccardRowCeiling:
+    """Past the row ceiling the Jaccard fallback scores only FTS5
+    trigram candidates and says so; below it, it scores every row."""
+
+    _ROWS = (
+        _named_row("2401.00001", "Riemann-Roch", 1),
+        _named_row("2401.00002", "Riemann-Roch", 1),
+        _named_row("2401.00003", "Yoneda Lemma", 1),
+    )
+
+    def _store(self, tmp_path):
+        store = _run(TheoremNamesStore.open(tmp_path / "theorem_names.db"))
+        _run(store.upsert_rows(list(self._ROWS)))
+        return store
+
+    def test_below_ceiling_scores_every_row(self, tmp_path):
+        store = self._store(tmp_path)
+        try:
+            result = _run(store.fuzzy_jaccard("riemanroch", None, 10))
+        finally:
+            _run(store.close())
+        assert result.capped is False
+        assert [r.paper_id for r in result.rows] == ["2401.00001", "2401.00002"]
+
+    def test_above_ceiling_scores_trigram_candidates(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(store_mod, "JACCARD_ROW_CEILING", 2)
+        store = self._store(tmp_path)
+        try:
+            result = _run(store.fuzzy_jaccard("riemanroch", None, 10))
+        finally:
+            _run(store.close())
+        assert result.capped is True
+        assert [r.paper_id for r in result.rows] == ["2401.00001", "2401.00002"]
+
+    def test_capped_path_scores_at_most_the_candidate_limit(
+        self, tmp_path, monkeypatch
+    ):
+        monkeypatch.setattr(store_mod, "JACCARD_ROW_CEILING", 2)
+        monkeypatch.setattr(store_mod, "JACCARD_CAPPED_CANDIDATES", 1)
+        store = self._store(tmp_path)
+        try:
+            result = _run(store.fuzzy_jaccard("riemanroch", None, 10))
+        finally:
+            _run(store.close())
+        # Two rows qualify, but only one candidate was scored.
+        assert result.capped is True
+        assert len(result.rows) == 1
+        assert result.rows[0].display_name == "Riemann-Roch"
+
+    def test_capped_query_without_a_trigram_has_no_candidates(
+        self, tmp_path, monkeypatch
+    ):
+        monkeypatch.setattr(store_mod, "JACCARD_ROW_CEILING", 2)
+        store = self._store(tmp_path)
+        try:
+            result = _run(store.fuzzy_jaccard("rr", None, 10))
+        finally:
+            _run(store.close())
+        assert result == store_mod.FuzzyResult([], capped=True)
+
+    def test_paper_scope_counts_only_that_papers_rows(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(store_mod, "JACCARD_ROW_CEILING", 2)
+        store = self._store(tmp_path)
+        try:
+            result = _run(store.fuzzy_jaccard("riemanroch", "2401.00002", 10))
+        finally:
+            _run(store.close())
+        assert result.capped is False
+        assert [r.paper_id for r in result.rows] == ["2401.00002"]
+
+    def test_capped_path_applies_the_paper_filter(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(store_mod, "JACCARD_ROW_CEILING", 0)
+        store = self._store(tmp_path)
+        try:
+            result = _run(store.fuzzy_jaccard("riemanroch", "2401.00002", 10))
+        finally:
+            _run(store.close())
+        assert result.capped is True
+        assert [r.paper_id for r in result.rows] == ["2401.00002"]
+
+    @pytest.mark.parametrize(
+        ("ceiling", "mode"),
+        [(3, "fuzzy_jaccard"), (2, "fts5_trigram_capped")],
+    )
+    def test_handler_reports_the_mode(self, tmp_path, monkeypatch, ceiling, mode):
+        monkeypatch.setattr(store_mod, "JACCARD_ROW_CEILING", ceiling)
+        store = self._store(tmp_path)
+        _install_resources(None, theorem_names_db=store, tmp_path=tmp_path)
+        try:
+            result = _run(
+                lemma_handler_mod.handle_find_lemma_by_name(name="riemanroch")
+            )
+        finally:
+            server_tools._RESOURCES = None
+            _run(store.close())
+        assert result["retrieval_mode"] == mode
+        assert [m["paper_id"] for m in result["matches"]] == [
+            "2401.00001",
+            "2401.00002",
+        ]
