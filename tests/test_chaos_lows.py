@@ -181,14 +181,13 @@ def test_the_session_docstring_no_longer_overstates_a_bypass() -> None:
 # --------------------------------------------------------------------------
 # The console
 # --------------------------------------------------------------------------
-def test_the_displayed_path_is_shortened_but_not_hidden() -> None:
-    """#479. Shortening is not redaction: an operator needs the real path to
-    run `make reconcile` or find the files."""
-    assert "def _display_path(" in UI_PY
-    assert "display_path" in DETAIL
-    assert 'title="{{ notebook.lancedb_path }}"' in DETAIL, (
-        "the full value must stay reachable"
-    )
+def test_the_detail_page_never_renders_the_absolute_lancedb_path() -> None:
+    """Shortening the path to ``~`` still put the absolute value in a
+    ``title`` attribute; the detail page now renders it relative to the data
+    directory, matching the create fragment and the list endpoint."""
+    assert "notebook.lancedb_path" not in DETAIL
+    assert "lancedb_location" in DETAIL
+    assert "def _data_relative_path(" in UI_PY
 
 
 def test_the_empty_papers_table_has_no_header() -> None:

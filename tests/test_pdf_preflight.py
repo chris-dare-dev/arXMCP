@@ -10,6 +10,7 @@ Coverage matrix:
 - TestPdfDispatchByKind       — kind-aware dispatch + happy paths
 - TestNoForkPolicy            — AC #6 (pdfid.py is not a copy)
 - TestRejectionOrder          — fast-first dispatch order (FM-8 regression)
+- TestPdfDecompressionBomb    — Flate streams decoding past the budget → 415
 
 The fixture is shared with test_upload_handler.py — same minimal FastAPI
 app with notebooks + ui routers + tmp_path NotebooksStore.
@@ -17,6 +18,8 @@ app with notebooks + ui routers + tmp_path NotebooksStore.
 
 from __future__ import annotations
 
+import gzip
+import zlib
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -29,7 +32,10 @@ from server.notebooks_store import NotebooksStore
 from server.routes import notebooks as notebooks_module
 from server.routes.notebooks import (
     _ARXIV_UPLOAD_MAX_BYTES,
+    _PDF_INFLATE_STEP,
     _PDF_MAX_PAGE_COUNT,
+    _pdf_inflate_budget,
+    _pdf_inflated_bytes,
 )
 from server.routes.notebooks import (
     router as notebooks_router,
@@ -938,3 +944,104 @@ class TestPageCountRegexLimitations:
             files={"file": ("ok.pdf", body, "application/pdf")},
         )
         assert r.status_code == 201, r.text
+
+
+# ---------------------------------------------------------------------------
+# Decompression-bomb guard
+# ---------------------------------------------------------------------------
+
+
+def _zeros_deflated(mib: int, *, wbits: int = zlib.MAX_WBITS) -> bytes:
+    """Compress ``mib`` MiB of zeros without ever holding them all."""
+    comp = zlib.compressobj(9, zlib.DEFLATED, wbits)
+    block = bytes(1024 * 1024)
+    return b"".join(comp.compress(block) for _ in range(mib)) + comp.flush()
+
+
+def _pdf_with_stream(data: bytes, *, padding: int = 0) -> bytes:
+    return _minimal_pdf(
+        extras=(
+            b"4 0 obj\n<< /Length " + str(len(data)).encode("ascii")
+            + b" /Filter /FlateDecode >>\nstream\n" + data
+            + b"\nendstream\nendobj\n" + b"%" * padding + b"\n"
+        )
+    )
+
+
+class TestPdfDecompressionBomb:
+    """A Flate stream that decodes far past the budget is rejected, and the
+    guard stops inflating at the cap instead of decoding the whole bomb."""
+
+    def test_flate_bomb_upload_rejected(self, client: TestClient) -> None:
+        _create_textbook_notebook(client)
+        body = _pdf_with_stream(_zeros_deflated(64))
+        assert len(body) < 128 * 1024
+        r = client.post(
+            "/ui/api/notebooks/tb-nb/papers/upload",
+            data={"paper_id": "textbook:my-book"},
+            files={"file": ("bomb.pdf", body, "application/pdf")},
+        )
+        assert r.status_code == 415, r.text
+        assert "decompression bomb" in r.json()["detail"]
+
+    def test_guard_stops_at_the_budget(self) -> None:
+        body = _pdf_with_stream(_zeros_deflated(256))
+        budget = _pdf_inflate_budget(len(body))
+        inflated = _pdf_inflated_bytes(body, budget)
+        assert budget < inflated <= budget + _PDF_INFLATE_STEP
+        assert inflated < 256 * 1024 * 1024
+
+    def test_nested_flate_layers_are_followed(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        # The outer layer alone decodes to ~260 KB, well inside a budget
+        # raised by padding; only the inner layer is the bomb.
+        double = zlib.compress(_zeros_deflated(256), 9)
+        body = _pdf_with_stream(double, padding=64 * 1024)
+        budget = _pdf_inflate_budget(len(body))
+        assert _pdf_inflated_bytes(body, budget) > budget
+        monkeypatch.setattr(notebooks_module, "_PDF_MAX_FLATE_LAYERS", 1)
+        assert _pdf_inflated_bytes(body, budget) <= budget
+
+    def test_headerless_deflate_bomb_rejected(self) -> None:
+        body = _pdf_with_stream(_zeros_deflated(64, wbits=-zlib.MAX_WBITS))
+        budget = _pdf_inflate_budget(len(body))
+        assert _pdf_inflated_bytes(body, budget) > budget
+
+    def test_ordinary_flate_content_stream_accepted(
+        self, client: TestClient,
+    ) -> None:
+        _create_textbook_notebook(client)
+        content = b"BT /F1 12 Tf 72 712 Td (A theorem.) Tj ET\n" * 200
+        body = _pdf_with_stream(zlib.compress(content))
+        assert _pdf_inflated_bytes(body, 10**9) == len(content)
+        r = client.post(
+            "/ui/api/notebooks/tb-nb/papers/upload",
+            data={"paper_id": "textbook:my-book"},
+            files={"file": ("ok.pdf", body, "application/pdf")},
+        )
+        assert r.status_code == 201, r.text
+
+    def test_non_flate_streams_count_nothing(self) -> None:
+        body = _pdf_with_stream(b"\xff\xd8\xff\xe0" + bytes(range(256)) * 4)
+        assert _pdf_inflated_bytes(body, 10**9) == 0
+
+    def test_gzip_bomb_to_arxiv_notebook_refused_at_the_sniff(
+        self, client: TestClient, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """HTML uploads are never decompressed: a gzip payload fails the
+        ``<``-prefix sniff before any byte of it is inflated."""
+        _create_arxiv_notebook(client)
+
+        def _no_inflate(*_args: object, **_kwargs: object) -> None:
+            raise AssertionError("HTML upload path must not inflate")
+
+        monkeypatch.setattr(zlib, "decompressobj", _no_inflate)
+        monkeypatch.setattr(gzip, "decompress", _no_inflate)
+        bomb = gzip.compress(bytes(32 * 1024 * 1024), 9)
+        r = client.post(
+            "/ui/api/notebooks/demo-nb/papers/upload",
+            data={"paper_id": "2401.00001"},
+            files={"file": ("p.html.gz", bomb, "text/html")},
+        )
+        assert r.status_code == 422, r.text

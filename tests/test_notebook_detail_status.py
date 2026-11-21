@@ -226,3 +226,46 @@ class TestFreshnessSignal:
         assert r.status_code == 200
         assert "2026-05-28T03:20:00Z" in r.text  # started_at fallback
         assert "Never indexed" not in r.text
+
+
+class TestLanceDbPathSuppression:
+    """The absolute ``lancedb_path`` is a host path (OS username, source-tree
+    layout). The create fragment drops it; the detail page must too, in its
+    text and in every attribute."""
+
+    def test_create_fragment_and_detail_page_both_omit_the_host_path(
+        self, detail_client
+    ):
+        client, db_path = detail_client
+        data_dir = str(db_path.parent)
+        r = client.post(
+            "/ui/api/notebooks",
+            json={"slug": "leak-nb", "display_name": "leak-nb"},
+            headers={"HX-Request": "true"},
+        )
+        assert r.status_code == 201, r.text
+        assert data_dir not in r.text
+
+        r = client.get("/ui/notebooks/leak-nb")
+        assert r.status_code == 200
+        assert data_dir not in r.text
+        assert "<code>notebooks/leak-nb/lancedb</code>" in r.text
+
+    def test_a_path_outside_the_data_directory_is_not_rendered(
+        self, detail_client
+    ):
+        client, db_path = detail_client
+        _create_notebook(client, "moved-nb")
+        conn = sqlite3.connect(str(db_path))
+        try:
+            conn.execute(
+                "UPDATE notebooks SET lancedb_path = ? WHERE slug = ?",
+                ("/srv/elsewhere/operator-home/lancedb", "moved-nb"),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+        r = client.get("/ui/notebooks/moved-nb")
+        assert r.status_code == 200
+        assert "/srv/elsewhere" not in r.text
+        assert "outside the data directory" in r.text

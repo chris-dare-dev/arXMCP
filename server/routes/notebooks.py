@@ -38,12 +38,14 @@ import contextlib
 import datetime as _dt
 import html
 import io
+import itertools
 import json
 import logging
 import os
 import re
 import sqlite3
 import tarfile
+import zlib
 from collections.abc import Iterator
 from dataclasses import replace
 from pathlib import Path
@@ -1697,6 +1699,135 @@ _POLYGLOT_TAIL_MARKERS: tuple[bytes, ...] = (
 #:    ``/Counter 100``, ``/Count_100``, ``/Count100`` etc.
 _PDF_COUNT_RE = re.compile(rb"/Count\s+(\d+)")
 
+#: Decompression-bomb caps for the Flate streams inside an uploaded PDF.
+#: The parser inflates every stream it renders, so a few kilobytes of
+#: compressed zeros become gigabytes in the parse sandbox. The preflight
+#: inflates each stream incrementally, counting output, and refuses the
+#: upload as soon as the running total passes the budget — it never holds
+#: the decoded bytes, and never decodes past the cap.
+#:
+#: The budget is ``min(_PDF_MAX_INFLATED_BYTES, _PDF_MAX_INFLATE_RATIO *
+#: len(upload))``. The ratio is measured over the whole file, not per
+#: stream: a single all-white image mask legitimately compresses ~1000:1,
+#: but a real document's streams together decode to a small multiple of
+#: the file size.
+_PDF_MAX_INFLATED_BYTES: int = 1024 * 1024 * 1024  # 1 GiB
+_PDF_MAX_INFLATE_RATIO: int = 100
+
+#: Output (and input) step for the incremental inflate. Bounds the memory
+#: the guard itself can allocate per call.
+_PDF_INFLATE_STEP: int = 1024 * 1024
+
+#: Filter chains like ``[/FlateDecode /FlateDecode]`` are legal, and the
+#: parser decodes every layer. Follow nested zlib output this deep.
+_PDF_MAX_FLATE_LAYERS: int = 4
+
+#: A stream's data starts after the ``stream`` keyword and its EOL
+#: (ISO 32000-1 §7.3.8.1). The lookbehind keeps ``endstream`` out.
+_PDF_STREAM_START_RE = re.compile(rb"(?<!end)stream(?:\r\n|\n|\r)")
+
+
+class _InflateBudgetExceeded(Exception):
+    """The PDF's decoded Flate output passed the preflight budget."""
+
+
+def _looks_like_zlib(head: bytes) -> bool:
+    """True if ``head`` starts with a valid zlib (RFC 1950) header."""
+    return (
+        len(head) >= 2
+        and head[0] & 0x0F == 8
+        and ((head[0] << 8) | head[1]) % 31 == 0
+    )
+
+
+def _inflate_chunks(chunks: Iterator[bytes]) -> Iterator[bytes]:
+    """Yield the inflated output of ``chunks`` at most one step at a time.
+
+    zlib-wrapped data is decoded as zlib; anything else is tried as raw
+    deflate, since lenient readers accept a FlateDecode stream with its
+    header stripped. Data that is not deflate at all fails within a few
+    bytes and yields nothing — this counts output, it does not validate.
+    """
+    decoder: zlib._Decompress | None = None
+    try:
+        for chunk in chunks:
+            if decoder is None:
+                decoder = zlib.decompressobj(
+                    zlib.MAX_WBITS if _looks_like_zlib(chunk[:2]) else -zlib.MAX_WBITS
+                )
+            pending = chunk
+            while pending and not decoder.eof:
+                out = decoder.decompress(pending, _PDF_INFLATE_STEP)
+                pending = decoder.unconsumed_tail
+                if out:
+                    yield out
+            if decoder.eof:
+                return
+        while decoder is not None and not decoder.eof:
+            out = decoder.decompress(b"", _PDF_INFLATE_STEP)
+            if not out:
+                return
+            yield out
+    except zlib.error:
+        return
+
+
+def _count_inflated(chunks: Iterator[bytes], total: list[int], budget: int, depth: int) -> None:
+    """Consume ``chunks``' inflated output, adding its size to ``total[0]``.
+
+    Raises :class:`_InflateBudgetExceeded` the moment the running total
+    passes ``budget``. Output that itself starts with a zlib header is
+    followed one layer deeper, up to :data:`_PDF_MAX_FLATE_LAYERS`.
+    """
+    layer = _inflate_chunks(chunks)
+    first = next(layer, None)
+    if first is None:
+        return
+    layer = itertools.chain([first], layer)
+
+    def counted() -> Iterator[bytes]:
+        for out in layer:
+            total[0] += len(out)
+            if total[0] > budget:
+                raise _InflateBudgetExceeded
+            yield out
+
+    if depth + 1 < _PDF_MAX_FLATE_LAYERS and _looks_like_zlib(first[:2]):
+        _count_inflated(counted(), total, budget, depth + 1)
+    for _ in counted():
+        pass
+
+
+def _pdf_inflated_bytes(pdf_bytes: bytes, budget: int) -> int:
+    """Return the total decoded size of every Flate stream in ``pdf_bytes``.
+
+    Stops early, returning a value above ``budget``, as soon as the
+    running total passes it. Stream data is bounded by the next
+    ``endstream`` keyword (or the end of the file), so a stream that
+    never terminates cannot make the scan quadratic.
+    """
+    view = memoryview(pdf_bytes)
+    total = [0]
+    for match in _PDF_STREAM_START_RE.finditer(pdf_bytes):
+        start = match.end()
+        end = pdf_bytes.find(b"endstream", start)
+        if end < 0:
+            end = len(pdf_bytes)
+        chunks = (
+            bytes(view[i : min(i + _PDF_INFLATE_STEP, end)])
+            for i in range(start, end, _PDF_INFLATE_STEP)
+        )
+        try:
+            _count_inflated(chunks, total, budget, 0)
+        except _InflateBudgetExceeded:
+            return total[0]
+    return total[0]
+
+
+def _pdf_inflate_budget(upload_size: int) -> int:
+    """The decoded-bytes budget for an upload of ``upload_size`` bytes."""
+    return min(_PDF_MAX_INFLATED_BYTES, _PDF_MAX_INFLATE_RATIO * upload_size)
+
 
 def _is_pdf_bytes(head: bytes) -> bool:
     """Return True if ``head`` looks like a PDF document.
@@ -1762,7 +1893,7 @@ def _pdf_declared_page_count(pdf_bytes: bytes) -> int:
 
 
 def _run_pdf_preflight(content: bytes) -> None:
-    """Run all 5 PDF rejection vectors on ``content``.
+    """Run the PDF rejection vectors on ``content``.
 
     Order is fast-first:
 
@@ -1772,6 +1903,8 @@ def _run_pdf_preflight(content: bytes) -> None:
        :func:`ingest.security.pdfid.find_javascript`.
     4. Page-count probe (full-body regex) —
        :func:`_pdf_declared_page_count`.
+    5. Decompression-bomb budget (incremental inflate of every stream,
+       stopping at the cap) — :func:`_pdf_inflated_bytes`.
 
     The size cap is enforced by the caller BEFORE this preflight (the
     middleware envelope + the per-notebook-kind handler check).
@@ -1812,6 +1945,18 @@ def _run_pdf_preflight(content: bytes) -> None:
                 f"PDF declares {declared_pages} pages — exceeds "
                 f"the {_PDF_MAX_PAGE_COUNT}-page cap per the "
                 f"textbook-ingest pre-flight gate"
+            ),
+        )
+    budget = _pdf_inflate_budget(len(content))
+    if _pdf_inflated_bytes(content, budget) > budget:
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail=(
+                f"PDF compressed streams decode to more than {budget} "
+                f"bytes (cap: {_PDF_MAX_INFLATE_RATIO}x the "
+                f"{len(content)}-byte upload, at most "
+                f"{_PDF_MAX_INFLATED_BYTES} bytes) — rejected as a "
+                f"decompression bomb before full decompression"
             ),
         )
 
