@@ -124,6 +124,10 @@ class PaperOutcome:
     chunks_written: int = 0
     elapsed_seconds: float = 0.0
     failure_reason: str | None = None
+    #: Whether re-running the paper later may succeed without any other
+    #: change (for example ar5iv answered 429 or 503). Only meaningful
+    #: when ``failure_reason`` is set.
+    retriable: bool = False
 
 
 @dataclass
@@ -159,6 +163,7 @@ def _log_parser_failure(
         "paper_id": outcome.paper_id,
         "parsers_tried": outcome.parsers_tried,
         "failure_reason": outcome.failure_reason,
+        "retriable": outcome.retriable,
         "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     }
     with failures_path.open("a", encoding="utf-8") as fh:
@@ -322,6 +327,7 @@ def ingest_one_paper(
 
     try:
         # Step 1: ar5iv.
+        ar5iv_result: Ar5ivResult | None = None
         if not skip_ar5iv:
             outcome.parsers_tried.append("ar5iv")
             ar5iv_result = _parse_via_ar5iv(
@@ -338,8 +344,15 @@ def ingest_one_paper(
             outcome.parsers_tried.append("latexml")
             if _has_local_parsed_html(paper_id, parsed_dir):
                 outcome.parser_used = "latexml"
-            else:
+            elif ar5iv_result is None:
                 outcome.failure_reason = "no_parsed_html"
+                return outcome
+            else:
+                # Keep the ar5iv reason so the failures log separates a
+                # paper ar5iv has no render for from a rate limit or an
+                # outage that a later run would get past.
+                outcome.failure_reason = f"no_parsed_html:ar5iv_{ar5iv_result.reason}"
+                outcome.retriable = ar5iv_result.retriable
                 return outcome
         # Step 3: chunk + embed + store.
         chunks = chunk_paper(paper_id, parsed_dir=parsed_dir)

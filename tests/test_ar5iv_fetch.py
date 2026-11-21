@@ -8,6 +8,7 @@ suite runs offline.
 
 from __future__ import annotations
 
+import email.message
 import io
 import urllib.error
 from unittest.mock import patch
@@ -15,6 +16,9 @@ from unittest.mock import patch
 import pytest
 
 from ingest.ar5iv_fetch import (
+    AR5IV_MAX_ATTEMPTS,
+    AR5IV_MAX_RETRY_WAIT_SECONDS,
+    AR5IV_RETRY_BACKOFF_SECONDS,
     Ar5ivResult,
     try_cache,
 )
@@ -402,3 +406,109 @@ class TestOldStyleId:
         # (or outside) cache_dir / parsed_dir.
         assert not cache_dir.exists()
         assert not parsed_dir.exists()
+
+
+def _http_error(code: int, retry_after: str | None = None) -> urllib.error.HTTPError:
+    headers = email.message.Message()
+    if retry_after is not None:
+        headers["Retry-After"] = retry_after
+    return urllib.error.HTTPError(
+        url="x", code=code, msg="refused", hdrs=headers, fp=io.BytesIO(b"")
+    )
+
+
+class TestRetries:
+    """429 and 503 are retried with a bounded backoff that honours
+    ``Retry-After``; every miss says whether it is worth retrying later."""
+
+    def _fetch(self, tmp_path, side_effect, **kwargs):
+        sleeps: list[float] = []
+        with (
+            patch(
+                "ingest.ar5iv_fetch.urllib.request.urlopen", side_effect=side_effect
+            ) as urlopen,
+            patch("ingest.ar5iv_fetch.time.sleep", side_effect=sleeps.append),
+        ):
+            result = try_cache(
+                "2401.00001",
+                cache_dir=tmp_path / "cache",
+                parsed_dir=tmp_path / "parsed",
+                **kwargs,
+            )
+        return result, urlopen.call_count, sleeps
+
+    @pytest.mark.parametrize("code", [429, 503])
+    def test_a_refusal_followed_by_success_is_a_hit(self, tmp_path, code):
+        result, calls, sleeps = self._fetch(
+            tmp_path, [_http_error(code), _ok_response()]
+        )
+        assert result.hit is True
+        assert result.reason == "ok"
+        assert calls == 2
+        assert sleeps == [AR5IV_RETRY_BACKOFF_SECONDS]
+        assert (tmp_path / "parsed" / "2401.00001" / "index.html").is_file()
+
+    def test_retry_after_longer_than_the_backoff_is_honoured(self, tmp_path):
+        _result, _calls, sleeps = self._fetch(
+            tmp_path, [_http_error(429, retry_after="7"), _ok_response()]
+        )
+        assert sleeps == [7.0]
+
+    def test_backoff_doubles_and_attempts_are_bounded(self, tmp_path):
+        result, calls, sleeps = self._fetch(
+            tmp_path, [_http_error(503)] * 10
+        )
+        assert calls == AR5IV_MAX_ATTEMPTS
+        assert sleeps == [
+            AR5IV_RETRY_BACKOFF_SECONDS * 2 ** i
+            for i in range(AR5IV_MAX_ATTEMPTS - 1)
+        ]
+        assert result.hit is False
+        assert result.reason == "http_503"
+        assert result.retriable is True
+
+    def test_retry_after_beyond_the_cap_stops_without_sleeping(self, tmp_path):
+        too_long = str(int(AR5IV_MAX_RETRY_WAIT_SECONDS) + 1)
+        result, calls, sleeps = self._fetch(
+            tmp_path, [_http_error(429, retry_after=too_long), _ok_response()]
+        )
+        assert calls == 1
+        assert sleeps == []
+        assert result.reason == "http_429"
+        assert result.retriable is True
+
+    def test_max_attempts_one_disables_retries(self, tmp_path):
+        result, calls, sleeps = self._fetch(
+            tmp_path, [_http_error(503), _ok_response()], max_attempts=1
+        )
+        assert (calls, sleeps, result.hit) == (1, [], False)
+
+    def test_404_is_permanent_and_not_retried(self, tmp_path):
+        result, calls, sleeps = self._fetch(tmp_path, [_http_error(404)])
+        assert (calls, sleeps) == (1, [])
+        assert result.reason == "http_404"
+        assert result.retriable is False
+
+    def test_other_server_errors_are_retriable_but_not_retried(self, tmp_path):
+        result, calls, _sleeps = self._fetch(tmp_path, [_http_error(502)])
+        assert calls == 1
+        assert result.reason == "http_502"
+        assert result.retriable is True
+
+    def test_network_failure_is_retriable(self, tmp_path):
+        result, calls, _sleeps = self._fetch(tmp_path, TimeoutError("timed out"))
+        assert calls == 1
+        assert result.reason == "timeout_or_network"
+        assert result.retriable is True
+
+    def test_a_render_without_math_is_permanent(self, tmp_path):
+        result, _calls, _sleeps = self._fetch(
+            tmp_path, [_FakeResponse(200, b"<html>could not be processed</html>")]
+        )
+        assert result.reason == "no_math_in_body"
+        assert result.retriable is False
+
+    def test_a_hit_is_not_retriable(self, tmp_path):
+        result, _calls, _sleeps = self._fetch(tmp_path, [_ok_response()])
+        assert result.hit is True
+        assert result.retriable is False
