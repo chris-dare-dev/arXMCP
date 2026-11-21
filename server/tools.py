@@ -514,11 +514,24 @@ def set_resources(r: Resources) -> None:
     """Register the live Resources singleton for handler access.
 
     Called from :func:`server.main.lifespan` after
-    :meth:`Resources.startup` returns. Handlers read the singleton
-    via :func:`get_resources`.
+    :meth:`Resources.startup` returns, and paired with
+    :func:`clear_resources` on the way down. Handlers read the
+    singleton via :func:`get_resources`.
     """
     global _RESOURCES
     _RESOURCES = r
+
+
+def clear_resources() -> None:
+    """Withdraw the Resources singleton before it is drained.
+
+    The lifespan calls this first on shutdown, so a tool call that
+    arrives while the stores and executor close gets
+    :class:`ResourcesNotReadyError` instead of a half-closed
+    Resources.
+    """
+    global _RESOURCES
+    _RESOURCES = None
 
 
 def get_resources() -> Resources:
@@ -526,7 +539,8 @@ def get_resources() -> Resources:
 
     Handlers call this on every invocation. In production the
     singleton is set by the lifespan BEFORE the MCP session manager
-    opens, so this never raises in steady state.
+    opens and cleared when shutdown begins, so this raises only
+    outside the serving window.
     """
     if _RESOURCES is None:
         raise ResourcesNotReadyError(
@@ -540,8 +554,7 @@ def get_resources() -> Resources:
 def reset_resources_for_tests() -> None:
     """Test hook — clear the singleton so a fresh test_app can attach
     its own Resources without leaking state from a prior test."""
-    global _RESOURCES
-    _RESOURCES = None
+    clear_resources()
 
 
 # ---------------------------------------------------------------------------
@@ -1386,6 +1399,7 @@ __all__ = [
     "ToolMeta",
     "cap_result_list",
     "cap_units",
+    "clear_resources",
     "enforce_byte_cap",
     "envelope",
     "get_resources",

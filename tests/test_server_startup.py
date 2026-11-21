@@ -312,6 +312,23 @@ class TestReadinessTransition:
         }
 
 
+class TestToolResourcesLifetime:
+    def test_tool_handlers_are_refused_once_shutdown_begins(
+        self, seeded_lancedb, mocked_bge_m3
+    ):
+        """Tool handlers see the live Resources while the app serves,
+        and a not-ready error after the lifespan has shut down, never
+        the drained object."""
+        from server.tools import ResourcesNotReadyError, get_resources
+
+        app = create_app(Config(lancedb_path=seeded_lancedb))
+        with TestClient(app):
+            assert get_resources() is app.state.resources
+
+        with pytest.raises(ResourcesNotReadyError):
+            get_resources()
+
+
 # ===========================================================================
 # AC: ARXMCP_BIND_HOST=0.0.0.0 rejected at config parse time
 # ===========================================================================

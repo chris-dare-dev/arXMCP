@@ -537,7 +537,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # E06_S03: tool handlers reach the live Resources via a
     # module-level reference set here. Synthesis D8 — handlers
     # raise ResourcesNotReadyError if invoked before this fires.
-    from server.tools import set_resources
+    from server.tools import clear_resources, set_resources
 
     set_resources(resources)
 
@@ -641,6 +641,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         else:
             yield
     finally:
+        # Withdraw the tool handlers' Resources before anything drains,
+        # so a late tool call is refused as not-ready rather than run
+        # against closing stores.
+        clear_resources()
         # Issue #208: stop the filesystem-metrics refresher first. It only
         # touches Prometheus gauges and the ops/ sentinel, so nothing below
         # depends on it — cancelling early keeps it from racing the stores
