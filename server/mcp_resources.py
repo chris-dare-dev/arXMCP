@@ -46,6 +46,11 @@ import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from ingest.notebooks import (
+    NotebookError,
+    notebook_dir,
+    validate_slug,
+)
 from server import corpus_manifest
 from server.handlers.chunk import read_chunk_in_full
 from server.tools import (
@@ -53,11 +58,6 @@ from server.tools import (
     ResourcesNotReadyError,
     get_resources,
     wrap_retrieved_text,
-)
-from tools._notebook_common import (
-    NotebookError,
-    notebook_dir,
-    validate_slug,
 )
 
 if TYPE_CHECKING:

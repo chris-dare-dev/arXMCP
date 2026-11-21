@@ -19,7 +19,7 @@
 #      (uses ~300-1500 GB depending on which torrent).
 #   3. Extract per-paper .tar.gz tarballs into
 #      var/arxmcp/corpus/raw/<paper_id>/.
-#   4. Run `tools/arxiv_fetch.py` (or future per-paper LaTeXML
+#   4. Run `ingest/arxiv_fetch.py` (or future per-paper LaTeXML
 #      driver) to produce parsed HTML under
 #      var/arxmcp/corpus/parsed/<paper_id>/index.html.
 #   5. `make ingest ARGS="--paper-ids-file=<list>.txt"` to chunk +

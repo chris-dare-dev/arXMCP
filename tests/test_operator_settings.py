@@ -55,7 +55,7 @@ class TestSyncRoundTrip:
         """A CLI may call ``get_setting`` before any ``make init`` has
         ever populated the store; an absent file must NOT be a
         ``FileNotFoundError`` (would crash the priority-chain in
-        ``tools/_notebook_common.py::resolve_contact_email``)."""
+        ``ingest/notebooks.py::resolve_contact_email``)."""
         db = tmp_path / "absent.db"
         assert get_setting("contact_email", db_path=db) is None
         # And the call DID NOT create the file as a side effect.

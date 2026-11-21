@@ -10,9 +10,9 @@ from pathlib import Path
 import numpy as np
 
 from ingest.application_paths import ApplicationPaths
+from ingest.arxiv_fetch import find_main_tex
 from ingest.chunk import EMBED_INPUT_POLICY_VERSION, stored_vector
 from ingest.embedder import EMBEDDER_VERSION
-from tools.arxiv_fetch import find_main_tex
 
 REQUIRED_FORMAL = {
     "1607.08199", "1711.08504", "2411.18554", "math/0210114",

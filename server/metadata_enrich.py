@@ -16,9 +16,9 @@ from __future__ import annotations
 
 from typing import Any
 
+from ingest.arxiv_api import strip_id_version
 from server.observability.sanitize import sanitize_retrieved_text
 from server.tools import wrap_retrieved_text
-from tools._arxiv_api import strip_id_version
 
 
 def _normalize_paper_id(paper_id: Any) -> str | None:

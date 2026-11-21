@@ -289,7 +289,7 @@ dl.meta dd, dl.meta dd code, .topic-description { overflow-wrap: anywhere; }
    edit — AC#2 is both halves, and a second tabular declaration would fork
    the scope rather than inherit it. */
 .discover-meta { margin: 0.25rem 0 0 0; font-family: var(--mono); font-size: var(--text-small); color: var(--fg-muted); }
-/* abstract_head (tools/_arxiv_api.py:210) is `" ".join(summary.split())` —
+/* abstract_head (ingest/arxiv_api.py:210) is `" ".join(summary.split())` —
    whitespace normalisation, no truncation: despite the name it carries the
    FULL abstract, 800-1500 chars. max-height + overflow, NOT line-clamp,
    which is Baseline Limited (refused on the basis m6 refused light-dark()

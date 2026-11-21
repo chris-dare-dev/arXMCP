@@ -60,12 +60,12 @@ fi
 # ingest-paused sentinel is present. Failure mode 7 (Disk full)
 # writes this sentinel via the server's scrape-time hook;
 # operators can also write it manually
-# (`python -m tools.ingest_sentinel write --reason=maintenance`).
+# (`python -m ingest.sentinel write --reason=maintenance`).
 # The cron skips the run and exits 0 so cron-mailer doesn't spam
 # the operator with errors during a known pause.
 #
 # F2 (E14_S05 adversary): resolve the sentinel path with the SAME
-# precedence as ``tools.ingest_sentinel._resolve_sentinel_path``
+# precedence as ``ingest.sentinel._resolve_sentinel_path``
 # — ``ARXMCP_DATA_DIR`` env var wins, fallback to the repo-root
 # default. Previously the cron hardcoded ``${REPO_ROOT}/var/arxmcp``
 # while the server's refresh hook used ``config.data_dir``
@@ -88,7 +88,7 @@ print(json.load(open(sys.argv[1])).get("reason", "unknown"))' \
         REASON="unknown_python3_missing"
     fi
     echo "INFO: ingest paused (reason=${REASON}); skipping delta " \
-         "run. Clear with: python -m tools.ingest_sentinel clear" >&2
+         "run. Clear with: python -m ingest.sentinel clear" >&2
     exit 0
 fi
 

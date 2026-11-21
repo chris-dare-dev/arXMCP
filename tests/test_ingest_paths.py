@@ -12,8 +12,9 @@ from pathlib import Path
 import pytest
 
 import ingest.bulk_ingest as bulk
+from ingest import notebooks as _notebook_common
 from ingest.bulk_ingest import PaperOutcome
-from tools import _notebook_common, notebook_ingest
+from tools import notebook_ingest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -24,12 +25,27 @@ import ingest
 
 found = {}
 for info in pkgutil.iter_modules(ingest.__path__):
+    # The resolver's own globals (the startup directory) are its inputs.
+    if info.name == "application_paths":
+        continue
     module = importlib.import_module(f"ingest.{info.name}")
     for name, value in vars(module).items():
         if isinstance(value, Path) and not name.startswith("__"):
             found[f"{info.name}.{name}"] = str(value)
 print(json.dumps(found))
 """
+
+
+def _is_source_file(path: Path) -> bool:
+    """A path that names code in the checkout (its root, the LaTeXML
+    sandbox profile) rather than data, which lives under ``var/``."""
+    resolved = path.resolve()
+    source = REPO_ROOT.resolve()
+    return (
+        resolved.exists()
+        and resolved.is_relative_to(source)
+        and not resolved.is_relative_to(source / "var")
+    )
 
 
 def test_every_ingest_data_path_follows_the_data_dir(tmp_path):
@@ -57,6 +73,7 @@ def test_every_ingest_data_path_follows_the_data_dir(tmp_path):
     outside = {
         key: value for key, value in paths.items()
         if not Path(value).resolve().is_relative_to(root.resolve())
+        and not _is_source_file(Path(value))
     }
     assert outside == {}
 

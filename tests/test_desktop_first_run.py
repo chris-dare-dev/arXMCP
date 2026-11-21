@@ -513,7 +513,7 @@ def test_the_spawners_keep_their_own_containment() -> None:
     the supervisor's group sweep sufficient and break that containment — a
     tempting shortcut that must stay closed.
     """
-    for rel in ("tools/arxiv_fetch.py", "ingest/textbook_parser.py", "tools/cdm_eval.py"):
+    for rel in ("ingest/arxiv_fetch.py", "ingest/textbook_parser.py", "tools/cdm_eval.py"):
         source = (REPO_ROOT / rel).read_text(encoding="utf-8")
         assert "start_new_session=True" in source, (
             f"{rel} must keep its session containment; the supervisor now "

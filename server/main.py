@@ -83,6 +83,7 @@ if TYPE_CHECKING:
 from fastapi import FastAPI
 from prometheus_client import make_asgi_app
 
+from ingest.arxiv_fetch import LATEXML_TIMEOUT_ENV
 from ingest.textbook_parser import MINERU_BIN_ENV, MINERU_TIMEOUT_ENV
 from server import session
 from server.config import Config
@@ -95,7 +96,6 @@ from server.health import (
 from server.model_loader import TRUST_REMOTE_CODE_ENV
 from server.observability.sanitize import SANITIZE_ENV_VAR
 from server.resources import Resources
-from tools.arxiv_fetch import LATEXML_TIMEOUT_ENV
 
 logger = logging.getLogger(__name__)
 
@@ -314,13 +314,13 @@ _KNOWN_INGEST_ENV_VARS: dict[str, str] = {
     # quick-start runs at line 51, which is the most likely path a
     # user follows before hitting this error. Now lists every direct
     # ``os.environ.get("ARXMCP_CONTACT_EMAIL")`` reader: the
-    # ``tools/arxiv_fetch.py`` shared library (consumed transitively
+    # ``ingest/arxiv_fetch.py`` shared library (consumed transitively
     # by ``tools/fetch_seed.py``, ``tools/fetch_one_paper.py``,
     # ``tools/curate_seed.py``) + the two notebook-stage tools that
     # call it directly + the two ingest CLIs.
     "ARXMCP_CONTACT_EMAIL": (
         "is NOT a server config var; it is read by the arXiv-facing "
-        "CLI tools (tools/arxiv_fetch.py library + "
+        "CLI tools (ingest/arxiv_fetch.py library + "
         "tools/fetch_seed.py, tools/notebook_fetch.py, "
         "tools/recover_preambles.py; ingest/inspire_ingest.py and "
         "ingest/graph_ingest.py) for the arXiv polite-pool User-Agent. "

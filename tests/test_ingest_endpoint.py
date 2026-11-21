@@ -28,6 +28,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from ingest import notebooks as _notebook_common
 from server.ingest_tracker import (
     STDERR_TAIL_MAX_BYTES,
     IngestTaskTracker,
@@ -37,7 +38,6 @@ from server.ingest_tracker import (
 from server.notebooks_store import NotebooksStore
 from server.routes import notebooks as notebooks_module
 from server.routes.notebooks import router as notebooks_router
-from tools import _notebook_common
 
 
 @pytest.fixture

@@ -124,23 +124,23 @@ from ingest.chunker import (
     _extract_section_chunks,
     _resolve_preamble_doc,
 )
-from ingest.tokenizer import tokenize_body
-from server.documents_store import (
-    DOCUMENTS_DB_FILENAME,
-    DocumentRecord,
-    DocumentsStore,
-)
-from tools._notebook_common import (
+from ingest.notebooks import (
     CORPUS_PARSED_DIR,
     NotebookError,
     notebook_dir,
     notebook_lancedb_path,
     validate_slug,
 )
-from tools.oai_license import (
+from ingest.oai_license import (
     LICENSE_STATUS_ELIGIBLE,
     LICENSE_STATUS_NOT_ALLOWLISTED_OPEN,
     LICENSE_STATUS_UNKNOWN,
+)
+from ingest.tokenizer import tokenize_body
+from server.documents_store import (
+    DOCUMENTS_DB_FILENAME,
+    DocumentRecord,
+    DocumentsStore,
 )
 
 logger = logging.getLogger("notebook_chunks_backfill")

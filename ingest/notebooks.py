@@ -22,11 +22,10 @@ import urllib.error
 from pathlib import Path
 
 from ingest.application_paths import ApplicationPaths
-from server.ssl_pin import arxiv_ssl_context_from_env
 
 logger = logging.getLogger("notebook_common")
 
-# Repo root resolved from this file's location: tools/_notebook_common.py
+# Repo root resolved from this file's location: ingest/notebooks.py
 # → tools/ → repo root.
 REPO_ROOT: Path = Path(__file__).resolve().parent.parent
 
@@ -183,7 +182,7 @@ def resolve_contact_email(
     """
     if arg:
         return arg
-    # Import locally to keep ``tools/_notebook_common.py``
+    # Import locally to keep ``ingest/notebooks.py``
     # import-cost light and to avoid a hard dependency on the
     # ``server`` package at module-import time (CLI tools may run in
     # a stripped-down virtualenv during early bootstrap).
@@ -297,10 +296,11 @@ def fetch_raw_tex_if_missing(
         )
         return True
 
-    # Late import to avoid cycles: tools.arxiv_fetch imports nothing
+    # Late import to avoid cycles: ingest.arxiv_fetch imports nothing
     # from _notebook_common, but keeping the import lazy means tests
     # that don't exercise the raw-tex path don't pay the import cost.
-    from tools.arxiv_fetch import fetch_eprint  # noqa: PLC0415
+    from ingest.arxiv_fetch import fetch_eprint  # noqa: PLC0415
+    from server.ssl_pin import arxiv_ssl_context_from_env  # noqa: PLC0415
 
     try:
         fetch_eprint(
@@ -326,7 +326,7 @@ def fetch_raw_tex_if_missing(
         # DoS-mitigation reject). Disambiguate so ops review surfaces
         # the right category. Message-prefix matching is fragile but
         # acceptable here — both prefixes are stable Python literals
-        # in tools/arxiv_fetch.py.
+        # in ingest/arxiv_fetch.py.
         msg = str(exc)
         if "outside dest" in msg:
             logger.error(

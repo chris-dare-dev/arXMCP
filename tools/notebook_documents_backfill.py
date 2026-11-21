@@ -22,7 +22,7 @@ Per revision it records:
   ``parser_used`` + ``latexml_version`` are NULL in m1 (no queryable
   per-paper signal on disk yet — see the store docstring).
 - ``license_uri`` + a 3-way ``license_status``, hydrated via ONE OAI-PMH
-  ``GetRecord`` per version-stripped work id (:mod:`tools.oai_license`),
+  ``GetRecord`` per version-stripped work id (:mod:`ingest.oai_license`),
   and ``status`` (``withdrawn`` from ``<header status="deleted">``, else
   ``active``; ``superseded`` has no signal in m1).
 
@@ -34,9 +34,9 @@ OAI-PMH hydration. So "0 chunks re-embedded" is satisfied by construction
 
 Politeness contract (arXiv ToU): one ``GetRecord`` per paper (OAI-PMH has
 no id_list batching), a 3-second sleep BEFORE every request except the
-first (``tools.arxiv_fetch.POLITENESS_SLEEP_SECONDS``), 503/``Retry-After``
+first (``ingest.arxiv_fetch.POLITENESS_SLEEP_SECONDS``), 503/``Retry-After``
 backoff mirrored from ``ingest.oai_delta`` inside
-:func:`tools.oai_license._fetch_record`. ``idDoesNotExist`` is a per-paper
+:func:`ingest.oai_license._fetch_record`. ``idDoesNotExist`` is a per-paper
 non-fatal outcome (``license_status=unknown``); a transient fetch failure
 writes NO row so a re-run retries it.
 
@@ -91,8 +91,20 @@ from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
 
+from ingest import oai_license
+from ingest.arxiv_api import strip_id_version
+from ingest.arxiv_fetch import POLITENESS_SLEEP_SECONDS, build_user_agent
 from ingest.chunk import CHUNKER_VERSION
 from ingest.identifiers import is_valid_arxiv_paper_id
+from ingest.notebooks import (
+    CORPUS_PARSED_DIR,
+    CORPUS_RAW_DIR,
+    NotebookError,
+    notebook_dir,
+    read_paper_ids_from_papers_txt,
+    resolve_contact_email,
+    validate_slug,
+)
 from server.documents_store import (
     DOCUMENT_STATUS_ACTIVE,
     DOCUMENT_STATUS_WITHDRAWN,
@@ -102,18 +114,6 @@ from server.documents_store import (
     DocumentRecord,
     DocumentsStore,
 )
-from tools import oai_license
-from tools._arxiv_api import strip_id_version
-from tools._notebook_common import (
-    CORPUS_PARSED_DIR,
-    CORPUS_RAW_DIR,
-    NotebookError,
-    notebook_dir,
-    read_paper_ids_from_papers_txt,
-    resolve_contact_email,
-    validate_slug,
-)
-from tools.arxiv_fetch import POLITENESS_SLEEP_SECONDS, build_user_agent
 
 logger = logging.getLogger("notebook_documents_backfill")
 
@@ -286,7 +286,7 @@ def _fetch_one(
     """One polite ``GetRecord`` for a work id.
 
     Sleeps :data:`POLITENESS_SLEEP_SECONDS` before every request except
-    the run's first, then delegates to :func:`tools.oai_license.fetch_license`.
+    the run's first, then delegates to :func:`ingest.oai_license.fetch_license`.
     Raises :class:`_FetchFailure` (translated to a per-id miss) on any
     transient/fatal fetch error — never a crash that aborts the run.
     """

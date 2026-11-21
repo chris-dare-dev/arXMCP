@@ -167,7 +167,7 @@ def _sanitize_log_field(s: str) -> str:
 
 
 # Closes F8: targeted exception envelope for per-paper failures, mirroring
-# tools/arxiv_fetch.py's PER_PAPER_FAILURE_EXCEPTIONS pattern (commits
+# ingest/arxiv_fetch.py's PER_PAPER_FAILURE_EXCEPTIONS pattern (commits
 # c486b26, 01c6579). Programmer bugs (AttributeError, KeyError, TypeError,
 # RecursionError) propagate so dev-time regressions surface.
 PER_PAPER_FAILURE_EXCEPTIONS = (OSError, ValueError, FileNotFoundError)

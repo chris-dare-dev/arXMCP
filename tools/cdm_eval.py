@@ -25,7 +25,7 @@ Algorithm (4 stages):
    Solved via ``scipy.optimize.linear_sum_assignment`` (BSD-3-Clause).
 4. **F1-Score.** ``CDM = 2 * TP / (2 * TP + FP + FN)``.
 
-Subprocess discipline mirrors :func:`tools.arxiv_fetch.parse_with_latexml`
+Subprocess discipline mirrors :func:`ingest.arxiv_fetch.parse_with_latexml`
 exactly: ``start_new_session=True`` + ``os.killpg`` on
 ``TimeoutExpired`` + ``--no-shell-escape`` + ``--interaction=nonstopmode``.
 
@@ -337,7 +337,7 @@ def _run_subprocess_with_pgkill(
 ) -> subprocess.CompletedProcess[str]:
     """Run a subprocess with the Threat-3 sandbox profile.
 
-    Mirrors :func:`tools.arxiv_fetch.parse_with_latexml`'s discipline:
+    Mirrors :func:`ingest.arxiv_fetch.parse_with_latexml`'s discipline:
     ``start_new_session=True`` puts the child in its own process
     group; on ``TimeoutExpired`` we ``os.killpg`` the whole group so
     no orphaned descendants survive (pdflatex commonly spawns
@@ -348,7 +348,7 @@ def _run_subprocess_with_pgkill(
     inputs raise RuntimeError explicitly.
 
     On ``TimeoutExpired``, mirrors the ``parse_with_latexml``
-    precedent at ``tools/arxiv_fetch.py``: kill the process group via
+    precedent at ``ingest/arxiv_fetch.py``: kill the process group via
     ``os.killpg`` THEN drain stdout/stderr PIPEs via
     ``proc.communicate(timeout=5)`` instead of ``proc.wait()``.
     ``proc.wait()`` can hang indefinitely when the kernel still has

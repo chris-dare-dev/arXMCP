@@ -2,7 +2,7 @@
 
 The load-bearing pivot the source-truth spike proved: arXiv license URIs
 come from the OAI-PMH ``GetRecord`` surface, NOT the Atom client in
-:mod:`tools._arxiv_api` (Atom is a confirmed schema-level 0/30 absence).
+:mod:`ingest.arxiv_api` (Atom is a confirmed schema-level 0/30 absence).
 This module issues one ``GetRecord`` per version-stripped work id and
 parses the OPTIONAL ``<license>`` element, together with the withdrawn
 signal (``<header status="deleted">``) that rides the same fetch.
@@ -16,11 +16,11 @@ The documents backfill's "0 chunks re-embedded" guarantee is STRUCTURAL:
 it must never even import the embedder. So the 503/backoff/redirect-pin
 logic and its constants are RE-MIRRORED here (a deliberate ~60-line
 duplication) to keep this module's import graph clean: stdlib +
-``defusedxml`` + ``tools.arxiv_fetch`` + ``ingest.identifiers`` only.
+``defusedxml`` + ``ingest.arxiv_fetch`` + ``ingest.identifiers`` only.
 
 **Parsing** uses ``defusedxml.ElementTree`` (XXE / entity-expansion
 safe — the response is untrusted external data, Threat 7), matching
-:mod:`tools._arxiv_api`'s convention and deliberately NOT copying
+:mod:`ingest.arxiv_api`'s convention and deliberately NOT copying
 ``oai_delta.py``'s plain-``xml.etree`` choice.
 
 **License-decision function** (:func:`decide_license_status`) is ADVISORY
@@ -49,9 +49,9 @@ from dataclasses import dataclass
 
 import defusedxml.ElementTree as DET
 
+from ingest.arxiv_api import strip_id_version
+from ingest.arxiv_fetch import POLITENESS_SLEEP_SECONDS
 from ingest.identifiers import is_valid_arxiv_paper_id
-from tools._arxiv_api import strip_id_version
-from tools.arxiv_fetch import POLITENESS_SLEEP_SECONDS
 
 logger = logging.getLogger("oai_license")
 

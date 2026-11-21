@@ -937,7 +937,7 @@ class TestCliNotebook:
     ``--notebook``; a dataset holding textbook papers raises without a slug."""
 
     def _capture(self, monkeypatch, tmp_path):
-        import tools._notebook_common as common
+        import ingest.notebooks as common
         from ingest import re_embed
         from ingest.re_embed import ReEmbedSummary
 
@@ -1006,7 +1006,7 @@ class TestCliNotebook:
         assert call["state_path"] == DEFAULT_STATE_PATH
 
     def test_a_bad_slug_is_refused(self, monkeypatch, tmp_path):
-        from tools._notebook_common import NotebookError
+        from ingest.notebooks import NotebookError
 
         re_embed, calls = self._capture(monkeypatch, tmp_path)
         with pytest.raises(NotebookError):

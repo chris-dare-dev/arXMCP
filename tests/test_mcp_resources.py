@@ -22,6 +22,7 @@ from pathlib import Path
 import pytest
 from mcp.server.fastmcp import FastMCP
 
+from ingest import notebooks as _notebook_common
 from server.mcp_resources import (
     register_resources,
     reset_notebooks_store_for_tests,
@@ -36,7 +37,6 @@ from tests.test_server_tool_schema import (  # noqa: E402
     EXPECTED_TOOL_SCHEMA_SHA256,
     compute_tool_schema_hash,
 )
-from tools import _notebook_common
 
 
 @pytest.fixture

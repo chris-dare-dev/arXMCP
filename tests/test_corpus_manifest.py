@@ -31,6 +31,17 @@ from pathlib import Path
 import pytest
 from mcp.server.fastmcp import FastMCP
 
+from ingest import notebooks as _notebook_common
+from ingest.notebooks import (
+    CORPUS_PARSED_DIR,
+    CORPUS_RAW_DIR,
+    notebook_dir,
+)
+from ingest.oai_license import (
+    LICENSE_STATUS_ELIGIBLE,
+    LICENSE_STATUS_NOT_ALLOWLISTED_OPEN,
+    LICENSE_STATUS_UNKNOWN,
+)
 from server.corpus_manifest import (
     MANIFEST_VERSION,
     OVERRIDE_KEY_PREFIX,
@@ -63,20 +74,9 @@ from tests.test_server_tool_schema import (  # noqa: E402
     EXPECTED_TOOL_SCHEMA_SHA256,
     compute_tool_schema_hash,
 )
-from tools import _notebook_common
-from tools._notebook_common import (
-    CORPUS_PARSED_DIR,
-    CORPUS_RAW_DIR,
-    notebook_dir,
-)
 from tools.notebook_documents_backfill import (
     _hash_raw_source_tree,
     _parse_artifact_sha256,
-)
-from tools.oai_license import (
-    LICENSE_STATUS_ELIGIBLE,
-    LICENSE_STATUS_NOT_ALLOWLISTED_OPEN,
-    LICENSE_STATUS_UNKNOWN,
 )
 
 _CREATED_AT = "2026-01-01T00:00:00Z"

@@ -39,6 +39,13 @@ from markupsafe import Markup
 
 from ingest.application_paths import ApplicationPaths
 from ingest.identifiers import is_valid_arxiv_paper_id
+from ingest.notebooks import (
+    CORPUS_PARSED_DIR,
+    NotebookError,
+    notebook_dir,
+    validate_slug,
+)
+from server.discovery import discover_for_notebook_async
 from server.middleware import CONTENT_SECURITY_POLICY_PREVIEW
 from server.routes.notebooks import (
     _discover_results_fragment,
@@ -46,13 +53,6 @@ from server.routes.notebooks import (
     get_application_paths,
     get_notebooks_store,
 )
-from tools._notebook_common import (
-    CORPUS_PARSED_DIR,
-    NotebookError,
-    notebook_dir,
-    validate_slug,
-)
-from tools.discover_for_notebook import discover_for_notebook_async
 
 if TYPE_CHECKING:
     from server.notebooks_store import NotebooksStore

@@ -8,8 +8,8 @@ handling, ``<math`` body-presence check. See the synthesis "Disagreement
 1" resolution for why we delegate rather than re-implement HTTP.
 
 notebook-preamble-recovery-m1: after each ar5iv hit, also pulls raw
-``.tex`` source via :func:`tools._notebook_common.fetch_raw_tex_if_missing`
-(which wraps :func:`tools.arxiv_fetch.fetch_eprint`). This populates
+``.tex`` source via :func:`ingest.notebooks.fetch_raw_tex_if_missing`
+(which wraps :func:`ingest.arxiv_fetch.fetch_eprint`). This populates
 ``var/arxmcp/corpus/raw/<paper_id>/`` so :func:`ingest.preamble.extract_preamble`
 can run successfully on the ar5iv path — without it, every ar5iv-only
 paper has ``preamble_ref=null`` and ``get_definitions`` returns empty.
@@ -19,7 +19,7 @@ the application without it and continue to honor arXiv's request pacing.
 
 Honors the 3-second-per-IP politeness contract (see
 ``ingest/ar5iv_fetch.py`` module docstring and
-``tools/arxiv_fetch.py:29``) by sleeping between non-first fetches.
+``ingest/arxiv_fetch.py:29``) by sleeping between non-first fetches.
 The raw-tex fetch adds its OWN 3-second sleep before each call — the
 ar5iv and ``export.arxiv.org`` budgets are separate.
 
@@ -58,8 +58,7 @@ from ingest.ar5iv_fetch import (
     try_cache,
 )
 from ingest.identifiers import is_valid_arxiv_paper_id
-from server.ssl_pin import arxiv_ssl_context_from_env
-from tools._notebook_common import (
+from ingest.notebooks import (
     CORPUS_RAW_DIR,
     NotebookError,
     fetch_raw_tex_if_missing,
@@ -67,6 +66,7 @@ from tools._notebook_common import (
     read_paper_ids_from_papers_txt,
     validate_slug,
 )
+from server.ssl_pin import arxiv_ssl_context_from_env
 
 logger = logging.getLogger("notebook_fetch")
 

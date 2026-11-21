@@ -22,10 +22,10 @@ The ``referenced_works`` list is a list of OpenAlex Work URL strings
 stripped to get the bare ``W…`` ID before the reverse-mapping lookup
 (see ``_strip_oa_url``).
 
-Politeness contract (mirrors ``tools/arxiv_fetch.py`` for arXiv):
+Politeness contract (mirrors ``ingest/arxiv_fetch.py`` for arXiv):
 
 - ``User-Agent`` header: ``arXMCP/0.1 (mailto:<email>)``. Reuses
-  ``tools.arxiv_fetch.build_user_agent`` so the contact email is
+  ``ingest.arxiv_fetch.build_user_agent`` so the contact email is
   sourced from ``ARXMCP_CONTACT_EMAIL`` once.
 - ``?mailto=<email>`` query string on every URL. OpenAlex docs prefer
   this form; the User-Agent header alone satisfies AC#7. Sending both
@@ -34,7 +34,7 @@ Politeness contract (mirrors ``tools/arxiv_fetch.py`` for arXiv):
 - Inter-request sleep: ``OPENALEX_POLITE_SLEEP_SECONDS = 0.1`` (10
   rps polite-pool cap; the brief's stated rate).
 - 429 / 503 backoff: ``Retry-After`` honored via
-  ``tools.arxiv_fetch.parse_retry_after``; default 30 s, capped at
+  ``ingest.arxiv_fetch.parse_retry_after``; default 30 s, capped at
   300 s, exponential between retries.
 
 Checkpointing: the entire resolved-state dict is rewritten to
@@ -101,14 +101,14 @@ from typing import Any
 import kuzu
 
 from ingest.application_paths import ApplicationPaths
-from ingest.kuzudb_schema import apply_schema
-from tools.arxiv_fetch import (
+from ingest.arxiv_fetch import (
     DEFAULT_503_BACKOFF_SECONDS,
     MAX_503_BACKOFF_SECONDS,
     build_user_agent,
     parse_retry_after,
     validate_paper_id,
 )
+from ingest.kuzudb_schema import apply_schema
 from tools.fetch_seed import read_seed_list
 
 logger = logging.getLogger(__name__)
@@ -135,7 +135,7 @@ MAX_HTTP_RETRIES = 3
 #: ~10 KB; 5 MiB is generous for the 99th-percentile response and
 #: tight enough to fail fast on a misbehaving / hostile server. Threat
 #: 7 requires a meaningful cap;
-#: we do NOT inherit ``tools.arxiv_fetch.MAX_RESPONSE_BYTES`` (200 MB)
+#: we do NOT inherit ``ingest.arxiv_fetch.MAX_RESPONSE_BYTES`` (200 MB)
 #: because that constant is calibrated for arXiv source tarballs and
 #: would let a malformed CDN response allocate 20,000× more memory
 #: than the OpenAlex shape ever needs (F2 from the E09_S01 critique).

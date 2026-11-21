@@ -7,7 +7,7 @@ loop and runs it on a dedicated daemon thread: the heavy lifting (MinerU,
 LaTeXML) is already-subprocess-isolated by m5's
 :func:`ingest.textbook_parser.run_mineru_sandboxed` and m6's
 :func:`ingest.textbook_renderer.render_mineru_to_html` (which delegates
-to :func:`tools.arxiv_fetch.parse_with_latexml`). Wrapping in another
+to :func:`ingest.arxiv_fetch.parse_with_latexml`). Wrapping in another
 Python subprocess buys no isolation and would double the cold-start
 overhead.
 

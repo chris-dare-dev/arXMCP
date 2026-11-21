@@ -3,7 +3,7 @@
 Wires :attr:`server.config.Config.pin_arxiv_ca` into an
 :class:`ssl.SSLContext` consumer for the two arxiv-rooted fetch
 sites — ``ingest/ar5iv_fetch.py::try_cache`` and
-``tools/arxiv_fetch.py::fetch_eprint``. Every production caller of
+``ingest/arxiv_fetch.py::fetch_eprint``. Every production caller of
 those two functions passes :func:`arxiv_ssl_context_from_env`. Closes Threat 7 mitigation #2
 ("Pin known fingerprint of arxiv.org's certificate authority chain
 (rotated periodically)").

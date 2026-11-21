@@ -407,7 +407,7 @@ class TestConfigValidation:
 
     def test_contact_email_env_var_rejected(self, monkeypatch):
         """``ARXMCP_CONTACT_EMAIL`` is an INGEST-side env var (consumed
-        by ``tools/arxiv_fetch.py`` for the polite User-Agent string)
+        by ``ingest/arxiv_fetch.py`` for the polite User-Agent string)
         and is NOT a declared server ``Config`` field. An earlier draft
         of ``docs/ops/notebook-modes.md`` Mode 1 launch recipe
         instructed operators to ``export ARXMCP_CONTACT_EMAIL=...``;
@@ -496,7 +496,7 @@ class TestNotebookConfig:
     def notebooks_base(self, tmp_path: Path, monkeypatch):
         """Redirect the shared notebook-base constant to a tmp dir so
         the Config validator's notebook_lancedb_path() resolves there."""
-        from tools import _notebook_common
+        from ingest import notebooks as _notebook_common
 
         base = tmp_path / "notebooks"
         base.mkdir()
@@ -566,7 +566,7 @@ class TestNotebookConfig:
 
     def test_ac5_named_ingest_script_exists(self):
         """F5 rectification: the AC5 remediation message (and the
-        tools/_notebook_common docstring) name ``tools/notebook_ingest.py``
+        ingest/notebooks docstring) name ``tools/notebook_ingest.py``
         as the command an operator runs to ingest a notebook. Pin that the
         script actually exists so a future rename cannot silently turn the
         remediation hint into a dead path (a drift class). Co-located with
@@ -788,11 +788,11 @@ class TestNotebookConfig:
 
 class TestNotebookLancedbPathHelper:
     """AC8 (stepping-stone shaping): the slug→lancedb-path derivation
-    lives in tools._notebook_common.notebook_lancedb_path — the shared
+    lives in ingest.notebooks.notebook_lancedb_path — the shared
     seam both fork C (startup) and fork A (per-request) call."""
 
     def test_helper_returns_notebook_dir_slash_lancedb(self, tmp_path):
-        from tools._notebook_common import notebook_dir, notebook_lancedb_path
+        from ingest.notebooks import notebook_dir, notebook_lancedb_path
 
         base = tmp_path / "notebooks"
         (base / "demo-nb").mkdir(parents=True)
@@ -803,7 +803,7 @@ class TestNotebookLancedbPathHelper:
         """The helper re-uses notebook_dir's Threat-1 guard — bad slugs
         raise NotebookError (so the C and A paths share one safety
         contract, not two divergent ones)."""
-        from tools._notebook_common import NotebookError, notebook_lancedb_path
+        from ingest.notebooks import NotebookError, notebook_lancedb_path
 
         base = tmp_path / "notebooks"
         base.mkdir()
@@ -815,7 +815,7 @@ class TestNotebookLancedbPathHelper:
     def test_helper_rejects_symlinked_notebook(self, tmp_path):
         """notebook_dir's m6 F3 symlink rejection flows through the
         shared helper."""
-        from tools._notebook_common import NotebookError, notebook_lancedb_path
+        from ingest.notebooks import NotebookError, notebook_lancedb_path
 
         base = tmp_path / "notebooks"
         base.mkdir()
@@ -1445,7 +1445,7 @@ class TestEnvVarScan:
         # critique F1: the prior 3-tool list omitted tools/fetch_seed.py
         # (the very tool the README quick-start runs); the rectification
         # extended the carve-out hint to name all 5 actual consumers
-        # + the tools/arxiv_fetch.py shared library. The expanded
+        # + the ingest/arxiv_fetch.py shared library. The expanded
         # ``tools=`` tuple here documents the operator paths and is
         # used by BOTH the at-least-one assertion below AND the
         # README-quick-start tool assertion (which is the cardinal
@@ -1453,7 +1453,7 @@ class TestEnvVarScan:
         # user following the documented README path lands on an error
         # that names tools they DIDN'T run).
         tools = (
-            "tools/arxiv_fetch.py",
+            "ingest/arxiv_fetch.py",
             "tools/fetch_seed.py",
             "tools/notebook_fetch.py",
             "tools/recover_preambles.py",

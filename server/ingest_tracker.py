@@ -355,7 +355,7 @@ class IngestTaskTracker:
 
         What is still best-effort is DEPTH, and it is a different statement:
         the notebook-ingest child is signalled, but anything IT spawned with
-        ``start_new_session=True`` -- LaTeXML, via ``tools/arxiv_fetch.py`` --
+        ``start_new_session=True`` -- LaTeXML, via ``ingest/arxiv_fetch.py`` --
         is in its own process group and is that child's to clean up, not this
         tracker's. The startup-recovery in ``mark_orphaned_runs_failed``
         covers a row this misses; it repairs the row, not the process.

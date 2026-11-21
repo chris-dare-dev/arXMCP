@@ -48,6 +48,11 @@ from pathlib import Path
 
 from ingest.application_paths import ApplicationPaths
 
+# Reuse the existing root-tex heuristic from the fetcher tooling rather than
+# re-implementing it. The function lives in ingest/arxiv_fetch.py and the
+# project's package layout puts both `tools/` and `ingest/` on sys.path.
+from ingest.arxiv_fetch import find_main_tex
+
 # Reuse the chunker's paper_id validator + log-field sanitiser to avoid
 # duplicating the regex and to inherit its security guarantees (Threat 1).
 from ingest.chunker import (
@@ -55,11 +60,6 @@ from ingest.chunker import (
     _validate_paper_id,
 )
 from ingest.preamble_types import PreambleDoc
-
-# Reuse the existing root-tex heuristic from the fetcher tooling rather than
-# re-implementing it. The function lives in tools/arxiv_fetch.py and the
-# project's package layout puts both `tools/` and `ingest/` on sys.path.
-from tools.arxiv_fetch import find_main_tex
 
 logger = logging.getLogger(__name__)
 
@@ -365,7 +365,7 @@ def extract_preamble(paper_id: str) -> PreambleDoc:
         # WARNING with the message at the call site; emitting an ERROR
         # + full traceback here doubles the noise for an expected
         # branch. WARNING-with-no-traceback is the right severity.
-        # The remedy is to fetch raw .tex via tools/arxiv_fetch.
+        # The remedy is to fetch raw .tex via ingest/arxiv_fetch.
         # All other PER_PAPER_FAILURE_EXCEPTIONS (real disk OSError,
         # unicode errors, malformed .tex) keep the ERROR + traceback.
         if isinstance(exc, FileNotFoundError):
@@ -383,7 +383,7 @@ def extract_preamble(paper_id: str) -> PreambleDoc:
 def _select_root_tex(raw_paper_dir: Path, paper_id: str) -> Path | None:
     """Pick the root .tex for a paper, preferring top-level files.
 
-    Closes F10: ``find_main_tex`` from ``tools/arxiv_fetch.py`` uses
+    Closes F10: ``find_main_tex`` from ``ingest/arxiv_fetch.py`` uses
     ``rglob('*.tex')`` which can pick up a vendored ``samples/template.tex``
     or ``examples/foo.tex`` over the actual paper. We restrict to top-level
     candidates first; only fall back to ``find_main_tex`` (recursive) if

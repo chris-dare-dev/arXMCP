@@ -13,9 +13,9 @@ Politeness contract (arXiv ToU, live-verified hazards in the m1
 research brief):
 
 - ≤1 request / 3 s: a 3-second sleep BEFORE every request except the
-  first (``tools.arxiv_fetch.POLITENESS_SLEEP_SECONDS``).
+  first (``ingest.arxiv_fetch.POLITENESS_SLEEP_SECONDS``).
 - Identifying User-Agent; an operator contact email is optional and
-  resolved through :func:`tools._notebook_common.resolve_contact_email`.
+  resolved through :func:`ingest.notebooks.resolve_contact_email`.
 - 503 → backoff via ``parse_retry_after`` clamped to ≥30 s (arXiv has
   served ``Retry-After: 0``, which would otherwise hammer).
 - 429 (plain-text ``Rate exceeded.``) → ≥60 s cool-down (15 s was
@@ -61,30 +61,30 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 
-from ingest.identifiers import is_valid_arxiv_paper_id
-from server.paper_metadata_store import (
-    PAPER_METADATA_DB_FILENAME,
-    PaperMetadataRecord,
-    PaperMetadataStore,
-)
-from tools import _arxiv_api
-from tools._arxiv_api import (
+from ingest import arxiv_api as _arxiv_api
+from ingest.arxiv_api import (
     PaperMetadata,
     build_id_list_url,
     parse_atom_metadata,
     strip_id_version,
 )
-from tools._notebook_common import (
+from ingest.arxiv_fetch import (
+    DEFAULT_503_BACKOFF_SECONDS,
+    POLITENESS_SLEEP_SECONDS,
+    parse_retry_after,
+)
+from ingest.identifiers import is_valid_arxiv_paper_id
+from ingest.notebooks import (
     NotebookError,
     notebook_dir,
     read_paper_ids_from_papers_txt,
     resolve_contact_email,
     validate_slug,
 )
-from tools.arxiv_fetch import (
-    DEFAULT_503_BACKOFF_SECONDS,
-    POLITENESS_SLEEP_SECONDS,
-    parse_retry_after,
+from server.paper_metadata_store import (
+    PAPER_METADATA_DB_FILENAME,
+    PaperMetadataRecord,
+    PaperMetadataStore,
 )
 
 logger = logging.getLogger("notebook_metadata_backfill")

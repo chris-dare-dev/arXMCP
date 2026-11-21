@@ -76,7 +76,7 @@ class PaperMetadataRecord:
     intact (``math/0212237``, never ``0212237`` or
     ``math/0212237v1``) — the t-atom-mapper round-trip contract.
     ``year == 0`` means "unparseable ``<published>``" (mirrors the
-    ``Candidate.submitted_year`` convention in ``tools/_arxiv_api``).
+    ``Candidate.submitted_year`` convention in ``ingest/arxiv_api``).
     """
 
     paper_id: str

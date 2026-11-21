@@ -1,4 +1,4 @@
-"""Unit tests for ``tools._arxiv_api`` (notebook-paper-discovery-m2).
+"""Unit tests for ``ingest.arxiv_api`` (notebook-paper-discovery-m2).
 
 The HTTP layer is mocked via ``monkeypatch.setattr(_arxiv_api, "_fetch_url", …)``
 — the ``graph_ingest._fetch_openalex_work`` pattern — so NO live arXiv call
@@ -12,8 +12,8 @@ import urllib.parse
 
 import pytest
 
-from tools import _arxiv_api
-from tools._arxiv_api import (
+from ingest import arxiv_api as _arxiv_api
+from ingest.arxiv_api import (
     Candidate,
     build_query_url,
     fetch_candidates,

@@ -40,7 +40,7 @@ import sys
 import uuid
 from pathlib import Path
 
-from tools._notebook_common import (
+from ingest.notebooks import (
     NotebookError,
     notebook_lancedb_path,
     validate_slug,

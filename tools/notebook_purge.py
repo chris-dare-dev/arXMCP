@@ -37,7 +37,7 @@ import sys
 from pathlib import Path
 
 from ingest.identifiers import is_valid_arxiv_paper_id
-from tools._notebook_common import (
+from ingest.notebooks import (
     CORPUS_CHUNKS_DIR,
     CORPUS_EMBEDDINGS_DIR,
     CORPUS_PARSED_DIR,
@@ -101,7 +101,7 @@ def _compute_unique_paper_ids(
     # any notebook's papers.txt drives arbitrary directory deletion at
     # the corpus-purge step. Helper read_paper_ids_from_papers_txt
     # intentionally doesn't validate (per its docstring at
-    # tools/_notebook_common.py:97-117); validation is the caller's job.
+    # ingest/notebooks.py:97-117); validation is the caller's job.
     # Here, the caller is the destructive purge — validation IS required.
     def _validated(papers_txt: Path) -> set[str]:
         return {

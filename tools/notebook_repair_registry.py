@@ -31,7 +31,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from tools._notebook_common import (
+from ingest.notebooks import (
     NOTEBOOKS_BASE,
     NotebookError,
     notebook_lancedb_path,
@@ -172,7 +172,7 @@ def main(
     Tests pass ``db_path`` + ``notebooks_base`` explicitly to scope to a
     ``tmp_path``-scoped fixture; production callers pass ``None`` and the
     defaults resolve to ``var/arxmcp/cache/notebooks.db`` +
-    :data:`tools._notebook_common.NOTEBOOKS_BASE`.
+    :data:`ingest.notebooks.NOTEBOOKS_BASE`.
     """
     del argv  # accepted for symmetry with other tools/notebook_*.py mains
 

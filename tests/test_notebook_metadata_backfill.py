@@ -20,13 +20,14 @@ from pathlib import Path
 
 import pytest
 
+from ingest import arxiv_api as _arxiv_api
+from ingest.arxiv_fetch import DEFAULT_503_BACKOFF_SECONDS, POLITENESS_SLEEP_SECONDS
+from ingest.notebooks import NotebookError
 from server.paper_metadata_store import (
     PAPER_METADATA_DB_FILENAME,
     PaperMetadataStore,
 )
-from tools import _arxiv_api, notebook_metadata_backfill
-from tools._notebook_common import NotebookError
-from tools.arxiv_fetch import DEFAULT_503_BACKOFF_SECONDS, POLITENESS_SLEEP_SECONDS
+from tools import notebook_metadata_backfill
 
 SLUG = "bridgeland-stability"
 

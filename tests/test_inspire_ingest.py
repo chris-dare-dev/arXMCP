@@ -811,7 +811,7 @@ class TestE09S02RectificationGuards:
     ):
         """F2: ``enrich()`` MUST accept old-style arXiv IDs like
         ``hep-th/9711200`` (Maldacena AdS/CFT). The new-style-only
-        ``tools.arxiv_fetch.validate_paper_id`` rejected them; the
+        ``ingest.arxiv_fetch.validate_paper_id`` rejected them; the
         new ``_validate_paper_id_either_style`` accepts both."""
         old_style_id = "hep-th/9711200"
         # Pre-create the node so the citation pass has a target.
@@ -1091,7 +1091,7 @@ class TestFFindingInheritance:
     def test_f2_response_cap_tight(self):
         """F2: INSPIRE has its own response cap, less than the 200 MB
         arXiv-tarball cap."""
-        from tools.arxiv_fetch import MAX_RESPONSE_BYTES as ARXIV_CAP
+        from ingest.arxiv_fetch import MAX_RESPONSE_BYTES as ARXIV_CAP
 
         assert inspire_ingest.INSPIRE_MAX_RESPONSE_BYTES <= 16 * 1024 * 1024
         assert inspire_ingest.INSPIRE_MAX_RESPONSE_BYTES < ARXIV_CAP

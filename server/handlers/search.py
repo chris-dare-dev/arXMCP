@@ -557,7 +557,7 @@ async def handle_search_papers(
                 f"filters['notebook'] must be a str (a notebook slug), "
                 f"got {type(nb_value).__name__}"
             )
-        from tools._notebook_common import (  # noqa: PLC0415
+        from ingest.notebooks import (  # noqa: PLC0415
             NotebookError,
             validate_slug,
         )
@@ -614,8 +614,8 @@ async def handle_search_papers(
     # clean ValueError (m2 FM-5a), not a 500.
     override_corpus_version: int | None = None
     if notebook_slug is not None:
+        from ingest.notebooks import NotebookError  # noqa: PLC0415
         from server.resources import CorpusNotIngestedError  # noqa: PLC0415
-        from tools._notebook_common import NotebookError  # noqa: PLC0415
         try:
             search_table, nb_corpus_info = await r.notebook_table(notebook_slug)
         except (NotebookError, CorpusNotIngestedError) as exc:

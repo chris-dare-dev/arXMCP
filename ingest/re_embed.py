@@ -758,8 +758,8 @@ def run_re_embed(
     if paper_ids is not None:
         work_papers = paper_ids
     elif notebook_slug is not None:
+        from ingest.notebooks import read_paper_ids_from_papers_txt
         from ingest.textbook_chunker import _resolve_notebook_dir
-        from tools._notebook_common import read_paper_ids_from_papers_txt
         notebook = _resolve_notebook_dir(notebook_slug)
         seeded = read_paper_ids_from_papers_txt(notebook / "papers.txt")
         work_papers = sorted(active.paper_ids() | set(seeded))
@@ -1079,7 +1079,7 @@ def _cli(argv: list[str]) -> int:
         # Late import: tools/ depends on ingest/, not the other way round
         # at module load. notebook_dir validates the slug and refuses a
         # symlinked or escaping notebook dir (Threat-1).
-        from tools._notebook_common import notebook_dir  # noqa: PLC0415
+        from ingest.notebooks import notebook_dir  # noqa: PLC0415
 
         nb = notebook_dir(args.notebook)
         active_path = active_path or nb / "lancedb"

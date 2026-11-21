@@ -39,8 +39,7 @@ import urllib.error
 from dataclasses import dataclass
 from pathlib import Path
 
-from server.ssl_pin import arxiv_ssl_context_from_env
-from tools.arxiv_fetch import (
+from ingest.arxiv_fetch import (
     DEFAULT_503_BACKOFF_SECONDS,
     MAX_503_BACKOFF_SECONDS,
     MIN_PARSED_HTML_BYTES,
@@ -52,6 +51,7 @@ from tools.arxiv_fetch import (
     parse_with_latexml,
     politeness_sleep,
 )
+from server.ssl_pin import arxiv_ssl_context_from_env
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SEED_FILE = REPO_ROOT / "tools" / "seed-papers.txt"

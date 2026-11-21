@@ -23,10 +23,11 @@ from pathlib import Path
 
 import pytest
 
+from ingest import notebooks as _notebook_common
 from ingest.ar5iv_fetch import Ar5ivResult
+from ingest.notebooks import NotebookError, validate_slug
 from tests._symlink_support import requires_symlink
-from tools import _notebook_common, notebook_fetch, notebook_ingest, notebook_init, notebook_purge
-from tools._notebook_common import NotebookError, validate_slug
+from tools import notebook_fetch, notebook_ingest, notebook_init, notebook_purge
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -809,9 +810,9 @@ def test_fetch_raw_tex_if_missing_idempotent_when_raw_dir_populated(
         fetch_eprint_calls.append(paper_id)
         raise RuntimeError("must not be called")
 
-    monkeypatch.setattr("tools.arxiv_fetch.fetch_eprint", _record_eprint)
+    monkeypatch.setattr("ingest.arxiv_fetch.fetch_eprint", _record_eprint)
     # Use the REAL helper, not the autouse no-op:
-    from tools._notebook_common import fetch_raw_tex_if_missing as real_helper
+    from ingest.notebooks import fetch_raw_tex_if_missing as real_helper
     rc = real_helper("2303.07061", raw_dir)
     assert rc is True
     assert fetch_eprint_calls == []
@@ -834,9 +835,9 @@ def test_fetch_raw_tex_if_missing_404_returns_false(
             code=404, msg="Not Found", hdrs={}, fp=None,
         )
 
-    monkeypatch.setattr("tools.arxiv_fetch.fetch_eprint", _withdrawn)
+    monkeypatch.setattr("ingest.arxiv_fetch.fetch_eprint", _withdrawn)
 
-    from tools._notebook_common import fetch_raw_tex_if_missing as real_helper
+    from ingest.notebooks import fetch_raw_tex_if_missing as real_helper
     with caplog.at_level("WARNING", logger="notebook_common"):
         rc = real_helper("0000.00001", raw_dir)
     assert rc is False
@@ -859,9 +860,9 @@ def test_fetch_raw_tex_if_missing_tarball_bomb_logs_error_returns_false(
             "refusing to extract path outside dest: ../../etc/passwd"
         )
 
-    monkeypatch.setattr("tools.arxiv_fetch.fetch_eprint", _bomb)
+    monkeypatch.setattr("ingest.arxiv_fetch.fetch_eprint", _bomb)
 
-    from tools._notebook_common import fetch_raw_tex_if_missing as real_helper
+    from ingest.notebooks import fetch_raw_tex_if_missing as real_helper
     with caplog.at_level("ERROR", logger="notebook_common"):
         rc = real_helper("0000.00001", raw_dir)
     assert rc is False
@@ -921,7 +922,7 @@ def test_recover_preambles_skips_paper_with_existing_preamble(
         raise RuntimeError("fetch must not be called")
 
     monkeypatch.setattr(
-        "tools.arxiv_fetch.fetch_eprint", _must_not_fetch,
+        "ingest.arxiv_fetch.fetch_eprint", _must_not_fetch,
     )
 
     summary = recover_preambles.run(sleep_seconds=0.0)
@@ -965,7 +966,7 @@ def test_recover_preambles_notebook_scope_filter(
         (raw / paper_id / "main.tex").write_text(r"\documentclass{article}")
 
     monkeypatch.setattr(
-        "tools.arxiv_fetch.fetch_eprint", _fake_fetch_eprint,
+        "ingest.arxiv_fetch.fetch_eprint", _fake_fetch_eprint,
     )
     monkeypatch.setattr(
         recover_preambles, "extract_preamble", lambda pid: None,
@@ -1017,7 +1018,7 @@ def test_recover_preambles_503_backoff_retries_then_succeeds(
         (raw / paper_id / "main.tex").write_text(r"\documentclass{article}")
 
     monkeypatch.setattr(
-        "tools.arxiv_fetch.fetch_eprint", _flaky_fetch,
+        "ingest.arxiv_fetch.fetch_eprint", _flaky_fetch,
     )
     monkeypatch.setattr(
         recover_preambles, "extract_preamble", lambda pid: None,
@@ -1079,7 +1080,7 @@ def test_recover_preambles_continues_past_tarball_bomb(
         (raw / paper_id / "main.tex").write_text(r"\documentclass{article}")
 
     monkeypatch.setattr(
-        "tools.arxiv_fetch.fetch_eprint", _selective_bomb,
+        "ingest.arxiv_fetch.fetch_eprint", _selective_bomb,
     )
     monkeypatch.setattr(
         recover_preambles, "extract_preamble", lambda pid: None,
@@ -1126,7 +1127,7 @@ def test_recover_preambles_continues_past_url_error(
         (raw / paper_id / "main.tex").write_text(r"\documentclass{article}")
 
     monkeypatch.setattr(
-        "tools.arxiv_fetch.fetch_eprint", _flaky_dns,
+        "ingest.arxiv_fetch.fetch_eprint", _flaky_dns,
     )
     monkeypatch.setattr(
         recover_preambles, "extract_preamble", lambda pid: None,
@@ -1155,9 +1156,9 @@ def test_fetch_raw_tex_helper_oversize_runtime_error_not_security_event(
             "response too large for 0001.00001: Content-Length 999999999 > cap 104857600"
         )
 
-    monkeypatch.setattr("tools.arxiv_fetch.fetch_eprint", _oversize)
+    monkeypatch.setattr("ingest.arxiv_fetch.fetch_eprint", _oversize)
 
-    from tools._notebook_common import fetch_raw_tex_if_missing as real_helper
+    from ingest.notebooks import fetch_raw_tex_if_missing as real_helper
     with caplog.at_level("WARNING", logger="notebook_common"):
         rc = real_helper("0001.00001", raw_dir)
     assert rc is False
@@ -1190,9 +1191,9 @@ def test_fetch_raw_tex_helper_idempotent_with_subdir_tex(
     def _must_not_fetch(*args, **kw):
         raise RuntimeError("F7 regression: fetch_eprint should not be called")
 
-    monkeypatch.setattr("tools.arxiv_fetch.fetch_eprint", _must_not_fetch)
+    monkeypatch.setattr("ingest.arxiv_fetch.fetch_eprint", _must_not_fetch)
 
-    from tools._notebook_common import fetch_raw_tex_if_missing as real_helper
+    from ingest.notebooks import fetch_raw_tex_if_missing as real_helper
     rc = real_helper("0001.00001", raw_dir)
     assert rc is True
 
@@ -1243,7 +1244,7 @@ def test_recover_preambles_real_extract_preamble_end_to_end(
         )
 
     monkeypatch.setattr(
-        "tools.arxiv_fetch.fetch_eprint", _write_real_tex,
+        "ingest.arxiv_fetch.fetch_eprint", _write_real_tex,
     )
 
     summary = recover_preambles.run(sleep_seconds=0.0)
@@ -1291,7 +1292,7 @@ def test_recover_preambles_404_classified_as_withdrawn(
         )
 
     monkeypatch.setattr(
-        "tools.arxiv_fetch.fetch_eprint", _withdrawn,
+        "ingest.arxiv_fetch.fetch_eprint", _withdrawn,
     )
     extract_calls: list[str] = []
 

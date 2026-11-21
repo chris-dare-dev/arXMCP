@@ -479,8 +479,8 @@ class TestNotebookTableFreshness:
         """Fake the path helper, marker reader and table opener; keep the
         REAL ``validate_slug``. ``version_box`` is the on-disk version the
         test mutates to simulate an ingest."""
+        import ingest.notebooks as nc
         import server.resources as res_mod
-        import tools._notebook_common as nc
 
         monkeypatch.setattr(
             nc, "notebook_lancedb_path",

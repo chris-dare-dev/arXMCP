@@ -2,7 +2,7 @@
 """Discover new arXiv papers for a notebook's topic (notebook-paper-discovery-m3).
 
 Given a notebook slug, reads its ``discovery_category`` + ``description`` (m1
-topic metadata), queries the arXiv Atom API via ``tools/_arxiv_api.py`` (m2),
+topic metadata), queries the arXiv Atom API via ``ingest/arxiv_api.py`` (m2),
 deduplicates the results against the notebook's ``notebook_papers`` junction,
 and returns a ranked candidate list of papers NOT yet in the notebook.
 
@@ -17,7 +17,7 @@ for ``max_results <= 2000`` — typical for a notebook — a single request with
 sleep). A future multi-notebook caller (m4) owns any inter-notebook delay.
 
 Usage:
-    python -m tools.discover_for_notebook <slug> [--max-results N] [--email you@x] [--json]
+    python -m server.discovery <slug> [--max-results N] [--email you@x] [--json]
 """
 
 from __future__ import annotations
@@ -31,10 +31,10 @@ from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
+from ingest.arxiv_api import fetch_candidates
+from ingest.notebooks import NotebookError, validate_slug
 from server.notebooks_store import NotebooksStore
 from server.operator_settings import DEFAULT_DB_PATH
-from tools._arxiv_api import fetch_candidates
-from tools._notebook_common import NotebookError, validate_slug
 
 
 @dataclass(frozen=True)

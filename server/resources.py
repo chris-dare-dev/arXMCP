@@ -1759,7 +1759,7 @@ class Resources:
         gate = self._get_notebook_gate(slug)
 
         async def _probe() -> bool:
-            from tools._notebook_common import (  # noqa: PLC0415
+            from ingest.notebooks import (  # noqa: PLC0415
                 notebook_lancedb_path,
             )
 
@@ -1858,7 +1858,7 @@ class Resources:
         # seam (validate_slug + notebook_lancedb_path). Lazy keeps the
         # server→tools import off the module-load path for the common
         # (no-notebook) query.
-        from tools._notebook_common import (  # noqa: PLC0415
+        from ingest.notebooks import (  # noqa: PLC0415
             notebook_lancedb_path,
             validate_slug,
         )

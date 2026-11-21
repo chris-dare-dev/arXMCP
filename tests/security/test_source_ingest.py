@@ -777,8 +777,8 @@ class TestPinArxivCaWiring:
     ):
         """``fetch_eprint`` must pass the ``ssl_context`` kwarg to
         ``urlopen`` — same partial-coverage guard for the
-        ``tools/arxiv_fetch.py`` site."""
-        from tools.arxiv_fetch import fetch_eprint
+        ``ingest/arxiv_fetch.py`` site."""
+        from ingest.arxiv_fetch import fetch_eprint
 
         sentinel = MagicMock(name="sentinel_ssl_context")
         captured: dict[str, object] = {}

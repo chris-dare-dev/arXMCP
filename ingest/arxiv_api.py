@@ -2,7 +2,7 @@
 
 Extracted from ``tools/curate_seed.py`` so the m3 notebook-discovery driver
 and the curate-seed CLI share ONE arXiv-query surface. Mirrors the
-``tools/_notebook_common.py`` shared-module pattern: a leading-underscore
+``ingest/notebooks.py`` shared-module pattern: a leading-underscore
 internal helper module, ``from __future__ import annotations``, an
 ``__all__`` export list, and ``if … raise`` validation (never ``assert`` —
 ``-O`` strips them, CLAUDE.md §4.7).
@@ -21,7 +21,7 @@ Capabilities:
 - ``fetch_candidates`` — fetch + paginate + parse, returning ``list[Candidate]``.
   Pagination is bounded by the requested ``max_results`` (≤2000/page per the
   arXiv API), with an injectable ``sleep`` honoured BETWEEN pages so the
-  politeness contract (``tools.arxiv_fetch.POLITENESS_SLEEP_SECONDS`` = 3s) is
+  politeness contract (``ingest.arxiv_fetch.POLITENESS_SLEEP_SECONDS`` = 3s) is
   preserved. For ``max_results`` ≤ 2000 this is a single request with no sleep
   — identical to the pre-m2 single-fetch behaviour.
 
@@ -42,11 +42,11 @@ from datetime import datetime
 
 import defusedxml.ElementTree as DET
 
-from ingest.identifiers import ARXIV_PAPER_ID_RE
-from tools.arxiv_fetch import (
+from ingest.arxiv_fetch import (
     POLITENESS_SLEEP_SECONDS,
     build_user_agent,
 )
+from ingest.identifiers import ARXIV_PAPER_ID_RE
 
 ARXIV_API_URL = "https://export.arxiv.org/api/query"
 ATOM_NS = {

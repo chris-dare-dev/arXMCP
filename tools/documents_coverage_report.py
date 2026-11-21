@@ -48,16 +48,16 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from ingest.notebooks import notebook_dir
+from ingest.oai_license import (
+    LICENSE_STATUS_ELIGIBLE,
+    LICENSE_STATUS_NOT_ALLOWLISTED_OPEN,
+    LICENSE_STATUS_UNKNOWN,
+)
 from server.documents_store import (
     DOCUMENTS_DB_FILENAME,
     DocumentRecord,
     DocumentsStore,
-)
-from tools._notebook_common import notebook_dir
-from tools.oai_license import (
-    LICENSE_STATUS_ELIGIBLE,
-    LICENSE_STATUS_NOT_ALLOWLISTED_OPEN,
-    LICENSE_STATUS_UNKNOWN,
 )
 
 #: The two live notebooks m1's acceptance names (``bridgeland-stability-pdfs``

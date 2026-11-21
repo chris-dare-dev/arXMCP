@@ -22,7 +22,7 @@ The implementation enforces this by ONLY calling
 :meth:`NotebooksStore.delete_notebook`; no filesystem mutation.
 
 **Slug + URL validation** delegate to existing project helpers:
-- ``tools._notebook_common.validate_slug`` (m6 F1/F3 path-traversal
+- ``ingest.notebooks.validate_slug`` (m6 F1/F3 path-traversal
   + symlink defense)
 - ``ingest.identifiers.is_valid_paper_id`` (m1 rect F3 \\Z-anchor
   hardening against trailing-newline classes)
@@ -66,20 +66,20 @@ from pydantic import BaseModel, Field
 
 from ingest.application_paths import ApplicationPaths
 from ingest.identifiers import is_valid_arxiv_paper_id, is_valid_paper_id
-from server.operator_settings import get_contact_email
-from tools._notebook_common import (
+from ingest.notebooks import (
     NOTEBOOKS_BASE,
     NotebookError,
     notebook_dir,
     notebook_lancedb_path,
     validate_slug,
 )
-from tools.discover_for_notebook import discover_for_notebook_async
-from tools.security.pdfid import find_javascript as _pdf_find_javascript
+from ingest.security.pdfid import find_javascript as _pdf_find_javascript
+from server.discovery import discover_for_notebook_async
+from server.operator_settings import get_contact_email
 
 if TYPE_CHECKING:
+    from server.discovery import DiscoveryCandidate
     from server.notebooks_store import NotebooksStore
-    from tools.discover_for_notebook import DiscoveryCandidate
 
 logger = logging.getLogger(__name__)
 
@@ -200,7 +200,7 @@ def get_application_paths(request: Request) -> ApplicationPaths:
     # Isolated router tests and third-party embeddings may mount this router
     # without ``server.main.create_app``. Preserve that supported seam while
     # production always takes the Config branch above.
-    from tools import _notebook_common as common  # noqa: PLC0415
+    from ingest import notebooks as common  # noqa: PLC0415
 
     return replace(
         ApplicationPaths.resolve(),
@@ -738,7 +738,7 @@ def _safe_contact_email() -> str | None:
 
 
 #: Longest lede allowed in a `.discover-abstract` <summary>, in characters.
-#: 120 is not arbitrary: `tools/_arxiv_api.py` already truncates
+#: 120 is not arbitrary: `ingest/arxiv_api.py` already truncates
 #: `abstract_head` to 120 for its TSV column, so the console reuses the
 #: repo's existing "how much abstract is a preview" answer rather than
 #: inventing a second one.
@@ -754,7 +754,7 @@ def _abstract_lede(abstract: str) -> str:
     """Bound ``abstract`` to a label short enough to name a control.
 
     A ``<summary>`` becomes the disclosure's accessible name, and
-    ``abstract_head`` carries the FULL arXiv abstract — ``tools/_arxiv_api.py``
+    ``abstract_head`` carries the FULL arXiv abstract — ``ingest/arxiv_api.py``
     builds it as ``" ".join(summary.split())`` with no truncation, normally
     800–1500 characters. ui-uplift-m10 interpolated it into both the
     ``<summary>`` and the ``<p>``, so the control was named with an entire
@@ -920,7 +920,7 @@ async def discover_papers(
 
     try:
         # m10 rectify (critique M17): pass max_results EXPLICITLY. The driver
-        # default is 200 (tools/discover_for_notebook.py:69), and at ~150px
+        # default is 200 (server/discovery.py:69), and at ~150px
         # per styled candidate that is a ~30,000px unbroken ladder with the
         # only count scrolled off the top — and #discover-results carries
         # aria-live="polite" aria-atomic="true", so a screen reader announces
@@ -1769,7 +1769,7 @@ def _run_pdf_preflight(content: bytes) -> None:
     1. Magic-byte sniff (5-byte read) — :func:`_is_pdf_bytes`.
     2. Polyglot tail (last 1 KB scan) — :func:`_pdf_polyglot_check`.
     3. JavaScript / auto-action detection (full-body regex) —
-       :func:`tools.security.pdfid.find_javascript`.
+       :func:`ingest.security.pdfid.find_javascript`.
     4. Page-count probe (full-body regex) —
        :func:`_pdf_declared_page_count`.
 
@@ -1800,7 +1800,7 @@ def _run_pdf_preflight(content: bytes) -> None:
             detail=(
                 f"PDF contains embedded active-content tokens "
                 f"({unique_tokens}) — rejected per the textbook-"
-                f"ingest pre-flight gate. See tools/security/"
+                f"ingest pre-flight gate. See ingest/security/"
                 f"pdfid.py for the detection rules."
             ),
         )

@@ -15,6 +15,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from mcp.server.fastmcp import FastMCP
 
+from ingest import notebooks as _notebook_common
 from server.config import Config
 from server.ingest_tracker import IngestTaskTracker
 from server.mcp_resources import (
@@ -27,7 +28,7 @@ from server.notebooks_store import NotebooksStore
 from server.routes.notebooks import router as notebooks_router
 from server.routes.ui import router as ui_router
 from server.tools import reset_resources_for_tests, set_resources
-from tools import _notebook_common, wheel_install_check
+from tools import wheel_install_check
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 

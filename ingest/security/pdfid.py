@@ -3,7 +3,7 @@
 Detects PDF dictionary key names that indicate embedded JavaScript,
 auto-open actions, or other content-execution vectors. Algorithm
 borrowed (NOT copied) from Didier Stevens' public-domain ``pdfid``
-tool — see ``tools/security/README.md`` for the no-fork policy
+tool — see ``ingest/security/README.md`` for the no-fork policy
 rationale.
 
 **This is defense-in-depth, NOT a complete PDF malware scanner.** The
@@ -39,7 +39,7 @@ damage-bound for any future parser swap that introduces a
 JS-evaluating component.
 
 Usage:
-    >>> from tools.security.pdfid import find_javascript
+    >>> from ingest.security.pdfid import find_javascript
     >>> find_javascript(b"%PDF-1.4\\n/Catalog << /JS (alert(1)) >>")
     ['/JS']
 

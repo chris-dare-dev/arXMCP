@@ -37,7 +37,7 @@
 ;; --- Process management -----------------------------------------------------
 ;; LaTeXML is allowed to fork Perl helpers, exec child processes, and
 ;; signal them. The process-group kill discipline in
-;; `tools/arxiv_fetch.py::parse_with_latexml` reaches grandchildren
+;; `ingest/arxiv_fetch.py::parse_with_latexml` reaches grandchildren
 ;; via the new-session group, which works fine inside the sandbox.
 (allow process-fork)
 (allow process-exec)

@@ -28,7 +28,7 @@ tools/seed-papers.txt.
 
 notebook-paper-discovery-m2: the arXiv Atom API surface (``Candidate``,
 ``build_query_url``, ``parse_atom_feed``, ``fetch_candidates``) moved into the
-shared ``tools/_arxiv_api.py`` library so the m3 notebook-discovery driver can
+shared ``ingest/arxiv_api.py`` library so the m3 notebook-discovery driver can
 reuse it. They are re-exported here so existing imports
 (``from tools.curate_seed import Candidate, build_query_url, …``) keep working.
 Only the CLI-specific ``filter_candidates`` heuristic and ``main()`` live here.
@@ -40,7 +40,7 @@ import argparse
 import sys
 from datetime import UTC, datetime
 
-from tools._arxiv_api import (
+from ingest.arxiv_api import (
     ARXIV_API_URL,
     ATOM_NS,
     Candidate,
@@ -48,11 +48,11 @@ from tools._arxiv_api import (
     fetch_candidates,
     parse_atom_feed,
 )
-from tools.arxiv_fetch import POLITENESS_SLEEP_SECONDS
+from ingest.arxiv_fetch import POLITENESS_SLEEP_SECONDS
 
 # Re-exported for backward-compatible imports (tests/test_fetch_seed.py and any
 # other caller importing these names from tools.curate_seed). The canonical
-# definitions live in tools/_arxiv_api.py.
+# definitions live in ingest/arxiv_api.py.
 __all__ = [
     "ARXIV_API_URL",
     "ATOM_NS",
@@ -100,7 +100,7 @@ def main() -> int:
     )
     print(
         f"# politeness: paginating at <= {POLITENESS_SLEEP_SECONDS}s/page via "
-        "tools._arxiv_api",
+        "ingest.arxiv_api",
         file=sys.stderr,
     )
 

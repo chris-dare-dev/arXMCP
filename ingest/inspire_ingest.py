@@ -41,7 +41,7 @@ half-true; ``references`` alone closes most of AC#2's surface.
 
 Politeness contract:
 
-- ``User-Agent`` reuses ``tools.arxiv_fetch.build_user_agent`` →
+- ``User-Agent`` reuses ``ingest.arxiv_fetch.build_user_agent`` →
   ``arXMCP/0.1 (mailto:<ARXMCP_CONTACT_EMAIL>)``.
 - INSPIRE-HEP does not document a ``mailto`` query parameter; do not
   send one. ``Accept: application/json`` per the API.
@@ -102,6 +102,12 @@ from typing import Any
 import kuzu
 
 from ingest.application_paths import ApplicationPaths
+from ingest.arxiv_fetch import (
+    DEFAULT_503_BACKOFF_SECONDS,
+    MAX_503_BACKOFF_SECONDS,
+    build_user_agent,
+    parse_retry_after,
+)
 from ingest.graph_ingest import (
     _merge_cite,
     _serialize_failures,
@@ -110,19 +116,13 @@ from ingest.graph_ingest import (
 )
 from ingest.identifiers import is_valid_arxiv_paper_id
 from ingest.kuzudb_schema import apply_schema
-from tools.arxiv_fetch import (
-    DEFAULT_503_BACKOFF_SECONDS,
-    MAX_503_BACKOFF_SECONDS,
-    build_user_agent,
-    parse_retry_after,
-)
 
 
 def _validate_paper_id_either_style(paper_id: str) -> None:
     """Validate an arXiv ID in either new-style (``YYMM.NNNNN``) or
     old-style (``subject/NNNNNNN``) form.
 
-    F2 fix from the E09_S02 critique. ``tools.arxiv_fetch.validate_paper_id``
+    F2 fix from the E09_S02 critique. ``ingest.arxiv_fetch.validate_paper_id``
     rejects old-style IDs by design (the seed corpus is post-2010). But
     INSPIRE-HEP enrichment specifically targets hep-th / math-ph, where
     a substantial fraction of the literature predates 2007 and uses

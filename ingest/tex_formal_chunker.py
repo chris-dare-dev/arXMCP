@@ -6,10 +6,10 @@ import re
 from bisect import bisect_left
 
 from ingest.application_paths import ApplicationPaths
+from ingest.arxiv_fetch import find_main_tex
 from ingest.chunk import CHUNKER_VERSION, ChunkRecord, _compute_chunk_id
 from ingest.chunker import STMT_MAX_TOKENS, _window_text_spans
 from ingest.tokenizer import tokenize_body
-from tools.arxiv_fetch import find_main_tex
 
 _DECL = re.compile(
     r"\\newtheorem(?P<star>\*)?\{(?P<env>[^}]+)\}"

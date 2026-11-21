@@ -37,7 +37,7 @@ from pathlib import Path
 import pytest
 
 import tools.notebook_cutover as nc
-from tools._notebook_common import NotebookError
+from ingest.notebooks import NotebookError
 
 
 def _write_lancedb(d: Path, version: int, chunk_count: int = 10) -> None:
@@ -62,7 +62,7 @@ def _write_lancedb(d: Path, version: int, chunk_count: int = 10) -> None:
 def nb_base(tmp_path: Path, monkeypatch) -> Path:
     """A notebooks-base dir; redirect the module-level NOTEBOOKS_BASE so
     main()/discover_promotable resolve here."""
-    import tools._notebook_common as _nc_common
+    import ingest.notebooks as _nc_common
 
     base = tmp_path / "notebooks"
     base.mkdir()

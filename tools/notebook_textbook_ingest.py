@@ -66,15 +66,15 @@ from ingest.embedder import (
     _encode_batch,
 )
 from ingest.identifiers import is_valid_paper_id
-from ingest.schema import EmbedRecord
-from ingest.store import refresh_indices, write_chunks
-from ingest.textbook_chunker import chunk_textbook
-from ingest.textbook_markdown_chunker import chunk_textbook_markdown
-from tools._notebook_common import (
+from ingest.notebooks import (
     NotebookError,
     notebook_lancedb_path,
     validate_slug,
 )
+from ingest.schema import EmbedRecord
+from ingest.store import refresh_indices, write_chunks
+from ingest.textbook_chunker import chunk_textbook
+from ingest.textbook_markdown_chunker import chunk_textbook_markdown
 
 if TYPE_CHECKING:
     from ingest.chunk import ChunkRecord

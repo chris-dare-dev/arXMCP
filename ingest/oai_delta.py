@@ -422,7 +422,7 @@ def _fetch_page(
 def _politeness_sleep_since(start_monotonic: float) -> None:
     """Block so the next request is ≥ ``POLITENESS_SLEEP_SECONDS``
     after ``start_monotonic``. Mirrors
-    :func:`tools.arxiv_fetch.politeness_sleep`."""
+    :func:`ingest.arxiv_fetch.politeness_sleep`."""
     elapsed = time.monotonic() - start_monotonic
     if elapsed < POLITENESS_SLEEP_SECONDS:
         time.sleep(POLITENESS_SLEEP_SECONDS - elapsed)
@@ -912,14 +912,14 @@ def _cli(argv: list[str]) -> int:
     # invocations (``python -m ingest.oai_delta``) also honor the
     # pause so an operator pausing for maintenance doesn't get
     # surprised by their own ad-hoc invocation later.
-    from tools import ingest_sentinel  # noqa: PLC0415
+    from ingest import sentinel as ingest_sentinel  # noqa: PLC0415
 
     record = ingest_sentinel.is_paused()
     if record is not None:
         reason = record.get("reason", "unknown")
         print(
             f"INFO: ingest paused (reason={reason}); skipping delta "
-            f"run. Clear with: python -m tools.ingest_sentinel clear",
+            f"run. Clear with: python -m ingest.sentinel clear",
             file=sys.stderr,
         )
         return 0
