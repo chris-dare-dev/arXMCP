@@ -393,6 +393,17 @@ def _dockerfile_stages() -> dict[str, str]:
     return stages
 
 
+def _env_values(stage: str) -> dict[str, str]:
+    """``ENV KEY=VALUE`` pairs of a stage, line continuations joined."""
+    joined = stage.replace("\\\n", " ")
+    values: dict[str, str] = {}
+    for line in joined.splitlines():
+        if line.startswith("ENV "):
+            for key, value in re.findall(r'(\w+)=("[^"]*"|\S+)', line[4:]):
+                values[key] = value.strip('"')
+    return values
+
+
 class TestImageDependencyClosure:
     """The image installs the closure pinned in ``uv.lock``, not a fresh
     resolve against the open ranges in pyproject.toml."""
@@ -425,6 +436,49 @@ class TestImageDependencyClosure:
             if line.strip() and not line.startswith("#")
         ]
         assert not any(fnmatch.fnmatch("uv.lock", p) for p in patterns)
+
+
+class TestImageImportsTheWheel:
+    """The runtime imports the installed wheel, so a file the wheel lacks
+    fails in the image instead of being served from a source copy."""
+
+    def test_runtime_has_no_copy_of_a_python_package_tree(
+        self, pyproject: dict
+    ) -> None:
+        runtime = _dockerfile_stages()["runtime"]
+        # ops/ stays: operators run its scripts by path inside the container.
+        shadowing = [
+            tree
+            for tree in _shipped_trees(pyproject)
+            if tree != "ops"
+            and re.search(rf"^COPY {re.escape(tree)}/ ", runtime, re.MULTILINE)
+        ]
+        assert not shadowing, (
+            f"the runtime stage copies {shadowing} beside the installed "
+            "wheel; with /app as the working directory those copies are "
+            "what `python -m server.main` imports"
+        )
+        assert not re.search(r"^COPY [^\n]*\bpyproject\.toml\b", runtime, re.MULTILINE), (
+            "a pyproject.toml next to the code makes the server treat /app "
+            "as a source checkout"
+        )
+
+    def test_working_directory_is_not_on_sys_path(self) -> None:
+        env = _env_values(_dockerfile_stages()["runtime"])
+        assert env.get("PYTHONSAFEPATH") == "1", (
+            "without PYTHONSAFEPATH=1, `python -m` puts /app ahead of "
+            "site-packages and /app/ops shadows the installed ops package"
+        )
+
+    def test_data_dir_is_the_declared_volume(self) -> None:
+        runtime = _dockerfile_stages()["runtime"]
+        volumes = re.findall(r"^VOLUME\s+(\S+)", runtime, re.MULTILINE)
+        env = _env_values(runtime)
+        assert env.get("ARXMCP_DATA_DIR") in volumes, (
+            "an installed wheel defaults its data root to the user's home, "
+            f"so ARXMCP_DATA_DIR must name the volume {volumes}; got "
+            f"{env.get('ARXMCP_DATA_DIR')!r}"
+        )
 
 
 # ---------------------------------------------------------------------------

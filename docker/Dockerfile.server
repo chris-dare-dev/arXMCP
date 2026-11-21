@@ -9,7 +9,8 @@
 #                     editable install — see IS1 close from the E06_S01
 #                     critique).
 #   2. ``runtime``  — slim Python image; installs the wheel into a
-#                     dedicated venv, drops to a non-root user,
+#                     dedicated venv, imports only from that venv's
+#                     site-packages, drops to a non-root user,
 #                     installs ``tini`` as PID 1, exposes 7733, and
 #                     starts the server via ``python -m server.main``
 #                     so the ARXMCP_* env vars are honored (IS3+IS4
@@ -125,8 +126,18 @@ RUN /opt/venv/bin/pip wheel --no-deps --wheel-dir /wheels .
 # (notebook-ops-hardening-m3). Keep both stages on the SAME digest.
 FROM python:3.11-slim@sha256:a3ab0b966bc4e91546a033e22093cb840908979487a9fc0e6e38295747e49ac0 AS runtime
 
+# PYTHONSAFEPATH stops ``python -m`` and ``python -c`` from putting the
+# working directory (/app) ahead of site-packages, so ``ops/`` below can
+# never shadow the installed package of the same name.
+#
+# ARXMCP_DATA_DIR is explicit because the server only falls back to
+# ``<checkout>/var/arxmcp`` when it runs from a source checkout. An
+# installed wheel would otherwise pick the platform data directory under
+# the user's home, outside the declared volume.
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
+    PYTHONSAFEPATH=1 \
+    ARXMCP_DATA_DIR=/app/var/arxmcp \
     PATH="/opt/venv/bin:$PATH"
 
 # ``tini`` as PID 1 so SIGTERM reaches the server entry point and the
@@ -150,25 +161,15 @@ WORKDIR /app
 COPY --from=builder /opt/venv /opt/venv
 COPY --from=builder /wheels /wheels
 
-# Install the project wheel (IS1 close). Path-independent — the
-# venv now resolves ``import server.*`` from inside site-packages,
-# not from the source tree. The source tree COPY below is for
-# in-container debugging / inspection only.
+# Install the project wheel (IS1 close). This is the only copy of
+# ``server``, ``ingest``, ``tools`` and ``shim`` in the image: there is no
+# source tree beside it to import from instead, so a data file missing
+# from the wheel fails here or at boot rather than being papered over.
+# ``pip check`` fails the build if the locked closure does not satisfy the
+# wheel's declared requirements.
 RUN /opt/venv/bin/pip install --no-cache-dir --no-deps /wheels/*.whl \
-    && rm -rf /wheels
-
-# Source tree for in-container inspection (NOT used for imports).
-COPY server/ ./server/
-COPY ingest/ ./ingest/
-COPY pyproject.toml README.md ./
-
-# Operator-console assets need no COPY of their own: they live at
-# ``server/frontend/`` (moved there before the first PyPI publish, issue
-# #195 follow-up), so the ``COPY server/`` above carries them and the wheel
-# installed below carries them into site-packages. Both call sites resolve
-# the assets relative to the ``server`` PACKAGE rather than a repo root,
-# which is what lets the source-tree and installed layouts stay
-# interchangeable.
+    && rm -rf /wheels \
+    && /opt/venv/bin/pip check
 
 # ops/: the operability layer (issue #206) — ops/cutover.sh,
 # ops/restore_drill.sh, ops/drift_check.py, ops/checkpoint_notebooks_db.py,
@@ -177,8 +178,17 @@ COPY pyproject.toml README.md ./
 # docs/ops/ tells the operator to invoke these paths inside the container
 # (`docker exec ... ops/restore_drill.sh`), and the systemd/cron units are
 # meant to be read out and installed on the host. The wheel carries them
-# into site-packages, but at a path no runbook names.
+# into site-packages, but at a path no runbook names. Python code still
+# imports ``ops`` from site-packages (PYTHONSAFEPATH above); these files
+# are the scripts and units an operator reads or runs by path.
 COPY ops/ ./ops/
+
+# Every shipped package must resolve from the venv, never from /app.
+RUN python -c "import importlib.util, sys; \
+bad = {n: importlib.util.find_spec(n).origin \
+       for n in ('server', 'ingest', 'tools', 'shim', 'ops') \
+       if not (importlib.util.find_spec(n).origin or '').startswith('/opt/venv/')}; \
+sys.exit(f'imports resolve outside /opt/venv: {bad}' if bad else 0)"
 
 # Create the var/arxmcp tree. IS6: scope chown to /app/var only —
 # source tree stays root-owned (still readable to ``arxmcp``).
