@@ -22,6 +22,9 @@ Plus regression-grade coverage for:
 
 from __future__ import annotations
 
+import subprocess
+import sys
+import textwrap
 import timeit
 from pathlib import Path
 
@@ -511,13 +514,13 @@ class TestCanonicalization:
 
 
 # ===========================================================================
-# F1 regression — ReDoS guard at import
+# F1 regression — ReDoS guard on load
 # ===========================================================================
 
 
 class TestReDoSGuard:
     """F1 fix from the E08_S01 critique: a future YAML edit adding
-    a catastrophically-backtracking pattern must fail at import,
+    a catastrophically-backtracking pattern must fail on load,
     not blow the 1ms latency budget at request time."""
 
     def test_catastrophic_backtracking_pattern_rejected(self, tmp_path):
@@ -604,7 +607,7 @@ class TestBytesInput:
 class TestBlockOrderInvariant:
     """F4 fix from the E08_S01 critique: a YAML edit appending an
     AUTOFORMALIZATION pattern at the bottom (silently demoting it
-    below LOOKUP and SYNTHESIS) must fail at import."""
+    below LOOKUP and SYNTHESIS) must fail on load."""
 
     def test_appended_high_priority_pattern_rejected(self, tmp_path):
         """LOOKUP first, then AUTOFORMALIZATION at index 1 →
@@ -649,11 +652,7 @@ class TestBlockOrderInvariant:
         the priority block-order invariant. Sanity check: this
         passing today would have failed if the implementer had
         gotten the YAML order wrong."""
-        # If we got here, _load_and_compile already ran at import
-        # without raising — the invariant holds.
-        from server.router import _COMPILED_PATTERNS
-
-        assert len(_COMPILED_PATTERNS) > 0
+        assert len(_load_and_compile()) > 0
 
 
 # ===========================================================================
@@ -758,7 +757,7 @@ class TestRationaleValidation:
 class TestExtraKeyRejection:
     """F8 fix from the E08_S01 critique: a YAML entry with an
     unrecognized field (e.g. ``priority: 99``) silently ignored
-    creates editorial confusion. Reject at import."""
+    creates editorial confusion. Reject on load."""
 
     def test_extra_key_raises(self, tmp_path):
         bad = tmp_path / "extra_key.yaml"
@@ -771,3 +770,47 @@ class TestExtraKeyRejection:
         )
         with pytest.raises(RuntimeError, match="extra="):
             _load_and_compile(bad)
+
+
+# ===========================================================================
+# The pattern file does not gate server startup
+# ===========================================================================
+
+
+def test_missing_pattern_file_does_not_stop_server_import():
+    """``server.tools`` reaches ``server.router`` only for ``RouteTag``.
+    With the pattern file unreadable, importing the tool surface still
+    succeeds, and the failure surfaces from ``classify`` instead."""
+    script = textwrap.dedent(
+        """
+        import pathlib
+
+        real_read_text = pathlib.Path.read_text
+
+        def read_text(self, *args, **kwargs):
+            if self.name == "router_patterns.yaml":
+                raise FileNotFoundError(str(self))
+            return real_read_text(self, *args, **kwargs)
+
+        pathlib.Path.read_text = read_text
+
+        import server.tools  # noqa: F401
+        from server.router import classify
+
+        try:
+            classify("prove the lemma")
+        except RuntimeError as exc:
+            print("classify:", exc)
+        else:
+            raise SystemExit("classify did not fail on a missing pattern file")
+        """
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=Path(__file__).resolve().parent.parent,
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "router_patterns.yaml missing" in result.stdout
