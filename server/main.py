@@ -58,12 +58,15 @@ implementation observes ``http.response.body`` events and
 short-circuits with a 413 if the cumulative bytes exceed the cap
 on a non-exempt path.
 
-**Why eager startup is load-bearing**. ``/readyz`` returns 503 until
+**Why eager startup is load-bearing**. ``/readyz`` is not green until
 the embedder + LanceDB are warm. Lazy load would make the first
 ``tools/call`` hang for ~5–30s while a green ``/readyz`` lied. The
 lifespan eager-loads BGE-M3 BEFORE ``yield``, so a green readiness
 truly means "this process can serve a query in milliseconds, not
-seconds."
+seconds." uvicorn opens the socket only after that, so during
+warm-up a probe gets no answer; the per-resource progress the
+lifespan publishes on ``app.state.startup_progress`` is what an
+in-process reader sees.
 """
 
 from __future__ import annotations
@@ -95,7 +98,7 @@ from server.health import (
 )
 from server.model_loader import TRUST_REMOTE_CODE_ENV
 from server.observability.sanitize import SANITIZE_ENV_VAR
-from server.resources import Resources
+from server.resources import Resources, StartupProgress
 
 logger = logging.getLogger(__name__)
 
@@ -470,7 +473,10 @@ def _scan_unknown_arxmcp_env_vars(config: Config) -> None:
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Startup → yield → shutdown.
 
-    Startup: build :class:`Resources`, attach to ``app.state.resources``.
+    Startup: publish a :class:`StartupProgress` on
+    ``app.state.startup_progress``, then build :class:`Resources` (which
+    flips that progress per resource) and attach it to
+    ``app.state.resources``.
     Also threads the MCP session-manager lifespan into the parent
     lifespan (F2 fix); without that, MCP requests raise
     ``RuntimeError: Task group is not initialized`` on the first
@@ -494,10 +500,16 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     setup_tracing(config)
 
+    # Published before the heavy loads so ``/readyz`` can name what is
+    # still cold while ``app.state.resources`` is unset. Resources.startup
+    # flips each flag as that resource finishes loading.
+    progress = StartupProgress()
+    app.state.startup_progress = progress
+
     # F9 fix: catch the broad Exception so LanceDB errors get the
     # FATAL prefix too.
     try:
-        resources = await Resources.startup(config)
+        resources = await Resources.startup(config, progress=progress)
     except Exception as exc:
         logger.error("FATAL: Resources.startup failed: %s", exc)
         raise

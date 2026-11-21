@@ -47,9 +47,10 @@ from server.backup_status import (
     advances_freshness,
     classify_backup_state,
 )
+from server.resources import WARM_RESOURCE_NAMES
 
 if TYPE_CHECKING:
-    from server.resources import Resources
+    from server.resources import Resources, StartupProgress
 
 
 logger = logging.getLogger(__name__)
@@ -261,14 +262,23 @@ async def healthz() -> dict[str, str]:
     return {"status": "ok"}
 
 
-def _warm_map(resources: Resources | None) -> dict[str, bool]:
-    """The per-resource warm map every ``/readyz`` body carries."""
-    if resources is None:
-        return {"embedder": False, "lancedb": False, "reranker": False}
-    return {
-        name: resources.is_resource_warm(name)
-        for name in ("embedder", "lancedb", "reranker")
-    }
+def _warm_map(
+    resources: Resources | None, progress: StartupProgress | None = None
+) -> dict[str, bool]:
+    """The per-resource warm map every ``/readyz`` body carries.
+
+    Before :class:`Resources` is attached the map comes from the
+    lifespan's :class:`StartupProgress`, so it names exactly the
+    resources still loading; with neither, every resource is cold.
+    """
+    if resources is not None:
+        return {
+            name: resources.is_resource_warm(name)
+            for name in WARM_RESOURCE_NAMES
+        }
+    if progress is not None:
+        return progress.as_map()
+    return dict.fromkeys(WARM_RESOURCE_NAMES, False)
 
 
 @router.get("/readyz")
@@ -285,13 +295,23 @@ async def readyz(request: Request) -> Response:
         {"status": "ready" | "not_ready",
          "warm": {"embedder": bool, "lancedb": bool, "reranker": bool}}
 
-    The map tells reranking apart from the rest: ``reranker`` is False
-    on a ready server started with reranking disabled. The embedder and
-    LanceDB are loaded together by one startup call, so they are warm
-    or cold together; a not-ready body reports every resource cold.
+    Each flag answers for its own resource. While startup is running
+    the map comes from ``app.state.startup_progress``, so a not-ready
+    body names what is still loading: LanceDB opens before BGE-M3
+    starts, and the reranker loads last. ``reranker`` stays False on a
+    ready server started with reranking disabled, and every flag is
+    False once shutdown begins.
+
+    Under uvicorn the listening socket opens only after the lifespan's
+    startup returns, so an HTTP probe gets no answer at all during
+    warm-up; the mid-startup map is for anything that drives the ASGI
+    app in-process while its lifespan runs.
     """
     resources: Resources | None = getattr(
         request.app.state, "resources", None
+    )
+    progress: StartupProgress | None = getattr(
+        request.app.state, "startup_progress", None
     )
 
     # onboarding-uplift-m4 F2: bootstrap mode → 200 with status "bootstrap".
@@ -311,7 +331,10 @@ async def readyz(request: Request) -> Response:
     if resources is None or not resources.warm:
         return JSONResponse(
             status_code=503,
-            content={"status": "not_ready", "warm": _warm_map(resources)},
+            content={
+                "status": "not_ready",
+                "warm": _warm_map(resources, progress),
+            },
         )
 
     # E14_S05 D2: degraded body. When the answers themselves are at
@@ -675,7 +698,7 @@ def refresh_metrics_from_singleton_state(resources: Resources) -> None:
     # duck-typed Resources (mirrors the chunk-count reads above).
     CORPUS_UNINDEXED_ROWS.set(getattr(resources, "startup_unindexed_rows", -1))
     PROCESS_START_TIME_GAUGE.set(resources.process_start_time_seconds)
-    for res_name in ("embedder", "lancedb", "reranker"):
+    for res_name in WARM_RESOURCE_NAMES:
         RESOURCE_WARM_GAUGE.labels(resource=res_name).set(
             1.0 if resources.is_resource_warm(res_name) else 0.0
         )
