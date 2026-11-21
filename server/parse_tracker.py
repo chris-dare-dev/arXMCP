@@ -401,12 +401,13 @@ class ParseTaskTracker:
             # ``var/arxmcp/``-relative form. Storing the absolute path
             # would leak the operator's home dir through the
             # /parse-status JSON.
-            metrics = ParseMetrics(
-                latex_errors=render_result.latex_error_annotations,
-                mineru_wall_s=mineru_result.wall_clock_s,
-                render_wall_s=render_result.wall_clock_s,
-            )
+            metrics = _partial_metrics()
             try:
+                metrics = ParseMetrics(
+                    latex_errors=render_result.latex_error_annotations,
+                    mineru_wall_s=mineru_result.wall_clock_s,
+                    render_wall_s=render_result.wall_clock_s,
+                )
                 html_path_str = redact_html_path(render_result.output_html_path)
                 await self._record_complete(store, slug, html_path_str, metrics)
             except Exception as e:  # noqa: BLE001
@@ -488,6 +489,10 @@ class ParseTaskTracker:
         for task in tasks_snapshot:
             if not task.done():
                 task.cancel()
+        # A cancel is only delivered when its task next runs. Give each one
+        # that turn, so a running parse has asked its thread to skip
+        # rendering before MinerU is terminated and that thread unblocks.
+        await asyncio.sleep(0)
         # Lazy import, matching `_run_parse`: the MinerU helpers stay out of
         # the daemon's import graph until a parse has actually run.
         from ingest.textbook_parser import (  # noqa: PLC0415
