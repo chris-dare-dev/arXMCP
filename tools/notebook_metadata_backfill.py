@@ -268,6 +268,74 @@ async def _hydrate(
         await store.close()
 
 
+@dataclass(frozen=True)
+class HydrationResult:
+    """Outcome of one hydration pass over a set of paper ids.
+
+    ``hydrated + skipped + missing`` covers ``unique``, the deduped,
+    version-stripped valid ids; ``malformed`` lines were never sent.
+    """
+
+    hydrated: list[str]
+    skipped: list[str]
+    missing: list[tuple[str, str]]
+    malformed: list[str]
+    unique: int
+
+
+def _partition_paper_ids(lines: Sequence[str]) -> tuple[list[str], list[str]]:
+    """Split ``lines`` into ``(valid_unversioned_ids, malformed_lines)``.
+
+    Malformed ids poison id_list batches, so they are never sent;
+    versioned ids are stripped so store rows are keyed unversioned.
+    """
+    valid_ids: list[str] = []
+    malformed: list[str] = []
+    seen: set[str] = set()
+    for line in lines:
+        if is_valid_arxiv_paper_id(line):
+            pid = strip_id_version(line)
+            if pid not in seen:
+                seen.add(pid)
+                valid_ids.append(pid)
+        else:
+            malformed.append(line)
+    return valid_ids, malformed
+
+
+def hydrate_paper_ids(
+    nb_dir: Path,
+    paper_ids: Sequence[str],
+    *,
+    batch_size: int = DEFAULT_BATCH_SIZE,
+    sleep: Callable[[float], None] = time.sleep,
+) -> HydrationResult:
+    """Hydrate ``paper_ids`` into the notebook's metadata store.
+
+    Applies the module's politeness contract and the configured contact
+    address. Rows already hydrated are skipped without a request, so
+    re-running over the same ids costs no network egress.
+    """
+    valid_ids, malformed = _partition_paper_ids(paper_ids)
+    contact_email = resolve_contact_email(None)
+    hydrated, skipped, missing = asyncio.run(
+        _hydrate(
+            nb_dir / PAPER_METADATA_DB_FILENAME,
+            valid_ids,
+            contact_email,
+            batch_size=batch_size,
+            sleep=sleep,
+        )
+    )
+    return HydrationResult(
+        hydrated=hydrated,
+        skipped=skipped,
+        missing=missing,
+        malformed=malformed,
+        unique=len(valid_ids),
+    )
+
+
 def run(
     slug: str,
     *,
@@ -282,62 +350,38 @@ def run(
     ``slug``. Returns the process exit code.
     """
     # Slug validation is the FIRST check (per ingest.notebooks convention).
-    # A configured contact address is optional and only affects the request UA.
     validate_slug(slug)
-    contact_email = resolve_contact_email(None)
     nb_dir = notebook_dir(slug, base=base)
     raw_lines = read_paper_ids_from_papers_txt(nb_dir / "papers.txt")
 
-    # Pre-validate every line (malformed ids poison id_list batches);
-    # normalize versioned ids so store rows are keyed unversioned.
-    valid_ids: list[str] = []
-    malformed: list[str] = []
-    seen: set[str] = set()
-    for line in raw_lines:
-        if is_valid_arxiv_paper_id(line):
-            pid = strip_id_version(line)
-            if pid not in seen:
-                seen.add(pid)
-                valid_ids.append(pid)
-        else:
-            malformed.append(line)
-
-    hydrated, skipped, missing = asyncio.run(
-        _hydrate(
-            nb_dir / PAPER_METADATA_DB_FILENAME,
-            valid_ids,
-            contact_email,
-            batch_size=batch_size,
-            sleep=sleep,
-        )
-    )
+    result = hydrate_paper_ids(nb_dir, raw_lines, batch_size=batch_size, sleep=sleep)
 
     # Summary line — hydrated/total keeps a zero-row run loud. `unique` is
     # the deduped, version-stripped denominator the AC1 coverage gate is
     # measured against (hydrated + skipped + missing == unique); `total`
     # stays the raw uncommented papers.txt line count.
     print(
-        f"hydrated={len(hydrated)} "
-        f"skipped={len(skipped)} "
-        f"missing={len(missing)} "
-        f"malformed={len(malformed)} "
-        f"unique={len(valid_ids)} "
+        f"hydrated={len(result.hydrated)} "
+        f"skipped={len(result.skipped)} "
+        f"missing={len(result.missing)} "
+        f"malformed={len(result.malformed)} "
+        f"unique={result.unique} "
         f"total={len(raw_lines)}"
     )
-    if malformed:
+    if result.malformed:
         print("\nmalformed lines in papers.txt (not arXiv IDs):", file=sys.stderr)
-        for line in malformed:
+        for line in result.malformed:
             print(f"  {line!r}", file=sys.stderr)
-    if missing:
+    if result.missing:
         print(
             "\nmissing metadata — per-id reasons (http_*/network are "
             "recoverable: re-run after the arXiv outage clears):",
             file=sys.stderr,
         )
-        for pid, reason in missing:
+        for pid, reason in result.missing:
             print(f"  {pid}  reason={reason}", file=sys.stderr)
 
-    return 1 if (malformed or missing) else 0
+    return 1 if (result.malformed or result.missing) else 0
 
 
 def _build_arg_parser() -> argparse.ArgumentParser:

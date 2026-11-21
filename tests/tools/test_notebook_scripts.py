@@ -17,17 +17,30 @@ heavy for a unit test).
 
 from __future__ import annotations
 
+import asyncio
 import io
 import json
+import urllib.error
 from pathlib import Path
 
 import pytest
 
+from ingest import arxiv_api as _arxiv_api
 from ingest import notebooks as _notebook_common
 from ingest.ar5iv_fetch import Ar5ivResult
 from ingest.notebooks import NotebookError, validate_slug
+from server.paper_metadata_store import (
+    PAPER_METADATA_DB_FILENAME,
+    PaperMetadataStore,
+)
 from tests._symlink_support import requires_symlink
-from tools import notebook_fetch, notebook_ingest, notebook_init, notebook_purge
+from tools import (
+    notebook_fetch,
+    notebook_ingest,
+    notebook_init,
+    notebook_metadata_backfill,
+    notebook_purge,
+)
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -74,6 +87,19 @@ def _autouse_safety_net_mock_raw_tex_fetch(
         "fetch_raw_tex_if_missing",
         lambda *args, **kwargs: True,
     )
+    # notebook_ingest hydrates arXiv metadata after every successful run.
+    # Refuse the request so no test here reaches export.arxiv.org; the
+    # hook is best effort, so a refused request cannot change an exit code.
+    monkeypatch.setattr(
+        notebook_metadata_backfill,
+        "resolve_contact_email",
+        lambda _arg: "test@example.com",
+    )
+    monkeypatch.setattr(_arxiv_api, "_fetch_url", _refuse_live_arxiv)
+
+
+def _refuse_live_arxiv(url: str, contact_email: str | None = None) -> bytes:
+    raise RuntimeError(f"test tried to reach the arXiv API: {url}")
 
 
 @pytest.fixture
@@ -459,6 +485,133 @@ def test_ingest_refuses_a_table_another_chunker_wrote(
     assert "make notebook-cutover" in err and "v1.2" in err
     table = lancedb.connect(str(nb / "lancedb")).open_table("chunks")
     assert table.count_rows() == 1
+
+
+class _OnePaperSummary:
+    papers_total = 1
+    papers_succeeded = 1
+    papers_failed = 0
+    ar5iv_hit_rate = 1.0
+
+
+def _fake_ingest_into(nb: Path):
+    """A ``run_bulk_ingest`` stand-in that leaves a valid corpus marker."""
+
+    def _fake_ingest(paper_ids, **kw):
+        (nb / "lancedb" / "corpus-version.json").write_text(json.dumps({"version": 3}))
+        return _OnePaperSummary()
+
+    return _fake_ingest
+
+
+def _atom_feed(ids_versioned: list[str]) -> bytes:
+    entries = "".join(
+        f"<entry><id>http://arxiv.org/abs/{pid}</id>"
+        f"<title>Title of {pid}</title>"
+        f"<published>2023-03-13T00:00:00Z</published>"
+        f"<summary>An abstract.</summary>"
+        f"<author><name>A. Author</name></author>"
+        f'<category term="math.AG"/>'
+        f'<arxiv:primary_category term="math.AG"/></entry>'
+        for pid in ids_versioned
+    )
+    return (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<feed xmlns="http://www.w3.org/2005/Atom"'
+        ' xmlns:arxiv="http://arxiv.org/schemas/atom">'
+        f"{entries}</feed>"
+    ).encode()
+
+
+def _stored_title(nb: Path, paper_id: str) -> str | None:
+    async def _get():
+        store = await PaperMetadataStore.open(nb / PAPER_METADATA_DB_FILENAME)
+        try:
+            record = await store.get(paper_id)
+        finally:
+            await store.close()
+        return None if record is None else record.title
+
+    return asyncio.run(_get())
+
+
+def test_ingest_hydrates_metadata_for_ingested_papers(
+    notebooks_base: Path, monkeypatch: pytest.MonkeyPatch, capsys
+) -> None:
+    nb = _seed_notebook(notebooks_base, "demo", ["2303.07061", "math/0212237"], with_lancedb=True)
+    monkeypatch.setattr(notebook_ingest, "run_bulk_ingest", _fake_ingest_into(nb))
+    requests: list[tuple[str, str | None]] = []
+
+    def _feed(url: str, contact_email: str | None = None) -> bytes:
+        requests.append((url, contact_email))
+        return _atom_feed(["2303.07061v2", "math/0212237v1"])
+
+    monkeypatch.setattr(_arxiv_api, "_fetch_url", _feed)
+
+    assert notebook_ingest.run("demo") == 0
+    out = capsys.readouterr().out
+    assert "bulk_ingest: total=1 ok=1 fail=0 ar5iv_rate=1.000" in out
+    assert "metadata: hydrated=2 skipped=0 missing=0" in out
+    # One batched request carrying the configured contact address.
+    assert [email for _url, email in requests] == ["test@example.com"]
+    assert _stored_title(nb, "2303.07061") == "Title of 2303.07061v2"
+    assert _stored_title(nb, "math/0212237") == "Title of math/0212237v1"
+
+    # A re-run finds every row hydrated and sends nothing.
+    requests.clear()
+    assert notebook_ingest.run("demo") == 0
+    assert "metadata: hydrated=0 skipped=2 missing=0" in capsys.readouterr().out
+    assert requests == []
+
+
+def test_ingest_succeeds_when_arxiv_returns_errors(
+    notebooks_base: Path, monkeypatch: pytest.MonkeyPatch, capsys
+) -> None:
+    nb = _seed_notebook(notebooks_base, "demo", ["2303.07061"], with_lancedb=True)
+    monkeypatch.setattr(notebook_ingest, "run_bulk_ingest", _fake_ingest_into(nb))
+
+    def _outage(url: str, contact_email: str | None = None) -> bytes:
+        raise urllib.error.HTTPError(url, 500, "Internal Server Error", None, None)
+
+    monkeypatch.setattr(_arxiv_api, "_fetch_url", _outage)
+
+    assert notebook_ingest.run("demo") == 0
+    captured = capsys.readouterr()
+    assert "metadata: hydrated=0 skipped=0 missing=1" in captured.out
+    assert "2303.07061 (http_500)" in captured.err
+    assert "notebook_metadata_backfill.py demo" in captured.err
+    assert _stored_title(nb, "2303.07061") is None
+
+
+def test_ingest_succeeds_when_hydration_raises(
+    notebooks_base: Path, monkeypatch: pytest.MonkeyPatch, capsys
+) -> None:
+    """The autouse refusal raises out of the fetch layer: the hook logs
+    it and the ingest still reports success."""
+    nb = _seed_notebook(notebooks_base, "demo", ["2303.07061"], with_lancedb=True)
+    monkeypatch.setattr(notebook_ingest, "run_bulk_ingest", _fake_ingest_into(nb))
+
+    assert notebook_ingest.run("demo") == 0
+    captured = capsys.readouterr()
+    assert "indexes built for corpus_version=3" in captured.out
+    assert "metadata: failed — run tools/notebook_metadata_backfill.py demo" in (captured.err)
+
+
+def test_ingest_no_metadata_flag_skips_hydration(
+    notebooks_base: Path, monkeypatch: pytest.MonkeyPatch, capsys
+) -> None:
+    nb = _seed_notebook(notebooks_base, "demo", ["2303.07061"], with_lancedb=True)
+    monkeypatch.setattr(notebook_ingest, "run_bulk_ingest", _fake_ingest_into(nb))
+
+    def _never(*_a, **_k):
+        raise AssertionError("--no-metadata must not hydrate")
+
+    monkeypatch.setattr(notebook_metadata_backfill, "hydrate_paper_ids", _never)
+
+    assert notebook_ingest.main(["demo", "--no-metadata"]) == 0
+    captured = capsys.readouterr()
+    assert "metadata:" not in captured.out + captured.err
+    assert not (nb / PAPER_METADATA_DB_FILENAME).exists()
 
 
 # ---------------------------------------------------------------------------
