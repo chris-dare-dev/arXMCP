@@ -157,7 +157,7 @@ def run(slug: str, *, sleep_seconds: float = POLITENESS_SLEEP_SECONDS) -> int:
                 # oldstyle-id-ingest-fix-m1 F1: emit a breadcrumb so this
                 # degrade is NOT silent — every other miss path in
                 # ``fetch_raw_tex_if_missing`` logs a categorized reason
-                # (``_notebook_common.py``), and an operator scanning logs
+                # (``ingest/notebooks.py``), and an operator scanning logs
                 # must be able to distinguish an out-of-scope old-style id
                 # from a genuine deeper ``ValueError`` bug masked here.
                 logger.info(

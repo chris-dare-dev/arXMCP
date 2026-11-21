@@ -297,7 +297,7 @@ def fetch_raw_tex_if_missing(
         return True
 
     # Late import to avoid cycles: ingest.arxiv_fetch imports nothing
-    # from _notebook_common, but keeping the import lazy means tests
+    # from ingest.notebooks, but keeping the import lazy means tests
     # that don't exercise the raw-tex path don't pay the import cost.
     from ingest.arxiv_fetch import fetch_eprint  # noqa: PLC0415
     from server.ssl_pin import arxiv_ssl_context_from_env  # noqa: PLC0415

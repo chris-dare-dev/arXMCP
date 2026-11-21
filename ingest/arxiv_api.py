@@ -438,7 +438,7 @@ def parse_atom_metadata(xml_bytes: bytes) -> list[PaperMetadata]:
 def _fetch_url(url: str, contact_email: str | None = None) -> bytes:
     """GET ``url`` from the arXiv API with the polite User-Agent.
 
-    Private so tests monkeypatch ``_arxiv_api._fetch_url`` (the
+    Private so tests monkeypatch ``ingest.arxiv_api._fetch_url`` (the
     ``graph_ingest._fetch_openalex_work`` pattern) instead of patching
     ``urllib.request.urlopen`` globally. Reads at most ``MAX_RESPONSE_BYTES``.
     """

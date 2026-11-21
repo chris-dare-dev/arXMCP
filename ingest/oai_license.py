@@ -204,7 +204,7 @@ def build_getrecord_url(
     :func:`ingest.identifiers.is_valid_arxiv_paper_id`, and joins it to
     ``oai:arXiv.org:``. The old-style archive prefix + its literal ``/``
     are preserved. ``:`` and ``/`` are kept unescaped (``safe=":/"``,
-    mirroring ``_arxiv_api.build_id_list_url``'s convention and the
+    mirroring ``arxiv_api.build_id_list_url``'s convention and the
     live-verified working requests).
     """
     bare_id = strip_id_version(work_id)

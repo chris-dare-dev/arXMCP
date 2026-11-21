@@ -482,7 +482,7 @@ def run(
     rows INSTEAD of registering anything: no papers.txt walk, no OAI-PMH,
     no writes beyond that one column.
     """
-    # Slug validation FIRST (per _notebook_common convention), then
+    # Slug validation FIRST (per ingest.notebooks convention), then
     # run-entry politeness enforcement: resolve the arXiv polite-pool
     # contact email and build the User-Agent once for the whole run.
     validate_slug(slug)

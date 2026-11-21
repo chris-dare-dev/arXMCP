@@ -12,7 +12,7 @@ console panel). Ranking is
 arXiv's ``sortBy=submittedDate&sortOrder=descending`` order, preserved through
 the dedup filter, so output is deterministic for a fixed API response.
 
-Politeness is inherited from ``_arxiv_api.fetch_candidates`` (per-page 3s sleep;
+Politeness is inherited from ``arxiv_api.fetch_candidates`` (per-page 3s sleep;
 for ``max_results <= 2000`` — typical for a notebook — a single request with no
 sleep). A future multi-notebook caller (m4) owns any inter-notebook delay.
 
@@ -41,7 +41,7 @@ from server.operator_settings import DEFAULT_DB_PATH
 class DiscoveryCandidate:
     """A proposed paper for a notebook — exactly the m3 output contract.
 
-    Decoupled from ``_arxiv_api.Candidate`` (which also carries arXiv-internal
+    Decoupled from ``arxiv_api.Candidate`` (which also carries arXiv-internal
     fields like ``n_authors`` / ``primary_category``); this is the stable shape
     the m4 console panel consumes.
     """
@@ -53,7 +53,7 @@ class DiscoveryCandidate:
 
 
 def _strip_version(paper_id: str) -> str:
-    """Drop the trailing ``vN`` suffix, mirroring ``_arxiv_api.parse_atom_feed``.
+    """Drop the trailing ``vN`` suffix, mirroring ``arxiv_api.parse_atom_feed``.
 
     The junction may store a versioned id (URL-paste route), while feed
     candidates are already un-versioned; normalising both to this key makes the

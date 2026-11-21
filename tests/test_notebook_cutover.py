@@ -67,7 +67,7 @@ def nb_base(tmp_path: Path, monkeypatch) -> Path:
     base = tmp_path / "notebooks"
     base.mkdir()
     # discover_promotable() reads nc.NOTEBOOKS_BASE; notebook_dir(slug,
-    # base=None) — the path main() takes — reads _notebook_common.NOTEBOOKS_BASE.
+    # base=None) — the path main() takes — reads ingest.notebooks.NOTEBOOKS_BASE.
     # Patch BOTH so the main()-level (all-notebooks) tests resolve to tmp.
     monkeypatch.setattr(nc, "NOTEBOOKS_BASE", base)
     monkeypatch.setattr(_nc_common, "NOTEBOOKS_BASE", base)

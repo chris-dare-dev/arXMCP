@@ -269,7 +269,7 @@ dl.meta dd, dl.meta dd code, .topic-description { overflow-wrap: anywhere; }
    0.8/0.875rem predate --text-small.
    A hairline LADDER, not cards (BAN-2). No chip (BAN-7), no icon (BAN-3).
    REFUSED AC#4 — a relevance line: the Atom feed carries no score in either
-   namespace and _arxiv_api.py:156 pins sortBy=submittedDate, so one would be
+   namespace and ingest/arxiv_api.py:156 pins sortBy=submittedDate, so one would be
    manufactured evidence (CLAUDE.md 4.9).
    REFUSED AC#3 — a fade-in keyframe: globalViewTransitions (base.html:59)
    already crossfades this swap at --dur-fast, so a keyframe double-animates.

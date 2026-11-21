@@ -121,7 +121,7 @@ def _fetch_raw_tex_with_503_backoff(paper_id: str) -> str:
     (disk), or ``tarfile.TarError`` (malformed archive) would
     propagate and abort the entire back-fill mid-loop, contradicting
     ``run()``'s docstring contract. The envelope is now the same
-    superset the per-paper helper uses (``_notebook_common.py``).
+    superset the per-paper helper uses (``ingest/notebooks.py``).
 
     The notebook `fetch_raw_tex_if_missing` helper swallows 503
     (logs and returns False); for the back-fill we want explicit

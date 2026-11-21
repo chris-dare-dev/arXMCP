@@ -281,7 +281,7 @@ def run(
     ``notebook_fetch.run`` convention); production callers pass only
     ``slug``. Returns the process exit code.
     """
-    # Slug validation is the FIRST check (per _notebook_common convention).
+    # Slug validation is the FIRST check (per ingest.notebooks convention).
     # A configured contact address is optional and only affects the request UA.
     validate_slug(slug)
     contact_email = resolve_contact_email(None)
