@@ -272,7 +272,13 @@ class Config(BaseSettings):
     #: finite and positive. The default must equal
     #: ``server.lean_repl.DEFAULT_QUERY_TIMEOUT_S``. Set via
     #: ``ARXMCP_LEAN_QUERY_TIMEOUT_S``.
-    lean_query_timeout_s: float = 30.0
+    lean_query_timeout_s: float = Field(
+        default=30.0,
+        description=(
+            "Seconds one Lean REPL query may run before the REPL is killed and "
+            "respawned. Raise it when a cold `import Mathlib` needs longer."
+        ),
+    )
 
     # --- Concurrency -----------------------------------------------------
 
