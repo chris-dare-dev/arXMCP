@@ -158,8 +158,8 @@ class TestBuildEmbedRecord:
 class TestIngestTextbookPaper:
     @pytest.fixture
     def wired(self, tmp_path, monkeypatch):
-        """Point notebook_lancedb_path at a tmp dir and stub chunk_textbook to
-        return synthetic textbook chunks. write_chunks stays REAL (writes a
+        """Point notebook_lancedb_path at a tmp dir and stub the default chunker
+        to return synthetic textbook chunks. write_chunks stays REAL (writes a
         real tmp LanceDB). Returns the tmp notebook lancedb path + a spy
         capturing the lancedb_path write_chunks received (FM-3)."""
         nb_lancedb = tmp_path / "notebooks" / _SLUG / "lancedb"
@@ -173,7 +173,7 @@ class TestIngestTextbookPaper:
             _textbook_chunk(suffix="e" * 16, kind="proof",
                             body_text="Proof: by the universal property."),
         ]
-        monkeypatch.setattr(driver, "chunk_textbook", lambda slug, pid: list(chunks))
+        monkeypatch.setattr(driver, "chunk_textbook_markdown", lambda slug, pid: list(chunks))
 
         captured: dict[str, Any] = {}
         real_write = driver.write_chunks
@@ -248,11 +248,68 @@ class TestIngestTextbookPaper:
         n2 = self._open(wired["nb_lancedb"]).count_rows()
         assert n1 == n2 == 2
 
+    def test_rechunking_with_the_other_chunker_replaces_the_lineage(
+        self, wired, monkeypatch,
+    ) -> None:
+        """A paper re-ingested with the other chunker keeps only the new
+        chunker's rows; another paper in the notebook is untouched."""
+        import dataclasses
+
+        from ingest.textbook_markdown_chunker import (
+            TEXTBOOK_MD_CHUNKER_VERSION,
+            TEXTBOOK_MD_PARSER_USED,
+        )
+
+        pid = f"textbook:{_SLUG}"
+        other_pid = "textbook:other-book"
+        other = dataclasses.replace(
+            _textbook_chunk(suffix="1" * 16),
+            chunk_id=f"{other_pid}:" + "1" * 16,
+            paper_id=other_pid,
+            textbook_slug="other-book",
+        )
+        html_chunks = [_textbook_chunk(suffix="a" * 16), _textbook_chunk(suffix="b" * 16)]
+        md_chunks = [
+            dataclasses.replace(
+                _textbook_chunk(suffix=s * 16),
+                chunker_version=TEXTBOOK_MD_CHUNKER_VERSION,
+                parser_used=TEXTBOOK_MD_PARSER_USED,
+            )
+            for s in "cde"
+        ]
+        monkeypatch.setattr(
+            driver, "chunk_textbook",
+            lambda slug, p: [other] if p == other_pid else list(html_chunks),
+        )
+        monkeypatch.setattr(driver, "chunk_textbook_markdown", lambda slug, p: list(md_chunks))
+
+        def lineages() -> dict[str, set[str]]:
+            seen: dict[str, set[str]] = {}
+            for r in self._open(wired["nb_lancedb"]).to_arrow().to_pylist():
+                seen.setdefault(r["paper_id"], set()).add(r["chunker_version"])
+            return seen
+
+        enc = _synthetic_encoder(seed=5)
+        driver.ingest_textbook_paper(_SLUG, other_pid, chunker="html", encoder=enc)
+        driver.ingest_textbook_paper(_SLUG, pid, chunker="html", encoder=enc)
+        assert lineages()[pid] == {TEXTBOOK_CHUNKER_VERSION}
+
+        driver.ingest_textbook_paper(_SLUG, pid, encoder=enc)  # default: markdown
+        assert lineages() == {
+            pid: {TEXTBOOK_MD_CHUNKER_VERSION},
+            other_pid: {TEXTBOOK_CHUNKER_VERSION},
+        }
+        assert self._open(wired["nb_lancedb"]).count_rows(f"paper_id = '{pid}'") == 3
+
+        driver.ingest_textbook_paper(_SLUG, pid, chunker="html", encoder=enc)
+        assert lineages()[pid] == {TEXTBOOK_CHUNKER_VERSION}
+        assert self._open(wired["nb_lancedb"]).count_rows(f"paper_id = '{pid}'") == 2
+
     def test_dry_run_skips_write(self, tmp_path, monkeypatch) -> None:
         nb_lancedb = tmp_path / "nb" / "lancedb"
         monkeypatch.setattr(driver, "notebook_lancedb_path", lambda slug: nb_lancedb)
         monkeypatch.setattr(
-            driver, "chunk_textbook",
+            driver, "chunk_textbook_markdown",
             lambda slug, pid: [_textbook_chunk(suffix="f" * 16)],
         )
         result = driver.ingest_textbook_paper(_SLUG, f"textbook:{_SLUG}", dry_run=True)
@@ -271,15 +328,15 @@ class TestRunExitCodes:
         assert driver.run(_SLUG, []) == 2
 
     def test_missing_chunks_exit_1(self, monkeypatch) -> None:
-        """chunk_textbook returns [] (missing parsed HTML) -> exit 1."""
-        monkeypatch.setattr(driver, "chunk_textbook", lambda slug, pid: [])
+        """The chunker returns [] (nothing parsed) -> exit 1."""
+        monkeypatch.setattr(driver, "chunk_textbook_markdown", lambda slug, pid: [])
         assert driver.run(_SLUG, [f"textbook:{_SLUG}"]) == 1
 
     def test_all_papers_chunked_exit_0(self, tmp_path, monkeypatch) -> None:
         nb_lancedb = tmp_path / "nb" / "lancedb"
         monkeypatch.setattr(driver, "notebook_lancedb_path", lambda slug: nb_lancedb)
         monkeypatch.setattr(
-            driver, "chunk_textbook",
+            driver, "chunk_textbook_markdown",
             lambda slug, pid: [_textbook_chunk(suffix="0" * 16)],
         )
         # Capture the real builder BEFORE patching so the override injects a
@@ -300,14 +357,14 @@ class TestRunExitCodes:
         assert driver.main(["Bad-Slug-Caps", "--paper-id", "textbook:x-book"]) == 1
 
     def test_invalid_slug_validated_before_chunking(self, monkeypatch) -> None:
-        """Validation fires UP FRONT, before chunk_textbook is reached."""
+        """Validation fires UP FRONT, before the chunker is reached."""
         called = {"n": 0}
 
         def _spy(slug: str, pid: str) -> list:
             called["n"] += 1
             return []
 
-        monkeypatch.setattr(driver, "chunk_textbook", _spy)
+        monkeypatch.setattr(driver, "chunk_textbook_markdown", _spy)
         with pytest.raises(driver.NotebookError):
             driver.run("Bad-Slug-Caps", ["textbook:x-book"])
         assert called["n"] == 0
