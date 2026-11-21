@@ -549,10 +549,8 @@ CHUNKS_SCHEMA_V1 = pa.schema(
         # ---- source-truth columns (chunks schema v2) ----
         # All five declared nullable=True: a freshly-created table
         # accepts writes that leave the registry-derived columns NULL,
-        # and the in-place migration of pre-v2 rows
-        # (``_migrate_chunks_schema_if_needed``) rides the same SQL-dict
-        # ``add_columns`` loop as the textbook columns above — one
-        # ``cast(NULL as ...)`` default each, NO struct branch.
+        # and the in-place migration gives pre-v2 rows NULL in each
+        # (:func:`ingest.schema.add_missing_columns`).
         #
         # ``source_revision_id`` — the authoritative pointer to the
         # per-revision documents-registry row, stored

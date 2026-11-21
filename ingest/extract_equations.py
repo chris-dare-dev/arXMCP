@@ -264,6 +264,7 @@ def _extract_equation_atom(
         "context_sentence": context,
         "parent_chunk_id": _parent_chunk_id([alttext], chunks),
         "mathml_tree_json": None,
+        "normalizer_version": None,
         "embedding_eq": None,
     }
 
@@ -333,6 +334,7 @@ def _extract_align_group_atoms(
                 "context_sentence": context,
                 "parent_chunk_id": _parent_chunk_id(alt_parts, chunks),
                 "mathml_tree_json": None,
+                "normalizer_version": None,
                 "embedding_eq": None,
             }
         )

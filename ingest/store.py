@@ -109,6 +109,7 @@ from ingest.schema import (
     EQUATIONS_TABLE_NAME,
     LANCE_STORAGE_OPTIONS,
     EmbedRecord,
+    add_missing_columns,
 )
 from ingest.write_lock import holds_dataset_write_lock, write_lock_path
 from server.application_paths import ApplicationPaths
@@ -285,134 +286,20 @@ def load_embed_record(paper_id: str) -> EmbedRecord | None:
 # ---------------------------------------------------------------------------
 
 
-#: SQL expressions for LanceDB ``add_columns`` defaults when migrating
-#: a pre-textbook-ingest-m2 chunks table. Existing rows are by
-#: definition arXiv (no textbook ingest existed), so ``source_kind``
-#: and ``license`` backfill with the canonical arXiv tokens; the four
-#: textbook-only columns and ``parser_used`` get NULL.
-#:
-#: Per the lancedb 0.30.2 contract
-#: (https://docs.lancedb.com/tables/schema): adding columns to an
-#: existing table is a fragment-level operation (no full re-write) —
-#: a new data file is appended per fragment with the SQL-expression
-#: result for existing rows. FM-6 from m2 synthesis (NULL vs token
-#: ambiguity in downstream filters) is resolved here by backfilling
-#: ``source_kind`` + ``license`` with explicit tokens rather than
-#: leaving NULL.
-#: source-truth-m2 (chunks schema v2) extends this same dict with the
-#: five new columns — all NULL-defaulted (no arXiv token to backfill; the
-#: registry-derived values are hydrated later by the separately-invoked
-#: ``tools/notebook_chunks_backfill.py``, and ``truncated`` /
-#: ``printed_number`` are only known per-chunk, not as a table-wide SQL
-#: default). ``truncated`` is the one boolean; ``cast(NULL as boolean)``
-#: was spike-4-proven to ride the identical single-loop ``add_columns``
-#: mechanism, so no struct branch or schema-based ``add_columns`` form is
-#: needed for any of the five. The dict name keeps its ``_TEXTBOOK_``
-#: prefix for continuity with the shipped migration; it is now the
-#: canonical "all post-v1 chunks columns" default map.
-_TEXTBOOK_MIGRATION_DEFAULTS: dict[str, str] = {
-    "embed_input_policy_version": "cast(NULL as string)",
-    "part_index": "cast(NULL as int)",
-    "part_count": "cast(NULL as int)",
-    "source_start": "cast(NULL as int)",
-    "source_end": "cast(NULL as int)",
-    "source_kind": "cast('arxiv' as string)",
-    "license": "cast('arxiv-license' as string)",
-    "chapter": "cast(NULL as string)",
-    "page_start": "cast(NULL as int)",
-    "page_end": "cast(NULL as int)",
-    "textbook_slug": "cast(NULL as string)",
-    "parser_used": "cast(NULL as string)",
-    # source-truth-m2 chunks schema v2:
-    "source_revision_id": "cast(NULL as string)",
-    "source_span": "cast(NULL as string)",
-    "truncated": "cast(NULL as boolean)",
-    "printed_number": "cast(NULL as string)",
-    "license_ref": "cast(NULL as string)",
-}
-
-
 def _migrate_chunks_schema_if_needed(tbl) -> list[str]:
-    """Add textbook-ingest-m2 columns to a pre-m2 chunks table.
+    """Add to an on-disk chunks table the columns :data:`CHUNKS_SCHEMA_V1`
+    has and it lacks (:func:`ingest.schema.add_missing_columns`).
 
-    Detects schema drift by reading ``tbl.schema.names`` and calling
-    ``tbl.add_columns(...)`` for each column present in
-    :data:`CHUNKS_SCHEMA_V1` but absent from the on-disk table. SQL
-    expressions in :data:`_TEXTBOOK_MIGRATION_DEFAULTS` backfill
-    existing rows: ``source_kind="arxiv"``, ``license="arxiv-license"``,
-    everything else ``NULL``.
-
-    Idempotent — when all 12 post-v1 columns (7 textbook-ingest-m2 +
-    5 source-truth-m2) are already present (i.e. the table has been
-    migrated previously or was created fresh against the new schema),
-    returns an empty list and skips the LanceDB call.
-
-    Returns the list of column names that were added (empty when no
-    migration was needed).
-
-    Raises any LanceDB ``add_columns`` error verbatim — schema
-    migration failures are not recoverable at this layer.
+    Returns the names added, empty when the table already has the
+    canonical shape. Raises :class:`ingest.schema.SchemaEvolutionError`
+    for a missing column the existing rows have no value for, and any
+    LanceDB error verbatim.
     """
-    existing_names = set(tbl.schema.names)
-    target_names = set(CHUNKS_SCHEMA_V1.names)
-    missing = target_names - existing_names
-    if not missing:
-        return []
-
-    # Only migrate textbook-ingest-m2 columns. Any other missing
-    # columns (a hypothetical future m3 column) would need their own
-    # default mapping — fail loud rather than silently leave them out.
-    unhandled = missing - set(_TEXTBOOK_MIGRATION_DEFAULTS.keys())
-    if unhandled:
-        raise RuntimeError(
-            f"chunks table missing columns this migration cannot "
-            f"handle: {sorted(unhandled)}. Extend "
-            f"_TEXTBOOK_MIGRATION_DEFAULTS or write a dedicated "
-            f"migration."
+    added = add_missing_columns(tbl, CHUNKS_SCHEMA_V1, CHUNKS_TABLE_NAME)
+    if added:
+        logger.info(
+            "chunks schema migration: added %d columns: %s", len(added), added
         )
-
-    # Apply defaults in CHUNKS_SCHEMA_V1's declared order so the
-    # post-migration column order matches the canonical schema. (Order
-    # is not load-bearing for correctness, but determinism makes
-    # cross-host snapshot tests stable.) Local variable name is
-    # ``schema_field`` to avoid shadowing the ``field`` import from
-    # ``dataclasses`` (F402).
-    added: list[str] = []
-    for schema_field in CHUNKS_SCHEMA_V1:
-        if schema_field.name in missing:
-            sql = _TEXTBOOK_MIGRATION_DEFAULTS[schema_field.name]
-            tbl.add_columns({schema_field.name: sql})
-            added.append(schema_field.name)
-
-    # m2 rect F2 (HIGH): LanceDB's ``add_columns`` with a non-NULL SQL
-    # default (e.g. ``cast('arxiv' as string)``) infers
-    # ``nullable=False`` from the expression — so a migrated table
-    # gets a stricter ``source_kind`` / ``license`` column than a
-    # freshly-created v21 table (where ``CHUNKS_SCHEMA_V1`` declares
-    # ``nullable=True``). The skew is path-dependent and reachable
-    # via a future bug: a stale fixture writing ``source_kind=None``
-    # would succeed on fresh but fail on migrated. Force every m2
-    # column to match the canonical nullability via ``alter_columns``.
-    # ``alter_columns`` does not change values (existing rows keep
-    # their backfilled tokens); it only updates the on-disk schema
-    # metadata. One MVCC version per altered column — cheap; cost is
-    # bounded by the 7-column m2 delta.
-    for schema_field in CHUNKS_SCHEMA_V1:
-        if (
-            schema_field.name in added
-            and schema_field.nullable
-            and not tbl.schema.field(schema_field.name).nullable
-        ):
-            tbl.alter_columns(
-                {"path": schema_field.name, "nullable": True}
-            )
-
-    logger.info(
-        "textbook-ingest-m2 schema migration: added %d columns to "
-        "chunks table: %s",
-        len(added),
-        added,
-    )
     return added
 
 
@@ -905,12 +792,7 @@ def write_chunks(
     existing = set(getattr(tables_obj, "tables", tables_obj))
     if CHUNKS_TABLE_NAME in existing:
         tbl = db.open_table(CHUNKS_TABLE_NAME)
-        # textbook-ingest-m2: in-place schema migration for pre-m2
-        # chunks tables. Existing tables on disk carry the 14-column
-        # arXiv-only schema; this call adds the 7 new columns with
-        # arXiv-friendly defaults so every existing row is uniformly
-        # tagged ``source_kind="arxiv"`` + ``license="arxiv-license"``
-        # (no NULL-vs-default ambiguity in downstream filters).
+        # A table an older schema wrote gains the columns it lacks.
         _migrate_chunks_schema_if_needed(tbl)
     else:
         # storage_options pins the on-disk Lance format (m2). See
