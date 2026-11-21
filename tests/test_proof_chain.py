@@ -654,6 +654,8 @@ class TestHandlerEndToEnd:
             f"-- the E09_S03 F2 contract requires graph/index paths to be "
             f"Config-derived, never agent-supplied. signature: {sorted(params)}"
         )
-        assert params == {"chunk_id", "direction", "depth", "limit"}, (
+        # ``notebook`` is a slug, validated before use; the notebook's
+        # directory is still derived from Config, never from the caller.
+        assert params == {"chunk_id", "direction", "depth", "limit", "notebook"}, (
             f"unexpected handle_cite_neighbors signature: {sorted(params)}"
         )

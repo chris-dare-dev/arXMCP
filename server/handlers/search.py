@@ -79,6 +79,7 @@ from pydantic import AnyUrl, Field
 from ingest.identifiers import is_valid_paper_id
 from ingest.store import ALLOWED_KINDS
 from server.cache import Tier2Match, get_cache
+from server.handlers.corpus_route import parse_notebook, resolve_corpus
 from server.metadata_enrich import enrich_rows_with_titles
 from server.observability.sanitize import sanitize_retrieved_text
 from server.query_encoder import (
@@ -287,6 +288,9 @@ SUPPORTED_FILTER_KEYS: frozenset[str] = frozenset({"paper_id", "source_kind"})
 #: statement search for the same query text are different queries and
 #: must not share a cache entry.
 _ROUTING_FILTER_KEYS: frozenset[str] = frozenset({"notebook", "include_kinds"})
+
+#: How errors name the notebook routing key on this tool.
+_NOTEBOOK_ARG = "filters['notebook']"
 
 #: The dense column a plain (statement) query searches. Populated for
 #: every kind EXCEPT ``proof`` — see the dual-encoding contract in
@@ -551,24 +555,7 @@ async def handle_search_papers(
     # an unhandled 500.
     notebook_slug: str | None = None
     if filters and "notebook" in filters:
-        nb_value = filters["notebook"]
-        if not isinstance(nb_value, str):
-            raise ValueError(
-                f"filters['notebook'] must be a str (a notebook slug), "
-                f"got {type(nb_value).__name__}"
-            )
-        from tools._notebook_common import (  # noqa: PLC0415
-            NotebookError,
-            validate_slug,
-        )
-        try:
-            validate_slug(nb_value)
-        except NotebookError as exc:
-            raise ValueError(
-                f"filters['notebook']={nb_value!r} is not a valid notebook "
-                f"slug: {exc}"
-            ) from exc
-        notebook_slug = nb_value
+        notebook_slug = parse_notebook(filters["notebook"], arg=_NOTEBOOK_ARG)
 
     # m1: honor filters={"paper_id": [...]} end-to-end. Build the
     # LanceDB IN-predicate up front so input validation errors raise
@@ -612,38 +599,29 @@ async def handle_search_papers(
     # server default. Absent → the shared/fork-C table + version,
     # byte-identical to today (AC4). Un-ingested / missing notebook →
     # clean ValueError (m2 FM-5a), not a 500.
-    override_corpus_version: int | None = None
-    if notebook_slug is not None:
-        from server.resources import CorpusNotIngestedError  # noqa: PLC0415
-        from tools._notebook_common import NotebookError  # noqa: PLC0415
-        try:
-            search_table, nb_corpus_info = await r.notebook_table(notebook_slug)
-        except (NotebookError, CorpusNotIngestedError) as exc:
-            raise ValueError(
-                f"filters['notebook']={notebook_slug!r}: {exc}"
-            ) from exc
-        override_corpus_version = nb_corpus_info.version
-        # F1 (HIGH) rectification: per-notebook tables ingested BEFORE the
-        # m9 source_kind migration lack the column entirely. Running the
-        # source_kind WHERE predicate over such a table raises
-        # LanceError(Schema) deep in the ANN call — an uncaught 500 (AC5
-        # violation). Reject it cleanly at the boundary instead. (paper_id
-        # is a core column present in every chunks table, so only
-        # source_kind is at risk.) Prefer an explicit error over silently
-        # dropping the predicate — the agent must not be served unfiltered
-        # rows as if the source_kind filter had applied.
-        if (
-            source_kind_predicate is not None
-            and "source_kind" not in search_table.schema.names
-        ):
-            raise ValueError(
-                f"filters['source_kind'] is not supported on notebook "
-                f"{notebook_slug!r}: its corpus predates the source_kind "
-                f"migration (the column is absent). Re-ingest the notebook "
-                f"to enable source_kind filtering, or drop the filter."
-            )
-    else:
-        search_table = r.chunks_table
+    route = await resolve_corpus(r, notebook_slug, arg=_NOTEBOOK_ARG)
+    search_table = route.table
+    override_corpus_version = route.corpus_version
+    # F1 (HIGH) rectification: per-notebook tables ingested BEFORE the
+    # m9 source_kind migration lack the column entirely. Running the
+    # source_kind WHERE predicate over such a table raises
+    # LanceError(Schema) deep in the ANN call — an uncaught 500 (AC5
+    # violation). Reject it cleanly at the boundary instead. (paper_id
+    # is a core column present in every chunks table, so only
+    # source_kind is at risk.) Prefer an explicit error over silently
+    # dropping the predicate — the agent must not be served unfiltered
+    # rows as if the source_kind filter had applied.
+    if (
+        notebook_slug is not None
+        and source_kind_predicate is not None
+        and "source_kind" not in search_table.schema.names
+    ):
+        raise ValueError(
+            f"filters['source_kind'] is not supported on notebook "
+            f"{notebook_slug!r}: its corpus predates the source_kind "
+            f"migration (the column is absent). Re-ingest the notebook "
+            f"to enable source_kind filtering, or drop the filter."
+        )
 
     # E08_S03: 3-tier cache lookup BEFORE the encode + ANN path.
     # Tier 1 is checked first (no embedding required); Tier 2 needs
