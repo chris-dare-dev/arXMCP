@@ -48,10 +48,15 @@ def run_hybrid_against_corpus(
     singleflight collapses the two into one forward pass.
 
     ``tbl`` and ``corpus_version`` identify the corpus the caller pinned;
-    the pipeline itself is built from ``Config`` by ``Resources.startup``.
+    the pipeline itself is built from ``Config`` by ``Resources.startup``,
+    with the BM25 phase forced on for this run whatever
+    ``ARXMCP_BM25_PHASE`` says: the server leaves it off because no served
+    tool is hybrid, and this pipeline is.
 
     Raises ``ValueError`` when ``Config`` cannot be built from the
-    environment or a query is malformed.
+    environment or a query is malformed, and ``RuntimeError`` when the
+    BM25 phase does not load, including when its artifact fails the
+    cross-check against the live chunks table.
     """
     from server.config import Config  # noqa: PLC0415
     from server.resources import Resources  # noqa: PLC0415
@@ -59,7 +64,7 @@ def run_hybrid_against_corpus(
     # Config() reads every declared ARXMCP_* variable, so a stray value
     # in the operator's shell fails here. Name the likely cause.
     try:
-        cfg = Config(enable_rerank=rerank_enabled)
+        cfg = Config(enable_rerank=rerank_enabled, bm25_phase="on")
     except Exception as exc:
         raise ValueError(
             "eval harness Config() failed; an ARXMCP_* environment variable "
@@ -71,6 +76,13 @@ def run_hybrid_against_corpus(
     loop = asyncio.new_event_loop()
     try:
         resources = loop.run_until_complete(Resources.startup(cfg))
+        if resources.bm25_phase is None:
+            raise RuntimeError(
+                "hybrid eval needs the BM25 phase, and it did not load "
+                f"(state={resources.bm25_phase_state}); the log above names "
+                "the cause, e.g. an artifact that failed the live-table "
+                "cross-check."
+            )
 
         per_query_rows: list[dict] = []
         for query_idx, query in enumerate(queries):

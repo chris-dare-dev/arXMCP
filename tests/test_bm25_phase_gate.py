@@ -4,7 +4,7 @@ No served tool reads BM25, so the default (``auto``) leaves it off: neither
 corpus bind loads the artifact or scans the chunk_id column for its
 cross-check, and ``/readyz`` and ``/status`` say ``disabled`` rather than
 reporting it cold. With the phase on, both binds run the cross-check against
-the live table.
+the live table, and the hybrid eval harness turns it on for its own run.
 """
 
 from __future__ import annotations
@@ -297,3 +297,49 @@ def test_status_reports_the_phase_and_warns_only_when_it_failed(
     assert check["observedValue"] == state
     assert check["status"] == check_status
     assert ("bm25 unavailable" in report["summary"]) is warns
+
+
+# ---------------------------------------------------------------------------
+# Hybrid eval harness
+# ---------------------------------------------------------------------------
+
+
+def test_hybrid_eval_turns_the_phase_on_and_refuses_without_it(
+    monkeypatch,
+) -> None:
+    """``ARXMCP_BM25_PHASE=off`` in the shell does not stop a hybrid run
+    from requesting the phase, and a phase that did not load stops the run
+    rather than scoring a pipeline with no BM25 stage."""
+    from ops.retrieval_eval import run_hybrid_against_corpus
+    from server.resources import Resources
+
+    monkeypatch.setenv("ARXMCP_BM25_PHASE", "off")
+    seen: list[Config] = []
+    shut_down: list[bool] = []
+
+    async def _fake_shutdown() -> None:
+        shut_down.append(True)
+
+    async def _fake_startup(cfg: Config) -> Any:
+        seen.append(cfg)
+        return SimpleNamespace(
+            bm25_phase=None,
+            bm25_phase_state="unavailable",
+            shutdown=_fake_shutdown,
+        )
+
+    monkeypatch.setattr(Resources, "startup", staticmethod(_fake_startup))
+
+    async def _never_encode(_text: str) -> Any:
+        raise AssertionError("no query may run without the BM25 phase")
+
+    with pytest.raises(RuntimeError, match="needs the BM25 phase"):
+        run_hybrid_against_corpus(
+            [{"query_id": "q1", "query_text": "x", "relevant_chunks": []}],
+            None,
+            _never_encode,
+            corpus_version=1,
+            rerank_enabled=False,
+        )
+    assert [cfg.bm25_phase_enabled for cfg in seen] == [True]
+    assert shut_down == [True]
