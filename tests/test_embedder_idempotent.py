@@ -766,9 +766,9 @@ class TestPaperUpToDateHelper:
                 "2307.00173", {self.A: _ident("stmt", "Body A")}
             )
 
-    def test_orphan_chunks_in_sidecar_do_not_block_skip(self, tmp_path):
-        # A sidecar with MORE chunks than the paper now has is still up
-        # to date for the current chunks; the orphan entries are ignored.
+    def test_entry_for_a_chunk_no_longer_current_forces_reembed(self, tmp_path):
+        # A sidecar with MORE chunks than the paper now has is not up to
+        # date: the extra entry's vector would otherwise stay in the NPZ.
         _write_sidecar(
             tmp_path / "2307.00173",
             [
@@ -778,7 +778,7 @@ class TestPaperUpToDateHelper:
             ],
         )
         with patch("ingest.embedder.EMBEDDINGS_DIR", tmp_path):
-            assert embedder_mod._paper_is_up_to_date(
+            assert not embedder_mod._paper_is_up_to_date(
                 "2307.00173",
                 {self.A: _ident("stmt", "Body A"), self.B: _ident("proof", "Body B")},
             )
@@ -857,6 +857,29 @@ class TestReuseIdentitySkip:
         npz = np.load(embeddings_dir / paper_id / "embeddings.npz", allow_pickle=True)
         assert list(npz["chunk_ids_proof"]) == [f"arxiv:{paper_id}:" + "0" * 16]
         assert list(npz["chunk_ids_stmt"]) == []
+
+    def test_a_removed_chunk_leaves_the_npz_on_the_next_run(self, tmp_path):
+        paper_id = "2307.00193"
+        kept = _make_chunk(paper_id, "stmt", "Body A", suffix="0" * 16)
+        removed = _make_chunk(paper_id, "proof", "Body B", suffix="1" * 16)
+        _stage_chunk_dir(tmp_path, paper_id, [kept, removed])
+        _patched_embed_paper(tmp_path, paper_id)
+        shutil.rmtree(tmp_path / "chunks" / paper_id)
+        _stage_chunk_dir(tmp_path, paper_id, [kept])
+
+        stats, embeddings_dir, _, model = _patched_embed_paper(tmp_path, paper_id)
+        assert stats.chunks_processed == 1
+        assert model.call_count > 0
+        npz = np.load(embeddings_dir / paper_id / "embeddings.npz", allow_pickle=True)
+        assert list(npz["chunk_ids_stmt"]) == [kept["chunk_id"]]
+        assert list(npz["chunk_ids_proof"]) == []
+        entries = self._sidecar(tmp_path, paper_id)["embedded_chunks"]
+        assert [e["chunk_id"] for e in entries] == [kept["chunk_id"]]
+
+        # With the orphan gone the paper is up to date again.
+        stats, _, _, model = _patched_embed_paper(tmp_path, paper_id)
+        assert stats.chunks_skipped == 1
+        assert model.call_count == 0
 
 
 # ===========================================================================

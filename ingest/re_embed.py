@@ -50,6 +50,7 @@ import json
 import logging
 import sys
 import time
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -258,14 +259,11 @@ def _check_staging_embedder_versions(
     if CHUNKS_TABLE_NAME not in existing:
         return
     tbl = db.open_table(CHUNKS_TABLE_NAME)
-    # lancedb 0.30.x: to_arrow() takes no kwargs; project after load.
-    versions = tbl.to_arrow().select(["embedder_version"]).to_pydict()
-    distinct = set(versions["embedder_version"])
-    bad = {v for v in distinct if v != target_embedder_version}
+    bad = _values_other_than(tbl, "embedder_version", target_embedder_version)
     if bad:
         raise RuntimeError(
             f"staging table at {staging_path} already contains rows with "
-            f"embedder_version(s) {sorted(bad)} which differ from the "
+            f"embedder_version(s) {bad} which differ from the "
             f"target {target_embedder_version!r}. Refusing to mix "
             f"embedding spaces (cosine distance is meaningless across "
             f"spaces). Drop the staging dataset and retry, OR change "
@@ -274,14 +272,32 @@ def _check_staging_embedder_versions(
     if "embed_input_policy_version" not in tbl.schema.names and tbl.count_rows():
         raise RuntimeError("staging table predates embedding input policy tracking")
     if "embed_input_policy_version" in tbl.schema.names:
-        policies = set(
-            tbl.to_arrow().column("embed_input_policy_version").to_pylist()
+        policies = _values_other_than(
+            tbl, "embed_input_policy_version", EMBED_INPUT_POLICY_VERSION
         )
-        if policies and policies != {EMBED_INPUT_POLICY_VERSION}:
+        if policies:
             raise RuntimeError(
                 f"staging table contains input policies {policies!r}; "
                 f"expected {EMBED_INPUT_POLICY_VERSION!r}"
             )
+
+
+def _sql_literal(value: str) -> str:
+    return "'" + value.replace("'", "''") + "'"
+
+
+def _values_other_than(tbl, column: str, expected: str) -> list[str | None]:
+    """Return the values of ``column`` other than ``expected`` (NULL
+    included), sorted; empty when every row holds ``expected``.
+
+    The filter runs inside Lance, so the column is never read into
+    Python; the values named come from the first 1,000 offending rows.
+    """
+    where = f"{column} IS NULL OR {column} != {_sql_literal(expected)}"
+    if not tbl.count_rows(where):
+        return []
+    sample = tbl.search().where(where).select([column]).limit(1000).to_arrow()
+    return sorted(set(sample.column(column).to_pylist()), key=str)
 
 
 def _delete_staging_paper_rows(staging_path: Path, paper_id: str) -> None:
@@ -316,22 +332,28 @@ def _staging_paper_signatures(staging_path: Path) -> dict[str, set[tuple]]:
     table = lancedb.connect(str(staging_path)).open_table(CHUNKS_TABLE_NAME)
     identity_columns = (
         "paper_id", "body_text", "embedder_version", "embed_input_policy_version",
-        "embedding_stmt", "embedding_proof",
     )
+    # The vectors are never read: only whether each column is set.
+    projection = {
+        name: name
+        for name in dict.fromkeys(_SIGNATURE_COLUMNS + identity_columns)
+    }
+    projection["has_stmt"] = "embedding_stmt IS NOT NULL"
+    projection["has_proof"] = "embedding_proof IS NOT NULL"
     result: dict[str, set[tuple]] = {}
-    for row in table.to_arrow().select(
-        list(dict.fromkeys(_SIGNATURE_COLUMNS + identity_columns))
-    ).to_pylist():
-        result.setdefault(row["paper_id"], set()).add(
-            tuple(
-                tuple(row[name]) if name == "section_path" else row[name]
-                for name in _SIGNATURE_COLUMNS
-            ) + (
-                stored_reuse_identity(row),
-                row["embedding_stmt"] is not None,
-                row["embedding_proof"] is not None,
+    query = table.search().select(projection).limit(None)
+    for batch in query.to_batches():
+        for row in batch.to_pylist():
+            result.setdefault(row["paper_id"], set()).add(
+                tuple(
+                    tuple(row[name]) if name == "section_path" else row[name]
+                    for name in _SIGNATURE_COLUMNS
+                ) + (
+                    stored_reuse_identity(row),
+                    row["has_stmt"],
+                    row["has_proof"],
+                )
             )
-        )
     return result
 
 
@@ -361,7 +383,7 @@ def compute_diff(
     new_chunks: list[ChunkRecord],
     *,
     target_embedder_version: str,
-) -> tuple[dict[str, list[float]], set[str], set[str]]:
+) -> tuple[dict[str, Sequence[float]], set[str], set[str]]:
     """Partition one paper's new chunks into (copy, re_embed, drop).
 
     * ``copy``: new ``chunk_id`` -> the stored vector to reuse. A new
@@ -378,7 +400,7 @@ def compute_diff(
     ``embed_input_policy_version`` and the two vector columns).
     """
     reusable = reusable_vectors(old_rows)
-    copy: dict[str, list[float]] = {}
+    copy: dict[str, Sequence[float]] = {}
     re_embed: set[str] = set()
     for chunk in new_chunks:
         identity = reuse_identity(
@@ -388,13 +410,13 @@ def compute_diff(
         if vector is None:
             re_embed.add(chunk.chunk_id)
         else:
-            copy[chunk.chunk_id] = list(vector)
+            copy[chunk.chunk_id] = vector
     drop = {row["chunk_id"] for row in old_rows} - {c.chunk_id for c in new_chunks}
     return copy, re_embed, drop
 
 
 # ---------------------------------------------------------------------------
-# Active table: one scan, grouped by paper
+# Active table: one id scan, then each paper's rows on demand
 # ---------------------------------------------------------------------------
 
 #: Columns the per-paper diff reads from the active table.
@@ -403,39 +425,98 @@ _ACTIVE_COLUMNS = (
     "embedder_version", "embed_input_policy_version",
     "embedding_stmt", "embedding_proof",
 )
+_VECTOR_COLUMNS = ("embedding_stmt", "embedding_proof")
 
 
-def _index_active_table(active_lancedb_path: Path) -> dict[str, list[dict]]:
-    """Read the active ``chunks`` table ONCE and group its rows by paper.
+class _ActiveCorpus:
+    """The active ``chunks`` table, pinned to one version and indexed by paper.
 
-    One scan at run start, so per-paper lookups are dict-keyed rather
-    than full-table scans. A table that
+    Opening it scans two columns, ``paper_id`` and ``chunk_id``, plus the
+    row id, and keeps one row id per row grouped by paper: tens of bytes a
+    row, about 50 MB for a million chunks. No body and no vector is read
+    then. :meth:`rows` reads one paper's rows by row id when that paper is
+    planned; each row carries at most two 1,024-dimension float32 vectors
+    (8 KiB), held as NumPy arrays, and the caller drops them with the
+    paper. Peak memory therefore tracks the largest paper, not the corpus.
+
+    The table is pinned to the version it had when opened, so the row ids
+    stay valid even if something writes to it during the run. A table that
     predates a column (``embed_input_policy_version`` before the
     Bridgeland repair) reads it as NULL, which makes its rows
     non-reusable.
     """
-    import lancedb  # noqa: PLC0415
 
-    tbl = lancedb.connect(str(active_lancedb_path)).open_table(CHUNKS_TABLE_NAME)
-    present = [name for name in _ACTIVE_COLUMNS if name in tbl.schema.names]
-    # lancedb 0.30.x: to_arrow() takes no kwargs; project after load.
-    rows = tbl.to_arrow().select(present).to_pylist()
-    out: dict[str, list[dict]] = {}
-    for row in rows:
-        for name in _ACTIVE_COLUMNS:
-            row.setdefault(name, None)
-        pid = row["paper_id"]
-        if not isinstance(pid, str) or not is_valid_paper_id(pid):
-            raise ValueError(
-                f"invalid paper_id in active row {row['chunk_id']!r}: {pid!r}"
+    def __init__(self, active_lancedb_path: Path) -> None:
+        import lancedb  # noqa: PLC0415
+
+        tbl = lancedb.connect(str(active_lancedb_path)).open_table(
+            CHUNKS_TABLE_NAME
+        )
+        tbl.checkout(tbl.version)
+        self._table = tbl
+        self._present = [name for name in _ACTIVE_COLUMNS if name in tbl.schema.names]
+        row_ids: dict[str, list[int]] = {}
+        query = (
+            tbl.search().select(["paper_id", "chunk_id"]).with_row_id(True).limit(None)
+        )
+        for batch in query.to_batches():
+            for pid, cid, rid in zip(
+                batch.column("paper_id").to_pylist(),
+                batch.column("chunk_id").to_pylist(),
+                batch.column("_rowid").to_pylist(),
+                strict=True,
+            ):
+                if not isinstance(pid, str) or not is_valid_paper_id(pid):
+                    raise ValueError(
+                        f"invalid paper_id in active row {cid!r}: {pid!r}"
+                    )
+                row_ids.setdefault(pid, []).append(rid)
+        self._row_ids = {
+            pid: np.asarray(ids, dtype=np.uint64) for pid, ids in row_ids.items()
+        }
+        self.row_count = sum(len(ids) for ids in self._row_ids.values())
+
+    def paper_ids(self) -> set[str]:
+        return set(self._row_ids)
+
+    def rows(self, paper_id: str) -> list[dict]:
+        """Return ``paper_id``'s stored rows, vectors as float32 arrays."""
+        ids = self._row_ids.get(paper_id)
+        if ids is None:
+            return []
+        arrow = self._table.take_row_ids(ids.tolist()).select(self._present).to_arrow()
+        vectors = {
+            name: _vector_list(arrow.column(name))
+            for name in _VECTOR_COLUMNS if name in self._present
+        }
+        scalars = [n for n in self._present if n not in _VECTOR_COLUMNS]
+        out = arrow.select(scalars).to_pylist()
+        for i, row in enumerate(out):
+            for name in _ACTIVE_COLUMNS:
+                row.setdefault(name, None)
+            for name, column in vectors.items():
+                row[name] = column[i]
+        return out
+
+
+def _vector_list(column) -> list[np.ndarray | None]:
+    """One float32 array (or ``None``) per row of a fixed-size-list column."""
+    out: list[np.ndarray | None] = []
+    for chunk in column.chunks:
+        for scalar in chunk:
+            out.append(
+                scalar.values.to_numpy(zero_copy_only=False).astype(
+                    np.float32, copy=False
+                )
+                if scalar.is_valid
+                else None
             )
-        out.setdefault(pid, []).append(row)
     return out
 
 
 def _build_copy_embed_record(
     new_chunks_by_id: dict[str, ChunkRecord],
-    copy: dict[str, list[float]],
+    copy: dict[str, Sequence[float]],
     embedder_version: str,
 ) -> EmbedRecord:
     """Build the EmbedRecord for the copied vectors.
@@ -446,13 +527,13 @@ def _build_copy_embed_record(
     row's own.
     """
     ids: dict[str, list[str]] = {"stmt": [], "proof": []}
-    vectors: dict[str, list[list[float]]] = {"stmt": [], "proof": []}
+    vectors: dict[str, list[Sequence[float]]] = {"stmt": [], "proof": []}
     for cid, vector in copy.items():
         chunk_route = route(new_chunks_by_id[cid].kind)
         ids[chunk_route].append(cid)
         vectors[chunk_route].append(vector)
 
-    def _array(rows: list[list[float]]) -> np.ndarray:
+    def _array(rows: list[Sequence[float]]) -> np.ndarray:
         if not rows:
             return np.zeros((0, EMBEDDING_DIM), dtype=np.float32)
         return np.asarray(rows, dtype=np.float32)
@@ -478,7 +559,7 @@ class _PaperWorkPlan:
 
     paper_id: str
     new_chunks: list[ChunkRecord]
-    copy: dict[str, list[float]]
+    copy: dict[str, Sequence[float]]
     re_embed_ids: set[str]
     drop_ids: set[str]
 
@@ -666,11 +747,10 @@ def run_re_embed(
         staging_lancedb_path, target_embedder_version
     )
 
-    # Scan the active LanceDB ONCE, grouped by paper.
-    # Without this hoist every paper triggered a full-table scan and the
-    # partial re-embed was O(N²) in I/O.
-    old_by_paper = _index_active_table(active_lancedb_path)
-    summary.chunks_source = sum(len(v) for v in old_by_paper.values())
+    # Index the active LanceDB ONCE by paper (row ids only); each paper's
+    # rows are then read by row id, so no paper costs a full-table scan.
+    active = _ActiveCorpus(active_lancedb_path)
+    summary.chunks_source = active.row_count
 
     if paper_ids is not None:
         work_papers = paper_ids
@@ -679,9 +759,9 @@ def run_re_embed(
         from tools._notebook_common import read_paper_ids_from_papers_txt
         notebook = _resolve_notebook_dir(notebook_slug)
         seeded = read_paper_ids_from_papers_txt(notebook / "papers.txt")
-        work_papers = sorted(set(old_by_paper) | set(seeded))
+        work_papers = sorted(active.paper_ids() | set(seeded))
     else:
-        work_papers = sorted(old_by_paper)
+        work_papers = sorted(active.paper_ids())
     # Validate every input paper_id at the input boundary.
     for pid in work_papers:
         if not is_valid_paper_id(pid):
@@ -730,7 +810,7 @@ def run_re_embed(
     for paper_id in work_papers:
         try:
             plan = _plan_paper(
-                paper_id, old_by_paper.get(paper_id, []),
+                paper_id, active.rows(paper_id),
                 target_embedder_version=target_embedder_version,
                 notebook_slug=notebook_slug,
             )
