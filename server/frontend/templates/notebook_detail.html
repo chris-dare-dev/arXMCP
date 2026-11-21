@@ -160,16 +160,15 @@
    record: it is the reason the operator opened the page. #}
 <section>
   {# ui-uplift-m12 M13: the pointer to the machinery has to be adjacent to the
-     corpus in EVERY state, not only the empty one. store.list_papers() is
-     uncapped (server/routes/ui.py) and the template renders every row, so on
-     a 50-paper notebook the disclosure below sits roughly 2400px down with no
-     anchor and no sticky affordance — m12 inverted the scroll rather than
-     removing it, and no milestone artifact recorded the large-corpus case.
+     corpus in EVERY state, not only the empty one. Even one full page of the
+     table (_PAPERS_PAGE_SIZE rows, server/routes/ui.py) pushes the disclosure
+     below some 2400px down, with no sticky affordance, so the link stays.
 
      Deliberately a LINK and not a duplicated control: a second Add/Ingest
      button up here would be a second primary CTA in one viewport, which BAN-9
      forbids. It costs no CSS and adds no swap target. #}
-  <h2>Papers in this notebook ({{ papers|length }})
+  {# The count is the notebook's total, not the rows on this page. #}
+  <h2>Papers in this notebook ({{ paper_count }})
     <a class="hint" href="#manage">Manage this notebook</a></h2>
   {% if not papers %}
     {# ui-uplift-m12 (UPL-1): was "No papers yet. Add one above." — false the
@@ -246,6 +245,18 @@
     </tbody>
   </table>
   </div>{# /.table-wrap (UPL-19 v0) #}
+  {# Paging. Plain links, not an htmx swap: a GET to ?page=N is a full page
+     the browser puts in history itself, so reload, Back and Forward work
+     without hx-push-url (which Discover needs only because it is a POST).
+     A row added in place by the Add or Upload swap lands at the bottom of
+     whatever page is showing; the next load puts it in order. #}
+  {% if page_count > 1 %}
+  <nav aria-label="Papers pages">
+    {% if page > 1 %}<a href="/ui/notebooks/{{ notebook.slug }}?page={{ page - 1 }}" rel="prev">← Previous</a>{% endif %}
+    <span class="hint">Page {{ page }} of {{ page_count }} · papers {{ page_first_row }}–{{ page_first_row + papers|length - 1 }} of {{ paper_count }}</span>
+    {% if page < page_count %}<a href="/ui/notebooks/{{ notebook.slug }}?page={{ page + 1 }}" rel="next">Next →</a>{% endif %}
+  </nav>
+  {% endif %}
 </section>
 
 {# ui-uplift-m12 (UPL-1): the Manage disclosure — region 3 of 3.
@@ -328,9 +339,10 @@
    name on entry at zero structural cost and without touching m8's
    ^<(section|div)> record view.
 
-   M13 (Discoverability). store.list_papers() is uncapped, so on a 50-paper
-   notebook this disclosure — the only affordance for adding, discovering,
-   uploading or ingesting — sits ~2400px below the fold. The id is the anchor
+   M13 (Discoverability). A full page of the papers table is
+   _PAPERS_PAGE_SIZE rows, so on a large notebook this disclosure — the only
+   affordance for adding, discovering, uploading or ingesting — sits ~2400px
+   below the fold. The id is the anchor
    target for the link beside the papers <h2>; see the note there for why it
    is a link and not a second control. #}
 <details class="manage-disclosure" id="manage" aria-labelledby="manage-summary"{% if not latest_run or latest_run.status != 'success' %} open{% endif %}>
