@@ -89,11 +89,9 @@
     <output id="rename-error" class="error"></output>
   </form>
   <dl class="meta">
-    {# #479: `~`-shortened for display; the full value stays reachable on
-       hover because an operator needs the real path to run `make reconcile`
-       or find the files. Shortening is not redaction — it keeps the username
-       out of casual screenshots without hiding anything. #}
-    <dt>LanceDB path</dt><dd><code title="{{ notebook.lancedb_path }}">{{ notebook.lancedb_path | display_path }}</code></dd>
+    {# Never an absolute host path: the location is relative to the data
+       directory (see _data_relative_path in server/routes/ui.py). #}
+    <dt>LanceDB path</dt><dd>{% if lancedb_location %}<code>{{ lancedb_location }}</code> <small>in the data directory</small>{% else %}outside the data directory{% endif %}</dd>
     <dt>Created</dt><dd><time>{{ notebook.created_at }}</time></dd>
     {# notebook-surface-expansion-m1: notebook-scoped parse status + a
        last-indexed freshness signal, server-rendered on page open.

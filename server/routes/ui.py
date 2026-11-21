@@ -113,30 +113,28 @@ _env: jinja2.Environment = jinja2.Environment(
 templates: Jinja2Templates = Jinja2Templates(env=_env)
 
 
-def _display_path(value: object) -> str:
-    """Shorten an absolute path for display (issue #479).
+def _data_relative_path(value: object, paths: ApplicationPaths) -> str:
+    """Return a stored host path relative to the data directory.
 
-    The notebook detail page rendered the LanceDB path verbatim, including the
-    OS username. Two costs: it puts the operator's home directory into every
-    screenshot they share, and it was the direct cause of the mobile
-    horizontal-scroll bug (#454 — since fixed with `overflow-wrap`, but the
-    path is still the longest string on the page).
+    The console never renders an absolute host path: it carries the OS
+    username and the source-tree layout into every screenshot and every
+    page response. The notebook-create fragment and the notebook list both
+    drop ``lancedb_path``; the detail page shows the same location relative
+    to the data directory instead, which is enough to find the files.
 
-    Replaces the home prefix with `~`. Deliberately NOT a redaction: the full
-    value stays available in a `title` attribute, because an operator
-    genuinely needs the real path to run `make reconcile` or find the files.
+    Returns ``""`` when the path sits outside the data directory, so the
+    caller says so rather than falling back to the absolute value.
     """
-    text = str(value or "")
-    try:
-        home = str(Path.home())
-    except (RuntimeError, OSError):
-        return text
-    if home and text.startswith(home):
-        return "~" + text[len(home) :]
-    return text
+    path = Path(str(value or ""))
+    if not path.is_absolute():
+        return ""
+    for base in (paths.root, paths.notebooks.parent):
+        try:
+            return path.relative_to(base).as_posix()
+        except ValueError:
+            continue
+    return ""
 
-
-_env.filters["display_path"] = _display_path
 
 #: notebook-surface-expansion-m1 — map a notebook's ``parse_status`` enum
 #: (server/notebooks_store.py: skipped/pending/running/complete/failed) to the
@@ -606,11 +604,14 @@ async def ui_notebook_detail(
     discover_error = ""
     if discover == "1":
         discover_results, discover_error = await _discover_view(store, slug)
+    lancedb_location = _data_relative_path(notebook.get("lancedb_path"), paths)
+    notebook = {key: value for key, value in notebook.items() if key != "lancedb_path"}
     return templates.TemplateResponse(
         request=request,
         name="notebook_detail.html",
         context={
             "notebook": notebook,
+            "lancedb_location": lancedb_location,
             "papers": annotated_papers,
             "latest_run": latest_run,
             "parse_status_css": parse_status_css,
