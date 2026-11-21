@@ -410,21 +410,34 @@
      NOT add `| safe`). The candidate queue is EPHEMERAL (no persistence). The
      outerHTML swap REPLACES #discover-results, so the fragment re-emits
      aria-live (ui-attractive-polish-m1 lesson). On 4xx/502 the JSON detail is
-     surfaced in #discover-error. #}
+     surfaced in #discover-error.
+     Discover is the one swap that changes what the operator is looking at
+     without storing anything, so it pushes ?discover=1, which this page
+     renders with a fresh run already in the panel (ui_notebook_detail).
+     htmx pushes only after a successful swap, so a failed run adds no entry.
+     hx-history="false" turns off htmx's page-snapshot cache: a snapshot taken
+     before an Add or a rename would bring back a paper list that is no longer
+     true, so Back and Forward re-render from the server instead. #}
   <form
     hx-post="/ui/api/notebooks/{{ notebook.slug }}/discover"
     hx-ext="json-enc"
     hx-target="#discover-results"
     hx-swap="outerHTML"
+    hx-push-url="/ui/notebooks/{{ notebook.slug }}?discover=1"
     hx-disabled-elt="find button"
     data-error-target="discover-error"
+    hx-history="false"
   >
     <button type="submit">Discover</button>
-    <output id="discover-error" class="error"></output>
+    <output id="discover-error" class="error">{{ discover_error }}</output>
   </form>
+  {% if discover_results %}
+  {{ discover_results }}
+  {% else %}
   <div id="discover-results" aria-live="polite" aria-atomic="true">
     <p class="hint">No discovery run yet — click Discover above.</p>
   </div>
+  {% endif %}
 </div>
 
 {# DIV — a single add form. #}

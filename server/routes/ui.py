@@ -35,17 +35,24 @@ import jinja2
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, Response
 from fastapi.templating import Jinja2Templates
+from markupsafe import Markup
 
 from ingest.identifiers import is_valid_arxiv_paper_id
 from server.application_paths import ApplicationPaths
 from server.middleware import CONTENT_SECURITY_POLICY_PREVIEW
-from server.routes.notebooks import get_application_paths, get_notebooks_store
+from server.routes.notebooks import (
+    _discover_results_fragment,
+    _safe_contact_email,
+    get_application_paths,
+    get_notebooks_store,
+)
 from tools._notebook_common import (
     CORPUS_PARSED_DIR,
     NotebookError,
     notebook_dir,
     validate_slug,
 )
+from tools.discover_for_notebook import discover_for_notebook_async
 
 if TYPE_CHECKING:
     from server.notebooks_store import NotebooksStore
@@ -471,6 +478,41 @@ async def ui_index(
     )
 
 
+#: How many candidates the Discover view shows. The same page size the
+#: Discover button's POST asks for, so a reload of the pushed URL shows the
+#: list the button showed.
+_DISCOVER_MAX_RESULTS: int = 25
+
+
+async def _discover_view(
+    store: NotebooksStore, slug: str,
+) -> tuple[Markup | None, str]:
+    """Run discovery for the notebook page's Discover view.
+
+    Returns ``(results_html, error_text)``, exactly one of them set. The
+    outcomes are the Discover button's, but a failure is TEXT in the panel
+    rather than a status code: the page itself rendered fine, and htmx
+    restores a history entry only from a 2xx response, so a 502 here would
+    leave Back or Forward on whatever page the operator was leaving.
+
+    The fragment is the one the POST route returns, built with every
+    interpolated value ``html.escape``d (the candidate metadata comes from
+    the arXiv API), which is what makes marking it ``Markup`` safe.
+    """
+    try:
+        candidates = await discover_for_notebook_async(
+            store, slug,
+            contact_email=_safe_contact_email(),
+            max_results=_DISCOVER_MAX_RESULTS,
+        )
+    except ValueError as e:
+        # The notebook has no discovery topic set.
+        return None, str(e)
+    except (RuntimeError, OSError) as e:
+        return None, f"discovery failed: {e}"
+    return Markup(_discover_results_fragment(slug, candidates)), ""
+
+
 @router.get(
     "/notebooks/{slug}",
     response_class=HTMLResponse,
@@ -479,11 +521,20 @@ async def ui_index(
 async def ui_notebook_detail(
     slug: str,
     request: Request,
+    discover: str | None = None,
     store: NotebooksStore = Depends(get_notebooks_store),  # noqa: B008  (FastAPI DI pattern)
     paths: ApplicationPaths = Depends(get_application_paths),  # noqa: B008
 ) -> HTMLResponse:
     """Per-notebook detail page — paper list + paste form + upload
     card (the "open" link from the landing page).
+
+    ``?discover=1`` is the page's Discover view: the page with a fresh
+    discovery run already in the results panel. The Discover button pushes
+    that URL when its results swap in, so reload, Back and Forward return
+    the operator to the view they were on instead of dropping the results.
+    The results are not stored anywhere, so loading the URL re-runs
+    discovery — which is what the panel already tells the operator to do.
+    Any other value of ``discover`` is the plain page.
 
     404 if the slug doesn't exist; 422 on a malformed slug — both rendered as
     HTML (issue #456), not as the raw JSON body an ``HTTPException`` produces.
@@ -551,6 +602,10 @@ async def ui_notebook_detail(
     parse_status_css = _PARSE_STATUS_CSS.get(
         notebook.get("parse_status") or "", "warn"
     )
+    discover_results: Markup | None = None
+    discover_error = ""
+    if discover == "1":
+        discover_results, discover_error = await _discover_view(store, slug)
     return templates.TemplateResponse(
         request=request,
         name="notebook_detail.html",
@@ -559,6 +614,8 @@ async def ui_notebook_detail(
             "papers": annotated_papers,
             "latest_run": latest_run,
             "parse_status_css": parse_status_css,
+            "discover_results": discover_results,
+            "discover_error": discover_error,
         },
     )
 
