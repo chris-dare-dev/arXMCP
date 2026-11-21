@@ -58,9 +58,12 @@ exits non-zero, ``/readyz`` never opens). Specifically:
 - LanceDB open failure → propagates the underlying exception
   (``FileNotFoundError`` for missing path, ``ValueError`` for an
   unknown version per :func:`ingest.corpus.open_chunks_table`).
-- BM25 artifact load or auto-build failure is NOT fatal: no served
-  tool reads the BM25 phase, so ``bm25_phase`` stays ``None`` and a
-  WARNING says why (see :func:`_open_bm25_phase`).
+- The BM25 phase loads only when ``Config.bm25_phase_enabled``
+  (``ARXMCP_BM25_PHASE=on``). When it does, an artifact load or
+  auto-build failure is NOT fatal: no served tool reads the BM25
+  phase, so ``bm25_phase`` stays ``None``, ``/readyz`` and ``/status``
+  report it as ``unavailable``, and a WARNING says why (see
+  :func:`_open_bm25_phase`).
 
 The single-worker BGE-M3 executor in :mod:`server.query_encoder` is
 shut down via :func:`server.query_encoder.shutdown_executor` from
@@ -553,6 +556,16 @@ def reconcile_corpus_marker(
 #: report order. ``is_resource_warm`` raises on any other name.
 WARM_RESOURCE_NAMES: tuple[str, ...] = ("embedder", "lancedb", "reranker")
 
+#: States of the BM25 phase, as ``/readyz`` and ``/status`` report them.
+#: ``disabled``: ``ARXMCP_BM25_PHASE`` resolved to off, so nothing loads.
+#: ``not_loaded``: enabled, but no corpus has been bound yet.
+#: ``warm``: loaded and cross-checked against the live chunks table.
+#: ``unavailable``: enabled, and the load or the cross-check failed.
+BM25_PHASE_DISABLED = "disabled"
+BM25_PHASE_NOT_LOADED = "not_loaded"
+BM25_PHASE_WARM = "warm"
+BM25_PHASE_UNAVAILABLE = "unavailable"
+
 
 @dataclass
 class StartupProgress:
@@ -574,6 +587,9 @@ class StartupProgress:
     embedder: bool = False
     lancedb: bool = False
     reranker: bool = False
+    #: Not a warm flag: a disabled phase is neither warm nor cold. One of
+    #: the ``BM25_PHASE_*`` states.
+    bm25_phase: str = BM25_PHASE_NOT_LOADED
 
     def as_map(self) -> dict[str, bool]:
         return {name: getattr(self, name) for name in WARM_RESOURCE_NAMES}
@@ -772,6 +788,11 @@ class Resources:
         """
         if progress is None:
             progress = StartupProgress()
+        progress.bm25_phase = (
+            BM25_PHASE_NOT_LOADED
+            if config.bm25_phase_enabled
+            else BM25_PHASE_DISABLED
+        )
 
         # 1. Corpus marker — REFUSE TO START on absent (synthesis D5).
         # onboarding-uplift-m4: bootstrap_mode=True + absent marker → skip
@@ -965,36 +986,15 @@ class Resources:
             logger.info("Resources.startup: BGE-reranker-v2-m3 warm")
             progress.reranker = True
 
-        # 4b. BM25 Phase 1 (E07_S01). Loads the per-corpus-version
-        # ``bm25.pkl`` artifact built by ``ingest.bm25_indexer``;
-        # auto-builds if missing (closes E04_S04 H1). Startup path
-        # opens via fstat-then-load to close TOCTOU (E07_S01 F1),
-        # checks the parent directory (F2), and cross-checks the
-        # chunk_ids against the LIVE LanceDB table (F4) so a
-        # tampered or stale artifact is rejected rather than
-        # producing phantom candidates. A rejected or unbuildable
-        # artifact leaves ``bm25_phase`` as ``None``; see
-        # :func:`_open_bm25_phase` for why that is not fatal.
-        #
-        # The live chunk_id set from the table opened in step 2, projected
-        # at the scanner. `to_arrow()` here read all fourteen columns —
-        # including both 1024-float vector columns — to keep one string
-        # column; see `project_column` for the measurement. `None` (a short
-        # read) falls back to the old shape rather than silently building a
-        # PARTIAL id set, which BM25Phase would read as "these chunks were
-        # deleted".
-        _projected_ids = project_column(
-            chunks_table, "chunk_id", expected_rows=startup_chunk_count
-        )
-        live_chunk_ids = (
-            set(_projected_ids)
-            if _projected_ids is not None
-            else set(chunks_table.to_arrow().column("chunk_id").to_pylist())
-        )
-        bm25_phase = await _open_bm25_phase(
+        # 4b. BM25 phase, only when ARXMCP_BM25_PHASE is on.
+        # Loads the per-corpus-version ``bm25.pkl`` artifact built by
+        # ``ingest.bm25_indexer`` and cross-checks it against the live
+        # chunks table; see :func:`_load_bm25_phase`.
+        bm25_phase, progress.bm25_phase = await _load_bm25_phase(
             config,
+            chunks_table,
             corpus_version=corpus_info.version,
-            live_chunk_ids=live_chunk_ids,
+            expected_rows=startup_chunk_count,
             caller="Resources.startup",
         )
 
@@ -1363,30 +1363,16 @@ class Resources:
                         )
 
 
-            # 3. BM25 phase. The chunk_id scan is a full column
-            #    materialization — off-loop (it was on the event loop in
-            #    the pre-#207 ``late_bind``, which was fine at cold start
-            #    and is not fine on a live rebind).
+            # 3. BM25 phase, only when ARXMCP_BM25_PHASE is on. A BM25
+            #    failure must not abandon the rebind: that would keep a
+            #    fresh ingest invisible over a phase no tool reads.
             from server.retrieval import ANNPhase  # noqa: PLC0415
 
-            # Same projection as the startup site. This one had no scan
-            # limit of any kind, so on a large corpus the rebind allocated the
-            # whole table — on a LIVE server, mid-request.
-            def _live_chunk_ids() -> set[str]:
-                projected = project_column(
-                    chunks_table, "chunk_id", expected_rows=startup_chunk_count
-                )
-                if projected is not None:
-                    return set(projected)
-                return set(chunks_table.to_arrow().column("chunk_id").to_pylist())
-
-            live_chunk_ids = await loop.run_in_executor(None, _live_chunk_ids)
-            # A BM25 failure must not abandon the rebind: that would keep
-            # a fresh ingest invisible over a phase no tool reads.
-            bm25_phase = await _open_bm25_phase(
+            bm25_phase, bm25_state = await _load_bm25_phase(
                 config,
+                chunks_table,
                 corpus_version=corpus_info.version,
-                live_chunk_ids=live_chunk_ids,
+                expected_rows=startup_chunk_count,
                 caller=caller,
             )
 
@@ -1484,6 +1470,7 @@ class Resources:
             # no model, and after a bootstrap promotion BGE-M3 loads on
             # the first query instead, which this flag does not track.
             self.progress.lancedb = True
+            self.progress.bm25_phase = bm25_state
             self.warm = True
 
         except Exception:  # noqa: BLE001 — see docstring
@@ -2085,6 +2072,20 @@ class Resources:
             return self.reranker_model is not None
         return bool(getattr(self.progress, name))
 
+    @property
+    def bm25_phase_state(self) -> str:
+        """One of the ``BM25_PHASE_*`` states for the bound corpus.
+
+        A disabled phase reads ``disabled`` whatever the load state: that
+        is configuration. Any other state reads ``not_loaded`` once
+        ``warm`` is False, which is the state after shutdown begins.
+        """
+        if not self.config.bm25_phase_enabled:
+            return BM25_PHASE_DISABLED
+        if not self.warm:
+            return BM25_PHASE_NOT_LOADED
+        return self.progress.bm25_phase
+
 
 # ---------------------------------------------------------------------------
 # Internal helpers
@@ -2234,6 +2235,51 @@ async def _open_theorem_names_store(config: Config, *, caller: str) -> Any | Non
     except Exception as exc:  # noqa: BLE001 — non-critical enrichment
         logger.warning("%s: could not open theorem_names store: %s", caller, exc)
         return None
+
+
+async def _load_bm25_phase(
+    config: Config,
+    chunks_table: Any,
+    *,
+    corpus_version: int,
+    expected_rows: int,
+    caller: str,
+) -> tuple[Any | None, str]:
+    """Return ``(bm25_phase, state)`` for one corpus bind.
+
+    With the phase disabled this does no I/O at all, which skips both the
+    artifact load and the full chunk_id column scan below.
+
+    With it enabled, the artifact is opened via fstat-then-load to close
+    a TOCTOU window, its parent directory is safety-checked, and its
+    chunk_ids are cross-checked against the LIVE table, so a tampered or
+    stale artifact is rejected rather than producing phantom candidates.
+    The id set is projected at the scanner, off the event loop: a plain
+    ``to_arrow()`` reads every column, both 1024-float vector columns
+    included, to keep one string column. A short projection falls back to
+    the full read rather than silently building a PARTIAL id set, which
+    the cross-check would read as "these chunks were deleted".
+    """
+    if not config.bm25_phase_enabled:
+        return None, BM25_PHASE_DISABLED
+
+    def _live_chunk_ids() -> set[str]:
+        projected = project_column(
+            chunks_table, "chunk_id", expected_rows=expected_rows
+        )
+        if projected is not None:
+            return set(projected)
+        return set(chunks_table.to_arrow().column("chunk_id").to_pylist())
+
+    loop = asyncio.get_running_loop()
+    live_chunk_ids = await loop.run_in_executor(None, _live_chunk_ids)
+    phase = await _open_bm25_phase(
+        config,
+        corpus_version=corpus_version,
+        live_chunk_ids=live_chunk_ids,
+        caller=caller,
+    )
+    return phase, BM25_PHASE_WARM if phase is not None else BM25_PHASE_UNAVAILABLE
 
 
 async def _open_bm25_phase(

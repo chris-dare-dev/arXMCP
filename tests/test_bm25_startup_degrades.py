@@ -1,6 +1,7 @@
 """A BM25 index that cannot be built must not keep the server from serving.
 
-No served tool reads the BM25 phase: ``search_papers`` runs the dense route
+The phase loads only with ``ARXMCP_BM25_PHASE=on``, so every config here
+turns it on. No served tool reads the BM25 phase: ``search_papers`` runs the dense route
 and reports ``retrieval_mode="dense_only"`` either way. The index lives inside
 the dataset, so a read-only dataset mount is enough to make its auto-build
 fail. These tests drive the REAL ``BM25Phase.startup`` against a BM25 root
@@ -92,6 +93,7 @@ def unbuildable_bm25(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[st
         cache_db_path=tmp_path / "cache.db",
         bm25_index_root=blocker / "bm25",
         enable_rerank=False,
+        bm25_phase="on",
     )
     return {"cfg": cfg, "table": table, "lance": lance}
 
@@ -105,6 +107,7 @@ def test_startup_serves_without_an_unbuildable_bm25_index(
         resources = asyncio.run(Resources.startup(unbuildable_bm25["cfg"]))
     try:
         assert resources.bm25_phase is None
+        assert resources.bm25_phase_state == "unavailable"
         assert resources.chunks_table is not None
         assert resources.corpus_info is not None
         assert resources.corpus_info.version == 1
@@ -139,13 +142,16 @@ def test_rebind_lands_without_an_unbuildable_bm25_index(
         cache_db_path=lance.parent / "cache.db",
         bm25_index_root=bm25_root,
         enable_rerank=False,
+        bm25_phase="on",
     )
 
-    async def _scenario() -> tuple[bool, int, Any]:
+    async def _scenario() -> tuple[bool, int, Any, str]:
         resources = await Resources.startup(cfg)
         try:
             if resources.bm25_phase is None:
                 raise RuntimeError("the v1 boot must build BM25 for real")
+            if resources.bm25_phase_state != "warm":
+                raise RuntimeError("a loaded v1 phase must report warm")
             unbuildable_bm25["table"].add(
                 pa.Table.from_pylist(_rows(3, 3), schema=CHUNKS_SCHEMA_V1)
             )
@@ -155,11 +161,17 @@ def test_rebind_lands_without_an_unbuildable_bm25_index(
             landed = await resources.refresh_corpus_if_stale(force=True)
             if resources.corpus_info is None:
                 raise RuntimeError("rebind left the instance unbound")
-            return landed, resources.corpus_info.version, resources.bm25_phase
+            return (
+                landed,
+                resources.corpus_info.version,
+                resources.bm25_phase,
+                resources.bm25_phase_state,
+            )
         finally:
             await resources.shutdown()
 
-    landed, version, bm25_phase = asyncio.run(_scenario())
+    landed, version, bm25_phase, state = asyncio.run(_scenario())
     assert landed is True
     assert version == 2
     assert bm25_phase is None
+    assert state == "unavailable"

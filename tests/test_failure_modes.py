@@ -379,6 +379,7 @@ class TestDegradedReadyz:
                 original_version=5,
             ),
             is_resource_warm=lambda name: True,
+            bm25_phase_state="disabled",
         )
 
         # Fake the FastAPI Request + app.state.

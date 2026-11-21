@@ -63,6 +63,9 @@ CONFIG_REFERENCE_HINT = "Run `arxmcp-server --list-config` for every ARXMCP_* se
 #: via ``resource_link`` (E06_S03 enforcement).
 DEFAULT_RESULT_BYTE_CAP = 256 * 1024
 
+#: Values ``ARXMCP_BM25_PHASE`` accepts; see :attr:`Config.bm25_phase`.
+BM25_PHASE_MODES: tuple[str, ...] = ("auto", "on", "off")
+
 
 # ---------------------------------------------------------------------------
 # Config — the single Settings class
@@ -483,6 +486,22 @@ class Config(BaseSettings):
         description=(
             "Convert LaTeX find_equation queries to MathML and search the tree-edit "
             "lane. False uses dense-only search."
+        ),
+    )
+
+    #: Whether the server loads the BM25 phase. ``auto`` loads it only
+    #: when a served tool runs a hybrid retrieval mode; none does today
+    #: (``search_papers`` is dense-only and says so in ``retrieval_mode``),
+    #: so ``auto`` resolves to off and the server skips both the artifact
+    #: load and the full chunk_id scan its integrity cross-check needs.
+    #: ``on`` loads it at startup and on every corpus rebind, which is
+    #: what the hybrid eval harness in ``ops.retrieval_eval`` requests.
+    #: Read the resolved answer from :attr:`bm25_phase_enabled`.
+    bm25_phase: str = Field(
+        default="auto",
+        description=(
+            "Load the BM25 phase: on, off, or auto. auto loads it only when a "
+            "served tool runs hybrid retrieval, which none does, so it is off."
         ),
     )
 
@@ -1075,6 +1094,27 @@ class Config(BaseSettings):
                 f"ARXMCP_LOG_FORMAT must be 'json' or 'text'; got {v!r}."
             )
         return normalized
+
+    @field_validator("bm25_phase")
+    @classmethod
+    def validate_bm25_phase(cls, v: str) -> str:
+        """``on``, ``off`` or ``auto``, normalized to lower-case."""
+        normalized = v.strip().lower()
+        if normalized not in BM25_PHASE_MODES:
+            raise ValueError(
+                f"ARXMCP_BM25_PHASE must be one of {list(BM25_PHASE_MODES)}; "
+                f"got {v!r}."
+            )
+        return normalized
+
+    @property
+    def bm25_phase_enabled(self) -> bool:
+        """Whether this process loads the BM25 phase.
+
+        ``auto`` would turn it on for a served hybrid retrieval mode. No
+        served tool has one, so only an explicit ``on`` enables it.
+        """
+        return self.bm25_phase == "on"
 
     @field_validator("corpus_chunk_count_tolerance")
     @classmethod

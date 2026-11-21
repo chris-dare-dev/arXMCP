@@ -218,7 +218,8 @@ def _preview_html_path(
 #: Today's bucket assignments:
 #:   retrieval-side (here)  : embedder:status, lancedb:status,
 #:                            corpus:version, notebooks:count
-#:   ops-side (fall-through): backup:time, disk:utilization, process:uptime
+#:   ops-side (fall-through): backup:time, disk:utilization, process:uptime,
+#:                            bm25:phase (no served tool reads BM25)
 _RETRIEVAL_CHECK_KEYS: frozenset[str] = frozenset({
     "embedder:status",
     "lancedb:status",
@@ -411,6 +412,10 @@ def _remediation_lines_for_checks(checks: object) -> Iterable[str]:
         "notebooks:count": (
             "notebook registry / disk mismatch",
             "run `make repair-registry` to heal",
+        ),
+        "bm25:phase": (
+            "BM25 phase enabled but not loaded",
+            "the server log names the cause (load or live-table cross-check)",
         ),
         "backup:time": (
             "no recent backup recorded",

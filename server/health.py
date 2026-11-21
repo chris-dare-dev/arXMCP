@@ -47,7 +47,11 @@ from server.backup_status import (
     advances_freshness,
     classify_backup_state,
 )
-from server.resources import WARM_RESOURCE_NAMES
+from server.resources import (
+    BM25_PHASE_NOT_LOADED,
+    BM25_PHASE_UNAVAILABLE,
+    WARM_RESOURCE_NAMES,
+)
 
 if TYPE_CHECKING:
     from server.resources import Resources, StartupProgress
@@ -281,6 +285,21 @@ def _warm_map(
     return dict.fromkeys(WARM_RESOURCE_NAMES, False)
 
 
+def _bm25_phase_state(
+    resources: Resources | None, progress: StartupProgress | None = None
+) -> str:
+    """The BM25 phase state every ``/readyz`` body carries.
+
+    Reported apart from the ``warm`` map because a disabled phase is
+    neither warm nor cold: ``ARXMCP_BM25_PHASE`` turned it off.
+    """
+    if resources is not None:
+        return resources.bm25_phase_state
+    if progress is not None:
+        return progress.bm25_phase
+    return BM25_PHASE_NOT_LOADED
+
+
 @router.get("/readyz")
 async def readyz(request: Request) -> Response:
     """Readiness probe.
@@ -293,14 +312,17 @@ async def readyz(request: Request) -> Response:
     The body shape is documented for ops dashboards:
 
         {"status": "ready" | "not_ready",
-         "warm": {"embedder": bool, "lancedb": bool, "reranker": bool}}
+         "warm": {"embedder": bool, "lancedb": bool, "reranker": bool},
+         "bm25_phase": "disabled" | "not_loaded" | "warm" | "unavailable"}
 
     Each flag answers for its own resource. While startup is running
     the map comes from ``app.state.startup_progress``, so a not-ready
     body names what is still loading: LanceDB opens before BGE-M3
     starts, and the reranker loads last. ``reranker`` stays False on a
     ready server started with reranking disabled, and every flag is
-    False once shutdown begins.
+    False once shutdown begins. ``bm25_phase`` is ``disabled`` unless
+    ``ARXMCP_BM25_PHASE=on``, and never decides readiness: no served
+    tool reads the phase.
 
     Under uvicorn the listening socket opens only after the lifespan's
     startup returns, so an HTTP probe gets no answer at all during
@@ -325,6 +347,7 @@ async def readyz(request: Request) -> Response:
                 "status": "bootstrap",
                 "bootstrap_mode_active": True,
                 "warm": _warm_map(resources),
+                "bm25_phase": _bm25_phase_state(resources),
             },
         )
 
@@ -334,6 +357,7 @@ async def readyz(request: Request) -> Response:
             content={
                 "status": "not_ready",
                 "warm": _warm_map(resources, progress),
+                "bm25_phase": _bm25_phase_state(resources, progress),
             },
         )
 
@@ -353,6 +377,7 @@ async def readyz(request: Request) -> Response:
                 "fallback_version": resources.degraded.fallback_version,
                 "original_version": resources.degraded.original_version,
                 "warm": _warm_map(resources),
+                "bm25_phase": _bm25_phase_state(resources),
             },
         )
 
@@ -369,6 +394,7 @@ async def readyz(request: Request) -> Response:
         "chunk_count": None if startup_count < 0 else startup_count,
         "marker_chunk_count": resources.corpus_info.chunk_count,
         "warm": _warm_map(resources),
+        "bm25_phase": _bm25_phase_state(resources),
     }
     if degraded is not None:
         content["degraded"] = {"reason": degraded.reason}
@@ -471,6 +497,23 @@ async def compute_health_status(
             f"fallback_version={resources.degraded.fallback_version}"
         )
     checks["lancedb:status"] = [lancedb_check]
+
+    # The BM25 phase is opt-in (ARXMCP_BM25_PHASE=on). Disabled is a pass:
+    # nothing was asked for. Only an enabled phase that failed to load or
+    # failed its live-table cross-check is a warn.
+    bm25_state = resources.bm25_phase_state
+    bm25_check: dict[str, object] = {
+        "componentType": "component", "observedValue": bm25_state,
+        "status": "pass", "time": t,
+    }
+    bm25_warn = bm25_state == BM25_PHASE_UNAVAILABLE
+    if bm25_warn:
+        bm25_check["status"] = "warn"
+        bm25_check["output"] = (
+            "ARXMCP_BM25_PHASE=on but the BM25 artifact failed to load or "
+            "its live-table cross-check; see the server log"
+        )
+    checks["bm25:phase"] = [bm25_check]
 
     checks["corpus:version"] = [
         {"componentType": "datastore",
@@ -610,13 +653,17 @@ async def compute_health_status(
          "observedUnit": "s", "status": "pass", "time": t}
     ]
 
-    any_warn = degraded or disk_warn or backup_warn or nb_status == "warn"
+    any_warn = (
+        degraded or disk_warn or backup_warn or bm25_warn or nb_status == "warn"
+    )
     status = "warn" if any_warn else "pass"
     label = {"pass": "READY", "warn": "DEGRADED"}[status]
     nb_text = "?" if nb_count is None else nb_count
     summary = (
         f"{label} | corpus v{resources.corpus_info.version} | "
-        f"{nb_text} notebooks" + (" | degraded" if degraded else "")
+        f"{nb_text} notebooks"
+        + (" | degraded" if degraded else "")
+        + (" | bm25 unavailable" if bm25_warn else "")
     )
     return {
         "status": status,
@@ -632,7 +679,7 @@ async def status_endpoint(request: Request) -> Response:
     (notebook-ops-hardening-m4).
 
     A SUPERSET of ``/readyz``: ``status: pass|warn|fail`` + per-component
-    ``checks`` (embedder, lancedb, corpus:version, notebooks:count,
+    ``checks`` (embedder, lancedb, bm25:phase, corpus:version, notebooks:count,
     disk:utilization, backup:time, process:uptime). HTTP 200 for ``pass`` and
     ``warn`` (serving, possibly degraded), 503 for ``fail`` (not warm). Unlike
     ``/readyz`` (which 503s on the degraded case), ``/status`` reports the

@@ -460,6 +460,7 @@ def status_badge_client(
             self.corpus_info = SimpleNamespace(version=7, chunk_count=100)
             self.process_start_time_seconds = _time.time() - 3600
             self.config = SimpleNamespace(data_dir=data_dir, ops_dir=ops_dir)
+            self.bm25_phase_state = "disabled"
 
         def is_resource_warm(self, name: str) -> bool:
             if name in ("embedder", "lancedb"):
