@@ -33,10 +33,10 @@ from typing import Any
 import numpy as np
 import pytest
 
-from arxmcp.ingest.chunk import CHUNKER_VERSION, ChunkRecord
+from arxmcp.corpus.chunk import CHUNKER_VERSION, ChunkRecord
+from arxmcp.corpus.schema import EmbedRecord
+from arxmcp.corpus.store import write_chunks
 from arxmcp.ingest.embedder import EMBEDDER_VERSION, EMBEDDING_DIM
-from arxmcp.ingest.schema import EmbedRecord
-from arxmcp.ingest.store import write_chunks
 from arxmcp.server.retrieval.ann import (
     DEFAULT_TOP_N,
     PER_COLUMN_LIMIT,
@@ -73,7 +73,7 @@ def _dual_corpus() -> tuple[list[ChunkRecord], list[ChunkRecord]]:
 
     Returns ``(stmt_chunks, proof_chunks)``. The two lists are
     disjoint (no chunk appears in both, per the schema invariant in
-    ``src/arxmcp/ingest/schema.py:135-138``).
+    ``src/arxmcp/corpus/schema.py:135-138``).
 
     Layout: 5 stmt chunks (paper ids 2307.00001-00005) + 3 proof
     chunks (paper ids 2307.10001-10003). Total 8 chunks; large
@@ -240,7 +240,7 @@ def _stmt_only_lancedb(tmp_path) -> tuple[Path, int]:
 
 
 def _open_chunks_table(lancedb_path: Path, version: int) -> Any:
-    from arxmcp.ingest.corpus import open_chunks_table
+    from arxmcp.corpus.reader import open_chunks_table
 
     return open_chunks_table(lancedb_path, version=version)
 

@@ -49,12 +49,16 @@ def _fixture_html(paper_id: str) -> str:
 # Import chunker internals for unit-level tests
 # ---------------------------------------------------------------------------
 
-from arxmcp.ingest.chunk import ChunkRecord  # noqa: E402
+from arxmcp.corpus.chunk import ChunkRecord  # noqa: E402
+from arxmcp.corpus.identifiers import (  # noqa: E402
+    InvalidPaperIDError,
+    sanitize_log_field,
+    validate_paper_id,
+)
 from arxmcp.ingest.chunker import (  # noqa: E402
     PROOF_MAX_TOKENS,
     PROOF_WINDOW_OVERLAP,
     STMT_MAX_TOKENS,
-    InvalidPaperIDError,
     _count_tokens,
     _element_text,
     _encode_tokens,
@@ -63,8 +67,6 @@ from arxmcp.ingest.chunker import (  # noqa: E402
     _extract_section_path,
     _extract_theorem_label,
     _extract_theorem_name,
-    _sanitize_log_field,
-    _validate_paper_id,
     _window_proof_text,
     chunk_paper,
 )
@@ -552,7 +554,7 @@ class TestSectionlessAutoIdLabel:
     are NOT user ``\\label{}`` keys, so the emitted chunk's ``theorem_label``
     must be ``None``. Follows the chunker-fixture discipline in
     ``.claude/docs/chunker-fixtures.md`` (direct-assertion pattern, since the
-    golden fixture suite pins only chunk_ids/kinds, and ``_compute_chunk_id``
+    golden fixture suite pins only chunk_ids/kinds, and ``compute_chunk_id``
     is independent of ``theorem_label``).
     """
 
@@ -1221,7 +1223,7 @@ class TestB2BudgetBumpTakesEffect:
         chunk = stmt_chunks[0]
 
         # AC clause (a): chunker_version is CHUNKER_VERSION ("v1.3").
-        from arxmcp.ingest.chunk import CHUNKER_VERSION
+        from arxmcp.corpus.chunk import CHUNKER_VERSION
         assert chunk.chunker_version == "v1.3"
         assert chunk.chunker_version == CHUNKER_VERSION
 
@@ -1235,11 +1237,11 @@ class TestB2BudgetBumpTakesEffect:
 
         # AC clause (b) continued: chunk_id is the hash of the FULL
         # body, NOT the hash of a 512-token-clipped prefix. Use the
-        # chunker's own _compute_chunk_id so the test stays in sync
-        # with any future hash-fn changes. (_compute_chunk_id returns
+        # chunker's own compute_chunk_id so the test stays in sync
+        # with any future hash-fn changes. (compute_chunk_id returns
         # the full ``arxiv:<paper_id>:<hex16>`` form, not just the hash.)
-        from arxmcp.ingest.chunker import _compute_chunk_id
-        expected_id_full = _compute_chunk_id(self.PAPER_ID, chunk.body_text)
+        from arxmcp.ingest.chunker import compute_chunk_id
+        expected_id_full = compute_chunk_id(self.PAPER_ID, chunk.body_text)
         assert chunk.chunk_id == expected_id_full, (
             f"chunk_id mismatch:\n"
             f"  emitted: {chunk.chunk_id}\n"
@@ -1250,7 +1252,7 @@ class TestB2BudgetBumpTakesEffect:
         # proving the budget bump rotated the id deterministically.
         full_tokens = chunk.body_text.split()
         clipped_prefix = " ".join(full_tokens[:512])
-        clipped_id = _compute_chunk_id(self.PAPER_ID, clipped_prefix)
+        clipped_id = compute_chunk_id(self.PAPER_ID, clipped_prefix)
         assert chunk.chunk_id != clipped_id, (
             "B-2 invariant violated: the post-bump chunk_id equals the "
             "hash of a 512-token-clipped prefix — the budget bump did "
@@ -1311,33 +1313,33 @@ class TestF2PaperIDValidation:
     """F2 (CRITICAL): paper_id regex blocks path traversal and bad strings."""
 
     def test_valid_new_style(self):
-        _validate_paper_id("2307.01156")
-        _validate_paper_id("2307.01156v2")
-        _validate_paper_id("9912.12345")
+        validate_paper_id("2307.01156")
+        validate_paper_id("2307.01156v2")
+        validate_paper_id("9912.12345")
 
     def test_valid_old_style(self):
-        _validate_paper_id("math/0301001")
-        _validate_paper_id("hep-th/0301001v3")
+        validate_paper_id("math/0301001")
+        validate_paper_id("hep-th/0301001v3")
 
     def test_rejects_path_traversal(self):
         with pytest.raises(InvalidPaperIDError):
-            _validate_paper_id("../../etc/passwd")
+            validate_paper_id("../../etc/passwd")
 
     def test_rejects_slashes_in_new_style(self):
         with pytest.raises(InvalidPaperIDError):
-            _validate_paper_id("a/b")
+            validate_paper_id("a/b")
 
     def test_rejects_newline(self):
         with pytest.raises(InvalidPaperIDError):
-            _validate_paper_id("foo\nbar")
+            validate_paper_id("foo\nbar")
 
     def test_rejects_tab(self):
         with pytest.raises(InvalidPaperIDError):
-            _validate_paper_id("foo\tbar")
+            validate_paper_id("foo\tbar")
 
     def test_rejects_empty(self):
         with pytest.raises(InvalidPaperIDError):
-            _validate_paper_id("")
+            validate_paper_id("")
 
     def test_chunk_paper_invalid_id_does_not_create_files(self, tmp_path):
         chunks_dir = tmp_path / "chunks"
@@ -1561,11 +1563,11 @@ class TestF7TSVLogSanitization:
     """F7 (MEDIUM): log rows must not contain embedded tab/newline."""
 
     def test_sanitize_strips_tab(self):
-        assert "\t" not in _sanitize_log_field("a\tb")
+        assert "\t" not in sanitize_log_field("a\tb")
 
     def test_sanitize_strips_newline(self):
-        assert "\n" not in _sanitize_log_field("a\nb")
-        assert "\r" not in _sanitize_log_field("a\rb")
+        assert "\n" not in sanitize_log_field("a\nb")
+        assert "\r" not in sanitize_log_field("a\rb")
 
     def test_failure_log_with_problematic_message(self, tmp_path):
         # Force a chunk_paper failure with a problematic exception message
@@ -1767,7 +1769,7 @@ class TestFixtureSuite:
         # produced 10 redundant failure reports for one underlying issue
         # on a CHUNKER_VERSION bump. One assertion now reports the full
         # mismatch list and exits.
-        from arxmcp.ingest.chunk import CHUNKER_VERSION
+        from arxmcp.corpus.chunk import CHUNKER_VERSION
         mismatches = []
         for paper_id in _FIXTURE_SUITE_IDS:
             expected = _load_expected_fixture(paper_id)

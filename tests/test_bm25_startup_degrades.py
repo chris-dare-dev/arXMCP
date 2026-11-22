@@ -66,7 +66,7 @@ def unbuildable_bm25(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[st
     import arxmcp.server.cache as cache_mod
     import arxmcp.server.query_encoder as qe_mod
     import arxmcp.server.resources as res_mod
-    from arxmcp.ingest.schema import CHUNKS_SCHEMA_V1
+    from arxmcp.corpus.schema import CHUNKS_SCHEMA_V1
     from arxmcp.settings import Config
 
     lance = tmp_path / "lancedb"
@@ -130,7 +130,7 @@ def test_rebind_lands_without_an_unbuildable_bm25_index(
     """
     import pyarrow as pa
 
-    from arxmcp.ingest.schema import CHUNKS_SCHEMA_V1
+    from arxmcp.corpus.schema import CHUNKS_SCHEMA_V1
     from arxmcp.server.resources import Resources
     from arxmcp.settings import Config
 

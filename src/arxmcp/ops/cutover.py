@@ -56,11 +56,8 @@ import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 
+from arxmcp.corpus import CORPUS_VERSION_MARKER_NAME, DEFAULT_LANCEDB_PATH
 from arxmcp.ingest.bulk_ingest import DEFAULT_LANCEDB_STAGING_PATH
-from arxmcp.ingest.store import (
-    CORPUS_VERSION_MARKER_NAME,
-    DEFAULT_LANCEDB_PATH,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -482,7 +479,7 @@ def check_criterion_2_watchdog(
 # ---------------------------------------------------------------------------
 
 #: The vector columns the server searches by ANN — the two that
-#: ``arxmcp.ingest.store._create_indices`` indexes. ``embedding_eq`` is reserved
+#: ``arxmcp.corpus.store._create_indices`` indexes. ``embedding_eq`` is reserved
 #: and always NULL on ``chunks``, so it is not checked.
 ANN_VECTOR_COLUMNS: tuple[str, ...] = ("embedding_stmt", "embedding_proof")
 
@@ -539,7 +536,7 @@ def verify_lancedb_integrity(
     has rows and that its vector indexes cover every row.
 
     Replaces the brief's fictional `lancedb verify` CLI. Lazy-
-    imports `arxmcp.ingest.corpus.open_chunks_table` so the cutover
+    imports `arxmcp.corpus.reader.open_chunks_table` so the cutover
     module is cheap to import for unit tests.
 
     The index check matters because ``arxmcp.ingest.re_embed`` writes staging
@@ -559,10 +556,7 @@ def verify_lancedb_integrity(
             ),
         )
     try:
-        from arxmcp.ingest.corpus import (  # noqa: PLC0415
-            open_chunks_table,
-            read_corpus_version,
-        )
+        from arxmcp.corpus import open_chunks_table, read_corpus_version  # noqa: PLC0415
 
         info = read_corpus_version(lancedb_path=staging_path)
         if info is None:

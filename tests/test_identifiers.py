@@ -3,7 +3,7 @@
 Closes F11 from the E06_S03 critique. ``src/arxmcp/ingest/chunker.py``,
 ``src/arxmcp/tools/validate_eval_fixtures.py``, and ``src/arxmcp/server/handlers/chunk.py``
 all previously carried independent definitions of the paper_id /
-chunk_id format. ``src/arxmcp/ingest/identifiers.py`` now collapses them to
+chunk_id format. ``src/arxmcp/corpus/identifiers.py`` now collapses them to
 one; this test asserts every consumer site routes through that
 shared module.
 """
@@ -12,8 +12,7 @@ from __future__ import annotations
 
 import pytest
 
-from arxmcp.ingest.chunker import _PAPER_ID_RE
-from arxmcp.ingest.identifiers import (
+from arxmcp.corpus.identifiers import (
     PAPER_ID_RE,
     is_valid_arxiv_paper_id,
     is_valid_chunk_id,
@@ -23,11 +22,6 @@ from arxmcp.ingest.identifiers import (
 
 
 class TestPaperIdRegex:
-    def test_chunker_pattern_equals_canonical(self):
-        """The chunker's existing _PAPER_ID_RE must match the
-        canonical PAPER_ID_RE pattern from arxmcp.ingest.identifiers."""
-        assert _PAPER_ID_RE.pattern == PAPER_ID_RE.pattern
-
     def test_validator_pattern_equals_canonical(self):
         """The eval-fixture validator's _PAPER_ID_RE must also
         match canonical."""
@@ -109,7 +103,7 @@ class TestRegexEquality:
     """
 
     def test_chunk_id_pattern_contains_each_alternative(self):
-        from arxmcp.ingest.identifiers import CHUNK_ID_PATTERN, PAPER_ID_PATTERN
+        from arxmcp.corpus.identifiers import CHUNK_ID_PATTERN, PAPER_ID_PATTERN
 
         # Strip capturing parens around v-suffix; CHUNK_ID_PATTERN
         # uses non-capturing (?:v\d+)? inside the arXiv branch.
@@ -156,7 +150,7 @@ class TestTextbookIdentifiers:
     def test_paper_id_from_textbook_chunk_id_returns_full_paper_id(self):
         # AC #1 — round-trip returns ``textbook:<slug>``, NOT just
         # ``<slug>``. The ``textbook:`` prefix IS part of the paper_id.
-        from arxmcp.ingest.identifiers import paper_id_from_chunk_id
+        from arxmcp.corpus.identifiers import paper_id_from_chunk_id
 
         result = paper_id_from_chunk_id(
             "textbook:shimura-varieties:abcdef0123456789"
@@ -166,7 +160,7 @@ class TestTextbookIdentifiers:
     def test_paper_id_from_arxiv_chunk_id_unchanged(self):
         # AC #3 — arXiv round-trip unchanged. group("arxiv_inner")
         # captures the arXiv paper_id with no ``arxiv:`` prefix.
-        from arxmcp.ingest.identifiers import paper_id_from_chunk_id
+        from arxmcp.corpus.identifiers import paper_id_from_chunk_id
 
         assert (
             paper_id_from_chunk_id("arxiv:2401.00001:" + "a" * 16)

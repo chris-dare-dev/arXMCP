@@ -24,9 +24,9 @@ from pathlib import Path
 
 import pytest
 
+from arxmcp.corpus.chunk import CHUNKER_VERSION
+from arxmcp.corpus.notebooks import NotebookError
 from arxmcp.ingest.arxiv_fetch import POLITENESS_SLEEP_SECONDS
-from arxmcp.ingest.chunk import CHUNKER_VERSION
-from arxmcp.ingest.notebooks import NotebookError
 from arxmcp.server.documents_store import (
     DOCUMENTS_DB_FILENAME,
     RAW_SOURCE_STATUS_PRESENT,
@@ -756,14 +756,14 @@ class TestZeroReEmbed:
         the embedder / LanceDB writer, so it cannot re-embed a chunk.
 
         Scans IMPORT LINES only (not prose) so the module docstring —
-        which names ``arxmcp.ingest.store`` precisely to say it is NOT
+        which names ``arxmcp.corpus.store`` precisely to say it is NOT
         imported — doesn't false-positive."""
         source = inspect.getsource(notebook_documents_backfill)
         import_block = "\n".join(
             line for line in source.splitlines()
             if line.strip().startswith(("import ", "from "))
         )
-        assert "arxmcp.ingest.store" not in import_block
+        assert "arxmcp.corpus.store" not in import_block
         assert "arxmcp.ingest.embedder" not in import_block
         assert "lancedb" not in import_block
         assert "embed_paper" not in import_block

@@ -24,7 +24,7 @@ CLI contract::
 - Validates the queries.json shape, the slug match, the minimum
   query count (``MIN_NOTEBOOK_QUERIES``), and that every
   ``expected_relevant_papers`` entry is both a valid arXiv ID
-  (per ``arxmcp.ingest.identifiers.is_valid_paper_id``) and a member of
+  (per ``arxmcp.corpus.identifiers.is_valid_paper_id``) and a member of
   the notebook's ``papers.txt``.
 - Exits 0 on pass; non-zero with a single-line error to stderr on
   fail. The first failure short-circuits — no continue-on-error.
@@ -36,9 +36,9 @@ import argparse
 import json
 import sys
 
-from arxmcp.ingest.identifiers import is_valid_arxiv_paper_id
-from arxmcp.ingest.notebooks import (
+from arxmcp.corpus import (
     NotebookError,
+    is_valid_arxiv_paper_id,
     notebook_dir,
     read_paper_ids_from_papers_txt,
     validate_slug,
@@ -153,7 +153,7 @@ def _validate_queries(queries: list, paper_id_set: set[str]) -> None:
                 )
             # m4 rect F5: is_valid_paper_id was hardened at m1 rect F3
             # to reject trailing-newline / trailing-CR / leading-whitespace
-            # classes via the `\Z` anchor (see src/arxmcp/ingest/identifiers.py:67
+            # classes via the `\Z` anchor (see src/arxmcp/corpus/identifiers.py:67
             # and tests/test_search_filter.py::TestRectificationGuards).
             # The boundary-class coverage for this validator's own surface
             # lives at tests/tools/test_validate_notebook_fixtures.py::

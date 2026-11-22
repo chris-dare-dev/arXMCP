@@ -20,7 +20,7 @@ import numpy as np
 import pyarrow as pa
 import pytest
 
-from arxmcp.ingest.schema import CHUNKS_SCHEMA_V1
+from arxmcp.corpus.schema import CHUNKS_SCHEMA_V1
 
 _SHARED_VERSION = 101
 _NOTEBOOK_VERSION = 369

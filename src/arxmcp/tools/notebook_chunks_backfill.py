@@ -22,7 +22,7 @@ that leaves every other column (crucially ``embedding_stmt`` /
 ``src/arxmcp/ingest/embed_equations.py`` write mechanism.
 
 **0-re-embed is STRUCTURAL, not incidental.** This driver never imports
-``arxmcp.ingest.store`` (its ``_build_arrow_table`` hard-requires an embedding per
+``arxmcp.corpus.store`` (its ``_build_arrow_table`` hard-requires an embedding per
 chunk_id) nor ``arxmcp.ingest.embedder`` (the BGE-M3 model). It connects to LanceDB
 directly and re-invokes the chunker's extraction functions — which load the
 BGE-M3 *tokenizer* only (``arxmcp.ingest.chunker._get_tokenizer``, documented as NOT
@@ -31,7 +31,7 @@ loading model weights), never the model. No forward pass ever runs, so
 in ``tests/test_notebook_chunks_backfill.py``). The self-contained schema-v2
 ``add_columns`` step below deliberately re-states the NULL defaults the
 store's migration gives those columns rather than calling it, for the same
-reason ``arxmcp.ingest.store`` must stay out of this import graph.
+reason ``arxmcp.corpus.store`` must stay out of this import graph.
 
 **Abstention is first-class (CLAUDE.md §4.9).** A chunk whose ``chunk_id`` the
 current chunker does not reproduce (or whose paper's re-chunk raised, or whose
@@ -113,7 +113,16 @@ from bs4 import BeautifulSoup, Tag
 # no embedder at module load (its tokenizer + BGE_M3_COMMIT_SHA imports are
 # function-local in ``_get_tokenizer``), so this import keeps the driver's
 # 0-re-embed guarantee structural.
-from arxmcp.ingest.chunk import CHUNKER_VERSION, ChunkRecord, _compute_chunk_id
+from arxmcp.corpus import (
+    CHUNKER_VERSION,
+    CORPUS_PARSED_DIR,
+    ChunkRecord,
+    NotebookError,
+    compute_chunk_id,
+    notebook_dir,
+    notebook_lancedb_path,
+    validate_slug,
+)
 from arxmcp.ingest.chunker import (
     _THEOREM_CLASS_RE,
     PER_PAPER_FAILURE_EXCEPTIONS,
@@ -123,13 +132,6 @@ from arxmcp.ingest.chunker import (
     _extract_chunks_from_container,
     _extract_section_chunks,
     _resolve_preamble_doc,
-)
-from arxmcp.ingest.notebooks import (
-    CORPUS_PARSED_DIR,
-    NotebookError,
-    notebook_dir,
-    notebook_lancedb_path,
-    validate_slug,
 )
 from arxmcp.ingest.oai_license import (
     LICENSE_STATUS_ELIGIBLE,
@@ -146,10 +148,10 @@ from arxmcp.server.documents_store import (
 logger = logging.getLogger("notebook_chunks_backfill")
 
 # The LanceDB chunks table name. Literalized here (rather than imported from
-# ``arxmcp.ingest.schema``) so this driver's import lines stay limited to the chunk
+# ``arxmcp.corpus.schema``) so this driver's import lines stay limited to the chunk
 # module, the chunker and the tokenizer — the STRUCTURAL 0-re-embed guarantee
 # that ``TestZeroReEmbed`` checks. The only ``ingest``
-# module ``arxmcp.ingest.schema`` imports is ``arxmcp.ingest.chunk`` (not the embedder), so
+# module ``arxmcp.corpus.schema`` imports is ``arxmcp.corpus.chunk`` (not the embedder), so
 # importing the name from there would also be safe. The name is stable; a
 # rename is a one-line change.
 CHUNKS_TABLE_NAME = "chunks"
@@ -217,7 +219,7 @@ def _normalized_text_hash(body_text: str) -> str:
     ``sha256(NFC(whitespace-collapsed body_text))`` — a PURE function of the
     stored ``body_text`` column (spike-3's paragraph-grain resolving key). The
     whitespace collapse mirrors ``_element_text``'s own ``" ".join(split())``;
-    the NFC step matches the ``_compute_chunk_id`` cross-host discipline so the
+    the NFC step matches the ``compute_chunk_id`` cross-host discipline so the
     hash is stable even when the HTML parser emitted NFD bytes.
     """
     collapsed = " ".join(body_text.split())
@@ -343,7 +345,7 @@ def _rechunk_paper(
 
         records: dict[str, ChunkRecord] = {}
         for chunk in all_chunks:
-            chunk.chunk_id = _compute_chunk_id(paper_id, chunk.body_text)
+            chunk.chunk_id = compute_chunk_id(paper_id, chunk.body_text)
             # keep-first on a duplicate chunk_id, mirroring _chunk_paper_impl's
             # dedup of byte-identical content (BM25 + embeddings are identical
             # for identical content, so the drop is safe and deterministic).
@@ -535,8 +537,8 @@ def _refuse_stale_chunker_rows(
     rows carry preamble-hashed ids) would all miss, so the run
     would abstain on each of them. Textbook rows carry their own chunker
     versions and are not checked. Same rule as
-    ``arxmcp.ingest.store.refuse_stale_chunker_rows``, applied to the rows this
-    driver has already read (it may not import ``arxmcp.ingest.store``).
+    ``arxmcp.corpus.store.refuse_stale_chunker_rows``, applied to the rows this
+    driver has already read (it may not import ``arxmcp.corpus.store``).
     """
     stale = [
         row

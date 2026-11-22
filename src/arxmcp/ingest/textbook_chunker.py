@@ -20,8 +20,8 @@ Public API
 
 Design decisions (research-synthesis §"LOAD-BEARING constraints")
 -----------------------------------------------------------------
-1. Does NOT call :func:`arxmcp.ingest.chunk._compute_chunk_id` — that hardcodes
-   the ``arxiv:`` prefix. Uses :func:`_compute_textbook_chunk_id` which
+1. Does NOT call :func:`arxmcp.corpus.chunk.compute_chunk_id` — that hardcodes
+   the ``arxiv:`` prefix. Uses :func:`compute_textbook_chunk_id` which
    emits ``textbook:<slug>:<sha>`` with the SAME hash discipline.
 2. Does NOT call ``_resolve_preamble_doc`` — it resolves the arXiv
    preamble store (wrong tree; the ``:`` is an invalid path byte).
@@ -35,7 +35,7 @@ Design decisions (research-synthesis §"LOAD-BEARING constraints")
    ``content_list.json`` page metadata is not propagated through the
    LaTeXML render. Correlating it back is not done.
 5. ``TEXTBOOK_CHUNKER_VERSION`` is SEPARATE from
-   ``arxmcp.ingest.chunk.CHUNKER_VERSION`` so a textbook-only change never
+   ``arxmcp.corpus.chunk.CHUNKER_VERSION`` so a textbook-only change never
    forces arXiv corpus re-embedding.
 6. Writes chunk JSONs only — NOT LanceDB. Embedding/LanceDB-write is a
    downstream step (matches ``chunk_paper``'s contract); this keeps the
@@ -53,16 +53,20 @@ from pathlib import Path
 
 from bs4 import BeautifulSoup, Tag
 
-from arxmcp.ingest.chunk import ChunkRecord, _compute_textbook_chunk_id
+from arxmcp.corpus import (
+    ChunkRecord,
+    NotebookError,
+    compute_textbook_chunk_id,
+    notebook_dir,
+    sanitize_log_field,
+    validate_paper_id,
+)
 from arxmcp.ingest.chunker import (
     PER_PAPER_FAILURE_EXCEPTIONS,
     _extract_chunks_from_container,
     _extract_section_chunks,
     _get_classes,
-    _sanitize_log_field,
-    _validate_paper_id,
 )
-from arxmcp.ingest.notebooks import NotebookError, notebook_dir
 from arxmcp.ingest.tokenizer import tokenize_body
 from arxmcp.settings import ApplicationPaths
 
@@ -74,7 +78,7 @@ logger = logging.getLogger(__name__)
 
 NOTEBOOKS_BASE = ApplicationPaths.resolve().notebooks
 
-#: Deliberately SEPARATE from ``arxmcp.ingest.chunk.CHUNKER_VERSION`` (the arXiv
+#: Deliberately SEPARATE from ``arxmcp.corpus.chunk.CHUNKER_VERSION`` (the arXiv
 #: chunker version): a textbook-chunker change must NOT trigger arXiv
 #: corpus re-embedding. The ``tv`` prefix marks textbook chunks distinctly;
 #: ``0.1`` is the v0 cut (book/chapter/section only — no definition/
@@ -104,7 +108,7 @@ def _flat_paper_id(paper_id: str) -> str:
 def _resolve_notebook_dir(slug: str) -> Path:
     """Return the symlink-checked, containment-checked notebook dir.
 
-    Routes through ``arxmcp.ingest.notebooks.notebook_dir`` (m6 F3) so
+    Routes through ``arxmcp.corpus.notebooks.notebook_dir`` (m6 F3) so
     the textbook chunker shares the same belt-and-braces posture as the
     rest of the notebook surface (notebook_init / fetch / ingest /
     purge): ``validate_slug`` (primary regex defense) + symlink refusal
@@ -246,7 +250,7 @@ def chunk_textbook(slug: str, paper_id: str) -> list[ChunkRecord]:
         Notebook slug (validated via ``validate_slug``).
     paper_id:
         Textbook paper_id, e.g. ``"textbook:shimura-varieties"``
-        (validated via the shared ``_validate_paper_id``).
+        (validated via the shared ``validate_paper_id``).
 
     Returns
     -------
@@ -262,8 +266,8 @@ def chunk_textbook(slug: str, paper_id: str) -> list[ChunkRecord]:
     """
     # Validate OUTSIDE the resilience envelope so a bad/unsafe slug or
     # paper_id surfaces to the caller (mirrors chunk_paper's
-    # _validate_paper_id placement). notebook_dir runs validate_slug +
-    # symlink refusal + containment (m7 F3); _validate_paper_id raises
+    # validate_paper_id placement). notebook_dir runs validate_slug +
+    # symlink refusal + containment (m7 F3); validate_paper_id raises
     # InvalidPaperIDError (a ValueError).
     try:
         nb_dir = _resolve_notebook_dir(slug)
@@ -271,7 +275,7 @@ def chunk_textbook(slug: str, paper_id: str) -> list[ChunkRecord]:
         raise ValueError(
             f"invalid or unsafe notebook slug {slug!r}: {exc}"
         ) from exc
-    _validate_paper_id(paper_id)
+    validate_paper_id(paper_id)
 
     start = time.monotonic()
     try:
@@ -369,7 +373,7 @@ def _chunk_textbook_impl(
     seen: dict[str, str] = {}  # chunk_id -> body_text fingerprint
     deduped_chunks: list[ChunkRecord] = []
     for chunk in all_chunks:
-        chunk.chunk_id = _compute_textbook_chunk_id(
+        chunk.chunk_id = compute_textbook_chunk_id(
             slug, preamble_text, chunk.body_text
         )
         if chunk.chunk_id in seen:
@@ -448,8 +452,8 @@ def _log_chunk_failure(
     log_path = _textbook_chunk_log_path(nb_dir)
     log_path.parent.mkdir(parents=True, exist_ok=True)
     row = (
-        f"{_sanitize_log_field(paper_id)}\tfail\t{elapsed_s:.1f}\t"
-        f"{_sanitize_log_field(message)}\n"
+        f"{sanitize_log_field(paper_id)}\tfail\t{elapsed_s:.1f}\t"
+        f"{sanitize_log_field(message)}\n"
     )
     try:
         with log_path.open("a", encoding="utf-8") as fh:

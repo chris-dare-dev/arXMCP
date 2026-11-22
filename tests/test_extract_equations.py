@@ -383,12 +383,12 @@ def _ingest_fixture_paper(tmp_path, paper_id):
 
     import numpy as np
 
+    from arxmcp.corpus.chunk import EMBEDDING_DIM, route
+    from arxmcp.corpus.schema import EmbedRecord
     from arxmcp.ingest.ar5iv_fetch import Ar5ivResult
     from arxmcp.ingest.bulk_ingest import run_bulk_ingest
-    from arxmcp.ingest.chunk import EMBEDDING_DIM, route
     from arxmcp.ingest.chunker import chunk_paper
     from arxmcp.ingest.embedder import EmbedStats
-    from arxmcp.ingest.schema import EmbedRecord
 
     parsed_dir = tmp_path / "parsed"
     (parsed_dir / paper_id).mkdir(parents=True)

@@ -173,7 +173,7 @@ class TestChunkIdShapedAttacks:
 
     ``is_valid_chunk_id`` validates the FULL pattern including
     the embedded paper_id (see CHUNK_ID_RE in
-    ``src/arxmcp/ingest/identifiers.py``). These cases prove that ANY
+    ``src/arxmcp/corpus/identifiers.py``). These cases prove that ANY
     malformed chunk_id — whether the bad bytes live in the inner
     paper_id or the outer suffix — is rejected. The test does
     NOT prove branch-specific coverage (the regex is a single
@@ -222,7 +222,7 @@ class TestPositiveCases:
 
     def test_valid_paper_id_passes_validator(self):
         """A well-formed paper_id passes ``is_valid_paper_id``.
-        The canonical regex (per ``src/arxmcp/ingest/identifiers.py``)
+        The canonical regex (per ``src/arxmcp/corpus/identifiers.py``)
         accepts:
         - new-style: ``YYMM.NNNNN[vN]``
         - old-style: ``<archive>/NNNNNNN[vN]`` where ``<archive>``
@@ -232,7 +232,7 @@ class TestPositiveCases:
           misleading comment in ``identifiers.py`` (verified by
           ``tests/test_identifiers.py``).
         """
-        from arxmcp.ingest.identifiers import is_valid_paper_id  # noqa: PLC0415
+        from arxmcp.corpus.identifiers import is_valid_paper_id  # noqa: PLC0415
 
         assert is_valid_paper_id("2401.00001") is True
         assert is_valid_paper_id("2401.00001v3") is True
@@ -241,7 +241,7 @@ class TestPositiveCases:
         assert is_valid_paper_id("cond-mat/0612345v2") is True
 
     def test_valid_chunk_id_passes_validator(self):
-        from arxmcp.ingest.identifiers import is_valid_chunk_id  # noqa: PLC0415
+        from arxmcp.corpus.identifiers import is_valid_chunk_id  # noqa: PLC0415
 
         assert (
             is_valid_chunk_id("arxiv:2401.00001:0123456789abcdef") is True
@@ -413,7 +413,7 @@ class TestPaperIdFromChunkIdRejection:
 
     @pytest.mark.parametrize("bad_input", ADVERSARIAL_INPUTS)
     def test_rejects_paper_id_shaped_attacks(self, bad_input):
-        from arxmcp.ingest.identifiers import paper_id_from_chunk_id  # noqa: PLC0415
+        from arxmcp.corpus.identifiers import paper_id_from_chunk_id  # noqa: PLC0415
 
         with pytest.raises(ValueError):
             paper_id_from_chunk_id(bad_input)
@@ -436,13 +436,13 @@ class TestPaperIdFromChunkIdRejection:
         ],
     )
     def test_rejects_chunk_id_shaped_attacks(self, bad_input):
-        from arxmcp.ingest.identifiers import paper_id_from_chunk_id  # noqa: PLC0415
+        from arxmcp.corpus.identifiers import paper_id_from_chunk_id  # noqa: PLC0415
 
         with pytest.raises(ValueError):
             paper_id_from_chunk_id(bad_input)
 
     def test_accepts_well_formed_chunk_id(self):
-        from arxmcp.ingest.identifiers import paper_id_from_chunk_id  # noqa: PLC0415
+        from arxmcp.corpus.identifiers import paper_id_from_chunk_id  # noqa: PLC0415
 
         assert (
             paper_id_from_chunk_id("arxiv:2401.00001:0123456789abcdef")

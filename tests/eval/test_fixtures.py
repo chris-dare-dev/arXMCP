@@ -33,8 +33,8 @@ from pathlib import Path
 
 import pytest
 
-from arxmcp.ingest.chunk import CHUNKER_VERSION
-from arxmcp.ingest.chunker import _PAPER_ID_RE as CHUNKER_PAPER_ID_RE
+from arxmcp.corpus.chunk import CHUNKER_VERSION
+from arxmcp.corpus.identifiers import PAPER_ID_RE as CHUNKER_PAPER_ID_RE
 from arxmcp.tools.validate_eval_fixtures import (
     _PAPER_ID_RE,
     DEFAULT_FIXTURE_PATH,
@@ -158,8 +158,8 @@ def _make_full_fixture(kind_index: dict[str, str]) -> list[dict]:
 
 class TestSingleSourceOfTruth:
     def test_paper_id_regex_matches_chunker(self):
-        """The validator duplicates ``_PAPER_ID_RE`` from
-        ``arxmcp.ingest.chunker`` to avoid pulling LaTeXML deps. The pattern
+        """The validator duplicates ``PAPER_ID_RE`` from
+        ``arxmcp.corpus.identifiers``, the regex the chunker validates with. The pattern
         strings MUST be identical."""
         assert _PAPER_ID_RE.pattern == CHUNKER_PAPER_ID_RE.pattern
 

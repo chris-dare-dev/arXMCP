@@ -31,10 +31,10 @@ import pytest
 from fastapi.testclient import TestClient
 from prometheus_client.parser import text_string_to_metric_families
 
-from arxmcp.ingest.chunk import CHUNKER_VERSION, ChunkRecord
+from arxmcp.corpus.chunk import CHUNKER_VERSION, ChunkRecord
+from arxmcp.corpus.schema import EmbedRecord
+from arxmcp.corpus.store import write_chunks
 from arxmcp.ingest.embedder import EMBEDDER_VERSION, EMBEDDING_DIM
-from arxmcp.ingest.schema import EmbedRecord
-from arxmcp.ingest.store import write_chunks
 from arxmcp.server.health import (
     refresh_sentinel_metrics,
     reset_metrics_for_tests,

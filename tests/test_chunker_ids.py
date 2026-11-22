@@ -46,8 +46,8 @@ from unittest.mock import patch
 
 import pytest
 
-from arxmcp.ingest.chunk import CHUNKER_VERSION
-from arxmcp.ingest.chunker import _compute_chunk_id, chunk_paper
+from arxmcp.corpus.chunk import CHUNKER_VERSION
+from arxmcp.ingest.chunker import chunk_paper, compute_chunk_id
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures" / "chunker"
 
@@ -112,8 +112,8 @@ class TestChunkIDFormat:
     def test_compute_chunk_id_helper_is_pure(self):
         # The helper is the canonical implementation — always returns the
         # same digest for the same inputs.
-        a = _compute_chunk_id("2307.00001", "body")
-        b = _compute_chunk_id("2307.00001", "body")
+        a = compute_chunk_id("2307.00001", "body")
+        b = compute_chunk_id("2307.00001", "body")
         assert a == b
 
     def test_compute_chunk_id_uses_documented_formula(self):
@@ -123,7 +123,7 @@ class TestChunkIDFormat:
         expected_digest = hashlib.sha256(
             unicodedata.normalize("NFC", body).encode("utf-8")
         ).hexdigest()[:16]
-        assert _compute_chunk_id(paper_id, body) == (
+        assert compute_chunk_id(paper_id, body) == (
             f"arxiv:{paper_id}:{expected_digest}"
         )
 
@@ -134,7 +134,7 @@ class TestChunkIDFormat:
         expected_digest = hashlib.sha256(
             ("tex-offset:42" + unicodedata.normalize("NFC", body)).encode("utf-8")
         ).hexdigest()[:16]
-        assert _compute_chunk_id(paper_id, body, position="tex-offset:42") == (
+        assert compute_chunk_id(paper_id, body, position="tex-offset:42") == (
             f"arxiv:{paper_id}:{expected_digest}"
         )
 
@@ -143,7 +143,7 @@ class TestChunkIDFormat:
         # A caller left on it must fail, not silently hash the preamble as
         # the body.
         with pytest.raises(TypeError):
-            _compute_chunk_id("2307.00001", "preamble", "body")  # type: ignore[misc]
+            compute_chunk_id("2307.00001", "preamble", "body")  # type: ignore[misc]
 
 
 # ===========================================================================
@@ -170,23 +170,23 @@ class TestChunkIDDeterminism:
     def test_body_mutation_changes_chunk_id(self):
         # Use the helper directly — same paper_id, same preamble, but
         # one byte of body text differs → different chunk_id.
-        a = _compute_chunk_id("2307.00001", "Original body text")
-        b = _compute_chunk_id("2307.00001", "Modified body text")
+        a = compute_chunk_id("2307.00001", "Original body text")
+        b = compute_chunk_id("2307.00001", "Modified body text")
         assert a != b
 
     def test_position_value_changes_chunk_id(self):
         # Only a TeX-chunker-owned paper passes a position; two identical
         # short proofs at different offsets must get distinct ids.
-        a = _compute_chunk_id("2307.00001", "body", position="tex-offset:1")
-        b = _compute_chunk_id("2307.00001", "body", position="tex-offset:2")
+        a = compute_chunk_id("2307.00001", "body", position="tex-offset:1")
+        b = compute_chunk_id("2307.00001", "body", position="tex-offset:2")
         assert a != b
-        assert a != _compute_chunk_id("2307.00001", "body")
+        assert a != compute_chunk_id("2307.00001", "body")
 
     def test_body_only_id_is_content_addressable(self):
-        a = _compute_chunk_id("2307.00001", "body")
-        b = _compute_chunk_id("2307.00001", "body")
+        a = compute_chunk_id("2307.00001", "body")
+        b = compute_chunk_id("2307.00001", "body")
         assert a == b
-        c = _compute_chunk_id("2307.00001", "different body")
+        c = compute_chunk_id("2307.00001", "different body")
         assert a != c
 
     def test_paper_id_in_hash_input_via_prefix_only(self):
@@ -195,8 +195,8 @@ class TestChunkIDDeterminism:
         # different prefixes. This is intentional: lets the embedder share
         # embedding-input cache hits when two papers genuinely have
         # identical chunk content.
-        a = _compute_chunk_id("2307.00001", "body")
-        b = _compute_chunk_id("2307.99999", "body")
+        a = compute_chunk_id("2307.00001", "body")
+        b = compute_chunk_id("2307.99999", "body")
         assert a != b
         # Same hash suffix
         assert a.split(":")[-1] == b.split(":")[-1]
@@ -207,8 +207,8 @@ class TestChunkIDDeterminism:
         nfc = "étale"  # precomposed
         nfd = unicodedata.normalize("NFD", nfc)
         assert nfc != nfd  # they really are different bytes
-        a = _compute_chunk_id("2307.00001", nfc)
-        b = _compute_chunk_id("2307.00001", nfd)
+        a = compute_chunk_id("2307.00001", nfc)
+        b = compute_chunk_id("2307.00001", nfd)
         assert a == b
 
 
@@ -340,7 +340,7 @@ class TestTexPositionValue:
     recurs at different places in one source and both copies are kept."""
 
     #: The first "Clear." proof's id (offset 122). Computed with BOTH the
-    #: v1.2 function (``_compute_chunk_id(pid, "tex-offset:122",
+    #: v1.2 function (``compute_chunk_id(pid, "tex-offset:122",
     #: "Clear.")``) and the v1.3 one, which agree. Pinned so a change to
     #: either the id function or the TeX chunker's position value fails here.
     PINNED_FIRST_PROOF_ID = "arxiv:1309.5035:2c5e961813f0a6a9"
@@ -400,7 +400,7 @@ class TestChunkerVersionConstant:
     def test_dataclass_default_uses_constant(self):
         # Construct without explicit chunker_version arg — default flows
         # from CHUNKER_VERSION.
-        from arxmcp.ingest.chunk import ChunkRecord
+        from arxmcp.corpus.chunk import ChunkRecord
         rec = ChunkRecord(
             chunk_id="test",
             paper_id="2307.00001",
@@ -546,10 +546,10 @@ class TestSingleVersionDefinition:
         # doesn't require touching this test's allowed-count map.
         # Future modules that hard-code either literal instead of
         # importing the relevant constant will fail this check.
-        from arxmcp.ingest.chunk import CHUNKER_VERSION
+        from arxmcp.corpus.chunk import CHUNKER_VERSION
         from arxmcp.ingest.tokenizer import TOKENIZER_VERSION
 
-        ingest_dir = Path(__file__).parent.parent / "src" / "arxmcp" / "ingest"
+        src_root = Path(__file__).parent.parent / "src" / "arxmcp"
         canonical_literals = {
             "chunk.py": CHUNKER_VERSION,
             "tokenizer.py": TOKENIZER_VERSION,
@@ -557,7 +557,8 @@ class TestSingleVersionDefinition:
         # The literals we forbid outside their canonical home.
         watched = {CHUNKER_VERSION, TOKENIZER_VERSION}
         violations: list[str] = []
-        for py_file in sorted(ingest_dir.glob("*.py")):
+        sources = [*(src_root / "corpus").glob("*.py"), *(src_root / "ingest").glob("*.py")]
+        for py_file in sorted(sources):
             # encoding="utf-8": the ingest sources contain non-ASCII bytes
             # (e.g. em-dashes) that Windows' default cp1252 decoder rejects.
             src = py_file.read_text(encoding="utf-8")
@@ -570,7 +571,7 @@ class TestSingleVersionDefinition:
                         f"{py_file.name}: has {total} occurrence(s) of "
                         f"{lit!r} literal (allowed: {allowed}). Import "
                         "the relevant *_VERSION constant from "
-                        "arxmcp.ingest.chunk or tokenizer."
+                        "arxmcp.corpus.chunk or tokenizer."
                     )
         assert not violations, (
             "single-source-of-truth violation:\n  " + "\n  ".join(violations)
@@ -623,7 +624,7 @@ class TestFailedRechunkKeepsPreviousSet:
 
         result = self._rerun(
             tmp_path, parsed_dir,
-            patch("arxmcp.ingest.chunker._compute_chunk_id", side_effect=collide),
+            patch("arxmcp.ingest.chunker.compute_chunk_id", side_effect=collide),
         )
 
         assert result == []
@@ -688,11 +689,11 @@ class TestF2DuplicateContentDeduped:
         # Build a fixture with two identical theorem environments.
         # Each emits a stmt chunk with the same body_text → same
         # chunk_id → must de-dupe rather than crash.
-        from arxmcp.ingest.chunker import _compute_chunk_id
+        from arxmcp.ingest.chunker import compute_chunk_id
 
         # Two chunk_ids identical when the bodies match.
-        a = _compute_chunk_id("2307.00001", "duplicated body")
-        b = _compute_chunk_id("2307.00001", "duplicated body")
+        a = compute_chunk_id("2307.00001", "duplicated body")
+        b = compute_chunk_id("2307.00001", "duplicated body")
         assert a == b  # same content → same id (precondition for the test)
 
     def test_duplicate_chunks_in_same_paper_dedupe(self, tmp_path):
@@ -754,7 +755,7 @@ class TestF2CollisionRaises:
 
         paper_id = "2307.99003"
         # Two chunks with DIFFERENT body_text but a forced same chunk_id.
-        # Patch _compute_chunk_id to return the same id for any input.
+        # Patch compute_chunk_id to return the same id for any input.
         canned_id = "arxiv:2307.99003:0123456789abcdef"
 
         parsed_dir = tmp_path / "parsed"
@@ -769,7 +770,7 @@ class TestF2CollisionRaises:
             patch("arxmcp.ingest.chunker.PARSED_DIR", parsed_dir),
             patch("arxmcp.ingest.chunker.CHUNKS_DIR", tmp_path / "chunks"),
             patch("arxmcp.ingest.chunker._resolve_preamble_doc", return_value=None),
-            patch("arxmcp.ingest.chunker._compute_chunk_id", return_value=canned_id),
+            patch("arxmcp.ingest.chunker.compute_chunk_id", return_value=canned_id),
         ):
             # Multiple distinct body_texts → all map to canned_id →
             # collision raise on the second one.
@@ -799,7 +800,7 @@ class TestF5FreshProcessDeterminism:
         import sys
 
         repo_root = Path(__file__).parent.parent
-        # The script uses _compute_chunk_id directly so we don't need
+        # The script uses compute_chunk_id directly so we don't need
         # a full chunker run + fixture staging in each subprocess.
         # This isolates the determinism question to the hash path.
         script = (
@@ -808,9 +809,9 @@ class TestF5FreshProcessDeterminism:
             # escaping — a bare Windows path would inject invalid \U / \P
             # escape sequences into the -c source and SyntaxError the child.
             "sys.path.insert(0, " + repr(str(repo_root)) + "); "
-            "from arxmcp.ingest.chunker import _compute_chunk_id; "
+            "from arxmcp.ingest.chunker import compute_chunk_id; "
             "body = 'Theorem 3.4. Let X be a smooth projective variety.'; "
-            "ids = [_compute_chunk_id('2307.00001', body) for _ in range(3)]; "
+            "ids = [compute_chunk_id('2307.00001', body) for _ in range(3)]; "
             "print(json.dumps(ids))"
         )
         env = _os.environ.copy()

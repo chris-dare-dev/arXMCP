@@ -179,7 +179,7 @@ class TestSingleSourceOfTruth:
         # Match ANY 40-hex string assigned with quotes in source.
         sha_pattern = re.compile(r'"' + BGE_M3_COMMIT_SHA + r'"')
         hits: list[Path] = []
-        for src_dir in ("src/arxmcp/ingest", "src/arxmcp/server"):
+        for src_dir in ("src/arxmcp/corpus", "src/arxmcp/ingest", "src/arxmcp/server"):
             for py_file in (repo_root / src_dir).rglob("*.py"):
                 text = py_file.read_text(encoding="utf-8")
                 if sha_pattern.search(text):

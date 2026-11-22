@@ -36,13 +36,13 @@ import shutil
 import sys
 from pathlib import Path
 
-from arxmcp.ingest.identifiers import is_valid_arxiv_paper_id
-from arxmcp.ingest.notebooks import (
+from arxmcp.corpus import (
     CORPUS_CHUNKS_DIR,
     CORPUS_EMBEDDINGS_DIR,
     CORPUS_PARSED_DIR,
     NOTEBOOKS_BASE,
     NotebookError,
+    is_valid_arxiv_paper_id,
     notebook_dir,
     read_paper_ids_from_papers_txt,
     validate_slug,
@@ -101,7 +101,7 @@ def _compute_unique_paper_ids(
     # any notebook's papers.txt drives arbitrary directory deletion at
     # the corpus-purge step. Helper read_paper_ids_from_papers_txt
     # intentionally doesn't validate (per its docstring at
-    # src/arxmcp/ingest/notebooks.py:97-117); validation is the caller's job.
+    # src/arxmcp/corpus/notebooks.py:97-117); validation is the caller's job.
     # Here, the caller is the destructive purge — validation IS required.
     def _validated(papers_txt: Path) -> set[str]:
         return {

@@ -24,7 +24,7 @@ LIFECYCLE_RS: str = (SUP / "lifecycle.rs").read_text(encoding="utf-8")
 MAIN_PY: str = (REPO_ROOT / "src" / "arxmcp" / "server" / "main.py").read_text(encoding="utf-8")
 CLI_PY: str = (REPO_ROOT / "src" / "arxmcp" / "server" / "cli.py").read_text(encoding="utf-8")
 SESSION_PY: str = (REPO_ROOT / "src/arxmcp/server" / "session.py").read_text(encoding="utf-8")
-CORPUS_PY: str = (REPO_ROOT / "src" / "arxmcp" / "ingest" / "corpus.py").read_text(encoding="utf-8")
+CORPUS_PY: str = (REPO_ROOT / "src" / "arxmcp" / "corpus" / "reader.py").read_text(encoding="utf-8")
 MIDDLEWARE_PY: str = (REPO_ROOT / "src/arxmcp/server" / "middleware.py").read_text(encoding="utf-8")
 NOTEBOOKS_PY: str = (
     REPO_ROOT / "src" / "arxmcp" / "server" / "routes" / "notebooks.py"
@@ -161,7 +161,7 @@ def test_lancedb_errors_drop_the_vendored_build_path() -> None:
 
 def test_the_trimmer_passes_unrecognised_shapes_through() -> None:
     """A mangled error is worse than a noisy one."""
-    from arxmcp.ingest.corpus import _trim_vendored_paths
+    from arxmcp.corpus.reader import _trim_vendored_paths
 
     assert _trim_vendored_paths("plain error") == "plain error"
     assert _trim_vendored_paths(

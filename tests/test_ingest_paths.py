@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 
 import arxmcp.ingest.bulk_ingest as bulk
-from arxmcp.ingest import notebooks as _notebook_common
+from arxmcp.corpus import notebooks as _notebook_common
 from arxmcp.ingest.bulk_ingest import PaperOutcome
 from arxmcp.tools import notebook_ingest
 
@@ -21,17 +21,18 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 _PROBE = """
 import importlib, json, pkgutil
 from pathlib import Path
-from arxmcp import ingest
+from arxmcp import corpus, ingest
 
 found = {}
-for info in pkgutil.iter_modules(ingest.__path__):
-    # The resolver's own globals (the startup directory) are its inputs.
-    if info.name == "application_paths":
-        continue
-    module = importlib.import_module(f"arxmcp.ingest.{info.name}")
-    for name, value in vars(module).items():
-        if isinstance(value, Path) and not name.startswith("__"):
-            found[f"{info.name}.{name}"] = str(value)
+for package in (ingest, corpus):
+    for info in pkgutil.iter_modules(package.__path__):
+        # The resolver's own globals (the startup directory) are its inputs.
+        if info.name == "application_paths":
+            continue
+        module = importlib.import_module(f"{package.__name__}.{info.name}")
+        for name, value in vars(module).items():
+            if isinstance(value, Path) and not name.startswith("__"):
+                found[f"{info.name}.{name}"] = str(value)
 print(json.dumps(found))
 """
 

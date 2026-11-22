@@ -5,7 +5,7 @@ custom analyzer. See H4 remediation.
 
 Builds a per-corpus-version BM25 index by reading every chunk's
 ``body_tokens`` from the pinned LanceDB dataset version (E04_S02
-:func:`arxmcp.ingest.corpus.open_chunks_table`) and feeding the
+:func:`arxmcp.corpus.reader.open_chunks_table`) and feeding the
 whitespace-split token streams to :class:`rank_bm25.BM25Okapi`. The
 fitted index is pickled to ``<lancedb>/derived/bm25/v<N>/bm25.pkl`` and
 the row-aligned chunk_id list is written as ``chunk_ids.json`` next to
@@ -14,7 +14,7 @@ query; it never enters the in-memory ingestion path.
 
 **Production wire-up deferral (H1 from the E04_S04 critique).** This
 module exposes :func:`build_bm25_index` but does NOT auto-call it
-from :func:`arxmcp.ingest.store.write_chunks`. ``write_chunks`` is called
+from :func:`arxmcp.corpus.store.write_chunks`. ``write_chunks`` is called
 per-batch (potentially multiple times per ingestion run); building
 the BM25 index after every batch would be wasteful AND wrong — the
 index should be built ONCE over the final corpus state. The corpus
@@ -84,7 +84,7 @@ from pathlib import Path
 
 from rank_bm25 import BM25Okapi
 
-from arxmcp.ingest.corpus import open_chunks_table, project_columns
+from arxmcp.corpus import open_chunks_table, project_columns
 from arxmcp.settings import ApplicationPaths
 
 logger = logging.getLogger(__name__)
@@ -142,7 +142,7 @@ class BM25Stats:
     """Per-call summary of a :func:`build_bm25_index` invocation.
 
     One JSON line per call appended to ``var/arxmcp/ops/bm25-stats.jsonl``.
-    Mirrors the ``WriteStats`` shape from :mod:`arxmcp.ingest.store` so ops
+    Mirrors the ``WriteStats`` shape from :mod:`arxmcp.corpus.store` so ops
     dashboards can ingest both with identical key conventions
     (alphabetical keys at serialization time, no timestamps — BP1).
 
@@ -180,7 +180,7 @@ def _append_bm25_stats(stats: BM25Stats) -> None:
     """Append one JSON line to ``var/arxmcp/ops/bm25-stats.jsonl``.
 
     Append mode is non-atomic but acceptable for an ops log — mirrors
-    :func:`arxmcp.ingest.store._append_store_stats`. The directory is created
+    :func:`arxmcp.corpus.store._append_store_stats`. The directory is created
     on first write.
     """
     BM25_STATS_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -268,7 +268,7 @@ def build_bm25_index(
     """Build and persist the BM25 index for ``corpus_version``.
 
     Reads every chunk's ``(chunk_id, body_tokens)`` pair from the pinned
-    LanceDB dataset version (via :func:`arxmcp.ingest.corpus.open_chunks_table`),
+    LanceDB dataset version (via :func:`arxmcp.corpus.reader.open_chunks_table`),
     fits a :class:`rank_bm25.BM25Okapi` over the whitespace-split token
     streams, and writes ``bm25.pkl`` + ``chunk_ids.json`` to
     ``<index_root>/v<corpus_version>/`` atomically (where ``index_root``

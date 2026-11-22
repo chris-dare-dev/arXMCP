@@ -8,7 +8,7 @@ handling, ``<math`` body-presence check. See the synthesis "Disagreement
 1" resolution for why we delegate rather than re-implement HTTP.
 
 notebook-preamble-recovery-m1: after each ar5iv hit, also pulls raw
-``.tex`` source via :func:`arxmcp.ingest.notebooks.fetch_raw_tex_if_missing`
+``.tex`` source via :func:`arxmcp.corpus.notebooks.fetch_raw_tex_if_missing`
 (which wraps :func:`arxmcp.ingest.arxiv_fetch.fetch_eprint`). This populates
 ``var/arxmcp/corpus/raw/<paper_id>/`` so :func:`arxmcp.ingest.preamble.extract_preamble`
 can run successfully on the ar5iv path — without it, every ar5iv-only
@@ -52,20 +52,20 @@ import logging
 import sys
 import time
 
+from arxmcp.corpus import (
+    CORPUS_RAW_DIR,
+    NotebookError,
+    is_valid_arxiv_paper_id,
+    notebook_dir,
+    read_paper_ids_from_papers_txt,
+    validate_slug,
+)
 from arxmcp.ingest.ar5iv_fetch import (
     DEFAULT_AR5IV_CACHE_DIR,
     DEFAULT_PARSED_DIR,
     try_cache,
 )
-from arxmcp.ingest.identifiers import is_valid_arxiv_paper_id
-from arxmcp.ingest.notebooks import (
-    CORPUS_RAW_DIR,
-    NotebookError,
-    fetch_raw_tex_if_missing,
-    notebook_dir,
-    read_paper_ids_from_papers_txt,
-    validate_slug,
-)
+from arxmcp.ingest.notebooks import fetch_raw_tex_if_missing
 from arxmcp.settings import arxiv_ssl_context_from_env
 
 logger = logging.getLogger("notebook_fetch")
@@ -157,7 +157,7 @@ def run(slug: str, *, sleep_seconds: float = POLITENESS_SLEEP_SECONDS) -> int:
                 # oldstyle-id-ingest-fix-m1 F1: emit a breadcrumb so this
                 # degrade is NOT silent — every other miss path in
                 # ``fetch_raw_tex_if_missing`` logs a categorized reason
-                # (``src/arxmcp/ingest/notebooks.py``), and an operator scanning logs
+                # (``src/arxmcp/corpus/notebooks.py``), and an operator scanning logs
                 # must be able to distinguish an out-of-scope old-style id
                 # from a genuine deeper ``ValueError`` bug masked here.
                 logger.info(

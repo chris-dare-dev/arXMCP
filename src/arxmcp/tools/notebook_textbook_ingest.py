@@ -5,7 +5,7 @@ returned by ``search_papers``) and the follow-up tracked at
 ``chris-dare-dev/arXMCP#8``.
 
 The textbook chunkers turn a parsed PDF into
-:class:`~arxmcp.ingest.chunk.ChunkRecord` objects but do NOT write LanceDB. This
+:class:`~arxmcp.corpus.chunk.ChunkRecord` objects but do NOT write LanceDB. This
 driver is the missing embed -> write tail::
 
     chunk_textbook_markdown(slug, paper_id)   -> list[ChunkRecord]
@@ -20,13 +20,13 @@ notebook (``ARXMCP_NOTEBOOK=<slug>`` process-level, or
 Design (textbook-ingest-m12 research synthesis):
 
 - **Embeds ChunkRecords DIRECTLY** via the embedder's low-level
-  :func:`arxmcp.ingest.embedder._encode_batch` + :func:`arxmcp.ingest.chunk.embedding_input`
+  :func:`arxmcp.ingest.embedder._encode_batch` + :func:`arxmcp.corpus.chunk.embedding_input`
   — the SAME primitives ``src/arxmcp/ingest/embed_equations.py`` reuses — NOT
   ``embed_paper`` / the global-store NPZ round-trip (which assumes the
   global ``var/arxmcp/corpus/chunks`` layout, not the notebook scope).
-  The proof/stmt routing rule is :func:`arxmcp.ingest.chunk.route`, never copied
+  The proof/stmt routing rule is :func:`arxmcp.corpus.chunk.route`, never copied
   (a wrong-column placement retrieves the wrong body; the store
-  now refuses one, see ``arxmcp.ingest.store._build_arrow_table``).
+  now refuses one, see ``arxmcp.corpus.store._build_arrow_table``).
 - **Always writes the PER-NOTEBOOK LanceDB** (``notebook_lancedb_path(slug)``),
   NEVER the global ``DEFAULT_LANCEDB_PATH`` (m12 FM-3: writing textbook rows
   into the shared arXiv corpus would pollute unfiltered ``search_papers``).
@@ -40,7 +40,7 @@ Design (textbook-ingest-m12 research synthesis):
 
 **Known limitation (textbook-ingest-m12 D2):** ``write_chunks`` stamps the
 notebook ``corpus-version.json`` marker's ``chunker_version`` field with the
-arXiv constant ``"v1.1"`` (``src/arxmcp/ingest/store.py``), not ``TEXTBOOK_CHUNKER_VERSION
+arXiv constant ``"v1.1"`` (``src/arxmcp/corpus/store.py``), not ``TEXTBOOK_CHUNKER_VERSION
 ("tv0.1")``. This is observability-only — the integer ``corpus_version`` (the
 functional MVCC value) is correct, and BM25 (the only version-gated reader)
 is skipped. A future ``store.py`` refactor can thread the textbook version.
@@ -59,25 +59,28 @@ import sys
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
-from arxmcp.ingest.chunk import EMBEDDING_DIM, embedding_input, route
+from arxmcp.corpus import (
+    EMBEDDING_DIM,
+    EmbedRecord,
+    NotebookError,
+    embedding_input,
+    is_valid_paper_id,
+    notebook_lancedb_path,
+    refresh_indices,
+    route,
+    validate_slug,
+    write_chunks,
+)
 from arxmcp.ingest.embedder import (
     EMBED_BATCH_DEFAULT,
     EMBEDDER_VERSION,
     _encode_batch,
 )
-from arxmcp.ingest.identifiers import is_valid_paper_id
-from arxmcp.ingest.notebooks import (
-    NotebookError,
-    notebook_lancedb_path,
-    validate_slug,
-)
-from arxmcp.ingest.schema import EmbedRecord
-from arxmcp.ingest.store import refresh_indices, write_chunks
 from arxmcp.ingest.textbook_chunker import chunk_textbook
 from arxmcp.ingest.textbook_markdown_chunker import chunk_textbook_markdown
 
 if TYPE_CHECKING:
-    from arxmcp.ingest.chunk import ChunkRecord
+    from arxmcp.corpus import ChunkRecord
 
 logger = logging.getLogger("notebook_textbook_ingest")
 
@@ -98,7 +101,7 @@ def _build_embed_record(
     Mirrors ``arxmcp.ingest.embedder._embed_paper_impl``'s build -> batch -> split
     flow EXACTLY, but operates on :class:`ChunkRecord` objects and returns
     the ``EmbedRecord`` in-memory (no NPZ round-trip). The embedding input
-    and the route come from :mod:`arxmcp.ingest.chunk`, the same single source the
+    and the route come from :mod:`arxmcp.corpus.chunk`, the same single source the
     embedder uses, so a vector cannot land in the wrong column.
 
     ``encoder`` is injectable (default the real :func:`_encode_batch`) so

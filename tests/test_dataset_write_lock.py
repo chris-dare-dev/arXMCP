@@ -15,13 +15,13 @@ from pathlib import Path
 import lancedb
 import pytest
 
-import arxmcp.ingest.store as store_mod
-from arxmcp.ingest import bulk_ingest
-from arxmcp.ingest.write_lock import (
+import arxmcp.corpus.store as store_mod
+from arxmcp.corpus.write_lock import (
     WRITE_LOCKED_EXIT_CODE,
     DatasetWriteLockedError,
     dataset_write_lock,
 )
+from arxmcp.ingest import bulk_ingest
 from arxmcp.ops import prune_versions as prune_mod
 from tests._corpus_helpers import seed_corpus_multi_paper
 
@@ -29,7 +29,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 
 _HOLDER = """
 import sys
-from arxmcp.ingest.write_lock import dataset_write_lock
+from arxmcp.corpus.write_lock import dataset_write_lock
 with dataset_write_lock(sys.argv[1]):
     print("held", flush=True)
     sys.stdin.read()

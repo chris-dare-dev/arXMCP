@@ -1,7 +1,7 @@
 """Read-only LanceDB ``chunks`` table accessor with MVCC version pinning (E04_S02).
 
 The MVCC handshake — verbatim from the brief AC and from
-:mod:`arxmcp.ingest.store`'s docstring:
+:mod:`arxmcp.corpus.store`'s docstring:
 
   No symlink swaps. LanceDB version int IS the corpus_version.
   Writers use the current dataset; readers call
@@ -14,13 +14,13 @@ ensures that concurrent writers cannot affect a long-running reader's
 result set, and that a reader can reproduce any query against any
 historical dataset version.
 
-**Why a separate module rather than re-exporting from arxmcp.ingest.store.**
-``arxmcp.ingest.store`` is the *writer*; ``arxmcp.ingest.corpus`` is the *reader*.
+**Why a separate module rather than re-exporting from arxmcp.corpus.store.**
+``arxmcp.corpus.store`` is the *writer*; ``arxmcp.corpus.reader`` is the *reader*.
 LanceDB's ``checkout`` API is read-only — calling it on a table object
 that's also being used to write would corrupt the writer's view. By
 isolating the reader in its own module we make the read-vs-write
 distinction explicit at the import-graph level: nothing in
-``arxmcp.ingest.corpus`` writes to LanceDB.
+``arxmcp.corpus.reader`` writes to LanceDB.
 
 **checkout mutates in place.** ``tbl.checkout(N)`` is an in-place
 mutation of the table object that pins reads to version ``N``. A
@@ -37,7 +37,7 @@ the cached handle (that would invalidate every cached pin).
 **HNSW + checkout interaction.** When a reader pins to a version that
 predates an HNSW index build, LanceDB transparently falls back to
 brute-force scan for ANN queries. Results are correct; performance
-degrades. The integer returned by :func:`arxmcp.ingest.store.write_chunks` is
+degrades. The integer returned by :func:`arxmcp.corpus.store.write_chunks` is
 the post-index version (E04_S01 docstring's "MVCC handshake" section),
 so readers pinning to that integer always get an indexed view.
 
@@ -121,14 +121,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from arxmcp.ingest.schema import CHUNKS_TABLE_NAME
+from arxmcp.corpus.schema import CHUNKS_TABLE_NAME
 
 # Import the writer's default path and marker filename so reader and
 # writer share one source of truth for where the LanceDB dataset and
-# its marker live. ``arxmcp.ingest.store`` imports this module only inside
+# its marker live. ``arxmcp.corpus.store`` imports this module only inside
 # functions, so this module-level import does not close a cycle at
 # load time.
-from arxmcp.ingest.store import CORPUS_VERSION_MARKER_NAME, DEFAULT_LANCEDB_PATH
+from arxmcp.corpus.store import CORPUS_VERSION_MARKER_NAME, DEFAULT_LANCEDB_PATH
 
 if TYPE_CHECKING:  # pragma: no cover
     import lancedb.table
@@ -442,7 +442,7 @@ def open_chunks_table(
     wrapper is added on this side.
 
     Pass ``lancedb_path=None`` (default) to use
-    :data:`arxmcp.ingest.store.DEFAULT_LANCEDB_PATH` — the same default the
+    :data:`arxmcp.corpus.store.DEFAULT_LANCEDB_PATH` — the same default the
     writer uses (closes F3).
 
     Pass ``version=None`` (default) to open the live tip (latest
@@ -489,7 +489,7 @@ def open_chunks_table(
     if not resolved_path.exists():
         raise FileNotFoundError(
             f"LanceDB path does not exist: {resolved_path}. "
-            f"Run arxmcp.ingest.store.write_chunks first."
+            f"Run arxmcp.corpus.store.write_chunks first."
         )
 
     db = lancedb.connect(str(resolved_path))
@@ -530,7 +530,7 @@ class CorpusVersionInfo:
     """Typed view of ``corpus-version.json`` (E04_S03).
 
     Mirrors the shape produced by
-    :func:`arxmcp.ingest.store.write_corpus_version_marker`. Server startup
+    :func:`arxmcp.corpus.store.write_corpus_version_marker`. Server startup
     code reads this dataclass via :func:`read_corpus_version` and uses
     ``version`` to call
     ``open_chunks_table(path, version=info.version)``.
@@ -684,7 +684,7 @@ def read_corpus_version(
 
     Returns ``None`` when the marker file is **absent** — the
     "no ingest has run yet" cold-start path. Mirrors the discipline of
-    :func:`arxmcp.ingest.embedder._read_embeddings_manifest` and
+    :func:`arxmcp.corpus.embedding.read_embeddings_manifest` and
     :func:`arxmcp.ingest.preamble._read_existing_preamble` which both return
     ``None`` for absent files. The MCP server (E06) handles this by
     falling back to ``open_chunks_table(path, version=None)`` (live
@@ -703,7 +703,7 @@ def read_corpus_version(
        Path-traversal validation (Threat 1) is **left to the
        tool-input boundary** (TODO(E06)) — same discipline as
        :func:`open_chunks_table` and
-       :func:`arxmcp.ingest.store.write_corpus_version_marker`. This function
+       :func:`arxmcp.corpus.store.write_corpus_version_marker`. This function
        trusts ``lancedb_path`` as config-derived. Callers passing
        user-supplied paths MUST validate against an allowlisted
        corpus root first (closes M2 from the E04_S03 critique).

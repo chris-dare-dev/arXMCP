@@ -26,7 +26,7 @@ from unittest.mock import patch
 import pytest
 
 import arxmcp.ingest.preamble as preamble_mod
-from arxmcp.ingest.chunker import InvalidPaperIDError
+from arxmcp.corpus.identifiers import InvalidPaperIDError
 from arxmcp.ingest.preamble import (
     PER_PAPER_FAILURE_EXCEPTIONS,
     _extract_macros,

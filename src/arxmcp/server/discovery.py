@@ -31,8 +31,8 @@ from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
+from arxmcp.corpus import NotebookError, validate_slug
 from arxmcp.ingest.arxiv_api import fetch_candidates
-from arxmcp.ingest.notebooks import NotebookError, validate_slug
 from arxmcp.server.notebooks_store import NotebooksStore
 from arxmcp.settings import DEFAULT_DB_PATH
 

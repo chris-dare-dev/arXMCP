@@ -36,6 +36,11 @@ import pytest
 
 import arxmcp.server.handlers.equation as eq_handler_mod
 import arxmcp.server.tools as server_tools
+from arxmcp.corpus.schema import (
+    CHUNKS_SCHEMA_V1,
+    EQUATIONS_SCHEMA_V1,
+    EQUATIONS_TABLE_NAME,
+)
 from arxmcp.ingest.mathml_tree import (
     EquationHit,
     EquationIndex,
@@ -46,11 +51,6 @@ from arxmcp.ingest.mathml_tree import (
     tree_from_json,
     tree_size,
     tree_to_json,
-)
-from arxmcp.ingest.schema import (
-    CHUNKS_SCHEMA_V1,
-    EQUATIONS_SCHEMA_V1,
-    EQUATIONS_TABLE_NAME,
 )
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures" / "equations"

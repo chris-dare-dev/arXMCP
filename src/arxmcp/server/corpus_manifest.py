@@ -12,7 +12,7 @@ snapshot on-read from the already-live sources — there is NO persisted
   (:class:`arxmcp.server.documents_store.DocumentsStore`, m1) — per-revision
   checksums + license status + active/withdrawn/superseded status.
 - The per-notebook ``corpus-version.json`` marker
-  (:func:`arxmcp.ingest.corpus.read_corpus_version`) — the corpus epoch +
+  (:func:`arxmcp.corpus.reader.read_corpus_version`) — the corpus epoch +
   chunker / embedder version stamps + counts.
 - The ``operator_settings`` key-value table in ``notebooks.db``
   (written by :class:`arxmcp.settings.OperatorSettingsStore`;
@@ -66,8 +66,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from arxmcp import settings
-from arxmcp.ingest.corpus import read_corpus_version
-from arxmcp.ingest.notebooks import NotebookError, notebook_dir, notebook_lancedb_path
+from arxmcp.corpus import NotebookError, notebook_dir, notebook_lancedb_path, read_corpus_version
 from arxmcp.ingest.oai_license import (
     LICENSE_STATUS_ELIGIBLE,
     LICENSE_STATUS_NOT_ALLOWLISTED_OPEN,
@@ -82,7 +81,7 @@ from arxmcp.server.documents_store import (
 )
 
 if TYPE_CHECKING:
-    from arxmcp.ingest.corpus import CorpusVersionInfo
+    from arxmcp.corpus import CorpusVersionInfo
     from arxmcp.server.documents_store import DocumentRecord
     from arxmcp.server.notebooks_store import NotebooksStore
 
@@ -542,7 +541,7 @@ async def build_manifest(
 
     ``base`` (notebooks root) and ``settings_db_path`` (the
     ``operator_settings`` DB) are test seams; production callers pass
-    nothing and get :data:`arxmcp.ingest.notebooks.NOTEBOOKS_BASE` /
+    nothing and get :data:`arxmcp.corpus.notebooks.NOTEBOOKS_BASE` /
     :data:`arxmcp.settings.DEFAULT_DB_PATH`. ``settings_db_path``
     is resolved at CALL time (attribute access) so the test-suite's
     autouse redirect of ``DEFAULT_DB_PATH`` is honored.

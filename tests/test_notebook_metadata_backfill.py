@@ -20,9 +20,9 @@ from pathlib import Path
 
 import pytest
 
+from arxmcp.corpus.notebooks import NotebookError
 from arxmcp.ingest import arxiv_api as _arxiv_api
 from arxmcp.ingest.arxiv_fetch import DEFAULT_503_BACKOFF_SECONDS, POLITENESS_SLEEP_SECONDS
-from arxmcp.ingest.notebooks import NotebookError
 from arxmcp.server.paper_metadata_store import (
     PAPER_METADATA_DB_FILENAME,
     PaperMetadataStore,

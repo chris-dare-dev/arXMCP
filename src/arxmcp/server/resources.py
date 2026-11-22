@@ -16,7 +16,7 @@ Owns the three expensive, long-lived objects that the
    reasonably expects the next query to see the result. The handle is
    still opened once per version and never ``checkout``-ed in place
    (that would corrupt other readers' views per
-   :mod:`arxmcp.ingest.corpus`) — a version change opens a NEW handle and
+   :mod:`arxmcp.corpus.reader`) — a version change opens a NEW handle and
    swaps it in via :meth:`Resources._bind_corpus`. See
    :mod:`arxmcp.server.corpus_freshness` for what triggers that and what it
    does not cover.
@@ -57,7 +57,7 @@ exits non-zero, ``/readyz`` never opens). Specifically:
   operator's choice; refuse to start).
 - LanceDB open failure → propagates the underlying exception
   (``FileNotFoundError`` for missing path, ``ValueError`` for an
-  unknown version per :func:`arxmcp.ingest.corpus.open_chunks_table`).
+  unknown version per :func:`arxmcp.corpus.reader.open_chunks_table`).
 - The BM25 phase loads only when ``Config.bm25_phase_enabled``
   (``ARXMCP_BM25_PHASE=on``). When it does, an artifact load or
   auto-build failure is NOT fatal: no served tool reads the BM25
@@ -82,7 +82,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, TypeVar
 
-from arxmcp.ingest.corpus import (
+from arxmcp.corpus import (
     CorpusVersionInfo,
     DegradedState,
     open_chunks_table_with_fallback,
@@ -126,7 +126,7 @@ class CorpusNotIngestedError(ResourceStartupError):
     """Raised when ``corpus-version.json`` is absent at startup.
 
     Synthesis D5: the server REFUSES TO START on cold-start. The
-    "live-tip fallback" path that :func:`arxmcp.ingest.corpus.read_corpus_version`
+    "live-tip fallback" path that :func:`arxmcp.corpus.reader.read_corpus_version`
     supports is for the eval harness, not the long-running server.
     Run the ingest pipeline first, then start the server.
     """
@@ -677,7 +677,7 @@ class Resources:
     #: process serves; this says which resources are loaded.
     progress: StartupProgress = field(default_factory=StartupProgress)
     #: Failure-mode degradation marker (E14_S05 D2). ``None`` on
-    #: the happy path. Set to a :class:`arxmcp.ingest.corpus.DegradedState`
+    #: the happy path. Set to a :class:`arxmcp.corpus.reader.DegradedState`
     #: when ``open_chunks_table_with_fallback`` activated the N-1
     #: fallback. Read by :func:`arxmcp.server.health.readyz` (degraded body)
     #: and by ``arxmcp.server.observability.metrics.DEGRADED_MODE_ACTIVE``
@@ -773,7 +773,7 @@ class Resources:
         1. Read ``corpus-version.json`` (raise
            :class:`CorpusNotIngestedError` on absent).
         2. Open LanceDB chunks table at the pinned version. Per the
-           ``arxmcp.ingest.corpus.open_chunks_table`` contract, the table
+           ``arxmcp.corpus.reader.open_chunks_table`` contract, the table
            handle is fresh; we cache it for process lifetime and
            never re-checkout.
         3. Eager-load BGE-M3 (forces ``query_encoder._get_model()``
@@ -912,7 +912,7 @@ class Resources:
 
 
         # 2c. HNSW unindexed-rows tripwire (corpus-integrity-observability-m3 /
-        # scout CAND-10). _create_indices (src/arxmcp/ingest/store.py) runs SYNCHRONOUSLY
+        # scout CAND-10). _create_indices (src/arxmcp/corpus/store.py) runs SYNCHRONOUSLY
         # inside write_chunks, so on the normal post-ingest path every ANN index
         # fully covers the table (num_unindexed_rows == 0). A non-zero count
         # therefore means rows were committed without a matching index rebuild
@@ -1005,7 +1005,7 @@ class Resources:
 
         # 4c. ANN Phase 2 (E07_S02). Cheap construction — just caches
         # the chunks_table reference. The two HNSW indexes were built
-        # by ``arxmcp.ingest.store.write_chunks`` (one per embedding column);
+        # by ``arxmcp.corpus.store.write_chunks`` (one per embedding column);
         # this phase just queries them at request time. Fuses with
         # ``bm25_phase``'s candidates via RRF.
         from arxmcp.server.retrieval import ANNPhase
@@ -1638,7 +1638,7 @@ class Resources:
         version than the one being served. Returns ``True`` iff a
         rebind actually landed (issue #207).
 
-        This is the seam ``src/arxmcp/ingest/corpus.py``'s cache-invalidation
+        This is the seam ``src/arxmcp/corpus/reader.py``'s cache-invalidation
         contract has always described and never had. Two callers:
 
         * :func:`arxmcp.server.tools._wrap_with_observability` — the PULL path,
@@ -1806,9 +1806,7 @@ class Resources:
         gate = self._get_notebook_gate(slug)
 
         async def _probe() -> bool:
-            from arxmcp.ingest.notebooks import (  # noqa: PLC0415
-                notebook_lancedb_path,
-            )
+            from arxmcp.corpus import notebook_lancedb_path  # noqa: PLC0415
 
             try:
                 lancedb_path = notebook_lancedb_path(
@@ -1877,10 +1875,10 @@ class Resources:
         Safety + correctness:
 
         * **Threat-1 (m2 FM-4).** ``slug`` is validated by
-          :func:`arxmcp.ingest.notebooks.validate_slug` (regex + the
+          :func:`arxmcp.corpus.notebooks.validate_slug` (regex + the
           ``notebook_dir`` symlink rejection + containment) BEFORE any
           path construction or I/O. A traversal / symlink / malformed
-          slug raises :class:`arxmcp.ingest.notebooks.NotebookError`.
+          slug raises :class:`arxmcp.corpus.notebooks.NotebookError`.
         * **Un-ingested notebook (m2 FM-5a).** A valid slug whose
           ``lancedb`` has no ``corpus-version.json`` marker raises
           :class:`CorpusNotIngestedError` — the SAME typed error the
@@ -1901,14 +1899,11 @@ class Resources:
           corpus_info)`` for process lifetime with no re-check, which is
           what let a mid-session ingest go unnoticed.
         """
-        # Defer the import: arxmcp.ingest.notebooks is the shared notebook
+        # Defer the import: arxmcp.corpus.notebooks is the shared notebook
         # seam (validate_slug + notebook_lancedb_path), and loading it
         # lazily keeps it off the module-load path for the common
         # (no-notebook) query.
-        from arxmcp.ingest.notebooks import (  # noqa: PLC0415
-            notebook_lancedb_path,
-            validate_slug,
-        )
+        from arxmcp.corpus import notebook_lancedb_path, validate_slug  # noqa: PLC0415
 
         # Threat-1 boundary: validate BEFORE any path use. Raises
         # NotebookError on a bad slug; the handler maps it to ValueError.
@@ -2128,10 +2123,7 @@ async def _open_optional_lancedb_tables(
     try:
         import lancedb  # noqa: PLC0415
 
-        from arxmcp.ingest.schema import (  # noqa: PLC0415
-            DEFINITIONS_TABLE_NAME,
-            EQUATIONS_TABLE_NAME,
-        )
+        from arxmcp.corpus import DEFINITIONS_TABLE_NAME, EQUATIONS_TABLE_NAME  # noqa: PLC0415
 
         db_conn = await loop.run_in_executor(
             None,
@@ -2192,10 +2184,7 @@ async def _open_theorem_names_store(config: Config, *, caller: str) -> Any | Non
     #207; see that function's docstring for why.
     """
     try:
-        from arxmcp.ingest.theorem_names_store import (  # noqa: PLC0415
-            TheoremNamesSchemaStale,
-            TheoremNamesStore,
-        )
+        from arxmcp.corpus import TheoremNamesSchemaStale, TheoremNamesStore  # noqa: PLC0415
 
         tdb_path = Path(config.theorem_names_db_path)
         if not tdb_path.exists():
@@ -2382,10 +2371,7 @@ def _check_notebook_dataset(config: Config) -> None:
     command in its error, whether or not bootstrap mode is on (AC5, F3
     rectification).
     """
-    from arxmcp.ingest.notebooks import (  # noqa: PLC0415
-        NotebookError,
-        notebook_lancedb_path,
-    )
+    from arxmcp.corpus import NotebookError, notebook_lancedb_path  # noqa: PLC0415
 
     slug = config.notebook
     try:

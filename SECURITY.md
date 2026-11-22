@@ -74,13 +74,13 @@ Enforced at config-parse time, request-handling time, or via the test suite.
 | **Request body cap** — 1 MB (uvicorn has no native knob). | `src/arxmcp/server/middleware.py::RequestBodySizeLimitMiddleware` |
 | **Response body cap** — 256 KB inline; `resource_link` for larger payloads. | `src/arxmcp/server/main.py::BodySizeCapMiddleware`, `src/arxmcp/server/tools.py::enforce_byte_cap` |
 | **Per-session retrieval caps** — 3 `search_papers` + 4 `get_chunk` per `Mcp-Session-Id`. | `src/arxmcp/server/middleware.py::SessionCapMiddleware`, `src/arxmcp/server/session.py` |
-| **`paper_id` / `chunk_id` regex validation** before any I/O on every tool input. | `src/arxmcp/ingest/identifiers.py` + per-handler validation |
+| **`paper_id` / `chunk_id` regex validation** before any I/O on every tool input. | `src/arxmcp/corpus/identifiers.py` + per-handler validation |
 | **safetensors-only loading for the reranker** — BGE-reranker-v2-m3 loads with `use_safetensors=True` and a snapshot holding pickle `.bin` weights is refused (Threat 6). The BGE-M3 embedder is **not** covered: its pinned revision ships only `pytorch_model.bin`, so it loads pickle weights, guarded by the commit-SHA pin and `trust_remote_code` off by default. | `src/arxmcp/server/resources.py::_load_reranker_or_raise`, `src/arxmcp/server/model_loader.py::assert_no_bin_in_snapshot`; `src/arxmcp/ingest/embedder.py` |
 | **TLS verification on** for every outbound HTTP call (no opt-out). | `urllib.request.urlopen` defaults |
 | **Response size cap** on external fetches (OpenAlex / INSPIRE / arXiv). | per-source `*_MAX_RESPONSE_BYTES` constants |
 | **Loopback-only shim egress** — refuses non-loopback hosts. | `src/arxmcp/shim/arxmcp_shim.py` |
 | **Security headers** — `X-Content-Type-Options: nosniff` + `X-Frame-Options: DENY`. | `src/arxmcp/server/middleware.py::SecurityHeadersMiddleware` |
-| **Single source of truth for identifier regexes** (drift would expose path traversal). | `src/arxmcp/ingest/identifiers.py` + `tests/test_identifiers.py` |
+| **Single source of truth for identifier regexes** (drift would expose path traversal). | `src/arxmcp/corpus/identifiers.py` + `tests/test_identifiers.py` |
 
 The threat-by-threat audit (Threat 1 path traversal; 2 prompt injection;
 3 LaTeXML/subprocess sandbox; 4 resource exhaustion; 5 Origin/DNS-rebinding;

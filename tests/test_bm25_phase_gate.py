@@ -73,7 +73,7 @@ def corpus(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     import arxmcp.server.cache as cache_mod
     import arxmcp.server.query_encoder as qe_mod
     import arxmcp.server.resources as res_mod
-    from arxmcp.ingest.schema import CHUNKS_SCHEMA_V1
+    from arxmcp.corpus.schema import CHUNKS_SCHEMA_V1
     from arxmcp.server.retrieval import BM25Phase
 
     lance = tmp_path / "lancedb"
@@ -161,7 +161,7 @@ class TestConfig:
 def test_default_startup_and_rebind_skip_the_phase(corpus) -> None:
     import pyarrow as pa
 
-    from arxmcp.ingest.schema import CHUNKS_SCHEMA_V1
+    from arxmcp.corpus.schema import CHUNKS_SCHEMA_V1
     from arxmcp.server.resources import Resources
 
     async def _scenario() -> tuple[Any, str, bool, int]:
@@ -190,7 +190,7 @@ def test_default_startup_and_rebind_skip_the_phase(corpus) -> None:
 def test_enabled_binds_cross_check_against_the_live_table(corpus) -> None:
     import pyarrow as pa
 
-    from arxmcp.ingest.schema import CHUNKS_SCHEMA_V1
+    from arxmcp.corpus.schema import CHUNKS_SCHEMA_V1
     from arxmcp.server.resources import Resources
 
     async def _scenario() -> tuple[str, str]:

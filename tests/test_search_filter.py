@@ -739,7 +739,7 @@ class TestRectificationGuards:
         strings ending in \\n. Pre-fix, Python's default $ semantics
         accepted them. Closes the defense-in-depth gap named in the
         _escape_paper_id_literal docstring."""
-        from arxmcp.ingest.identifiers import is_valid_paper_id
+        from arxmcp.corpus.identifiers import is_valid_paper_id
         assert is_valid_paper_id("2604.26204\n") is False
         assert is_valid_paper_id("hep-th/0001234\n") is False
         # Also trailing CR + multiline

@@ -8,7 +8,7 @@ radius for textbook chunks.
 **What this test pins.** The notebook-scoped storage layout
 (``var/arxmcp/notebooks/<slug>/lancedb/`` per m6) is the only blast-
 radius boundary between the shared arXiv corpus and textbook chunks.
-``arxmcp.ingest.store.write_chunks`` and ``arxmcp.ingest.corpus.open_chunks_table``
+``arxmcp.corpus.store.write_chunks`` and ``arxmcp.corpus.reader.open_chunks_table``
 both accept an explicit ``lancedb_path`` argument; this test exercises
 both APIs against two distinct paths in the same test invocation and
 verifies neither writer corrupts the other dataset, neither reader
@@ -36,11 +36,11 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from arxmcp.ingest.chunk import CHUNKER_VERSION, ChunkRecord
-from arxmcp.ingest.corpus import open_chunks_table
+from arxmcp.corpus.chunk import CHUNKER_VERSION, ChunkRecord
+from arxmcp.corpus.reader import open_chunks_table
+from arxmcp.corpus.schema import EmbedRecord
+from arxmcp.corpus.store import write_chunks
 from arxmcp.ingest.embedder import EMBEDDER_VERSION, EMBEDDING_DIM
-from arxmcp.ingest.schema import EmbedRecord
-from arxmcp.ingest.store import write_chunks
 
 
 def _make_arxiv_chunk() -> ChunkRecord:
@@ -346,7 +346,7 @@ class TestNotebookScopedLanceDBIsolation:
         and be caught by the source_kind enum guard there (rather
         than silently land in some other notebook).
         """
-        from arxmcp.ingest.store import DEFAULT_LANCEDB_PATH
+        from arxmcp.corpus.store import DEFAULT_LANCEDB_PATH
 
         # .as_posix() normalizes separators so the substring checks below
         # hold on Windows (and it lets the "/notebooks/" guard catch a

@@ -40,11 +40,7 @@ import sys
 import uuid
 from pathlib import Path
 
-from arxmcp.ingest.notebooks import (
-    NotebookError,
-    notebook_lancedb_path,
-    validate_slug,
-)
+from arxmcp.corpus import NotebookError, notebook_lancedb_path, validate_slug
 
 logger = logging.getLogger("notebook_reconcile_marker")
 
@@ -62,7 +58,7 @@ def _recount_lancedb(
     MVCC-pinned ``count_rows`` + distinct paper_id via PyArrow."""
     import pyarrow.compute as pc  # noqa: PLC0415
 
-    from arxmcp.ingest.corpus import open_chunks_table  # local
+    from arxmcp.corpus import open_chunks_table
 
     tbl = open_chunks_table(lance_path, version=version)
     chunk_count = tbl.count_rows()
@@ -77,7 +73,7 @@ def _write_marker_atomically(lance_path: Path, info: object) -> None:
     (m3 synthesis §2 load-bearing facts)."""
     out_path = lance_path / "corpus-version.json"
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    # Mirror ``src/arxmcp/ingest/store.py::write_corpus_version_marker`` verbatim
+    # Mirror ``src/arxmcp/corpus/store.py::write_corpus_version_marker`` verbatim
     # (default separators, trailing "\n") so a reconcile output is
     # byte-identical to a fresh-ingest marker. Diverging here would
     # break the m3 synthesis §3 D4 idempotency contract.
@@ -106,7 +102,7 @@ def _reconcile_one(lance_path: Path, *, label: str) -> int:
 
     Returns 0 on success, 1 on operational failure.
     """
-    from arxmcp.ingest.corpus import read_corpus_version  # local
+    from arxmcp.corpus import read_corpus_version
 
     try:
         old_info = read_corpus_version(lance_path)

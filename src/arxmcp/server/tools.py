@@ -1351,7 +1351,7 @@ def _get_chunk_cap_units(arguments: dict[str, Any]) -> int:
     chunk_id = arguments.get("chunk_id")
     if not isinstance(chunk_id, list):
         return 1
-    from arxmcp.ingest.identifiers import is_valid_chunk_id  # noqa: PLC0415
+    from arxmcp.corpus import is_valid_chunk_id  # noqa: PLC0415
     from arxmcp.server.handlers.chunk import MAX_BATCH_CHUNK_IDS  # noqa: PLC0415
 
     will_serve = 0 < len(chunk_id) <= MAX_BATCH_CHUNK_IDS and all(

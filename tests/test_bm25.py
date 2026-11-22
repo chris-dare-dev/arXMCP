@@ -30,16 +30,16 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from arxmcp.corpus.chunk import CHUNKER_VERSION, ChunkRecord
+from arxmcp.corpus.schema import EmbedRecord
+from arxmcp.corpus.store import write_chunks
 from arxmcp.ingest.bm25_indexer import (
     BM25_CHUNK_IDS_NAME,
     BM25_INDEX_NAME,
     BM25Stats,
     build_bm25_index,
 )
-from arxmcp.ingest.chunk import CHUNKER_VERSION, ChunkRecord
 from arxmcp.ingest.embedder import EMBEDDER_VERSION, EMBEDDING_DIM
-from arxmcp.ingest.schema import EmbedRecord
-from arxmcp.ingest.store import write_chunks
 
 # ===========================================================================
 # Helpers — curated chunks with hand-crafted body_tokens
@@ -583,7 +583,7 @@ class TestSingleSourceOfTruth:
         repo_root = Path(__file__).parent.parent
         for name in ("BM25_DIR_NAME", "BM25_INDEX_NAME", "BM25_CHUNK_IDS_NAME"):
             hits = []
-            for src_dir in ("src/arxmcp/ingest", "src/arxmcp/server"):
+            for src_dir in ("src/arxmcp/corpus", "src/arxmcp/ingest", "src/arxmcp/server"):
                 for py in (repo_root / src_dir).rglob("*.py"):
                     text = py.read_text(encoding="utf-8")
                     if f"{name} = " in text:
@@ -602,7 +602,7 @@ class TestSingleSourceOfTruth:
         # only hit bm25_indexer.py.
         repo_root = Path(__file__).parent.parent
         hits = []
-        for src_dir in ("src/arxmcp/ingest", "src/arxmcp/server"):
+        for src_dir in ("src/arxmcp/corpus", "src/arxmcp/ingest", "src/arxmcp/server"):
             for py in (repo_root / src_dir).rglob("*.py"):
                 text = py.read_text(encoding="utf-8")
                 if 'f"v{' in text:

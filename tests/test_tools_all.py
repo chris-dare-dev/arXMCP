@@ -32,10 +32,10 @@ import pytest
 from fastapi.testclient import TestClient
 from jsonschema import Draft7Validator
 
-from arxmcp.ingest.chunk import CHUNKER_VERSION, ChunkRecord
+from arxmcp.corpus.chunk import CHUNKER_VERSION, ChunkRecord
+from arxmcp.corpus.schema import EmbedRecord
+from arxmcp.corpus.store import write_chunks
 from arxmcp.ingest.embedder import EMBEDDER_VERSION, EMBEDDING_DIM
-from arxmcp.ingest.schema import EmbedRecord
-from arxmcp.ingest.store import write_chunks
 from arxmcp.server.health import reset_metrics_for_tests
 from arxmcp.server.main import create_app
 from arxmcp.server.tools import (

@@ -6,7 +6,7 @@ fixture strings — no MinerU, no LaTeXML, no file IO.
 
 from __future__ import annotations
 
-from arxmcp.ingest.chunk import ALLOWED_PARSER_USED
+from arxmcp.corpus.chunk import ALLOWED_PARSER_USED
 from arxmcp.ingest.textbook_markdown_chunker import (
     _MAX_TOKENS,
     TEXTBOOK_MD_CHUNKER_VERSION,

@@ -2,7 +2,8 @@
 
 The chunk_id and paper_id formats are referenced by:
 
-- ``src/arxmcp/ingest/chunker.py`` (the writer; closes Threat 1 path-traversal).
+- :func:`validate_paper_id` (every writer that builds a path from a
+  paper_id; closes Threat 1 path-traversal).
 - ``src/arxmcp/tools/validate_eval_fixtures.py`` (the eval-fixture validator;
   ensures curated chunk_ids match the chunker's output).
 - ``src/arxmcp/server/handlers/*.py`` (every tool handler that accepts a
@@ -33,13 +34,12 @@ import re
 #:    inner regex (``[a-z][a-z0-9-]{2,30}``). The ``textbook:`` prefix
 #:    is PART OF the paper_id; there is no symmetric ``arxiv:`` prefix
 #:    on arXiv paper_ids because arXiv was the historical default.
-#:    Slug source-of-truth is ``src/arxmcp/ingest/notebooks.py::SLUG_RE``.
+#:    Slug source-of-truth is ``src/arxmcp/corpus/notebooks.py::SLUG_RE``.
 #:    Lands via textbook-ingest-m1.
 #:
-#: Independent anchoring matches the historical pattern shared with
-#: ``arxmcp.ingest.chunker._PAPER_ID_RE`` and
-#: ``arxmcp.tools.validate_eval_fixtures._PAPER_ID_RE``; the byte-equality
-#: lock test continues to pass.
+#: Independent anchoring matches the pattern
+#: ``arxmcp.tools.validate_eval_fixtures._PAPER_ID_RE`` duplicates; the
+#: byte-equality lock test continues to pass.
 #:
 #: F3 closure from proof-verify-handler-wiring-m1 critique: use ``\Z``
 #: not ``$`` for the end-of-string anchor. Python's default ``$``
@@ -102,7 +102,7 @@ ARXIV_PAPER_ID_RE = re.compile(_ARXIV_PAPER_ID_FULL_PATTERN)
 #:    of the paper_id itself.
 #:
 #: The 16-hex suffix is the chunk content hash per
-#: ``arxmcp.ingest.chunker._compute_chunk_id``. Positional capture groups
+#: ``arxmcp.ingest.chunker.compute_chunk_id``. Positional capture groups
 #: expose the branch-specific captures for ``paper_id_from_chunk_id``:
 #:
 #: - group(1) = arXiv inner paper_id (no ``arxiv:`` prefix), OR None
@@ -163,6 +163,24 @@ def is_valid_paper_id(value: str) -> bool:
     return isinstance(value, str) and PAPER_ID_RE.match(value) is not None
 
 
+class InvalidPaperIDError(ValueError):
+    """Raised when a paper_id fails the validation regex."""
+
+
+def validate_paper_id(paper_id: str) -> None:
+    """Reject paper_ids that could enable path traversal or log injection."""
+    if not isinstance(paper_id, str) or not PAPER_ID_RE.match(paper_id):
+        raise InvalidPaperIDError(
+            f"paper_id {paper_id!r} does not match new-style YYMM.NNNNN[vN] "
+            "or old-style subject/NNNNNNN[vN]"
+        )
+
+
+def sanitize_log_field(s: str) -> str:
+    """Strip TSV-breaking characters (tab, newline, carriage return)."""
+    return s.replace("\t", " ").replace("\n", " ").replace("\r", " ")
+
+
 def is_valid_arxiv_paper_id(value: str) -> bool:
     """Return True if ``value`` is a well-formed arXiv paper_id.
 
@@ -183,7 +201,7 @@ def is_valid_arxiv_paper_id(value: str) -> bool:
 
 
 #: The ``source_kind`` a paper_id's *shape* implies. Mirrors the
-#: chunks-table enum (``arxmcp.ingest.chunk.ALLOWED_SOURCE_KINDS``) and
+#: chunks-table enum (``arxmcp.corpus.chunk.ALLOWED_SOURCE_KINDS``) and
 #: ``arxmcp.server.handlers.search._VALID_SOURCE_KIND_FILTER_VALUES``.
 SOURCE_KIND_ARXIV: str = "arxiv"
 SOURCE_KIND_TEXTBOOK: str = "textbook"
@@ -264,8 +282,11 @@ __all__ = [
     "CHUNK_ID_RE",
     "PAPER_ID_PATTERN",
     "PAPER_ID_RE",
+    "InvalidPaperIDError",
     "is_valid_arxiv_paper_id",
     "is_valid_chunk_id",
     "is_valid_paper_id",
     "paper_id_from_chunk_id",
+    "sanitize_log_field",
+    "validate_paper_id",
 ]

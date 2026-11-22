@@ -76,8 +76,7 @@ from typing import Annotated, Any, Literal
 from mcp.types import CallToolResult, ResourceLink, TextContent
 from pydantic import AnyUrl, Field
 
-from arxmcp.ingest.identifiers import is_valid_paper_id
-from arxmcp.ingest.store import ALLOWED_KINDS
+from arxmcp.corpus import ALLOWED_KINDS, is_valid_paper_id
 from arxmcp.server.cache import Tier2Match, get_cache
 from arxmcp.server.handlers.corpus_route import parse_notebook, resolve_corpus
 from arxmcp.server.metadata_enrich import enrich_rows_with_titles
@@ -160,7 +159,7 @@ def _build_paper_id_predicate(paper_id_value: Any) -> str:
     - non-empty list (FM-2: empty list raises rather than silently
       becoming a no-op).
     - length <= ``MAX_PAPER_ID_FILTER_ITEMS`` (FM-4: resource cap).
-    - every element passes ``arxmcp.ingest.identifiers.is_valid_paper_id``
+    - every element passes ``arxmcp.corpus.identifiers.is_valid_paper_id``
       (FM-5: malformed IDs raise rather than partial-filter silently).
 
     Then escapes single quotes (FM-1 defense-in-depth) and joins
@@ -194,7 +193,7 @@ def _build_paper_id_predicate(paper_id_value: Any) -> str:
     # (the union of arXiv + textbook:<slug>) to match the
     # SEARCH_PAPERS ToolMeta description's promise that the filter
     # accepts both shapes. m1 set up the contract chain
-    # (``src/arxmcp/ingest/identifiers.py:160-178`` documented "once m2 ships,
+    # (``src/arxmcp/corpus/identifiers.py:160-178`` documented "once m2 ships,
     # [callers] opt into the union by switching to
     # ``is_valid_paper_id``"); m3 was the milestone that announced
     # the widening via BP1 invalidation, but the original m3 commit
@@ -218,11 +217,11 @@ def _build_paper_id_predicate(paper_id_value: Any) -> str:
 
 
 #: Valid ``filters.source_kind`` values (textbook-ingest-m9 / e4).
-#: Mirror of ``arxmcp.ingest.chunk.ALLOWED_SOURCE_KINDS`` (the chunks-table
+#: Mirror of ``arxmcp.corpus.chunk.ALLOWED_SOURCE_KINDS`` (the chunks-table
 #: enum domain) — kept as a local constant here the same way this
 #: handler keeps its own ``SUPPORTED_FILTER_KEYS`` mirror of the bm25
 #: copy. If a new source_kind is ever added to the schema enum, update
-#: BOTH this set and ``arxmcp.ingest.chunk.ALLOWED_SOURCE_KINDS``.
+#: BOTH this set and ``arxmcp.corpus.chunk.ALLOWED_SOURCE_KINDS``.
 _VALID_SOURCE_KIND_FILTER_VALUES: frozenset[str] = frozenset(
     {"arxiv", "textbook"}
 )
@@ -294,7 +293,7 @@ _NOTEBOOK_ARG = "filters['notebook']"
 
 #: The dense column a plain (statement) query searches. Populated for
 #: every kind EXCEPT ``proof`` — see the dual-encoding contract in
-#: ``src/arxmcp/ingest/schema.py``.
+#: ``src/arxmcp/corpus/schema.py``.
 _STMT_COLUMN: str = "embedding_stmt"
 
 #: The dense column an ``include_kinds=['proof']`` query searches.
@@ -314,7 +313,7 @@ _SUPPORTED_INCLUDE_KINDS: frozenset[str] = frozenset({"proof"})
 #: ``excluded_kinds``. The statement column carries every kind except
 #: ``proof``; the proof column carries only ``proof``, so its exclusion
 #: set is the whole rest of the domain. Derived from
-#: ``arxmcp.ingest.store.ALLOWED_KINDS`` rather than hand-listed, so a new kind
+#: ``arxmcp.corpus.store.ALLOWED_KINDS`` rather than hand-listed, so a new kind
 #: added to the write-time enum cannot silently go unreported here.
 _EXCLUDED_KINDS_STMT_ROUTE: list[str] = ["proof"]
 _EXCLUDED_KINDS_PROOF_ROUTE: list[str] = sorted(ALLOWED_KINDS - {"proof"})
@@ -484,7 +483,7 @@ async def handle_search_papers(
     into the ANN call (proof-verify-handler-wiring-m1). The ``paper_id``
     value may be a single string or a list of strings, capped at
     ``MAX_PAPER_ID_FILTER_ITEMS`` items, with each element validated
-    against ``arxmcp.ingest.identifiers.is_valid_paper_id``. ``source_kind``
+    against ``arxmcp.corpus.identifiers.is_valid_paper_id``. ``source_kind``
     (``"arxiv"`` / ``"textbook"``, e4) is honored end-to-end via a
     LanceDB pre-filter and composes with ``paper_id`` (ANDed into a
     single ``.where()``). Other filter keys (``categories``,

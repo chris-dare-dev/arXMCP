@@ -27,7 +27,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from arxmcp.ingest import notebooks as _notebook_common
+from arxmcp.corpus import notebooks as _notebook_common
 from arxmcp.server.notebooks_store import SCHEMA_VERSION, NotebooksStore
 from arxmcp.server.routes import notebooks as notebooks_module
 from arxmcp.server.routes.notebooks import (
@@ -417,7 +417,7 @@ class TestArxivUrlNormalizer:
         that ALTERS this behavior (e.g. preserves the newline in
         the path component) would surface here, prompting an
         explicit ``str.strip()`` in the normalizer."""
-        from arxmcp.ingest.identifiers import is_valid_paper_id
+        from arxmcp.corpus.identifiers import is_valid_paper_id
 
         result = _arxiv_url_to_paper_id(
             "https://arxiv.org/abs/2604.26204\n"

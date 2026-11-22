@@ -30,7 +30,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from arxmcp.ingest.corpus import DegradedState
+from arxmcp.corpus.reader import DegradedState
 from arxmcp.server.resources import Resources, compute_chunk_count_divergence
 from arxmcp.settings import Config
 

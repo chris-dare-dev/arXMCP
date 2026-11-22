@@ -25,10 +25,10 @@ from pathlib import Path
 
 import pytest
 
+from arxmcp.corpus import notebooks as _notebook_common
+from arxmcp.corpus.notebooks import NotebookError, validate_slug
 from arxmcp.ingest import arxiv_api as _arxiv_api
-from arxmcp.ingest import notebooks as _notebook_common
 from arxmcp.ingest.ar5iv_fetch import Ar5ivResult
-from arxmcp.ingest.notebooks import NotebookError, validate_slug
 from arxmcp.server.paper_metadata_store import (
     PAPER_METADATA_DB_FILENAME,
     PaperMetadataStore,

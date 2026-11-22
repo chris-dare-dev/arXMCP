@@ -54,7 +54,7 @@ Politeness contract:
 
 Idempotency:
 
-- DDL: ``arxmcp.ingest.kuzudb_schema.apply_schema`` is idempotent (v1 ``IF
+- DDL: ``arxmcp.corpus.kuzudb_schema.apply_schema`` is idempotent (v1 ``IF
   NOT EXISTS`` + v2 introspect-and-ALTER) and bumps
   ``KUZU_SCHEMA_VERSION = 2``.
 - Inserts: ``MERGE`` upserts both for nodes (only the three
@@ -101,6 +101,7 @@ from typing import Any
 
 import kuzu
 
+from arxmcp.corpus import apply_schema, is_valid_arxiv_paper_id
 from arxmcp.ingest.arxiv_fetch import (
     DEFAULT_503_BACKOFF_SECONDS,
     MAX_503_BACKOFF_SECONDS,
@@ -113,8 +114,6 @@ from arxmcp.ingest.graph_ingest import (
     load_checkpoint,
     save_checkpoint,
 )
-from arxmcp.ingest.identifiers import is_valid_arxiv_paper_id
-from arxmcp.ingest.kuzudb_schema import apply_schema
 from arxmcp.settings import ApplicationPaths
 
 
@@ -128,7 +127,7 @@ def _validate_paper_id_either_style(paper_id: str) -> None:
     a substantial fraction of the literature predates 2007 and uses
     old-style IDs (e.g. ``hep-th/9711200`` — Maldacena AdS/CFT). The
     enrich() entry validator must accept both forms; the source-of-truth
-    regex lives in ``arxmcp.ingest.identifiers`` which already covers this.
+    regex lives in ``arxmcp.corpus.identifiers`` which already covers this.
     """
     if not is_valid_arxiv_paper_id(paper_id):
         raise ValueError(

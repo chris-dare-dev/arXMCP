@@ -32,7 +32,7 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.testclient import TestClient
 
-from arxmcp.ingest import notebooks as _notebook_common
+from arxmcp.corpus import notebooks as _notebook_common
 from arxmcp.server.notebooks_store import NotebooksStore
 from arxmcp.server.routes import notebooks as notebooks_module
 from arxmcp.server.routes.notebooks import (
@@ -309,7 +309,7 @@ class TestUPL12PreFlightChecklist:
         self, m4_client: TestClient
     ) -> None:
         # m4-rect F2 (MEDIUM): _arxiv_url_to_paper_id (via
-        # is_valid_arxiv_paper_id at src/arxmcp/ingest/identifiers.py) accepts BOTH
+        # is_valid_arxiv_paper_id at src/arxmcp/corpus/identifiers.py) accepts BOTH
         # new-style (2604.00001) AND old-style (hep-th/0001234) paper IDs.
         # Pre-rect, every HTML-branch test in this file exercised only
         # new-style IDs, so the renderer's behaviour for the slash-bearing

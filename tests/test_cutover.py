@@ -1041,7 +1041,7 @@ class TestRestoreDrillFreshness:
 
 def _staging_chunks(paper_id: str, *, stmt: int, proof: int = 0):
     """``stmt`` stmt chunks then ``proof`` proof chunks for ``paper_id``."""
-    from arxmcp.ingest.chunk import CHUNKER_VERSION, ChunkRecord
+    from arxmcp.corpus.chunk import CHUNKER_VERSION, ChunkRecord
 
     kinds = ["stmt"] * stmt + ["proof"] * proof
     return [
@@ -1065,9 +1065,9 @@ def _write_staging(path: Path, chunks, *, build_indices: bool, seed: int = 0) ->
     """Write ``chunks`` into a real staging LanceDB (marker included)."""
     import numpy as np
 
+    from arxmcp.corpus.schema import EmbedRecord
+    from arxmcp.corpus.store import write_chunks
     from arxmcp.ingest.embedder import EMBEDDER_VERSION, EMBEDDING_DIM
-    from arxmcp.ingest.schema import EmbedRecord
-    from arxmcp.ingest.store import write_chunks
 
     rng = np.random.default_rng(seed)
 
@@ -1090,7 +1090,7 @@ def _write_staging(path: Path, chunks, *, build_indices: bool, seed: int = 0) ->
 
 
 def _index_names(path: Path) -> set[str]:
-    from arxmcp.ingest.corpus import open_chunks_table, read_corpus_version
+    from arxmcp.corpus.reader import open_chunks_table, read_corpus_version
 
     info = read_corpus_version(lancedb_path=path)
     table = open_chunks_table(lancedb_path=path, version=info.version)
@@ -1191,8 +1191,8 @@ class TestStagingVectorIndexCoverage:
     ):
         """The reviewed scenario end to end: every other criterion passes,
         the re-embed ended ``complete_with_failures``, staging is unindexed."""
-        from arxmcp.ingest.corpus import read_corpus_version
-        from arxmcp.ingest.store import CORPUS_VERSION_MARKER_NAME
+        from arxmcp.corpus.reader import read_corpus_version
+        from arxmcp.corpus.store import CORPUS_VERSION_MARKER_NAME
 
         active = tmp_path / "lancedb"
         _write_marker(active, version=7)

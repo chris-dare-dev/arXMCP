@@ -19,7 +19,7 @@ parenthetical in the heading — that's a high-confidence signal. A
 future milestone may add lower-confidence body-text extraction.
 
 **Concurrency.** :func:`build_theorem_names_index` runs under the write
-lock of the dataset the index belongs to (:mod:`arxmcp.ingest.write_lock`).
+lock of the dataset the index belongs to (:mod:`arxmcp.corpus.write_lock`).
 Callers of :func:`index_theorem_names_for_paper` outside it must
 serialize invocations against the same SQLite database; SQLite WAL
 tolerates concurrent readers but serializes writers, and two interleaved
@@ -33,13 +33,15 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from arxmcp.ingest.theorem_names_store import (
+from arxmcp.corpus import (
     TheoremNamesStore,
     TheoremRow,
     dedup_key,
+    exits_when_write_locked,
+    holds_dataset_write_lock,
     serialize_section_path,
+    theorem_names_db_path,
 )
-from arxmcp.ingest.write_lock import exits_when_write_locked, holds_dataset_write_lock
 
 logger = logging.getLogger(__name__)
 
@@ -185,15 +187,6 @@ async def index_theorem_names_all_papers(
     return out
 
 
-def default_db_path(lancedb_path: str | Path) -> Path:
-    """Where the theorem-name index of the dataset at ``lancedb_path`` lives:
-    inside the dataset, so cutover and rollback move it with the chunks it
-    indexes. The server derives the same path."""
-    from arxmcp.settings import derived_index_path
-
-    return derived_index_path(Path(lancedb_path).resolve(), "theorem_names.db")
-
-
 
 @holds_dataset_write_lock("lancedb_path")
 def build_theorem_names_index(
@@ -201,7 +194,7 @@ def build_theorem_names_index(
 ) -> dict[str, int]:
     """Rebuild the theorem-name index of the dataset at ``lancedb_path``.
 
-    Writes to ``db_path``, by default :func:`default_db_path`, migrating an
+    Writes to ``db_path``, by default :func:`arxmcp.corpus.theorem_names_db_path`, migrating an
     out-of-date file, which only an offline caller may do. Returns
     ``{paper_id: rows_written}``.
     """
@@ -209,7 +202,7 @@ def build_theorem_names_index(
 
     import lancedb
 
-    target = Path(db_path) if db_path is not None else default_db_path(lancedb_path)
+    target = Path(db_path) if db_path is not None else theorem_names_db_path(lancedb_path)
     chunks = lancedb.connect(str(lancedb_path)).open_table("chunks")
 
     async def run() -> dict[str, int]:
@@ -226,7 +219,7 @@ def build_theorem_names_index(
 def _cli(argv: list[str]) -> int:
     import argparse
 
-    from arxmcp.ingest.store import DEFAULT_LANCEDB_PATH
+    from arxmcp.corpus import DEFAULT_LANCEDB_PATH
 
     parser = argparse.ArgumentParser(
         prog="python -m arxmcp.ingest.index_theorem_names",
@@ -242,7 +235,7 @@ def _cli(argv: list[str]) -> int:
         "inside the LanceDB dataset, where the server reads it)",
     )
     args = parser.parse_args(argv)
-    db_path = Path(args.db_path) if args.db_path else default_db_path(args.lancedb_path)
+    db_path = Path(args.db_path) if args.db_path else theorem_names_db_path(args.lancedb_path)
     counts = build_theorem_names_index(args.lancedb_path, db_path)
     print(
         f"indexed {sum(counts.values())} theorem name(s) across "
@@ -260,7 +253,6 @@ __all__ = [
     "build_theorem_names_index",
     "DEFAULT_CONFIDENCE",
     "build_rows_from_chunks_for_paper",
-    "default_db_path",
     "index_theorem_names_all_papers",
     "index_theorem_names_for_paper",
 ]

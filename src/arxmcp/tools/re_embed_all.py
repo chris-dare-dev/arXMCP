@@ -20,7 +20,7 @@ encapsulates the discovery + invocation loop.
 - The atomic cutover from ``<dataset>/lancedb-staging`` → ``<dataset>/lancedb``.
   Re-embed writes to a staging dir; the operator promotes it via the
   existing E11_S05 cutover tooling.
-- Parallelism across datasets. ``arxmcp.ingest.store.write_chunks`` is
+- Parallelism across datasets. ``arxmcp.corpus.store.write_chunks`` is
   single-writer-per-dataset; serializing across datasets keeps the
   resource budget predictable on CPU.
 
@@ -93,7 +93,7 @@ def discover_targets(
         for nb_dir in sorted(notebooks_base.iterdir()):
             # F3 (rect): refuse symlinked notebook dirs to align with
             # the project-wide m6 F3 symlink-rejection contract codified
-            # at src/arxmcp/ingest/notebooks.py::notebook_dir. A symlinked
+            # at src/arxmcp/corpus/notebooks.py::notebook_dir. A symlinked
             # notebook dir is a red flag and is excluded from re-embed
             # discovery; check BEFORE is_dir() because is_dir follows
             # symlinks and would report True for a symlink-to-dir.

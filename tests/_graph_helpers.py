@@ -20,7 +20,8 @@ from typing import Any
 
 import kuzu
 
-from arxmcp.ingest import graph_ingest, kuzudb_schema
+from arxmcp.corpus import kuzudb_schema
+from arxmcp.ingest import graph_ingest
 
 
 def build_synthetic_kuzu_graph(
@@ -134,7 +135,7 @@ def build_synthetic_lancedb(
     import lancedb
     import pyarrow as pa
 
-    from arxmcp.ingest.schema import CHUNKS_SCHEMA_V1
+    from arxmcp.corpus.schema import CHUNKS_SCHEMA_V1
 
     db = lancedb.connect(str(lancedb_path))
     placeholder_required = {

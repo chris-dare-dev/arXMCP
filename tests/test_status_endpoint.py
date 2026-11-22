@@ -26,7 +26,7 @@ from types import SimpleNamespace
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from arxmcp.ingest.corpus import DegradedState
+from arxmcp.corpus.reader import DegradedState
 from arxmcp.server.backup_status import BACKUP_STATE_FAILED, BACKUP_STATE_OK
 from arxmcp.server.health import compute_health_status
 from arxmcp.server.health import router as health_router

@@ -574,7 +574,7 @@ def assert_manifest_changes_confined(
 _WRITER_PROBE = r"""
 import asyncio, json
 
-from arxmcp.ingest.store import write_corpus_version_marker
+from arxmcp.corpus.store import write_corpus_version_marker
 from arxmcp.server.cache import RetrievalCache
 from arxmcp.settings.config import Config
 from arxmcp.settings.operator import get_setting, set_setting

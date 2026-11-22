@@ -21,7 +21,7 @@ Fixture pattern matches ``tests/test_ui_html_pages.py``: minimal
 FastAPI app with the m7 (notebooks) + m8 (ui) routers + SecurityHeaders
 middleware (so we can verify the broader m8 CSP is OVERRIDDEN by the
 m10 handler's tighter CSP). The notebooks_base / corpus_parsed
-fixtures monkeypatch the shared :mod:`arxmcp.ingest.notebooks`
+fixtures monkeypatch the shared :mod:`arxmcp.corpus.notebooks`
 constants to point at tmp_path so the search-order tests can plant
 files at both locations.
 """
@@ -35,7 +35,8 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from arxmcp.ingest import notebooks as _notebook_common
+import arxmcp.corpus
+from arxmcp.corpus import notebooks as _notebook_common
 from arxmcp.server.middleware import (
     CONTENT_SECURITY_POLICY_PREVIEW,
     SecurityHeadersMiddleware,
@@ -63,6 +64,9 @@ def corpus_parsed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     base = tmp_path / "corpus" / "parsed"
     base.mkdir(parents=True)
     monkeypatch.setattr(_notebook_common, "CORPUS_PARSED_DIR", base)
+    # The notebooks router's fallback path layout reads it from the corpus
+    # interface at request time.
+    monkeypatch.setattr(arxmcp.corpus, "CORPUS_PARSED_DIR", base)
     # The ui module imports CORPUS_PARSED_DIR at module load, so we
     # also need to patch the name as imported into ui_module.
     monkeypatch.setattr(ui_module, "CORPUS_PARSED_DIR", base, raising=False)
@@ -415,7 +419,7 @@ class TestPreviewPaperIdValidation:
         the route layer cannot silently regress the security
         boundary.
         """
-        from arxmcp.ingest.identifiers import is_valid_paper_id
+        from arxmcp.corpus.identifiers import is_valid_paper_id
 
         bad_inputs = [
             "../etc/passwd",

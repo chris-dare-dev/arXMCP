@@ -15,7 +15,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from arxmcp.ingest.notebooks import REPO_ROOT, NotebookError
+from arxmcp.corpus.notebooks import REPO_ROOT, NotebookError
 from arxmcp.tools import notebook_pdf_parse
 
 FLAT = "2602.24016"  # an arXiv id has no slash/colon, so flat == id

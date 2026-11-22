@@ -149,7 +149,8 @@ class TestTlsCannotBeDisabled:
         """
         repo_root = Path(__file__).resolve().parents[2]
         scopes = (
-            "src/arxmcp/settings", "src/arxmcp/ingest", "src/arxmcp/tools", "src/arxmcp/server",
+            "src/arxmcp/settings", "src/arxmcp/corpus", "src/arxmcp/ingest", "src/arxmcp/tools",
+            "src/arxmcp/server",
         )
         insecure_patterns = (
             re.compile(r"check_hostname\s*=\s*False"),
@@ -533,7 +534,8 @@ class TestNoVerifyFalse:
     def test_no_verify_false_in_production_code(self):
         repo_root = Path(__file__).resolve().parents[2]
         scopes = (
-            "src/arxmcp/settings", "src/arxmcp/ingest", "src/arxmcp/tools", "src/arxmcp/server",
+            "src/arxmcp/settings", "src/arxmcp/corpus", "src/arxmcp/ingest", "src/arxmcp/tools",
+            "src/arxmcp/server",
         )
         offenders: list[str] = []
         for scope in scopes:

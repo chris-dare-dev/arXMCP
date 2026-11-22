@@ -18,7 +18,7 @@ path; mirrors the precedent in ``tests/test_embedder.py``.
 
 Tests do NOT pollute ``var/arxmcp/``: every Resources fixture
 points the LanceDB path at ``tmp_path`` and seeds it via
-``arxmcp.ingest.store.write_chunks`` against a tiny fixture.
+``arxmcp.corpus.store.write_chunks`` against a tiny fixture.
 """
 
 from __future__ import annotations
@@ -34,10 +34,10 @@ import pytest
 import uvicorn
 from fastapi.testclient import TestClient
 
-from arxmcp.ingest.chunk import CHUNKER_VERSION, ChunkRecord
+from arxmcp.corpus.chunk import CHUNKER_VERSION, ChunkRecord
+from arxmcp.corpus.schema import EmbedRecord
+from arxmcp.corpus.store import write_chunks
 from arxmcp.ingest.embedder import EMBEDDER_VERSION, EMBEDDING_DIM
-from arxmcp.ingest.schema import EmbedRecord
-from arxmcp.ingest.store import write_chunks
 from arxmcp.server.health import reset_metrics_for_tests
 from arxmcp.server.main import create_app
 from arxmcp.server.resources import (
@@ -772,11 +772,11 @@ class TestNotebookConfig:
 
 class TestNotebookLancedbPathHelper:
     """AC8 (stepping-stone shaping): the slug→lancedb-path derivation
-    lives in arxmcp.ingest.notebooks.notebook_lancedb_path — the shared
+    lives in arxmcp.corpus.notebooks.notebook_lancedb_path — the shared
     seam both fork C (startup) and fork A (per-request) call."""
 
     def test_helper_returns_notebook_dir_slash_lancedb(self, tmp_path):
-        from arxmcp.ingest.notebooks import notebook_dir, notebook_lancedb_path
+        from arxmcp.corpus.notebooks import notebook_dir, notebook_lancedb_path
 
         base = tmp_path / "notebooks"
         (base / "demo-nb").mkdir(parents=True)
@@ -787,7 +787,7 @@ class TestNotebookLancedbPathHelper:
         """The helper re-uses notebook_dir's Threat-1 guard — bad slugs
         raise NotebookError (so the C and A paths share one safety
         contract, not two divergent ones)."""
-        from arxmcp.ingest.notebooks import NotebookError, notebook_lancedb_path
+        from arxmcp.corpus.notebooks import NotebookError, notebook_lancedb_path
 
         base = tmp_path / "notebooks"
         base.mkdir()
@@ -799,7 +799,7 @@ class TestNotebookLancedbPathHelper:
     def test_helper_rejects_symlinked_notebook(self, tmp_path):
         """notebook_dir's m6 F3 symlink rejection flows through the
         shared helper."""
-        from arxmcp.ingest.notebooks import NotebookError, notebook_lancedb_path
+        from arxmcp.corpus.notebooks import NotebookError, notebook_lancedb_path
 
         base = tmp_path / "notebooks"
         base.mkdir()

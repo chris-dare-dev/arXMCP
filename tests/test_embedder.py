@@ -264,9 +264,12 @@ class TestModuleContract:
         # The brief mandates a single source of truth. Confirm the
         # constant lives only in src/arxmcp/ingest/embedder.py — no stray duplicate
         # in src/arxmcp/ingest/__init__.py or anywhere else under ingest/.
-        ingest_root = Path(__file__).parent.parent / "src" / "arxmcp" / "ingest"
+        src_root = Path(__file__).parent.parent / "src" / "arxmcp"
         hits = []
-        for py_file in ingest_root.rglob("*.py"):
+        for py_file in [
+            *(src_root / "corpus").rglob("*.py"),
+            *(src_root / "ingest").rglob("*.py"),
+        ]:
             text = py_file.read_text(encoding="utf-8")
             if "BGE_M3_COMMIT_SHA = " in text:
                 hits.append(py_file)
@@ -691,7 +694,7 @@ class TestThreat6:
 
 class TestF3Fallback:
     def test_paper_without_preamble_embeds(self, tmp_path):
-        # The embedding input is the NFC body alone (arxmcp.ingest.chunk,
+        # The embedding input is the NFC body alone (arxmcp.corpus.chunk,
         # body-first-v1), so the embedder never looks a preamble up and a
         # paper whose preamble extraction failed embeds like any other.
         paper_id = "2307.00040"
@@ -720,7 +723,7 @@ class TestPerPaperFailure:
         # InvalidPaperIDError is a ValueError; the public embed_paper
         # validates _outside_ the per-paper envelope, so an invalid ID
         # surfaces to the caller rather than being silently logged.
-        from arxmcp.ingest.chunker import InvalidPaperIDError
+        from arxmcp.corpus.identifiers import InvalidPaperIDError
 
         with pytest.raises(InvalidPaperIDError):
             embed_paper("../etc/passwd")

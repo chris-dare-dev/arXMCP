@@ -9,10 +9,10 @@ from pathlib import Path
 import lancedb
 import pyarrow as pa
 
+from arxmcp.corpus.schema import CHUNKS_SCHEMA_V1
+from arxmcp.corpus.store import write_corpus_version_marker
 from arxmcp.ingest.derived_indexes import build_derived_indexes
 from arxmcp.ingest.preamble import PreambleDoc
-from arxmcp.ingest.schema import CHUNKS_SCHEMA_V1
-from arxmcp.ingest.store import write_corpus_version_marker
 
 PAPERS = ("2401.00001", "2401.00002")
 

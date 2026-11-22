@@ -124,12 +124,12 @@ class TestReadOnlyFilesystemSurvival:
                 total=100, used=100, free=1  # far below the 10 GB pause floor
             ),
         )
-        from arxmcp.ingest import sentinel as ingest_sentinel
+        import arxmcp.corpus as corpus
 
         def _readonly(*_a, **_k):
             raise OSError(30, "Read-only file system")
 
-        monkeypatch.setattr(ingest_sentinel, "write_pause", _readonly)
+        monkeypatch.setattr(corpus, "write_pause", _readonly)
         return resources
 
     def test_disk_mitigation_survives_a_readonly_tree(

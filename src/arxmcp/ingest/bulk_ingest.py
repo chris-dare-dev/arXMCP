@@ -7,7 +7,7 @@ chunks + embeddings into a **staging** LanceDB dataset. The active
 ``corpus-version.json`` (under ``var/arxmcp/index/lancedb/``) is
 left untouched; E11_S05 advances it via an atomic directory swap.
 
-**Why a staging path:** ``arxmcp.ingest.store.write_chunks`` writes a
+**Why a staging path:** ``arxmcp.corpus.store.write_chunks`` writes a
 ``corpus-version.json`` marker as a post-write step. Writing into
 the active dataset would advance the marker per-paper and break
 the brief's AC2 ("``corpus-version.json`` still pins OLD
@@ -61,14 +61,14 @@ marked sanity test gates on the operator's actual run.
    deferred (synthesis D2).
 
 **One writer per dataset:** a run holds the target dataset's write
-lock (:mod:`arxmcp.ingest.write_lock`) from its chunker-version check to its
+lock (:mod:`arxmcp.corpus.write_lock`) from its chunker-version check to its
 index build, and the loop is sequential at the write boundary. A second
 writer of the same dataset is refused at once, and the CLI exits with
-:data:`arxmcp.ingest.write_lock.WRITE_LOCKED_EXIT_CODE`.
+:data:`arxmcp.corpus.write_lock.WRITE_LOCKED_EXIT_CODE`.
 
 **Chunker-version guard:** a run refuses, before
 its first write, a target whose arXiv rows another
-``CHUNKER_VERSION`` wrote (:func:`arxmcp.ingest.store.refuse_stale_chunker_rows`).
+``CHUNKER_VERSION`` wrote (:func:`arxmcp.corpus.store.refuse_stale_chunker_rows`).
 Re-chunking such rows in place would leave every row whose id changed
 beside its replacement. The supported path is the re-embed driver into
 a fresh staging table, then a cutover.
@@ -84,6 +84,19 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from arxmcp.corpus import (
+    DEFAULT_LANCEDB_PATH,
+    STALE_CHUNKER_EXIT_CODE,
+    StaleChunkerRowsError,
+    WapGateError,
+    dataset_write_lock,
+    exits_when_write_locked,
+    is_valid_arxiv_paper_id,
+    load_embed_record,
+    refresh_indices,
+    refuse_stale_chunker_rows,
+    write_chunks,
+)
 from arxmcp.ingest.ar5iv_fetch import (
     DEFAULT_AR5IV_CACHE_DIR,
     DEFAULT_PARSED_DIR,
@@ -94,19 +107,7 @@ from arxmcp.ingest.chunker import STRUCTURE_SIGNAL_CLASSES, chunk_paper
 from arxmcp.ingest.derived_indexes import build_derived_indexes
 from arxmcp.ingest.embedder import embed_paper
 from arxmcp.ingest.extract_equations import extract_equations_for_paper
-from arxmcp.ingest.identifiers import is_valid_arxiv_paper_id
 from arxmcp.ingest.index_equations import index_equation_trees
-from arxmcp.ingest.store import (
-    DEFAULT_LANCEDB_PATH,
-    STALE_CHUNKER_EXIT_CODE,
-    StaleChunkerRowsError,
-    WapGateError,
-    load_embed_record,
-    refresh_indices,
-    refuse_stale_chunker_rows,
-    write_chunks,
-)
-from arxmcp.ingest.write_lock import dataset_write_lock, exits_when_write_locked
 from arxmcp.settings import ApplicationPaths
 
 logger = logging.getLogger(__name__)
@@ -348,7 +349,7 @@ def ingest_one_paper(
     every later write too.
 
     A loop over many papers passes ``build_indices=False`` and calls
-    :func:`arxmcp.ingest.store.refresh_indices` once after it. The equation trees
+    :func:`arxmcp.corpus.store.refresh_indices` once after it. The equation trees
     are built once per run too (:func:`index_equation_trees`).
     """
     if not is_valid_arxiv_paper_id(paper_id):
@@ -461,7 +462,7 @@ def run_bulk_ingest(
 
     The loop is **single-process sequential** at the write
     boundary, and the run holds the dataset's write lock throughout
-    (:class:`arxmcp.ingest.write_lock.DatasetWriteLockedError` if another
+    (:class:`arxmcp.corpus.write_lock.DatasetWriteLockedError` if another
     writer has it). GPU batching happens inside ``embed_paper``. Naive
     re-runs are safe: the embedder's per-paper sidecar carries the
     versions and each chunk's reuse identity, so already-processed

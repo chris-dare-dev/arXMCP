@@ -1,7 +1,7 @@
 """LanceDB table names, storage options and schemas.
 
 The ``chunks`` table schema, :data:`CHUNKS_SCHEMA_V1`, is declared in
-:mod:`arxmcp.ingest.chunk` with the rest of the chunk's facts and re-exported
+:mod:`arxmcp.corpus.chunk` with the rest of the chunk's facts and re-exported
 here, so readers that import it from this module (the
 store, the MCP server, the eval harness) keep working and nothing
 re-declares a schema inline. This module keeps the table names
@@ -43,10 +43,10 @@ import numpy as np
 import pyarrow as pa
 
 # The chunks schema, the vector width and the embedding input policy are
-# chunk facts owned by ``arxmcp.ingest.chunk`` (no stray ``1024`` literal here).
+# chunk facts owned by ``arxmcp.corpus.chunk`` (no stray ``1024`` literal here).
 # Importing them from there rather than from ``arxmcp.ingest.embedder`` keeps this
 # module free of the embedder's import graph.
-from arxmcp.ingest.chunk import (
+from arxmcp.corpus.chunk import (
     CHUNKS_SCHEMA_V1,
     EMBED_INPUT_POLICY_VERSION,
     EMBEDDING_COLUMN_NAMES,
@@ -75,7 +75,7 @@ DEFINITIONS_TABLE_NAME = "definitions"
 EQUATIONS_TABLE_NAME = "equations"
 
 # ``EMBEDDING_COLUMN_NAMES`` (the two dual-encoding vector columns, stmt
-# first, proof second) is a chunk fact declared in ``arxmcp.ingest.chunk`` next
+# first, proof second) is a chunk fact declared in ``arxmcp.corpus.chunk`` next
 # to ``CHUNKS_SCHEMA_V1`` and re-exported here for readers that import
 # it from this module. Its order mirrors the ``EmbedRecord`` field
 # ordering.
@@ -238,7 +238,7 @@ def add_missing_columns(tbl, schema: pa.Schema, table_name: str) -> list[str]:
         raise SchemaEvolutionError(
             f"the {table_name} table lacks required columns {unfillable} "
             "that its existing rows have no value for. Give each a "
-            "pre-column value in arxmcp.ingest.schema.PRE_COLUMN_VALUES, or "
+            "pre-column value in arxmcp.corpus.schema.PRE_COLUMN_VALUES, or "
             "build the dataset afresh in staging and cut over."
         )
     for column in missing:
@@ -259,7 +259,7 @@ def add_missing_columns(tbl, schema: pa.Schema, table_name: str) -> list[str]:
 
 @dataclass
 class EmbedRecord:
-    """Embedding payload passed to :func:`arxmcp.ingest.store.write_chunks`.
+    """Embedding payload passed to :func:`arxmcp.corpus.store.write_chunks`.
 
     The four ``*_ids`` / ``*_proof`` fields are the row-aligned outputs
     of the embedder's NPZ store (see ``arxmcp.ingest.embedder._write_embeddings_npz``):

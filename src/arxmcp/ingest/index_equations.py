@@ -17,7 +17,7 @@ trees the running normalizer wrote is a no-op.
 :mod:`arxmcp.ingest.index_definitions`, concurrent invocations against the same
 LanceDB table could interleave delete/insert pairs in ways that
 duplicate or drop rows, so :func:`index_equation_trees` runs under the
-dataset write lock (:mod:`arxmcp.ingest.write_lock`) and a second writer is
+dataset write lock (:mod:`arxmcp.corpus.write_lock`) and a second writer is
 refused.
 """
 
@@ -29,18 +29,19 @@ from typing import Any
 
 import pyarrow as pa
 
+from arxmcp.corpus import (
+    EQUATIONS_SCHEMA_V1,
+    EQUATIONS_TABLE_NAME,
+    LANCE_STORAGE_OPTIONS,
+    add_missing_columns,
+    exits_when_write_locked,
+    holds_dataset_write_lock,
+)
 from arxmcp.ingest.mathml_tree import (
     MATHML_TREE_NORMALIZER_VERSION,
     parse_mathml_to_tree,
     tree_to_json,
 )
-from arxmcp.ingest.schema import (
-    EQUATIONS_SCHEMA_V1,
-    EQUATIONS_TABLE_NAME,
-    LANCE_STORAGE_OPTIONS,
-    add_missing_columns,
-)
-from arxmcp.ingest.write_lock import exits_when_write_locked, holds_dataset_write_lock
 
 logger = logging.getLogger(__name__)
 
@@ -71,7 +72,7 @@ def open_or_create_equations_table(lancedb_path: str | Path) -> Any:
         table = db.open_table(EQUATIONS_TABLE_NAME)
     except (ValueError, FileNotFoundError):
         # storage_options pins the on-disk Lance format (m2). See
-        # arxmcp.ingest.schema.LANCE_STORAGE_OPTIONS for the rationale.
+        # arxmcp.corpus.schema.LANCE_STORAGE_OPTIONS for the rationale.
         return db.create_table(
             EQUATIONS_TABLE_NAME,
             schema=EQUATIONS_SCHEMA_V1,
@@ -186,7 +187,7 @@ def index_equation_trees(
 def _cli(argv: list[str]) -> int:
     import argparse
 
-    from arxmcp.ingest.store import DEFAULT_LANCEDB_PATH
+    from arxmcp.corpus import DEFAULT_LANCEDB_PATH
 
     parser = argparse.ArgumentParser(
         prog="python -m arxmcp.ingest.index_equations",

@@ -17,7 +17,7 @@ running.
 **m2 extension:** ``--email <addr>`` persists the contact email to
 ``operator_settings`` (m2 synthesis §3 D4). Subsequent CLI fetch
 tools (``src/arxmcp/tools/notebook_fetch.py``, etc.) read the value via
-``src/arxmcp/ingest/notebooks.py::resolve_contact_email`` without needing
+``src/arxmcp/corpus/notebooks.py::resolve_contact_email`` without needing
 ``ARXMCP_CONTACT_EMAIL`` in the env.
 
 Idempotent at every level — re-running on an existing notebook is a
@@ -47,19 +47,14 @@ import sys
 from datetime import UTC, date, datetime
 from pathlib import Path
 
-from arxmcp.ingest.notebooks import (
-    NotebookError,
-    notebook_dir,
-    notebook_lancedb_path,
-    validate_slug,
-)
+from arxmcp.corpus import NotebookError, notebook_dir, notebook_lancedb_path, validate_slug
 
 PAPERS_TXT_TEMPLATE = """\
 # {slug} notebook seed list (created {today})
 #
 # Add one arXiv paper_id per line. Both new-style (YYMM.NNNNN) and
 # old-style (e.g., hep-th/0001234) formats are accepted; the bulk_ingest
-# pipeline validates each against arxmcp.ingest.identifiers.is_valid_paper_id.
+# pipeline validates each against arxmcp.corpus.identifiers.is_valid_paper_id.
 #
 # Once IDs are listed:
 #   1. src/arxmcp/tools/notebook_fetch.py {slug}   # fetches ar5iv HTML for any missing
@@ -279,7 +274,7 @@ def run(
     # so tests can redirect ``tools/notebook_init.run`` away from the
     # operator's real ``var/arxmcp/notebooks/`` tree. Production
     # callers pass ``None`` and the helper resolves to
-    # :data:`arxmcp.ingest.notebooks.NOTEBOOKS_BASE`.
+    # :data:`arxmcp.corpus.notebooks.NOTEBOOKS_BASE`.
     nb_dir = notebook_dir(slug, base=notebooks_base)
 
     # On-disk scaffold — original idempotent behavior preserved.

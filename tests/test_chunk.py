@@ -1,4 +1,4 @@
-"""Interface tests for ``arxmcp.ingest.chunk``.
+"""Interface tests for ``arxmcp.corpus.chunk``.
 
 Everything here goes through the module's interface: the record and its
 row mapping, chunk ids, the route, the embedding input and the reuse
@@ -19,7 +19,7 @@ import lancedb
 import numpy as np
 import pytest
 
-from arxmcp.ingest.chunk import (
+from arxmcp.corpus.chunk import (
     ALLOWED_KINDS,
     CHUNKER_VERSION,
     CHUNKS_SCHEMA_V1,
@@ -27,8 +27,8 @@ from arxmcp.ingest.chunk import (
     EMBEDDING_DIM,
     LEGACY_EMBED_INPUT_POLICY_VERSION,
     ChunkRecord,
-    _compute_chunk_id,
-    _compute_textbook_chunk_id,
+    compute_chunk_id,
+    compute_textbook_chunk_id,
     embedding_input,
     from_row,
     reusable_vectors,
@@ -41,7 +41,7 @@ from arxmcp.ingest.chunk import (
 )
 
 EMBEDDER = "bge-m3@aaaaaaaa"
-CHUNK_PY = Path(__file__).resolve().parent.parent / "src" / "arxmcp" / "ingest" / "chunk.py"
+CHUNK_PY = Path(__file__).resolve().parent.parent / "src" / "arxmcp" / "corpus" / "chunk.py"
 
 
 def _vector(seed: int) -> np.ndarray:
@@ -99,18 +99,18 @@ class TestImportBoundary:
     def test_callers_see_the_same_objects(self):
         # The modules that used to own these facts re-export them; none
         # keeps its own copy.
+        import arxmcp.corpus.schema
+        import arxmcp.corpus.store
         import arxmcp.ingest.chunker
         import arxmcp.ingest.embedder
-        import arxmcp.ingest.schema
-        import arxmcp.ingest.store
 
-        assert arxmcp.ingest.chunker._compute_chunk_id is _compute_chunk_id
+        assert arxmcp.ingest.chunker.compute_chunk_id is compute_chunk_id
         assert arxmcp.ingest.chunker.ChunkRecord is ChunkRecord
-        assert arxmcp.ingest.schema.CHUNKS_SCHEMA_V1 is CHUNKS_SCHEMA_V1
+        assert arxmcp.corpus.schema.CHUNKS_SCHEMA_V1 is CHUNKS_SCHEMA_V1
         assert arxmcp.ingest.embedder.EXPECTED_CHUNKER_VERSION is CHUNKER_VERSION
         assert arxmcp.ingest.embedder.EMBED_INPUT_POLICY_VERSION is EMBED_INPUT_POLICY_VERSION
         assert arxmcp.ingest.embedder.EMBEDDING_DIM == EMBEDDING_DIM
-        assert arxmcp.ingest.store.ALLOWED_KINDS is ALLOWED_KINDS
+        assert arxmcp.corpus.store.ALLOWED_KINDS is ALLOWED_KINDS
 
     def test_chunker_types_is_gone(self):
         assert not (CHUNK_PY.parent / "chunker_types.py").exists()
@@ -128,7 +128,7 @@ class TestChunkIds:
         expected = hashlib.sha256(
             unicodedata.normalize("NFC", body).encode("utf-8")
         ).hexdigest()[:16]
-        assert _compute_chunk_id("2401.00001", body) == (
+        assert compute_chunk_id("2401.00001", body) == (
             f"arxiv:2401.00001:{expected}"
         )
 
@@ -140,19 +140,19 @@ class TestChunkIds:
         raw = hashlib.sha256(
             ("e" + unicodedata.normalize("NFC", body)).encode("utf-8")
         ).hexdigest()[:16]
-        assert _compute_chunk_id("2401.00001", body, position="e").endswith(raw)
-        assert _compute_chunk_id(
+        assert compute_chunk_id("2401.00001", body, position="e").endswith(raw)
+        assert compute_chunk_id(
             "2401.00001", body, position="e"
-        ) != _compute_chunk_id("2401.00001", "e" + body)
+        ) != compute_chunk_id("2401.00001", "e" + body)
 
     def test_position_is_keyword_only(self):
         with pytest.raises(TypeError):
-            _compute_chunk_id("2401.00001", "PRE", "body")  # type: ignore[misc]
+            compute_chunk_id("2401.00001", "PRE", "body")  # type: ignore[misc]
 
     def test_textbook_id_uses_the_same_digest_with_its_prefix(self):
         position = "\x00".join(["Ch 1", "1.2"])
-        arxiv = _compute_chunk_id("x", "body", position=position)
-        textbook = _compute_textbook_chunk_id("ko95", position, "body")
+        arxiv = compute_chunk_id("x", "body", position=position)
+        textbook = compute_textbook_chunk_id("ko95", position, "body")
         assert textbook == "textbook:ko95:" + arxiv.rsplit(":", 1)[-1]
 
 
@@ -362,8 +362,8 @@ class TestRowMapping:
 
 class TestLanceDBRoundTrip:
     def test_records_survive_a_lancedb_table(self, tmp_path):
-        from arxmcp.ingest.schema import EmbedRecord
-        from arxmcp.ingest.store import write_chunks
+        from arxmcp.corpus.schema import EmbedRecord
+        from arxmcp.corpus.store import write_chunks
 
         records = [
             _record(),
@@ -424,8 +424,8 @@ class TestLanceDBRoundTrip:
             )
 
     def test_store_refuses_a_vector_in_the_other_routes_list(self, tmp_path):
-        from arxmcp.ingest.schema import EmbedRecord
-        from arxmcp.ingest.store import write_chunks
+        from arxmcp.corpus.schema import EmbedRecord
+        from arxmcp.corpus.store import write_chunks
 
         proof = _record(kind="proof")
         embeddings = EmbedRecord(

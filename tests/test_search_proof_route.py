@@ -22,7 +22,7 @@ from typing import Any
 
 import pytest
 
-from arxmcp.ingest.store import ALLOWED_KINDS
+from arxmcp.corpus.store import ALLOWED_KINDS
 from arxmcp.server.handlers.search import (
     _EXCLUDED_KINDS_PROOF_ROUTE,
     _PROOF_COLUMN,
@@ -155,7 +155,7 @@ class TestProofRoute:
         assert "stmt" in excluded and "lemma" in excluded
 
     def test_excluded_kinds_is_derived_from_the_write_time_enum(self) -> None:
-        """Guard: a kind added to arxmcp.ingest.store cannot silently go
+        """Guard: a kind added to arxmcp.corpus.store cannot silently go
         unreported in the proof route's exclusion set."""
         assert set(_EXCLUDED_KINDS_PROOF_ROUTE) == ALLOWED_KINDS - {"proof"}
 

@@ -26,7 +26,8 @@ from pathlib import Path
 import kuzu
 import pytest
 
-from arxmcp.ingest import graph_ingest, kuzudb_schema
+from arxmcp.corpus import kuzudb_schema
+from arxmcp.ingest import graph_ingest
 from arxmcp.server.graph_queries import (
     DEFAULT_MAX_RESULTS,
     _build_query,
@@ -443,7 +444,7 @@ class TestE09S03RectificationGuards:
         import lancedb
         import pyarrow as pa
 
-        from arxmcp.ingest.schema import CHUNKS_SCHEMA_V1
+        from arxmcp.corpus.schema import CHUNKS_SCHEMA_V1
 
         lancedb_path = tmp_path / "lancedb"
         db = lancedb.connect(str(lancedb_path))
@@ -505,7 +506,7 @@ class TestE09S03RectificationGuards:
         import lancedb
         import pyarrow as pa
 
-        from arxmcp.ingest.corpus import open_chunks_table
+        from arxmcp.corpus.reader import open_chunks_table
 
         pinned_id = f"arxiv:{P_B}:0000000000000001"
         tip_id = f"arxiv:{P_B}:0000000000000000"
@@ -827,7 +828,7 @@ class TestCiteNeighborsReopenReleasesLock:
 
 class TestPaperIdFromChunkId:
     def test_extracts_paper_id(self):
-        from arxmcp.ingest.identifiers import paper_id_from_chunk_id
+        from arxmcp.corpus.identifiers import paper_id_from_chunk_id
 
         assert (
             paper_id_from_chunk_id("arxiv:2401.00001:0123456789abcdef")
@@ -835,7 +836,7 @@ class TestPaperIdFromChunkId:
         )
 
     def test_old_style_paper_id(self):
-        from arxmcp.ingest.identifiers import paper_id_from_chunk_id
+        from arxmcp.corpus.identifiers import paper_id_from_chunk_id
 
         assert (
             paper_id_from_chunk_id("arxiv:hep-th/9711200:0123456789abcdef")
@@ -843,14 +844,14 @@ class TestPaperIdFromChunkId:
         )
 
     def test_invalid_input_raises(self):
-        from arxmcp.ingest.identifiers import paper_id_from_chunk_id
+        from arxmcp.corpus.identifiers import paper_id_from_chunk_id
 
         for bad in ["", "no-prefix", "arxiv:bad:xyz", "arxiv:2401.0001:short"]:
             with pytest.raises(ValueError):
                 paper_id_from_chunk_id(bad)
 
     def test_non_string_raises(self):
-        from arxmcp.ingest.identifiers import paper_id_from_chunk_id
+        from arxmcp.corpus.identifiers import paper_id_from_chunk_id
 
         with pytest.raises(ValueError):
             paper_id_from_chunk_id(None)  # type: ignore[arg-type]

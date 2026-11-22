@@ -15,7 +15,7 @@ research brief):
 - ≤1 request / 3 s: a 3-second sleep BEFORE every request except the
   first (``arxmcp.ingest.arxiv_fetch.POLITENESS_SLEEP_SECONDS``).
 - Identifying User-Agent; an operator contact email is optional and
-  resolved through :func:`arxmcp.ingest.notebooks.resolve_contact_email`.
+  resolved through :func:`arxmcp.corpus.notebooks.resolve_contact_email`.
 - 503 → backoff via ``parse_retry_after`` clamped to ≥30 s (arXiv has
   served ``Retry-After: 0``, which would otherwise hammer).
 - 429 (plain-text ``Rate exceeded.``) → ≥60 s cool-down (15 s was
@@ -61,6 +61,13 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 
+from arxmcp.corpus import (
+    NotebookError,
+    is_valid_arxiv_paper_id,
+    notebook_dir,
+    read_paper_ids_from_papers_txt,
+    validate_slug,
+)
 from arxmcp.ingest import arxiv_api as _arxiv_api
 from arxmcp.ingest.arxiv_api import (
     PaperMetadata,
@@ -73,14 +80,7 @@ from arxmcp.ingest.arxiv_fetch import (
     POLITENESS_SLEEP_SECONDS,
     parse_retry_after,
 )
-from arxmcp.ingest.identifiers import is_valid_arxiv_paper_id
-from arxmcp.ingest.notebooks import (
-    NotebookError,
-    notebook_dir,
-    read_paper_ids_from_papers_txt,
-    resolve_contact_email,
-    validate_slug,
-)
+from arxmcp.ingest.notebooks import resolve_contact_email
 from arxmcp.server.paper_metadata_store import (
     PAPER_METADATA_DB_FILENAME,
     PaperMetadataRecord,
@@ -349,7 +349,7 @@ def run(
     ``notebook_fetch.run`` convention); production callers pass only
     ``slug``. Returns the process exit code.
     """
-    # Slug validation is the FIRST check (per arxmcp.ingest.notebooks convention).
+    # Slug validation is the FIRST check (per arxmcp.corpus.notebooks convention).
     validate_slug(slug)
     nb_dir = notebook_dir(slug, base=base)
     raw_lines = read_paper_ids_from_papers_txt(nb_dir / "papers.txt")

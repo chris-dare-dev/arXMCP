@@ -18,7 +18,7 @@ Per revision it records:
   silent hole ("abstention, not silence", source-truth-m1 OWNER DECISION).
 - ``parse_artifact_sha256`` — a hash of ``parsed/<work_id>/index.html``
   (present for BOTH id shapes).
-- ``chunker_version`` (``arxmcp.ingest.chunk.CHUNKER_VERSION``);
+- ``chunker_version`` (``arxmcp.corpus.chunk.CHUNKER_VERSION``);
   ``parser_used`` + ``latexml_version`` are NULL in m1 (no queryable
   per-paper signal on disk yet — see the store docstring).
 - ``license_uri`` + a 3-way ``license_status``, hydrated via ONE OAI-PMH
@@ -27,7 +27,7 @@ Per revision it records:
   ``active``; ``superseded`` has no signal in m1).
 
 **0-re-embed is STRUCTURAL, not incidental.** This driver never imports
-``arxmcp.ingest.store`` or the BGE-M3 embedder, and never opens the LanceDB
+``arxmcp.corpus.store`` or the BGE-M3 embedder, and never opens the LanceDB
 ``chunks`` table — its whole job is a new SQLite store + a read-only
 OAI-PMH hydration. So "0 chunks re-embedded" is satisfied by construction
 (asserted in ``tests/test_notebook_documents_backfill.py``).
@@ -91,20 +91,20 @@ from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
 
-from arxmcp.ingest import oai_license
-from arxmcp.ingest.arxiv_api import strip_id_version
-from arxmcp.ingest.arxiv_fetch import POLITENESS_SLEEP_SECONDS, build_user_agent
-from arxmcp.ingest.chunk import CHUNKER_VERSION
-from arxmcp.ingest.identifiers import is_valid_arxiv_paper_id
-from arxmcp.ingest.notebooks import (
+from arxmcp.corpus import (
+    CHUNKER_VERSION,
     CORPUS_PARSED_DIR,
     CORPUS_RAW_DIR,
     NotebookError,
+    is_valid_arxiv_paper_id,
     notebook_dir,
     read_paper_ids_from_papers_txt,
-    resolve_contact_email,
     validate_slug,
 )
+from arxmcp.ingest import oai_license
+from arxmcp.ingest.arxiv_api import strip_id_version
+from arxmcp.ingest.arxiv_fetch import POLITENESS_SLEEP_SECONDS, build_user_agent
+from arxmcp.ingest.notebooks import resolve_contact_email
 from arxmcp.server.documents_store import (
     DOCUMENT_STATUS_ACTIVE,
     DOCUMENT_STATUS_WITHDRAWN,
@@ -482,7 +482,7 @@ def run(
     rows INSTEAD of registering anything: no papers.txt walk, no OAI-PMH,
     no writes beyond that one column.
     """
-    # Slug validation FIRST (per arxmcp.ingest.notebooks convention), then
+    # Slug validation FIRST (per arxmcp.corpus.notebooks convention), then
     # run-entry politeness enforcement: resolve the arXiv polite-pool
     # contact email and build the User-Agent once for the whole run.
     validate_slug(slug)

@@ -1,6 +1,6 @@
 """Markdown-native textbook chunker (textbook-markdown-chunker-m1).
 
-Chunks MinerU markdown DIRECTLY into :class:`~arxmcp.ingest.chunk.ChunkRecord`
+Chunks MinerU markdown DIRECTLY into :class:`~arxmcp.corpus.chunk.ChunkRecord`
 objects, bypassing the ``markdown -> LaTeXML -> HTML -> section-div`` path of
 :func:`arxmcp.ingest.textbook_chunker.chunk_textbook`.
 
@@ -17,7 +17,7 @@ clean and complete (ATX ``#``/``##`` headings, paragraph breaks, ``$...$`` /
 - and produces fine, token-bounded chunks instead of one truncated chunk per section.
 
 The chunk identity / store contract is IDENTICAL to the HTML path: ``chunk_id`` via
-:func:`arxmcp.ingest.chunk._compute_textbook_chunk_id` (so the ``textbook:``
+:func:`arxmcp.corpus.chunk.compute_textbook_chunk_id` (so the ``textbook:``
 prefix <-> ``source_kind`` invariant + dedup hold), ``source_kind="textbook"``,
 ``preamble_text=""`` (m8 OQ-1: PDF textbooks have no author macros). Only the
 ``chunker_version`` (``tmd0.1``) and ``parser_used`` (``mineru+markdown``) differ, so
@@ -35,9 +35,8 @@ import logging
 import re
 from pathlib import Path
 
-from arxmcp.ingest.chunk import ChunkRecord, _compute_textbook_chunk_id
-from arxmcp.ingest.chunker import PER_PAPER_FAILURE_EXCEPTIONS, _validate_paper_id
-from arxmcp.ingest.notebooks import NotebookError
+from arxmcp.corpus import ChunkRecord, NotebookError, compute_textbook_chunk_id, validate_paper_id
+from arxmcp.ingest.chunker import PER_PAPER_FAILURE_EXCEPTIONS
 from arxmcp.ingest.textbook_chunker import _flat_paper_id, _resolve_notebook_dir
 from arxmcp.ingest.textbook_renderer import _ATX_HEADING_RE
 from arxmcp.ingest.tokenizer import tokenize_body
@@ -47,7 +46,7 @@ logger = logging.getLogger(__name__)
 #: Separate lineage from the HTML chunker ("tv0.1" / "mineru+latexml") so a
 #: markdown-chunker change never invalidates arXiv or HTML-textbook chunks.
 TEXTBOOK_MD_CHUNKER_VERSION = "tmd0.1"
-#: MUST be present in ``arxmcp.ingest.chunk.ALLOWED_PARSER_USED`` or write_chunks raises.
+#: MUST be present in ``arxmcp.corpus.chunk.ALLOWED_PARSER_USED`` or write_chunks raises.
 TEXTBOOK_MD_PARSER_USED = "mineru+markdown"
 
 #: Soft target / hard ceiling (in whitespace tokens) for a chunk. The target is
@@ -283,7 +282,7 @@ def _chunk_markdown_impl(
         # discriminator). The chunk's own ``preamble_ref`` stays None — only
         # the hash input carries the discriminator.
         discriminator = "\x00".join(section_path)
-        chunk_id = _compute_textbook_chunk_id(slug, discriminator, body)
+        chunk_id = compute_textbook_chunk_id(slug, discriminator, body)
         if chunk_id in seen:
             if seen[chunk_id] == body:
                 logger.debug(
@@ -337,7 +336,7 @@ def chunk_textbook_markdown(slug: str, paper_id: str) -> list[ChunkRecord]:
         raise ValueError(
             f"invalid or unsafe notebook slug {slug!r}: {exc}"
         ) from exc
-    _validate_paper_id(paper_id)
+    validate_paper_id(paper_id)
     try:
         markdown = _markdown_path(nb_dir, paper_id).read_text(encoding="utf-8")
         return _chunk_markdown_impl(slug, paper_id, markdown)

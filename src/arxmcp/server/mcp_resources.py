@@ -46,11 +46,7 @@ import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from arxmcp.ingest.notebooks import (
-    NotebookError,
-    notebook_dir,
-    validate_slug,
-)
+from arxmcp.corpus import NotebookError, notebook_dir, validate_slug
 from arxmcp.server import corpus_manifest
 from arxmcp.server.handlers.chunk import read_chunk_in_full
 from arxmcp.server.tools import (

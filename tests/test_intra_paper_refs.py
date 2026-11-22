@@ -16,7 +16,7 @@ import kuzu
 import pyarrow as pa
 import pytest
 
-from arxmcp.ingest import kuzudb_schema
+from arxmcp.corpus import kuzudb_schema
 from arxmcp.ingest.intra_paper_refs import (
     _extract_intrapaper_labels,
     _resolved_labels_for_paper,
@@ -76,7 +76,7 @@ def lancedb_with_labels(tmp_path: Path) -> Path:
     """
     import lancedb
 
-    from arxmcp.ingest.schema import CHUNKS_SCHEMA_V1
+    from arxmcp.corpus.schema import CHUNKS_SCHEMA_V1
 
     lancedb_path = tmp_path / "lancedb"
     db = lancedb.connect(str(lancedb_path))

@@ -1,14 +1,14 @@
 """LanceDB ``chunks`` table writer (E04_S01).
 
-Reads :class:`arxmcp.ingest.chunk.ChunkRecord` rows + an
-:class:`arxmcp.ingest.schema.EmbedRecord` (loaded from the embedder's NPZ
+Reads :class:`arxmcp.corpus.chunk.ChunkRecord` rows + an
+:class:`arxmcp.corpus.schema.EmbedRecord` (loaded from the embedder's NPZ
 store), and writes/upserts them into the canonical LanceDB ``chunks``
 dataset at ``var/arxmcp/index/lancedb/`` (table name ``chunks``;
 LanceDB's on-disk layout puts the actual files under
 ``var/arxmcp/index/lancedb/chunks.lance/`` — closes F9 from the
 E04_S01 critique by acknowledging that the brief's literal-path
 language elides the LanceDB-internal ``.lance`` suffix). The schema is
-declared in :mod:`arxmcp.ingest.chunk` (re-exported by :mod:`arxmcp.ingest.schema`),
+declared in :mod:`arxmcp.corpus.chunk` (re-exported by :mod:`arxmcp.corpus.schema`),
 which also owns the record -> row mapping and its write-time checks; this
 module never re-declares either.
 
@@ -44,15 +44,15 @@ commits from corrupting the table, but not from interleaving.
 marker write, a second writer's commit would shift ``tbl.version`` so that
 the returned integer and the marker's counts describe neither write.
 :func:`write_chunks` and :func:`delete_paper` therefore run under the
-dataset's write lock (:mod:`arxmcp.ingest.write_lock`), and the drivers hold it
+dataset's write lock (:mod:`arxmcp.corpus.write_lock`), and the drivers hold it
 for their whole run; a second writer is refused at once with
-:class:`arxmcp.ingest.write_lock.DatasetWriteLockedError`. A writer that goes
+:class:`arxmcp.corpus.write_lock.DatasetWriteLockedError`. A writer that goes
 around the lock is caught by the write-audit gate, which names it.
 
 **MVCC handshake (E04_S02).** No symlink swaps. LanceDB version int IS
 the corpus_version. Writers use the current dataset; readers call
 dataset.checkout(version=N). (The reader-side wrapper lives in
-:func:`arxmcp.ingest.corpus.open_chunks_table`.)
+:func:`arxmcp.corpus.reader.open_chunks_table`.)
 
 The integer returned by :func:`write_chunks` is the LanceDB dataset
 version AFTER ``_create_indices`` has run — i.e. the post-index version,
@@ -83,9 +83,9 @@ import numpy as np
 import pyarrow as pa
 
 # ALLOWED_KINDS is re-exported (``__all__``): src/arxmcp/server/handlers/search.py
-# derives its proof-route ``excluded_kinds`` from ``arxmcp.ingest.store.ALLOWED_KINDS``
-# so the two cannot drift. The write-time checks themselves are arxmcp.ingest.chunk's.
-from arxmcp.ingest.chunk import (
+# derives its proof-route ``excluded_kinds`` from ``arxmcp.corpus.store.ALLOWED_KINDS``
+# so the two cannot drift. The write-time checks themselves are arxmcp.corpus.chunk's.
+from arxmcp.corpus.chunk import (
     ALLOWED_KINDS,
     CHUNKER_VERSION,
     CHUNKS_SCHEMA_V1,
@@ -96,14 +96,14 @@ from arxmcp.ingest.chunk import (
     to_arrow_table,
     to_row,
 )
-from arxmcp.ingest.chunker import _validate_paper_id
-from arxmcp.ingest.embedder import (
+from arxmcp.corpus.embedding import (
     EMBEDDINGS_DIR,
     EMBEDDINGS_MANIFEST_NAME,
     EMBEDDINGS_NPZ_NAME,
-    _read_embeddings_manifest,
+    read_embeddings_manifest,
 )
-from arxmcp.ingest.schema import (
+from arxmcp.corpus.identifiers import validate_paper_id
+from arxmcp.corpus.schema import (
     CHUNKS_TABLE_NAME,
     DEFINITIONS_TABLE_NAME,
     EQUATIONS_TABLE_NAME,
@@ -111,18 +111,18 @@ from arxmcp.ingest.schema import (
     EmbedRecord,
     add_missing_columns,
 )
-from arxmcp.ingest.write_lock import holds_dataset_write_lock, write_lock_path
+from arxmcp.corpus.write_lock import holds_dataset_write_lock, write_lock_path
 from arxmcp.settings import ApplicationPaths
 
-# NB: ``arxmcp.ingest.corpus.read_corpus_version`` is imported function-locally
+# NB: ``arxmcp.corpus.reader.read_corpus_version`` is imported function-locally
 # inside ``write_chunks`` (the WAP gate, corpus-integrity-completion-e1).
-# A module-level ``from arxmcp.ingest.corpus import read_corpus_version`` here
-# would form a circular import — ``src/arxmcp/ingest/corpus.py`` already imports
+# A module-level ``from arxmcp.corpus.reader import read_corpus_version`` here
+# would form a circular import — ``src/arxmcp/corpus/reader.py`` already imports
 # ``CORPUS_VERSION_MARKER_NAME`` and ``DEFAULT_LANCEDB_PATH`` back from
-# this module, and Python sees ``arxmcp.ingest.store`` mid-load with those names
+# this module, and Python sees ``arxmcp.corpus.store`` mid-load with those names
 # not yet bound. The spike-1 §5 rect F5 import-direction analysis cited
 # ``src/arxmcp/ingest/bm25_indexer.py:87`` as precedent but that module is loaded
-# lazily; ``arxmcp.ingest.store`` is loaded at server startup. Function-local
+# lazily; ``arxmcp.corpus.store`` is loaded at server startup. Function-local
 # import is the surgical fix; the runtime semantics of the gate are
 # identical.
 
@@ -226,19 +226,19 @@ def load_embed_record(paper_id: str) -> EmbedRecord | None:
     requires that column.
 
     Closes F1 from the E04_S01 adversary critique: ``paper_id`` is
-    validated via ``_validate_paper_id`` before any path concatenation.
+    validated via ``validate_paper_id`` before any path concatenation.
     The chunker / embedder / preamble loaders all gate on this exact
     helper (Threat 1); a public
     function that interpolates ``paper_id`` into a filesystem path
     must do the same.
     """
-    _validate_paper_id(paper_id)
+    validate_paper_id(paper_id)
     paper_dir = EMBEDDINGS_DIR / paper_id
     npz_path = paper_dir / EMBEDDINGS_NPZ_NAME
     sidecar_path = paper_dir / EMBEDDINGS_MANIFEST_NAME
     if not npz_path.exists():
         return None
-    sidecar = _read_embeddings_manifest(sidecar_path)
+    sidecar = read_embeddings_manifest(sidecar_path)
     if sidecar is None:
         raise ValueError(
             f"NPZ at {npz_path} has no sidecar manifest at {sidecar_path}; "
@@ -288,10 +288,10 @@ def load_embed_record(paper_id: str) -> EmbedRecord | None:
 
 def _migrate_chunks_schema_if_needed(tbl) -> list[str]:
     """Add to an on-disk chunks table the columns :data:`CHUNKS_SCHEMA_V1`
-    has and it lacks (:func:`arxmcp.ingest.schema.add_missing_columns`).
+    has and it lacks (:func:`arxmcp.corpus.schema.add_missing_columns`).
 
     Returns the names added, empty when the table already has the
-    canonical shape. Raises :class:`arxmcp.ingest.schema.SchemaEvolutionError`
+    canonical shape. Raises :class:`arxmcp.corpus.schema.SchemaEvolutionError`
     for a missing column the existing rows have no value for, and any
     LanceDB error verbatim.
     """
@@ -316,10 +316,10 @@ def _build_arrow_table(
     artifact, not just the audit trail).
 
     The list a chunk's vector is found in must be the chunk's own route
-    (:func:`arxmcp.ingest.chunk.route`): a proof chunk whose vector sits in the
+    (:func:`arxmcp.corpus.chunk.route`): a proof chunk whose vector sits in the
     statement list raises instead of being stored with the wrong column
     filled. The per-record checks and the row
-    shape are :func:`arxmcp.ingest.chunk.to_row` / :func:`arxmcp.ingest.chunk.to_arrow_table`.
+    shape are :func:`arxmcp.corpus.chunk.to_row` / :func:`arxmcp.corpus.chunk.to_arrow_table`.
     """
     if not chunks:
         # Empty input is a valid no-op; return an empty table conforming
@@ -503,16 +503,16 @@ def write_corpus_version_marker(
 
     The marker file is the **authoritative server startup config**:
     on boot, the MCP server (E06) reads it to determine which LanceDB
-    dataset version to pin via :func:`arxmcp.ingest.corpus.open_chunks_table`.
+    dataset version to pin via :func:`arxmcp.corpus.reader.open_chunks_table`.
     The ``version`` integer also serves as the cache namespace key for
     all server-side caches (E08_S03) — see the cache contract in
-    :mod:`arxmcp.ingest.corpus`'s module docstring.
+    :mod:`arxmcp.corpus.reader`'s module docstring.
 
     .. warning::
 
        Path-traversal validation (Threat 1) is **left to the
        tool-input boundary** (TODO(E06)) — same discipline as
-       :func:`arxmcp.ingest.corpus.open_chunks_table`. This function trusts
+       :func:`arxmcp.corpus.reader.open_chunks_table`. This function trusts
        ``lancedb_path`` as config-derived. Callers passing
        user-supplied paths MUST validate against an allowlisted
        corpus root first (closes M2 from the E04_S03 critique).
@@ -554,7 +554,7 @@ def write_corpus_version_marker(
         :func:`write_chunks` — the post-index version (see the module
         docstring's "MVCC handshake" section).
     chunker_version:
-        From :data:`arxmcp.ingest.chunk.CHUNKER_VERSION`. Threaded
+        From :data:`arxmcp.corpus.chunk.CHUNKER_VERSION`. Threaded
         through as a parameter (rather than auto-imported) so tests
         can inject arbitrary values; production callers (e.g.
         :func:`write_chunks`) pass the live constant.
@@ -704,7 +704,7 @@ def _table_state(target_path: Path, tbl) -> tuple[int, int, int]:
 def _scan_paper_ids(tbl, chunk_count: int) -> set[str]:
     # Function-local for the same circular-import reason as
     # ``read_corpus_version`` (see the module-level NB).
-    from arxmcp.ingest.corpus import project_column  # noqa: PLC0415
+    from arxmcp.corpus.reader import project_column  # noqa: PLC0415
 
     projected = project_column(tbl, "paper_id", expected_rows=chunk_count)
     if projected is None:
@@ -734,7 +734,7 @@ def write_chunks(
     """Upsert chunks + embeddings into the LanceDB ``chunks`` table.
 
     Creates the table on first call (with the v1 schema from
-    :mod:`arxmcp.ingest.schema`); subsequent calls upsert via
+    :mod:`arxmcp.corpus.schema`); subsequent calls upsert via
     ``merge_insert(on="chunk_id")``. With ``build_indices`` (the default)
     it then rebuilds the HNSW + scalar indices over the whole table. A
     driver that writes one paper per call passes ``build_indices=False``
@@ -796,7 +796,7 @@ def write_chunks(
         _migrate_chunks_schema_if_needed(tbl)
     else:
         # storage_options pins the on-disk Lance format (m2). See
-        # arxmcp.ingest.schema.LANCE_STORAGE_OPTIONS for the why + the
+        # arxmcp.corpus.schema.LANCE_STORAGE_OPTIONS for the why + the
         # silent-drop gotcha on the bare data_storage_version kwarg.
         tbl = db.create_table(
             CHUNKS_TABLE_NAME,
@@ -994,10 +994,10 @@ def write_chunks(
     # marker writers (m3 follow-up F2-extension).
     #
     # Function-local import: see the comment at the module's import block
-    # above for why this cannot be a top-level ``from arxmcp.ingest.corpus
+    # above for why this cannot be a top-level ``from arxmcp.corpus.reader
     # import read_corpus_version`` (circular import with
-    # ``src/arxmcp/ingest/corpus.py``).
-    from arxmcp.ingest.corpus import read_corpus_version  # noqa: PLC0415
+    # ``src/arxmcp/corpus/reader.py``).
+    from arxmcp.corpus.reader import read_corpus_version  # noqa: PLC0415
 
     # rect F2: wrap the gate body in try/finally so _append_store_stats
     # lands on the failure path too. The LanceDB rows and indices are
@@ -1148,7 +1148,7 @@ def _marker_embed_record(path: Path) -> EmbedRecord | None:
     input-policy versions over instead of guessing them. ``None`` when
     there is no marker.
     """
-    from arxmcp.ingest.corpus import read_corpus_version  # noqa: PLC0415
+    from arxmcp.corpus.reader import read_corpus_version  # noqa: PLC0415
 
     marker = read_corpus_version(path)
     if marker is None:
@@ -1183,7 +1183,7 @@ def delete_paper(lancedb_path: str | Path, paper_id: str) -> int:
     """
     import lancedb  # noqa: PLC0415
 
-    from arxmcp.ingest.identifiers import is_valid_paper_id  # noqa: PLC0415
+    from arxmcp.corpus.identifiers import is_valid_paper_id  # noqa: PLC0415
 
     if not is_valid_paper_id(paper_id):
         raise ValueError(f"paper_id {paper_id!r} is not a valid paper id")
@@ -1222,10 +1222,12 @@ def delete_paper(lancedb_path: str | Path, paper_id: str) -> int:
 def _delete_theorem_names(path: Path, paper_id: str) -> None:
     import asyncio  # noqa: PLC0415
 
-    from arxmcp.ingest.index_theorem_names import default_db_path  # noqa: PLC0415
-    from arxmcp.ingest.theorem_names_store import TheoremNamesStore  # noqa: PLC0415
+    from arxmcp.corpus.theorem_names_store import (  # noqa: PLC0415
+        TheoremNamesStore,
+        theorem_names_db_path,
+    )
 
-    db_path = default_db_path(path)
+    db_path = theorem_names_db_path(path)
     if not db_path.is_file():
         return
 

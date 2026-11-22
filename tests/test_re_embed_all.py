@@ -109,7 +109,7 @@ class TestDiscovery:
     @requires_symlink
     def test_skips_symlinked_notebook_dir(self, tmp_path, caplog):
         """F3 (rect): align with the m6 F3 symlink-rejection contract
-        codified at src/arxmcp/ingest/notebooks.py::notebook_dir. A symlink
+        codified at src/arxmcp/corpus/notebooks.py::notebook_dir. A symlink
         at the slug position is a red flag and must NOT be treated as
         a re-embed target — even if it would otherwise look like a
         valid lancedb-bearing notebook.

@@ -48,7 +48,7 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from arxmcp.ingest.notebooks import notebook_dir
+from arxmcp.corpus import notebook_dir
 from arxmcp.ingest.oai_license import (
     LICENSE_STATUS_ELIGIBLE,
     LICENSE_STATUS_NOT_ALLOWLISTED_OPEN,

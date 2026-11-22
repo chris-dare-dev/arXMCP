@@ -44,7 +44,7 @@ Checkpointing: the entire resolved-state dict is rewritten to
 (AC#5/#6).
 
 Idempotency: DDL via ``CREATE … IF NOT EXISTS`` (handled by
-``arxmcp.ingest.kuzudb_schema.apply_schema``). Inserts and edges via Cypher
+``arxmcp.corpus.kuzudb_schema.apply_schema``). Inserts and edges via Cypher
 ``MERGE`` upserts. Re-running the script after an interruption skips
 papers that are already in the checkpoint's ``resolved`` set without
 re-fetching from OpenAlex (AC#6); the Kùzu graph itself is the
@@ -100,6 +100,7 @@ from typing import Any
 
 import kuzu
 
+from arxmcp.corpus import apply_schema
 from arxmcp.ingest.arxiv_fetch import (
     DEFAULT_503_BACKOFF_SECONDS,
     MAX_503_BACKOFF_SECONDS,
@@ -107,7 +108,6 @@ from arxmcp.ingest.arxiv_fetch import (
     parse_retry_after,
     validate_paper_id,
 )
-from arxmcp.ingest.kuzudb_schema import apply_schema
 from arxmcp.settings import ApplicationPaths
 from arxmcp.tools.fetch_seed import read_seed_list
 

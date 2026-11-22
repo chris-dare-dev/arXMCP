@@ -25,13 +25,13 @@ import numpy as np
 import pyarrow as pa
 import pytest
 
-from arxmcp.ingest.chunk import CHUNKER_VERSION, ChunkRecord
-from arxmcp.ingest.embedder import EMBEDDER_VERSION, EMBEDDING_DIM
-from arxmcp.ingest.schema import (
+from arxmcp.corpus.chunk import CHUNKER_VERSION, ChunkRecord
+from arxmcp.corpus.schema import (
     CHUNKS_SCHEMA_V1,
     CHUNKS_TABLE_NAME,
     EmbedRecord,
 )
+from arxmcp.ingest.embedder import EMBEDDER_VERSION, EMBEDDING_DIM
 
 # ===========================================================================
 # Helpers
@@ -239,10 +239,13 @@ class TestSchemaContract:
 
 class TestSingleSourceOfTruth:
     def test_table_name_constant_unique(self):
-        # CHUNKS_TABLE_NAME defined exactly once in ingest/.
+        # CHUNKS_TABLE_NAME defined exactly once across corpus/ and ingest/.
         repo_root = Path(__file__).parent.parent
         hits: list[Path] = []
-        for py in (repo_root / "src" / "arxmcp" / "ingest").rglob("*.py"):
+        for py in [
+            *(repo_root / "src" / "arxmcp" / "corpus").rglob("*.py"),
+            *(repo_root / "src" / "arxmcp" / "ingest").rglob("*.py"),
+        ]:
             text = py.read_text(encoding="utf-8")
             if "CHUNKS_TABLE_NAME = " in text:
                 hits.append(py)
@@ -252,14 +255,14 @@ class TestSingleSourceOfTruth:
         assert hits[0].name == "schema.py"
 
     def test_store_imports_schema_does_not_redefine(self):
-        # src/arxmcp/ingest/store.py must import CHUNKS_SCHEMA_V1 — not re-declare a
+        # src/arxmcp/corpus/store.py must import CHUNKS_SCHEMA_V1 — not re-declare a
         # PyArrow schema literal. Detect a redefinition by scanning for
         # ``pa.schema(`` invocations inside store.py.
         repo_root = Path(__file__).parent.parent
-        store_text = (repo_root / "src/arxmcp/ingest" / "store.py").read_text(encoding="utf-8")
+        store_text = (repo_root / "src/arxmcp/corpus" / "store.py").read_text(encoding="utf-8")
         assert "pa.schema(" not in store_text, (
-            "src/arxmcp/ingest/store.py must not declare pa.schema(...) inline; "
-            "import CHUNKS_SCHEMA_V1 from arxmcp.ingest.schema instead"
+            "src/arxmcp/corpus/store.py must not declare pa.schema(...) inline; "
+            "import CHUNKS_SCHEMA_V1 from arxmcp.corpus.schema instead"
         )
 
     def test_no_stray_1024_literal_in_new_files(self):
@@ -268,7 +271,7 @@ class TestSingleSourceOfTruth:
         # NOT introduce a stray 1024 literal that could drift.
         repo_root = Path(__file__).parent.parent
         for fname in ("schema.py", "store.py"):
-            text = (repo_root / "src" / "arxmcp" / "ingest" / fname).read_text(encoding="utf-8")
+            text = (repo_root / "src" / "arxmcp" / "corpus" / fname).read_text(encoding="utf-8")
             # Allow EMBEDDING_DIM references; just ban the bare literal.
             # Strip out comments so we don't false-positive on things
             # like "# 1024-dim". A real assignment would use the form
@@ -346,7 +349,7 @@ class TestEmbedRecordConstructor:
 
 class TestTableCreation:
     def test_first_write_creates_table(self, tmp_path):
-        from arxmcp.ingest.store import write_chunks
+        from arxmcp.corpus.store import write_chunks
 
         chunks = _make_corpus(5)
         embeddings = _make_synthetic_embeddings(chunks, seed=1)
@@ -372,7 +375,7 @@ class TestTableCreation:
 
 class TestRowCount:
     def test_ten_chunks_count_rows_eq_ten(self, tmp_path):
-        from arxmcp.ingest.store import write_chunks
+        from arxmcp.corpus.store import write_chunks
 
         chunks = _make_corpus(10)
         embeddings = _make_synthetic_embeddings(chunks, seed=0)
@@ -387,7 +390,7 @@ class TestRowCount:
 
 class TestIdempotency:
     def test_second_write_no_duplicates(self, tmp_path):
-        from arxmcp.ingest.store import write_chunks
+        from arxmcp.corpus.store import write_chunks
 
         chunks = _make_corpus(10)
         embeddings = _make_synthetic_embeddings(chunks, seed=2)
@@ -404,7 +407,7 @@ class TestIdempotency:
         # Write a chunk, then overwrite with a different body_text but
         # same chunk_id (synthetic test — real chunk_ids are content-
         # addressable, but we bypass that for this regression).
-        from arxmcp.ingest.store import write_chunks
+        from arxmcp.corpus.store import write_chunks
 
         chunk_a = _make_chunk("2307.00099", "stmt", "first body", suffix="0" * 16)
         chunk_b = _make_chunk("2307.00099", "stmt", "second body", suffix="0" * 16)
@@ -429,7 +432,7 @@ class TestIdempotency:
 
 class TestIndices:
     def test_hnsw_indices_created_after_write(self, tmp_path):
-        from arxmcp.ingest.store import write_chunks
+        from arxmcp.corpus.store import write_chunks
 
         chunks = _make_corpus(10)
         embeddings = _make_synthetic_embeddings(chunks, seed=3)
@@ -467,7 +470,7 @@ class TestDeferredIndexBuild:
     """A per-paper run writes without indexes and builds them once."""
 
     def test_unindexed_writes_then_one_refresh(self, tmp_path):
-        from arxmcp.ingest.store import refresh_indices, write_chunks
+        from arxmcp.corpus.store import refresh_indices, write_chunks
 
         path = tmp_path / "lancedb"
         for seed, pid in enumerate(["2307.00100", "2307.00101", "2307.00102"]):
@@ -492,7 +495,7 @@ class TestDeferredIndexBuild:
         assert marker["embedder_version"] == EMBEDDER_VERSION
 
     def test_refresh_without_a_table_is_a_no_op(self, tmp_path):
-        from arxmcp.ingest.store import refresh_indices
+        from arxmcp.corpus.store import refresh_indices
 
         assert refresh_indices(tmp_path / "lancedb") is None
         assert not (tmp_path / "lancedb").exists()
@@ -502,7 +505,7 @@ class TestMarkerPaperCount:
     """The marker's paper_count stays exact across a run of writes."""
 
     def _write(self, path, pid, seed, **kw):
-        from arxmcp.ingest.store import write_chunks
+        from arxmcp.corpus.store import write_chunks
 
         chunks = _paper_chunks(pid)
         return write_chunks(
@@ -518,7 +521,7 @@ class TestMarkerPaperCount:
         assert _marker(path)["paper_count"] == 2
 
     def test_sees_a_paper_written_through_another_handle(self, tmp_path):
-        from arxmcp.ingest.store import _build_arrow_table
+        from arxmcp.corpus.store import _build_arrow_table
 
         path = tmp_path / "lancedb"
         self._write(path, "2307.00100", 0)
@@ -548,7 +551,7 @@ class TestMarkerPaperCount:
 
 
 def _write_paper(path, chunks, seed=0, **kw):
-    from arxmcp.ingest.store import write_chunks
+    from arxmcp.corpus.store import write_chunks
 
     return write_chunks(
         chunks, _make_synthetic_embeddings(chunks, seed=seed),
@@ -582,7 +585,7 @@ class TestReplacePaper:
 
     def test_replace_holds_when_another_process_wrote_the_paper(self, tmp_path):
         # The scan-free shortcut for new papers must not trust a stale set.
-        from arxmcp.ingest.store import _build_arrow_table
+        from arxmcp.corpus.store import _build_arrow_table
 
         path = tmp_path / "lancedb"
         _write_paper(path, _paper_chunks("2307.00101"))
@@ -636,11 +639,10 @@ class TestDeletePaper:
     def _theorem_name_rows(self, path):
         import asyncio
 
-        from arxmcp.ingest.index_theorem_names import default_db_path
-        from arxmcp.ingest.theorem_names_store import TheoremNamesStore
+        from arxmcp.corpus.theorem_names_store import TheoremNamesStore, theorem_names_db_path
 
         async def run():
-            store = await TheoremNamesStore.open(default_db_path(path))
+            store = await TheoremNamesStore.open(theorem_names_db_path(path))
             try:
                 return await store.row_count()
             finally:
@@ -651,7 +653,7 @@ class TestDeletePaper:
     def test_removes_the_paper_everywhere(self, tmp_path):
         import lancedb
 
-        from arxmcp.ingest.store import delete_paper
+        from arxmcp.corpus.store import delete_paper
 
         path = tmp_path / "lancedb"
         self._seed(path)
@@ -669,7 +671,7 @@ class TestDeletePaper:
         assert (marker["chunk_count"], marker["paper_count"]) == (2, 1)
 
     def test_is_idempotent(self, tmp_path):
-        from arxmcp.ingest.store import delete_paper
+        from arxmcp.corpus.store import delete_paper
 
         path = tmp_path / "lancedb"
         self._seed(path)
@@ -679,12 +681,12 @@ class TestDeletePaper:
         assert _marker(path)["version"] == version
 
     def test_a_missing_dataset_is_a_no_op(self, tmp_path):
-        from arxmcp.ingest.store import delete_paper
+        from arxmcp.corpus.store import delete_paper
 
         assert delete_paper(tmp_path / "lancedb", "2307.00100") == 0
 
     def test_rejects_a_malformed_id(self, tmp_path):
-        from arxmcp.ingest.store import delete_paper
+        from arxmcp.corpus.store import delete_paper
 
         with pytest.raises(ValueError):
             delete_paper(tmp_path / "lancedb", "2307.00100' OR '1'='1")
@@ -697,7 +699,7 @@ class TestDeletePaper:
 
 class TestEmbeddingRouting:
     def test_embedding_eq_null_on_all_rows(self, tmp_path):
-        from arxmcp.ingest.store import write_chunks
+        from arxmcp.corpus.store import write_chunks
 
         chunks = _make_corpus(10)
         embeddings = _make_synthetic_embeddings(chunks, seed=4)
@@ -713,7 +715,7 @@ class TestEmbeddingRouting:
             assert val is None
 
     def test_proof_chunks_have_only_embedding_proof(self, tmp_path):
-        from arxmcp.ingest.store import write_chunks
+        from arxmcp.corpus.store import write_chunks
 
         chunks = _make_corpus(10)
         embeddings = _make_synthetic_embeddings(chunks, seed=5)
@@ -745,7 +747,7 @@ class TestValidationGuards:
         # D7: a chunk in the chunks list but not in either ID list of
         # the EmbedRecord must raise — never silently insert a
         # null-embedding row.
-        from arxmcp.ingest.store import write_chunks
+        from arxmcp.corpus.store import write_chunks
 
         chunks = _make_corpus(3)
         # Build embeddings for only the FIRST two chunks.
@@ -755,7 +757,7 @@ class TestValidationGuards:
 
     def test_body_tokens_none_raises(self, tmp_path):
         # D8: body_tokens=None is a real bug post-E02_S03.
-        from arxmcp.ingest.store import write_chunks
+        from arxmcp.corpus.store import write_chunks
 
         chunk = _make_chunk("2307.00088", "stmt", "body", suffix="a" * 16)
         chunk.body_tokens = None  # forced regression
@@ -772,8 +774,8 @@ class TestValidationGuards:
 class TestStoreStats:
     def test_jsonl_line_per_call(self, tmp_path, monkeypatch):
         # The autouse fixture has already redirected STORE_STATS_PATH.
-        import arxmcp.ingest.store as store_mod
-        from arxmcp.ingest.store import write_chunks
+        import arxmcp.corpus.store as store_mod
+        from arxmcp.corpus.store import write_chunks
 
         chunks = _make_corpus(3)
         embeddings = _make_synthetic_embeddings(chunks, seed=8)
@@ -791,8 +793,8 @@ class TestStoreStats:
         committed ``total_rows_after_commit`` (= count_rows after commit), not 0.
         Pre-fix the append ran BEFORE the field was populated, so it shipped
         always-0 in store-stats.jsonl (the field's only consumer)."""
-        import arxmcp.ingest.store as store_mod
-        from arxmcp.ingest.store import write_chunks
+        import arxmcp.corpus.store as store_mod
+        from arxmcp.corpus.store import write_chunks
 
         chunks = _make_corpus(3)
         embeddings = _make_synthetic_embeddings(chunks, seed=9)
@@ -815,20 +817,20 @@ class TestStoreStats:
 
 class TestLoadEmbedRecord:
     def test_returns_none_for_missing_npz(self, tmp_path, monkeypatch):
-        from arxmcp.ingest.store import load_embed_record
+        from arxmcp.corpus.store import load_embed_record
 
         # Patch EMBEDDINGS_DIR to an empty tmp_path so no NPZs exist.
-        monkeypatch.setattr("arxmcp.ingest.store.EMBEDDINGS_DIR", tmp_path / "embeddings")
+        monkeypatch.setattr("arxmcp.corpus.store.EMBEDDINGS_DIR", tmp_path / "embeddings")
         assert load_embed_record("2307.00200") is None
 
     def test_round_trip_via_real_embedder_writers(self, tmp_path, monkeypatch):
         # Use the embedder's actual sidecar + NPZ writers to produce an
         # artifact, then read it back via load_embed_record.
+        from arxmcp.corpus.store import load_embed_record
         from arxmcp.ingest.embedder import (
             _write_embeddings_manifest,
             _write_embeddings_npz,
         )
-        from arxmcp.ingest.store import load_embed_record
 
         paper_id = "2307.00201"
         paper_dir = tmp_path / "embeddings" / paper_id
@@ -858,7 +860,7 @@ class TestLoadEmbedRecord:
                 {"chunk_id": chunk_ids_proof[0], "kind": "proof"},
             ],
         )
-        monkeypatch.setattr("arxmcp.ingest.store.EMBEDDINGS_DIR", tmp_path / "embeddings")
+        monkeypatch.setattr("arxmcp.corpus.store.EMBEDDINGS_DIR", tmp_path / "embeddings")
         rec = load_embed_record(paper_id)
         assert rec is not None
         assert rec.chunk_ids_stmt == chunk_ids_stmt
@@ -870,8 +872,8 @@ class TestLoadEmbedRecord:
     def test_missing_sidecar_raises(self, tmp_path, monkeypatch):
         # NPZ present, sidecar absent — must raise (the embedder_version
         # is unknowable without the sidecar).
+        from arxmcp.corpus.store import load_embed_record
         from arxmcp.ingest.embedder import _write_embeddings_npz
-        from arxmcp.ingest.store import load_embed_record
 
         paper_id = "2307.00202"
         paper_dir = tmp_path / "embeddings" / paper_id
@@ -883,7 +885,7 @@ class TestLoadEmbedRecord:
             chunk_ids_proof=[],
             embedding_proof=np.zeros((0, EMBEDDING_DIM), dtype=np.float32),
         )
-        monkeypatch.setattr("arxmcp.ingest.store.EMBEDDINGS_DIR", tmp_path / "embeddings")
+        monkeypatch.setattr("arxmcp.corpus.store.EMBEDDINGS_DIR", tmp_path / "embeddings")
         with pytest.raises(ValueError, match="no sidecar manifest"):
             load_embed_record(paper_id)
 
@@ -896,11 +898,11 @@ class TestLoadEmbedRecord:
 class TestPaperIdValidation:
     def test_load_embed_record_rejects_path_traversal(self):
         """Closes F1 from the E04_S01 critique: ``load_embed_record``
-        must call ``_validate_paper_id`` BEFORE any path concat. A
+        must call ``validate_paper_id`` BEFORE any path concat. A
         traversal-shaped paper_id like ``"../../../etc/passwd"`` must
         raise rather than silently traverse out of EMBEDDINGS_DIR."""
-        from arxmcp.ingest.chunker import InvalidPaperIDError
-        from arxmcp.ingest.store import load_embed_record
+        from arxmcp.corpus.identifiers import InvalidPaperIDError
+        from arxmcp.corpus.store import load_embed_record
 
         with pytest.raises(InvalidPaperIDError):
             load_embed_record("../../../etc/passwd")
@@ -995,7 +997,7 @@ class TestMixedInsertAndUpdate:
         update. The realistic ingest case is "second batch is a
         superset of the first" — verify the upsert produces N+M
         rows total."""
-        from arxmcp.ingest.store import write_chunks
+        from arxmcp.corpus.store import write_chunks
 
         # First batch: 5 chunks.
         first_batch = _make_corpus(5)
@@ -1027,7 +1029,7 @@ class TestKindValidation:
         """Closes F10 from the E04_S01 critique: a chunker bug or
         driver typo like ``"theroem"`` (instead of ``"theorem"``) must
         surface at write time, not silently land in the dataset."""
-        from arxmcp.ingest.store import write_chunks
+        from arxmcp.corpus.store import write_chunks
 
         chunk = _make_chunk("2307.00400", "stmt", "body", suffix="0" * 16)
         chunk.kind = "theroem"  # typo — not in _ALLOWED_KINDS
@@ -1043,8 +1045,8 @@ class TestKindValidation:
         ``_ALLOWED_KINDS``. Build one chunk per kind and confirm the
         write succeeds. This catches a future chunker change that adds
         a new kind without updating the allowed set in store.py."""
+        from arxmcp.corpus.store import write_chunks
         from arxmcp.ingest.chunker import _THEOREM_ENV_KINDS
-        from arxmcp.ingest.store import write_chunks
 
         kinds = sorted(set(_THEOREM_ENV_KINDS.values()) | {"stmt", "proof", "section"})
         chunks = [
@@ -1065,8 +1067,8 @@ class TestStructuredIndicesCreated:
         """Closes F14 from the E04_S01 critique: ``indices_created``
         in the ops log is now a ``dict[str, bool]`` so consumers can
         filter individual outcomes without parsing strings."""
-        import arxmcp.ingest.store as store_mod
-        from arxmcp.ingest.store import write_chunks
+        import arxmcp.corpus.store as store_mod
+        from arxmcp.corpus.store import write_chunks
 
         chunks = _make_corpus(3)
         embeddings = _make_synthetic_embeddings(chunks, seed=16)
@@ -1127,7 +1129,7 @@ class TestTextbookChunkRoundtrip:
     all 7 new columns with correct types."""
 
     def test_textbook_chunk_all_columns_survive_roundtrip(self, tmp_path):
-        from arxmcp.ingest.store import write_chunks
+        from arxmcp.corpus.store import write_chunks
 
         chunk = _make_textbook_chunk("shimura-varieties")
         embeddings = _make_synthetic_embeddings([chunk], seed=42)
@@ -1155,9 +1157,9 @@ class TestTextbookChunkRoundtrip:
 
     def test_textbook_chunk_id_passes_chunker_paper_id_regex(self):
         """Sanity: m1's identifier regex accepts the paper_id the
-        textbook chunk carries, so the chunker's _validate_paper_id
+        textbook chunk carries, so the chunker's validate_paper_id
         won't reject textbook IDs in a future driver path."""
-        from arxmcp.ingest.chunker import _PAPER_ID_RE
+        from arxmcp.corpus.identifiers import PAPER_ID_RE as _PAPER_ID_RE
 
         assert _PAPER_ID_RE.match("textbook:shimura-varieties") is not None
 
@@ -1167,7 +1169,7 @@ class TestArxivChunkByteStableAfterSchemaBump:
     existing field values byte-identical to pre-m2 behavior."""
 
     def test_arxiv_chunk_defaults_populated_via_chunkrecord(self, tmp_path):
-        from arxmcp.ingest.store import write_chunks
+        from arxmcp.corpus.store import write_chunks
 
         chunk = _make_chunk("2307.00099", "stmt", "body", suffix="0" * 16)
         embeddings = _make_synthetic_embeddings([chunk], seed=11)
@@ -1198,7 +1200,7 @@ class TestMixedCorpusInSameTable:
     in the same LanceDB table without column drift."""
 
     def test_both_kinds_coexist(self, tmp_path):
-        from arxmcp.ingest.store import write_chunks
+        from arxmcp.corpus.store import write_chunks
 
         arxiv_chunk = _make_chunk("2307.00099", "stmt", "arxiv body", suffix="a" * 16)
         textbook_chunk = _make_textbook_chunk("hartshorne")
@@ -1230,7 +1232,7 @@ class TestSourceKindEnumGuard:
     (F10 from the E04_S01 critique)."""
 
     def test_invalid_source_kind_raises(self, tmp_path):
-        from arxmcp.ingest.store import write_chunks
+        from arxmcp.corpus.store import write_chunks
 
         chunk = _make_chunk("2307.00200", "stmt", "body", suffix="b" * 16)
         chunk.source_kind = "arxv"  # typo
@@ -1239,7 +1241,7 @@ class TestSourceKindEnumGuard:
             write_chunks([chunk], embeddings, lancedb_path=tmp_path / "lancedb")
 
     def test_textbook_source_kind_accepted(self, tmp_path):
-        from arxmcp.ingest.store import write_chunks
+        from arxmcp.corpus.store import write_chunks
 
         chunk = _make_textbook_chunk("stacks-project")
         embeddings = _make_synthetic_embeddings([chunk], seed=34)
@@ -1311,7 +1313,7 @@ class TestSchemaMigrationGuard:
         return db, tbl
 
     def test_migration_adds_seven_columns_with_arxiv_defaults(self, tmp_path):
-        from arxmcp.ingest.store import write_chunks
+        from arxmcp.corpus.store import write_chunks
 
         # Build the 14-col legacy table directly.
         db, tbl = self._make_legacy_14col_table(tmp_path)
@@ -1373,7 +1375,7 @@ class TestSchemaMigrationGuard:
         path-dependent skew. This test asserts every m2 column post-
         migration has the same nullable bit as ``CHUNKS_SCHEMA_V1``.
         """
-        from arxmcp.ingest.store import write_chunks
+        from arxmcp.corpus.store import write_chunks
 
         db, _tbl = self._make_legacy_14col_table(tmp_path)
         new_chunk = _make_chunk(
@@ -1408,7 +1410,7 @@ class TestSchemaMigrationGuard:
         semantics) — not duplicate it. Verifies that merge_insert
         works across the migration boundary on m2 columns.
         """
-        from arxmcp.ingest.store import write_chunks
+        from arxmcp.corpus.store import write_chunks
 
         db, _tbl = self._make_legacy_14col_table(tmp_path)
 
@@ -1451,7 +1453,7 @@ class TestSchemaMigrationGuard:
         """m2 rect F3 regression guard — a brand-new textbook chunk
         can be written into a previously-migrated arXiv table.
         """
-        from arxmcp.ingest.store import write_chunks
+        from arxmcp.corpus.store import write_chunks
 
         db, _tbl = self._make_legacy_14col_table(tmp_path)
         # Trigger the migration with a no-op arXiv write first.
@@ -1478,7 +1480,7 @@ class TestSchemaMigrationGuard:
     def test_migration_is_idempotent(self, tmp_path):
         """A second write_chunks call after migration is a no-op for
         the schema (no double-add_columns)."""
-        from arxmcp.ingest.store import _migrate_chunks_schema_if_needed, write_chunks
+        from arxmcp.corpus.store import _migrate_chunks_schema_if_needed, write_chunks
 
         chunks = _make_corpus(3)
         embeddings = _make_synthetic_embeddings(chunks, seed=55)
@@ -1500,13 +1502,13 @@ class TestSchemaMigrationGuard:
         migration code: its existing rows hold NULL in it."""
         from unittest.mock import patch
 
-        from arxmcp.ingest.store import _migrate_chunks_schema_if_needed
+        from arxmcp.corpus.store import _migrate_chunks_schema_if_needed
 
         future_schema = pa.schema(
             [*CHUNKS_SCHEMA_V1, pa.field("future_col", pa.int32(), nullable=True)]
         )
         _db, tbl = self._make_legacy_14col_table(tmp_path)
-        with patch("arxmcp.ingest.store.CHUNKS_SCHEMA_V1", future_schema):
+        with patch("arxmcp.corpus.store.CHUNKS_SCHEMA_V1", future_schema):
             added = _migrate_chunks_schema_if_needed(tbl)
 
         assert added == [f.name for f in future_schema if f.name in added]
@@ -1521,8 +1523,8 @@ class TestSchemaMigrationGuard:
         refused before the table changes."""
         from unittest.mock import patch
 
-        from arxmcp.ingest.schema import SchemaEvolutionError
-        from arxmcp.ingest.store import _migrate_chunks_schema_if_needed
+        from arxmcp.corpus.schema import SchemaEvolutionError
+        from arxmcp.corpus.store import _migrate_chunks_schema_if_needed
 
         future_schema = pa.schema(
             [*CHUNKS_SCHEMA_V1, pa.field("future_col", pa.utf8(), nullable=False)]
@@ -1530,7 +1532,7 @@ class TestSchemaMigrationGuard:
         _db, tbl = self._make_legacy_14col_table(tmp_path)
         before = list(tbl.schema.names)
         with (
-            patch("arxmcp.ingest.store.CHUNKS_SCHEMA_V1", future_schema),
+            patch("arxmcp.corpus.store.CHUNKS_SCHEMA_V1", future_schema),
             pytest.raises(SchemaEvolutionError, match="future_col"),
         ):
             _migrate_chunks_schema_if_needed(tbl)
@@ -1546,7 +1548,7 @@ class TestParserUsedEnumGuard:
     """
 
     def test_invalid_parser_used_raises(self, tmp_path):
-        from arxmcp.ingest.store import write_chunks
+        from arxmcp.corpus.store import write_chunks
 
         chunk = _make_chunk("2307.00300", "stmt", "body", suffix="9" * 16)
         chunk.parser_used = "latexm"  # typo
@@ -1556,7 +1558,7 @@ class TestParserUsedEnumGuard:
 
     def test_none_parser_used_accepted(self, tmp_path):
         """None means failure / unknown per the docstring; must NOT raise."""
-        from arxmcp.ingest.store import write_chunks
+        from arxmcp.corpus.store import write_chunks
 
         chunk = _make_chunk("2307.00400", "stmt", "body", suffix="8" * 16)
         assert chunk.parser_used is None  # ChunkRecord default
@@ -1564,8 +1566,8 @@ class TestParserUsedEnumGuard:
         write_chunks([chunk], embeddings, lancedb_path=tmp_path / "lancedb")
 
     def test_each_valid_parser_used_accepted(self, tmp_path):
-        from arxmcp.ingest.chunk import ALLOWED_PARSER_USED
-        from arxmcp.ingest.store import write_chunks
+        from arxmcp.corpus.chunk import ALLOWED_PARSER_USED
+        from arxmcp.corpus.store import write_chunks
 
         for i, parser in enumerate(sorted(ALLOWED_PARSER_USED)):
             chunk = _make_chunk(
@@ -1591,7 +1593,7 @@ class TestParserUsedEnumGuard:
 class TestSourceKindPrefilter:
     def _seed_mixed_corpus(self, tmp_path):
         """Write 1 arxiv-kind + 1 textbook-kind chunk to a tmp lancedb."""
-        from arxmcp.ingest.store import write_chunks
+        from arxmcp.corpus.store import write_chunks
 
         arxiv_chunk = _make_chunk(
             "2401.00001", "stmt", "arxiv body about schemes",
@@ -1706,8 +1708,8 @@ class TestSourceKindPrefilter:
         top-k where the textbook chunk falls outside a small unfiltered
         cutoff. Vectors are hand-built (not random) so the ordering is
         deterministic: arxiv ≈ e_0 (query), textbook = e_1 (orthogonal)."""
-        from arxmcp.ingest.schema import EmbedRecord
-        from arxmcp.ingest.store import write_chunks
+        from arxmcp.corpus.schema import EmbedRecord
+        from arxmcp.corpus.store import write_chunks
 
         chunks: list[ChunkRecord] = []
         stmt_ids: list[str] = []
@@ -1796,7 +1798,7 @@ class TestSourceKindPrefilter:
 class TestWriteChunksPrefixInvariant:
     def test_textbook_kind_with_arxiv_prefix_rejected(self, tmp_path):
         """source_kind='textbook' but an ``arxiv:`` chunk_id → ValueError."""
-        from arxmcp.ingest.store import write_chunks
+        from arxmcp.corpus.store import write_chunks
 
         c = _make_chunk("2401.00003", "stmt", "body", suffix="c" * 16)
         c.source_kind = "textbook"  # chunk_id still "arxiv:..." → mismatch
@@ -1807,7 +1809,7 @@ class TestWriteChunksPrefixInvariant:
     def test_arxiv_kind_with_textbook_prefix_rejected(self, tmp_path):
         """source_kind='arxiv' (default) but a ``textbook:`` chunk_id →
         ValueError."""
-        from arxmcp.ingest.store import write_chunks
+        from arxmcp.corpus.store import write_chunks
 
         c = _make_chunk("2401.00004", "stmt", "body", suffix="d" * 16)
         c.chunk_id = "textbook:sv-book:" + "d" * 16  # source_kind stays arxiv
@@ -1818,7 +1820,7 @@ class TestWriteChunksPrefixInvariant:
     def test_matching_prefix_and_kind_accepted(self, tmp_path):
         """A textbook chunk whose prefix and source_kind agree writes
         cleanly (guards against the invariant over-firing)."""
-        from arxmcp.ingest.store import write_chunks
+        from arxmcp.corpus.store import write_chunks
 
         tb = _make_textbook_chunk("sv-book", suffix="e" * 16)
         embeddings = _make_synthetic_embeddings([tb], seed=5)
@@ -1846,7 +1848,7 @@ class TestCorpusVersionMarkerReconciliation:
         not the last batch (the exact production bug shape)."""
         import lancedb
 
-        from arxmcp.ingest.store import CORPUS_VERSION_MARKER_NAME, write_chunks
+        from arxmcp.corpus.store import CORPUS_VERSION_MARKER_NAME, write_chunks
 
         lancedb_path = tmp_path / "lancedb"
         a = [_make_chunk("2301.00001", "stmt", f"alpha {i}") for i in range(3)]
@@ -1864,7 +1866,7 @@ class TestCorpusVersionMarkerReconciliation:
         marker — the write stays inside write_chunks, not moved once-per-run."""
         import lancedb
 
-        from arxmcp.ingest.store import CORPUS_VERSION_MARKER_NAME, write_chunks
+        from arxmcp.corpus.store import CORPUS_VERSION_MARKER_NAME, write_chunks
 
         lancedb_path = tmp_path / "lancedb"
         chunks = [_make_chunk("2301.00001", "stmt", f"a {i}") for i in range(3)] + [
@@ -1881,7 +1883,7 @@ class TestCorpusVersionMarkerReconciliation:
         accurate — count-from-table is inherently idempotent."""
         import lancedb
 
-        from arxmcp.ingest.store import CORPUS_VERSION_MARKER_NAME, write_chunks
+        from arxmcp.corpus.store import CORPUS_VERSION_MARKER_NAME, write_chunks
 
         lancedb_path = tmp_path / "lancedb"
         a = [_make_chunk("2301.00001", "stmt", f"a {i}") for i in range(3)]
@@ -1902,7 +1904,7 @@ class TestCorpusVersionMarkerReconciliation:
         it.)"""
         import lancedb
 
-        from arxmcp.ingest.store import CORPUS_VERSION_MARKER_NAME, write_chunks
+        from arxmcp.corpus.store import CORPUS_VERSION_MARKER_NAME, write_chunks
 
         lancedb_path = tmp_path / "lancedb"
         write_chunks([], _make_synthetic_embeddings([]), lancedb_path=lancedb_path)
@@ -1918,7 +1920,7 @@ class TestCorpusVersionMarkerReconciliation:
         marker stays at the real counts rather than the last (empty) batch."""
         import lancedb
 
-        from arxmcp.ingest.store import CORPUS_VERSION_MARKER_NAME, write_chunks
+        from arxmcp.corpus.store import CORPUS_VERSION_MARKER_NAME, write_chunks
 
         lancedb_path = tmp_path / "lancedb"
         a = [_make_chunk("2301.00001", "stmt", f"a {i}") for i in range(3)]
@@ -1941,7 +1943,7 @@ class TestCorpusVersionMarkerReconciliation:
         """
         import lancedb
 
-        from arxmcp.ingest.store import CORPUS_VERSION_MARKER_NAME, write_chunks
+        from arxmcp.corpus.store import CORPUS_VERSION_MARKER_NAME, write_chunks
 
         staging = tmp_path / "lancedb_staging"
 
@@ -1988,14 +1990,14 @@ class TestWriteChunksStructuredLog:
     def test_write_chunks_emits_structured_complete_event(self, tmp_path, caplog):
         import logging
 
-        from arxmcp.ingest.store import write_chunks
+        from arxmcp.corpus.store import write_chunks
 
         lancedb_path = tmp_path / "lancedb"
         chunks = [_make_chunk("2301.00001", "stmt", f"a {i}") for i in range(3)] + [
             _make_chunk("2302.00002", "stmt", "b 0")
         ]
         emb = _make_synthetic_embeddings(chunks, seed=7)
-        with caplog.at_level(logging.INFO, logger="arxmcp.ingest.store"):
+        with caplog.at_level(logging.INFO, logger="arxmcp.corpus.store"):
             version = write_chunks(chunks, emb, lancedb_path=lancedb_path)
 
         events = [
@@ -2067,7 +2069,7 @@ class TestSourceTruthM2SchemaMigration:
         return db, tbl, legacy_row
 
     def test_migration_adds_five_v2_columns_null_on_existing_rows(self, tmp_path):
-        from arxmcp.ingest.store import write_chunks
+        from arxmcp.corpus.store import write_chunks
 
         db, tbl, legacy_row = self._make_pre_v2_table(tmp_path)
         assert tbl.schema.names == V1_COLUMNS + TEXTBOOK_COLUMNS
@@ -2095,7 +2097,7 @@ class TestSourceTruthM2SchemaMigration:
         assert legacy["license"] == "arxiv-license"
 
     def test_migration_types_match_canonical(self, tmp_path):
-        from arxmcp.ingest.store import write_chunks
+        from arxmcp.corpus.store import write_chunks
 
         db, _tbl, _row = self._make_pre_v2_table(tmp_path)
         new_chunk = _make_chunk("2307.08889", "stmt", "body", suffix="e" * 16)
@@ -2115,7 +2117,7 @@ class TestSourceTruthM2SchemaMigration:
             assert tbl2.schema.field(col).type == pa.utf8()
 
     def test_migration_v2_columns_nullable_post_migration(self, tmp_path):
-        from arxmcp.ingest.store import write_chunks
+        from arxmcp.corpus.store import write_chunks
 
         db, _tbl, _row = self._make_pre_v2_table(tmp_path)
         new_chunk = _make_chunk("2307.08890", "stmt", "body", suffix="f" * 16)
@@ -2130,7 +2132,7 @@ class TestSourceTruthM2SchemaMigration:
             assert CHUNKS_SCHEMA_V1.field(col).nullable
 
     def test_migration_is_idempotent_for_v2(self, tmp_path):
-        from arxmcp.ingest.store import _migrate_chunks_schema_if_needed, write_chunks
+        from arxmcp.corpus.store import _migrate_chunks_schema_if_needed, write_chunks
 
         db, _tbl, _row = self._make_pre_v2_table(tmp_path)
         new_chunk = _make_chunk("2307.08891", "stmt", "body", suffix="a" * 16)
@@ -2152,7 +2154,7 @@ class TestTruncatedWriteGuard:
     def test_truncated_rejected_and_printed_number_survives(self, tmp_path):
         import lancedb
 
-        from arxmcp.ingest.store import write_chunks
+        from arxmcp.corpus.store import write_chunks
 
         truncated_chunk = _make_chunk(
             "2307.09999", "stmt", "a truncated statement", suffix="1" * 16

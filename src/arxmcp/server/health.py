@@ -1261,8 +1261,8 @@ def refresh_disk_free_metric(data_dir: Path) -> None:
     DISK_FREE_BYTES.labels(path=str(data_dir)).set(usage.free)
 
     # Sentinel management. Importing lazily so a test fixture can
-    # monkey-patch arxmcp.ingest.sentinel cleanly.
-    from arxmcp.ingest import sentinel as ingest_sentinel  # noqa: PLC0415
+    # monkey-patch the arxmcp.corpus sentinel functions cleanly.
+    from arxmcp.corpus import clear_pause, is_paused, write_pause  # noqa: PLC0415
 
     sentinel_path = Path(data_dir) / "ops" / "ingest-paused"
     if usage.free < DISK_PAUSE_THRESHOLD_BYTES:
@@ -1283,7 +1283,7 @@ def refresh_disk_free_metric(data_dir: Path) -> None:
         # would take /metrics and startup down with it; the gauge is
         # already set, so the disk-full alert still fires.
         try:
-            ingest_sentinel.write_pause(
+            write_pause(
                 reason=DISK_PAUSE_REASON,
                 free_bytes=usage.free,
                 threshold_bytes=DISK_PAUSE_THRESHOLD_BYTES,
@@ -1303,7 +1303,7 @@ def refresh_disk_free_metric(data_dir: Path) -> None:
         # operator-written maintenance sentinel must survive auto-
         # recovery — the operator clears it manually.
         try:
-            record = ingest_sentinel.is_paused(path=sentinel_path)
+            record = is_paused(path=sentinel_path)
             if record is not None and record.get("reason") == DISK_PAUSE_REASON:
                 logger.info(
                     "disk_free recovered (%d > %d bytes); clearing "
@@ -1312,7 +1312,7 @@ def refresh_disk_free_metric(data_dir: Path) -> None:
                     DISK_CLEAR_THRESHOLD_BYTES,
                     sentinel_path,
                 )
-                ingest_sentinel.clear_pause(path=sentinel_path)
+                clear_pause(path=sentinel_path)
         except OSError as exc:
             # Same fail-soft rule as the write path. Leaving a stale
             # pause sentinel in place is the safe direction: ingestion stays

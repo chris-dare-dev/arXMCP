@@ -20,7 +20,7 @@ for the same reason.
 The lock is advisory and per host: it keeps out writers that take it, on
 filesystems where ``flock`` locks are shared across processes. A write
 that goes around it is caught after the fact by the write-audit gate in
-:func:`arxmcp.ingest.store.write_chunks`.
+:func:`arxmcp.corpus.store.write_chunks`.
 
 Holding is reentrant within a thread, so a driver holds the lock for its
 whole run and the writers it calls take it again without refusing

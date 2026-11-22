@@ -25,7 +25,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from arxmcp.ingest.corpus import open_chunks_table
+from arxmcp.corpus.reader import open_chunks_table
 
 # Reuse the synthetic-corpus helpers from test_store.py rather than
 # duplicating the bodies. Direct module import is the cleanest bridge —
@@ -46,7 +46,7 @@ from tests.test_store import (
 
 class TestVersionIsInt:
     def test_write_chunks_returns_int(self, tmp_path):
-        from arxmcp.ingest.store import write_chunks
+        from arxmcp.corpus.store import write_chunks
 
         chunks = _make_corpus(5)
         embeddings = _make_synthetic_embeddings(chunks, seed=1)
@@ -70,10 +70,10 @@ class TestVersionPinning:
 
         Use the helper-returned values rather than hard-coding 1/2 —
         the actual integers depend on how many ``_create_indices``
-        calls occurred between writes (see ``src/arxmcp/ingest/store.py``'s
+        calls occurred between writes (see ``src/arxmcp/corpus/store.py``'s
         post-index version invariant).
         """
-        from arxmcp.ingest.store import write_chunks
+        from arxmcp.corpus.store import write_chunks
 
         # First batch: 10 chunks, capture version v_a.
         first_batch = _make_corpus(10)
@@ -117,7 +117,7 @@ class TestVersionPinning:
     def test_checkout_none_returns_live_tip(self, tmp_path):
         """``open_chunks_table(path, version=None)`` returns the live
         tip — useful for callers that don't care about pinning."""
-        from arxmcp.ingest.store import write_chunks
+        from arxmcp.corpus.store import write_chunks
 
         chunks = _make_corpus(7)
         embeddings = _make_synthetic_embeddings(chunks, seed=12)
@@ -126,7 +126,7 @@ class TestVersionPinning:
         assert tbl.count_rows() == 7
 
     def test_invalid_version_raises_value_error(self, tmp_path):
-        from arxmcp.ingest.store import write_chunks
+        from arxmcp.corpus.store import write_chunks
 
         chunks = _make_corpus(3)
         embeddings = _make_synthetic_embeddings(chunks, seed=13)
@@ -152,7 +152,7 @@ class TestWriteRejection:
         """LanceDB's built-in write guard raises when a write is
         attempted against a checked-out table. We rely on this rather
         than wrapping in a defensive proxy."""
-        from arxmcp.ingest.store import write_chunks
+        from arxmcp.corpus.store import write_chunks
 
         chunks = _make_corpus(3)
         embeddings = _make_synthetic_embeddings(chunks, seed=14)
@@ -206,7 +206,7 @@ class TestNoSymlinks:
         and assert ``len > 0`` so the test fails loudly if a future
         refactor of ``write_chunks`` produces no on-disk files.
         """
-        from arxmcp.ingest.store import write_chunks
+        from arxmcp.corpus.store import write_chunks
 
         chunks = _make_corpus(3)
         embeddings = _make_synthetic_embeddings(chunks, seed=16)
@@ -230,7 +230,7 @@ class TestNoSymlinks:
 
 class TestDocstringContract:
     def test_store_docstring_states_mvcc_handshake(self):
-        """Brief AC5: the module docstring in ``src/arxmcp/ingest/store.py`` must
+        """Brief AC5: the module docstring in ``src/arxmcp/corpus/store.py`` must
         state: 'No symlink swaps. LanceDB version int IS the
         corpus_version. Writers use the current dataset; readers call
         dataset.checkout(version=N).'
@@ -238,7 +238,7 @@ class TestDocstringContract:
         Whitespace-collapsed substring match so the sentence can wrap
         across source lines without breaking the test.
         """
-        import arxmcp.ingest.store as store_mod
+        import arxmcp.corpus.store as store_mod
 
         doc = store_mod.__doc__ or ""
         doc_collapsed = " ".join(doc.split())
@@ -248,7 +248,7 @@ class TestDocstringContract:
             "dataset.checkout(version=N)."
         )
         assert required in doc_collapsed, (
-            "src/arxmcp/ingest/store.py docstring must contain the AC5 MVCC handshake sentence"
+            "src/arxmcp/corpus/store.py docstring must contain the AC5 MVCC handshake sentence"
         )
 
 
@@ -259,55 +259,55 @@ class TestDocstringContract:
 
 class TestSingleSourceOfTruth:
     def test_corpus_imports_table_name_does_not_redefine(self):
-        """``src/arxmcp/ingest/corpus.py`` must reference the table by importing
-        ``CHUNKS_TABLE_NAME`` from ``arxmcp.ingest.schema`` — never via the
+        """``src/arxmcp/corpus/reader.py`` must reference the table by importing
+        ``CHUNKS_TABLE_NAME`` from ``arxmcp.corpus.schema`` — never via the
         bare string literal ``"chunks"``. Mirrors the BGE_M3_COMMIT_SHA
         single-source-of-truth scan from ``test_query_encoder.py``.
         """
         repo_root = Path(__file__).parent.parent
-        corpus_text = (repo_root / "src/arxmcp/ingest" / "corpus.py").read_text(encoding="utf-8")
+        corpus_text = (repo_root / "src/arxmcp/corpus" / "reader.py").read_text(encoding="utf-8")
         # The string literal "chunks" (with quotes) must not appear.
-        # The import line ``from arxmcp.ingest.schema import CHUNKS_TABLE_NAME``
+        # The import line ``from arxmcp.corpus.schema import CHUNKS_TABLE_NAME``
         # is the only allowed reference.
         assert '"chunks"' not in corpus_text, (
-            'src/arxmcp/ingest/corpus.py must not contain the literal "chunks"; '
-            "import CHUNKS_TABLE_NAME from arxmcp.ingest.schema instead"
+            'src/arxmcp/corpus/reader.py must not contain the literal "chunks"; '
+            "import CHUNKS_TABLE_NAME from arxmcp.corpus.schema instead"
         )
         assert "'chunks'" not in corpus_text, (
-            "src/arxmcp/ingest/corpus.py must not contain the literal 'chunks'; "
-            "import CHUNKS_TABLE_NAME from arxmcp.ingest.schema instead"
+            "src/arxmcp/corpus/reader.py must not contain the literal 'chunks'; "
+            "import CHUNKS_TABLE_NAME from arxmcp.corpus.schema instead"
         )
 
     def test_corpus_table_name_resolves_to_schema_constant(self):
         """Object-identity check that ``CHUNKS_TABLE_NAME`` referenced
-        in ``arxmcp.ingest.corpus`` is the SAME object as in ``arxmcp.ingest.schema``.
+        in ``arxmcp.corpus.reader`` is the SAME object as in ``arxmcp.corpus.schema``.
         """
-        import arxmcp.ingest.corpus
-        import arxmcp.ingest.schema
+        import arxmcp.corpus.reader
+        import arxmcp.corpus.schema
 
-        # arxmcp.ingest.corpus imports the symbol; verify it's the same object.
-        assert arxmcp.ingest.corpus.CHUNKS_TABLE_NAME is arxmcp.ingest.schema.CHUNKS_TABLE_NAME
+        # arxmcp.corpus.reader imports the symbol; verify it's the same object.
+        assert arxmcp.corpus.reader.CHUNKS_TABLE_NAME is arxmcp.corpus.schema.CHUNKS_TABLE_NAME
 
     def test_corpus_imports_default_path_from_store(self):
-        """Closes F3 from the E04_S02 critique: arxmcp.ingest.corpus and
-        arxmcp.ingest.store share the same ``DEFAULT_LANCEDB_PATH`` constant.
+        """Closes F3 from the E04_S02 critique: arxmcp.corpus.reader and
+        arxmcp.corpus.store share the same ``DEFAULT_LANCEDB_PATH`` constant.
         Asymmetric defaults would force every reader to hard-code the
         path."""
-        import arxmcp.ingest.corpus
-        import arxmcp.ingest.store
+        import arxmcp.corpus.reader
+        import arxmcp.corpus.store
 
         assert (
-            arxmcp.ingest.corpus.DEFAULT_LANCEDB_PATH
-            is arxmcp.ingest.store.DEFAULT_LANCEDB_PATH
+            arxmcp.corpus.reader.DEFAULT_LANCEDB_PATH
+            is arxmcp.corpus.store.DEFAULT_LANCEDB_PATH
         )
 
     def test_corpus_docstring_states_mvcc_handshake(self):
         """Closes F16 from the E04_S02 critique: extend the docstring
-        contract scan to cover ``arxmcp.ingest.corpus`` too. The verbatim AC5
-        sentence MUST appear in both the writer (arxmcp.ingest.store) and
-        the reader (arxmcp.ingest.corpus) — drift in either direction would
+        contract scan to cover ``arxmcp.corpus.reader`` too. The verbatim AC5
+        sentence MUST appear in both the writer (arxmcp.corpus.store) and
+        the reader (arxmcp.corpus.reader) — drift in either direction would
         be silent without this test."""
-        import arxmcp.ingest.corpus as corpus_mod
+        import arxmcp.corpus.reader as corpus_mod
 
         doc = corpus_mod.__doc__ or ""
         doc_collapsed = " ".join(doc.split())
@@ -317,7 +317,7 @@ class TestSingleSourceOfTruth:
             "dataset.checkout(version=N)."
         )
         assert required in doc_collapsed, (
-            "src/arxmcp/ingest/corpus.py docstring must contain the AC5 MVCC handshake "
+            "src/arxmcp/corpus/reader.py docstring must contain the AC5 MVCC handshake "
             "sentence so doc-drift between reader and writer is regression-locked"
         )
 
@@ -338,7 +338,7 @@ class TestHandleIndependence:
         that the second ``checkout(v_b)`` mutates the first handle,
         this test catches it.
         """
-        from arxmcp.ingest.store import write_chunks
+        from arxmcp.corpus.store import write_chunks
 
         first_batch = _make_corpus(7)
         first_emb = _make_synthetic_embeddings(first_batch, seed=21)
@@ -389,7 +389,7 @@ class TestNoneVsLatestEquivalence:
         lancedb 0.30.x; lock the equivalence so a future LanceDB
         change to ``checkout`` semantics surfaces here.
         """
-        from arxmcp.ingest.store import write_chunks
+        from arxmcp.corpus.store import write_chunks
 
         chunks = _make_corpus(4)
         embeddings = _make_synthetic_embeddings(chunks, seed=23)
@@ -417,7 +417,7 @@ class TestNarrowExceptionCatch:
         subclass returned by ``connect`` + ``open_table``) so the
         OSError surfaces from inside the function under test.
         """
-        from arxmcp.ingest.store import write_chunks
+        from arxmcp.corpus.store import write_chunks
 
         chunks = _make_corpus(2)
         embeddings = _make_synthetic_embeddings(chunks, seed=24)
@@ -441,7 +441,7 @@ class TestNarrowExceptionCatch:
         version-not-accessible ValueError."""
         from lancedb.table import LanceTable
 
-        from arxmcp.ingest.store import write_chunks
+        from arxmcp.corpus.store import write_chunks
 
         chunks = _make_corpus(2)
         embeddings = _make_synthetic_embeddings(chunks, seed=25)

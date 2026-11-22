@@ -169,7 +169,7 @@ class TestPackagesDeclared:
             path = REPO_ROOT / "src" / "arxmcp" / "server" / "frontend" / sub
             assert path.is_dir(), f"missing console assets dir: {path}"
 
-    @pytest.mark.parametrize("box", ["server", "ingest", "tools", "shim", "ops"])
+    @pytest.mark.parametrize("box", ["corpus", "server", "ingest", "tools", "shim", "ops"])
     def test_every_box_is_discovered(self, pyproject: dict, box: str) -> None:
         assert f"arxmcp.{box}" in _discovered(pyproject)
 

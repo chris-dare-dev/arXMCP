@@ -700,7 +700,7 @@ def _default_compute_eval(
     the ``run_watchdog(compute_eval=...)`` seam. Lazy-imports the
     server stack so the watchdog module remains cheap to import.
     """
-    from arxmcp.ingest.corpus import open_chunks_table  # noqa: PLC0415
+    from arxmcp.corpus import open_chunks_table  # noqa: PLC0415
     from arxmcp.ops.retrieval_eval import run_hybrid_against_corpus  # noqa: PLC0415
     from arxmcp.server.query_encoder import encode_query  # noqa: PLC0415
     from arxmcp.settings import Config  # noqa: PLC0415
