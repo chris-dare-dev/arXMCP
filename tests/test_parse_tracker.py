@@ -23,15 +23,15 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from arxmcp.ingest import textbook_parser
-from arxmcp.ingest.textbook_parser import MinerUResult
-from arxmcp.ingest.textbook_renderer import RenderResult
-from arxmcp.server.notebooks_store import (
+from arxmcp.corpus.notebooks_store import (
     SCHEMA_VERSION,
     NotebooksStore,
     ParseMetrics,
-    open_sync,
+    open_notebooks_db,
 )
+from arxmcp.ingest import textbook_parser
+from arxmcp.ingest.textbook_parser import MinerUResult
+from arxmcp.ingest.textbook_renderer import RenderResult
 from arxmcp.server.parse_tracker import (
     PARSE_ERROR_TAIL_MAX_BYTES,
     ParseTaskTracker,
@@ -811,7 +811,7 @@ class TestParseMetricsPersistence:
 
     def test_v7_database_migrates_with_rows_unmeasured(self, tmp_path: Path) -> None:
         db_path = tmp_path / "notebooks.db"
-        conn = open_sync(db_path)
+        conn = open_notebooks_db(db_path)
         try:
             conn.execute(
                 "INSERT INTO notebooks (slug, lancedb_path, created_at, "
@@ -827,7 +827,7 @@ class TestParseMetricsPersistence:
         finally:
             conn.close()
 
-        conn = open_sync(db_path)
+        conn = open_notebooks_db(db_path)
         try:
             version = conn.execute("PRAGMA user_version").fetchone()[0]
             row = conn.execute(

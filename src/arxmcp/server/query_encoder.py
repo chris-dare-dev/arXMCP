@@ -58,15 +58,16 @@ from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
 
-# Re-import the embedder's lazy loaders + pinned identity. NEVER define a
+# Import the corpus model's lazy loaders + pinned identity, the ones the
+# ingest embedder uses too. NEVER define a
 # second model instance — that would double weight memory (~2.3 GB) and
 # decouple the model-version discipline. The ``BGE_M3_COMMIT_SHA`` import
 # is also load-bearing for the brief's "imports... not redefined" AC.
 #
-# Co-located process race (F3 from the E03_S03 critique): if both
-# ``arxmcp.ingest.embedder._get_model`` and the query-encoder path invoke the
+# Co-located process race (F3 from the E03_S03 critique): if both the
+# ingest embedder and the query-encoder path invoke the
 # first-time model load concurrently in the same process,
-# ``arxmcp.ingest.embedder._get_model``'s lockless check-then-set can race —
+# ``arxmcp.corpus.get_embedding_model``'s lockless check-then-set can race —
 # producing a transient ~2.3 GB extra memory blip and orphaning one
 # instance. Production splits ingestion and serving into separate Docker
 # containers, so the race cannot
@@ -75,12 +76,12 @@ import numpy as np
 # or ``await encode_query("warmup")`` once, before fanning out). A
 # follow-up milestone wraps the embedder loaders in a ``threading.Lock``
 # to remove this footgun.
-from arxmcp.ingest.embedder import (
+from arxmcp.corpus import (
     BGE_M3_COMMIT_SHA,
     EMBEDDING_DIM,
     MAX_TOKENS,
-    _get_model,
-    _get_tokenizer,
+    get_embedding_model,
+    get_embedding_tokenizer,
 )
 
 logger = logging.getLogger(__name__)
@@ -235,8 +236,8 @@ def _encode_query_sync(query_text: str) -> np.ndarray:
     """Encode a single query string to a 1024-dim L2-normalized vector.
 
     Runs inside the ``ThreadPoolExecutor`` worker (D7). Calls
-    :func:`arxmcp.ingest.embedder._get_tokenizer` and
-    :func:`arxmcp.ingest.embedder._get_model` — same lazy loaders as the
+    :func:`arxmcp.corpus.get_embedding_tokenizer` and
+    :func:`arxmcp.corpus.get_embedding_model` — same lazy loaders as the
     ingestion-time embedder, so the model + tokenizer + revision pin
     are guaranteed identical (D2).
 
@@ -273,8 +274,8 @@ def _encode_query_sync(query_text: str) -> np.ndarray:
     # arxmcp.server.observability.
     from arxmcp.server.observability.tracing import span_embed  # noqa: PLC0415
 
-    tokenizer = _get_tokenizer()
-    model = _get_model()
+    tokenizer = get_embedding_tokenizer()
+    model = get_embedding_model()
     encoded = tokenizer(
         [query_text],
         padding=True,

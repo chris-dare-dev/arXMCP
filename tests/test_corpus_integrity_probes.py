@@ -322,8 +322,8 @@ def test_a_cacheless_boot_says_cacheless_and_not_warm(
     import arxmcp.server.cache as cache_mod
     import arxmcp.server.query_encoder as qe_mod
     import arxmcp.server.resources as res_mod
+    from arxmcp.corpus.embedding import EMBEDDER_VERSION
     from arxmcp.corpus.schema import CHUNKS_SCHEMA_V1
-    from arxmcp.ingest.embedder import EMBEDDER_VERSION
     from arxmcp.server.resources import Resources
     from arxmcp.server.retrieval import BM25Phase
     from arxmcp.settings import Config
@@ -383,8 +383,8 @@ def test_a_cacheless_boot_says_cacheless_and_not_warm(
 
         monkey.setattr(BM25Phase, "startup", staticmethod(_bm25))
         monkey.setattr(cache_mod, "set_cache", lambda _c: None)
-        monkey.setattr(qe_mod, "_get_model", lambda: object())
-        monkey.setattr(qe_mod, "_get_tokenizer", lambda: object())
+        monkey.setattr(qe_mod, "get_embedding_model", lambda: object())
+        monkey.setattr(qe_mod, "get_embedding_tokenizer", lambda: object())
 
         cfg = Config(
             lancedb_path=lance,

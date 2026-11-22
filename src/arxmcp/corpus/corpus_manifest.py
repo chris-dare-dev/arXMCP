@@ -6,10 +6,10 @@ The pure-logic, FastMCP-independent core behind the
 snapshot on-read from the already-live sources — there is NO persisted
 ``manifest.json``, no cron, no backfill:
 
-- :class:`arxmcp.server.notebooks_store.NotebooksStore` — the notebook roster
+- :class:`arxmcp.corpus.notebooks_store.NotebooksStore` — the notebook roster
   (every notebook appears, regardless of ``notebook_kind``).
 - The per-notebook documents registry
-  (:class:`arxmcp.server.documents_store.DocumentsStore`, m1) — per-revision
+  (:class:`arxmcp.corpus.documents_store.DocumentsStore`, m1) — per-revision
   checksums + license status + active/withdrawn/superseded status.
 - The per-notebook ``corpus-version.json`` marker
   (:func:`arxmcp.corpus.reader.read_corpus_version`) — the corpus epoch +
@@ -66,24 +66,23 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from arxmcp import settings
-from arxmcp.corpus import NotebookError, notebook_dir, notebook_lancedb_path, read_corpus_version
-from arxmcp.ingest.oai_license import (
-    LICENSE_STATUS_ELIGIBLE,
-    LICENSE_STATUS_NOT_ALLOWLISTED_OPEN,
-    LICENSE_STATUS_UNKNOWN,
-)
-from arxmcp.server.documents_store import (
+from arxmcp.corpus.documents_store import (
     DOCUMENT_STATUS_ACTIVE,
     DOCUMENT_STATUS_SUPERSEDED,
     DOCUMENT_STATUS_WITHDRAWN,
     DOCUMENTS_DB_FILENAME,
+    LICENSE_STATUS_ELIGIBLE,
+    LICENSE_STATUS_NOT_ALLOWLISTED_OPEN,
+    LICENSE_STATUS_UNKNOWN,
     DocumentsStore,
 )
+from arxmcp.corpus.notebooks import NotebookError, notebook_dir, notebook_lancedb_path
+from arxmcp.corpus.reader import read_corpus_version
 
 if TYPE_CHECKING:
-    from arxmcp.corpus import CorpusVersionInfo
-    from arxmcp.server.documents_store import DocumentRecord
-    from arxmcp.server.notebooks_store import NotebooksStore
+    from arxmcp.corpus.documents_store import DocumentRecord
+    from arxmcp.corpus.notebooks_store import NotebooksStore
+    from arxmcp.corpus.reader import CorpusVersionInfo
 
 logger = logging.getLogger(__name__)
 

@@ -25,7 +25,9 @@ import pytest
 from fastapi.testclient import TestClient
 from jsonschema import Draft7Validator
 
-from arxmcp.ingest.embedder import EMBEDDING_DIM
+from arxmcp.corpus.chunk import (
+    EMBEDDING_DIM,
+)
 from arxmcp.server.health import reset_metrics_for_tests
 from arxmcp.server.main import create_app
 from arxmcp.server.tools import reset_resources_for_tests
@@ -51,8 +53,8 @@ def _mocked_bge(monkeypatch):
     import arxmcp.server.handlers.search as search_mod
     import arxmcp.server.query_encoder as qe_mod
 
-    monkeypatch.setattr(qe_mod, "_get_model", lambda: object())
-    monkeypatch.setattr(qe_mod, "_get_tokenizer", lambda: object())
+    monkeypatch.setattr(qe_mod, "get_embedding_model", lambda: object())
+    monkeypatch.setattr(qe_mod, "get_embedding_tokenizer", lambda: object())
 
     async def _fake_encode_query(text):
         rng = np.random.default_rng(hash(text) % (2**32))

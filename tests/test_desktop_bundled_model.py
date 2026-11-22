@@ -120,7 +120,7 @@ def test_model_probe_rejects_a_forbidden_launch_environment():
 def test_golden_fixture_matches_the_live_model_pins():
     """A revision bump with a stale golden would compare new weights against
     old vectors and read as a corruption; pin the fixture to the constants."""
-    from arxmcp.ingest.embedder import BGE_M3_COMMIT_SHA
+    from arxmcp.corpus.embedding import BGE_M3_COMMIT_SHA
     from arxmcp.server.retrieval.rerank import BGE_RERANKER_COMMIT_SHA, RERANKER_MODEL_ID
 
     golden = _golden()
@@ -191,11 +191,11 @@ def test_bundle_carries_no_model_weights(bundle: Path):
 def test_hf_cache_resolves_outside_the_bundle(bundle: Path):
     """AC4's external-cache half: both pinned snapshots exist, and the cache
     root they live under is not reachable from inside the bundle."""
-    from arxmcp.ingest.embedder import BGE_M3_COMMIT_SHA
-    from arxmcp.server.model_loader import _huggingface_cache_root
+    from arxmcp.corpus.embedding import BGE_M3_COMMIT_SHA
+    from arxmcp.corpus.model_loader import huggingface_cache_root
     from arxmcp.server.retrieval.rerank import BGE_RERANKER_COMMIT_SHA, RERANKER_MODEL_ID
 
-    cache_root = _huggingface_cache_root().resolve()
+    cache_root = huggingface_cache_root().resolve()
     assert not cache_root.is_relative_to(bundle.resolve())
     for model_id, revision in (
         ("BAAI/bge-m3", BGE_M3_COMMIT_SHA),

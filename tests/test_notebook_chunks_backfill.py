@@ -35,17 +35,22 @@ import numpy as np
 import pyarrow as pa
 import pytest
 
-from arxmcp.corpus.chunk import ChunkRecord
-from arxmcp.corpus.schema import CHUNKS_SCHEMA_V1, EmbedRecord
-from arxmcp.corpus.store import write_chunks
-from arxmcp.ingest.chunker import chunk_paper
-from arxmcp.ingest.embedder import EMBEDDER_VERSION, EMBEDDING_DIM
-from arxmcp.ingest.preamble_types import PreambleDoc
-from arxmcp.server.documents_store import (
+from arxmcp.corpus.chunk import (
+    EMBEDDING_DIM,
+    ChunkRecord,
+)
+from arxmcp.corpus.documents_store import (
     DOCUMENTS_DB_FILENAME,
     DocumentRecord,
     DocumentsStore,
 )
+from arxmcp.corpus.embedding import (
+    EMBEDDER_VERSION,
+)
+from arxmcp.corpus.schema import CHUNKS_SCHEMA_V1, EmbedRecord
+from arxmcp.corpus.store import write_chunks
+from arxmcp.ingest.chunker import chunk_paper
+from arxmcp.ingest.preamble_types import PreambleDoc
 from arxmcp.tools import notebook_chunks_backfill as backfill
 
 SLUG = "bridgeland-stability"

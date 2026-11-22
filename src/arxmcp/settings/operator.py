@@ -11,7 +11,7 @@ dismissal-state, last-ingest timestamp, etc.
 **Design (per m2 synthesis §1 + D1):**
 
 The store lives in the SAME ``notebooks.db`` file as
-:class:`arxmcp.server.notebooks_store.NotebooksStore`, but is **migration-
+:class:`arxmcp.corpus.notebooks_store.NotebooksStore`, but is **migration-
 independent**. ``NotebooksStore`` owns ``PRAGMA user_version`` for its
 own table evolution (currently v4); ``OperatorSettingsStore`` uses an
 **in-table** ``__schema_version__`` sentinel row in
@@ -74,7 +74,7 @@ logger = logging.getLogger(__name__)
 
 
 #: Current ``operator_settings``-table schema version. Tracked
-#: independently from :data:`arxmcp.server.notebooks_store.SCHEMA_VERSION`
+#: independently from :data:`arxmcp.corpus.notebooks_store.SCHEMA_VERSION`
 #: via an in-table ``__schema_version__`` row (NOT
 #: ``PRAGMA user_version`` — see module docstring). Incrementing this
 #: requires appending a ``current < N`` migration block in
@@ -129,7 +129,7 @@ def _apply_pragmas(conn: sqlite3.Connection) -> None:
     """Apply the four connection-scoped pragmas every ``notebooks.db``
     handle MUST set (m2 synthesis §2 — load-bearing facts).
 
-    Mirrors :func:`arxmcp.server.notebooks_store.NotebooksStore.open._open_sync`
+    Mirrors :func:`arxmcp.corpus.notebooks_store.NotebooksStore.open._open_sync`
     verbatim — diverging here would silently degrade durability on the
     CLI-side connection. Comments preserved from there:
 
@@ -401,7 +401,7 @@ def get_mineru_bin(
 class OperatorSettingsStore:
     """Async wrapper around ``operator_settings`` for server callers.
 
-    Mirrors :class:`arxmcp.server.notebooks_store.NotebooksStore`'s shape —
+    Mirrors :class:`arxmcp.corpus.notebooks_store.NotebooksStore`'s shape —
     open via :meth:`open` (async classmethod), all public methods are
     ``async`` and offload SQL via :func:`asyncio.to_thread`, serialized
     through an internal ``asyncio.Lock`` so the cached

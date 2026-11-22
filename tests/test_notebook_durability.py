@@ -2,7 +2,7 @@
 
 Two independent hardening changes are covered here:
 
-1. **SQLite crash durability** — ``src/arxmcp/server/notebooks_store.py`` opens its
+1. **SQLite crash durability** — ``src/arxmcp/corpus/notebooks_store.py`` opens its
    single, long-lived ``notebooks.db`` connection with
    ``PRAGMA synchronous=FULL`` + ``PRAGMA fullfsync=ON``. ``notebooks.db``
    holds user-authored, NON-regenerable state, so a committed write must
@@ -31,10 +31,16 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from arxmcp.corpus.chunk import CHUNKER_VERSION, ChunkRecord
+from arxmcp.corpus.chunk import (
+    CHUNKER_VERSION,
+    EMBEDDING_DIM,
+    ChunkRecord,
+)
+from arxmcp.corpus.embedding import (
+    EMBEDDER_VERSION,
+)
+from arxmcp.corpus.notebooks_store import NotebooksStore
 from arxmcp.corpus.schema import CHUNKS_TABLE_NAME, LANCE_STORAGE_OPTIONS, EmbedRecord
-from arxmcp.ingest.embedder import EMBEDDER_VERSION, EMBEDDING_DIM
-from arxmcp.server.notebooks_store import NotebooksStore
 
 # SQLite PRAGMA synchronous integer codes: OFF=0, NORMAL=1, FULL=2, EXTRA=3.
 _SYNC_FULL = 2
@@ -159,7 +165,7 @@ class TestDurabilityScope:
         assert "PRAGMA synchronous=FULL" not in src
 
     def test_notebooks_store_uses_full_and_fullfsync(self) -> None:
-        src = Path("src/arxmcp/server/notebooks_store.py").read_text(encoding="utf-8")
+        src = Path("src/arxmcp/corpus/notebooks_store.py").read_text(encoding="utf-8")
         assert "PRAGMA synchronous=FULL" in src
         assert "PRAGMA fullfsync=ON" in src
         assert "PRAGMA synchronous=NORMAL" not in src

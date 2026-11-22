@@ -32,10 +32,16 @@ import pytest
 from fastapi.testclient import TestClient
 from jsonschema import Draft7Validator
 
-from arxmcp.corpus.chunk import CHUNKER_VERSION, ChunkRecord
+from arxmcp.corpus.chunk import (
+    CHUNKER_VERSION,
+    EMBEDDING_DIM,
+    ChunkRecord,
+)
+from arxmcp.corpus.embedding import (
+    EMBEDDER_VERSION,
+)
 from arxmcp.corpus.schema import EmbedRecord
 from arxmcp.corpus.store import write_chunks
-from arxmcp.ingest.embedder import EMBEDDER_VERSION, EMBEDDING_DIM
 from arxmcp.server.health import reset_metrics_for_tests
 from arxmcp.server.main import create_app
 from arxmcp.server.tools import (
@@ -99,8 +105,8 @@ def mocked_bge_m3(monkeypatch):
     returns reproducible top-k. Mirrors E06_S01's fixture."""
     import arxmcp.server.query_encoder as qe_mod
 
-    monkeypatch.setattr(qe_mod, "_get_model", lambda: object())
-    monkeypatch.setattr(qe_mod, "_get_tokenizer", lambda: object())
+    monkeypatch.setattr(qe_mod, "get_embedding_model", lambda: object())
+    monkeypatch.setattr(qe_mod, "get_embedding_tokenizer", lambda: object())
 
     async def _fake_encode_query(text):
         rng = np.random.default_rng(hash(text) % (2**32))
@@ -138,7 +144,7 @@ def _seed_paper_metadata(db_path: Path) -> None:
     """Hydrate a paper_metadata.db with one row for paper 2401.00001
     (paper-metadata-m2). 2401.00002 deliberately has NO row so the
     per-paper fallback path is testable with the store present."""
-    from arxmcp.server.paper_metadata_store import (
+    from arxmcp.corpus.paper_metadata_store import (
         PaperMetadataRecord,
         PaperMetadataStore,
     )

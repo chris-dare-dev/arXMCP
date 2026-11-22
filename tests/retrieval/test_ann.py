@@ -33,10 +33,16 @@ from typing import Any
 import numpy as np
 import pytest
 
-from arxmcp.corpus.chunk import CHUNKER_VERSION, ChunkRecord
+from arxmcp.corpus.chunk import (
+    CHUNKER_VERSION,
+    EMBEDDING_DIM,
+    ChunkRecord,
+)
+from arxmcp.corpus.embedding import (
+    EMBEDDER_VERSION,
+)
 from arxmcp.corpus.schema import EmbedRecord
 from arxmcp.corpus.store import write_chunks
-from arxmcp.ingest.embedder import EMBEDDER_VERSION, EMBEDDING_DIM
 from arxmcp.server.retrieval.ann import (
     DEFAULT_TOP_N,
     PER_COLUMN_LIMIT,
@@ -721,10 +727,10 @@ class TestResourcesIntegration:
         from arxmcp.server.resources import Resources
         from arxmcp.settings import Config
 
-        original_get_model = qe_mod._get_model
-        original_get_tok = qe_mod._get_tokenizer
-        qe_mod._get_model = lambda: object()
-        qe_mod._get_tokenizer = lambda: object()
+        original_get_model = qe_mod.get_embedding_model
+        original_get_tok = qe_mod.get_embedding_tokenizer
+        qe_mod.get_embedding_model = lambda: object()
+        qe_mod.get_embedding_tokenizer = lambda: object()
         try:
             lancedb_path, _version = _seeded_dual_lancedb
             cfg = Config(lancedb_path=lancedb_path)
@@ -735,8 +741,8 @@ class TestResourcesIntegration:
             # Resources — no redundant copy.
             assert r.ann_phase.chunks_table is r.chunks_table
         finally:
-            qe_mod._get_model = original_get_model
-            qe_mod._get_tokenizer = original_get_tok
+            qe_mod.get_embedding_model = original_get_model
+            qe_mod.get_embedding_tokenizer = original_get_tok
 
 
 # ===========================================================================

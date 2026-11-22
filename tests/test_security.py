@@ -42,10 +42,16 @@ import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 
-from arxmcp.corpus.chunk import CHUNKER_VERSION, ChunkRecord
+from arxmcp.corpus.chunk import (
+    CHUNKER_VERSION,
+    EMBEDDING_DIM,
+    ChunkRecord,
+)
+from arxmcp.corpus.embedding import (
+    EMBEDDER_VERSION,
+)
 from arxmcp.corpus.schema import EmbedRecord
 from arxmcp.corpus.store import write_chunks
-from arxmcp.ingest.embedder import EMBEDDER_VERSION, EMBEDDING_DIM
 from arxmcp.server.health import reset_metrics_for_tests
 from arxmcp.server.main import create_app
 from arxmcp.server.middleware import (
@@ -101,8 +107,8 @@ def _mocked_bge(monkeypatch):
     """Replace BGE-M3 model + tokenizer load with no-ops."""
     import arxmcp.server.query_encoder as qe_mod
 
-    monkeypatch.setattr(qe_mod, "_get_model", lambda: object())
-    monkeypatch.setattr(qe_mod, "_get_tokenizer", lambda: object())
+    monkeypatch.setattr(qe_mod, "get_embedding_model", lambda: object())
+    monkeypatch.setattr(qe_mod, "get_embedding_tokenizer", lambda: object())
     yield
 
 

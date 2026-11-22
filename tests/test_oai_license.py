@@ -21,10 +21,12 @@ from unittest.mock import patch
 import pytest
 
 import arxmcp.ingest.oai_license as oai_license
-from arxmcp.ingest.oai_license import (
+from arxmcp.corpus.documents_store import (
     LICENSE_STATUS_ELIGIBLE,
     LICENSE_STATUS_NOT_ALLOWLISTED_OPEN,
     LICENSE_STATUS_UNKNOWN,
+)
+from arxmcp.ingest.oai_license import (
     OAI_PMH_ENDPOINT,
     OaiLicenseRecord,
     build_getrecord_url,

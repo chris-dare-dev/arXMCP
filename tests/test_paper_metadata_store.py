@@ -1,4 +1,4 @@
-"""Tests for ``arxmcp.server.paper_metadata_store`` (paper-metadata-m1).
+"""Tests for ``arxmcp.corpus.paper_metadata_store`` (paper-metadata-m1).
 
 Covers the t-store-schema acceptance (double-init no-op; additive +
 atomic + re-runnable migration) and m1 AC2 (cold store reopen serves
@@ -16,8 +16,8 @@ from pathlib import Path
 
 import pytest
 
-import arxmcp.server.paper_metadata_store as store_mod
-from arxmcp.server.paper_metadata_store import (
+import arxmcp.corpus.paper_metadata_store as store_mod
+from arxmcp.corpus.paper_metadata_store import (
     SCHEMA_VERSION,
     PaperMetadataRecord,
     PaperMetadataStore,

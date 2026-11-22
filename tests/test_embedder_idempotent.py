@@ -39,12 +39,18 @@ import numpy as np
 import pytest
 
 import arxmcp.ingest.embedder as embedder_mod
-from arxmcp.corpus.chunk import CHUNKER_VERSION, reuse_identity
-from arxmcp.corpus.embedding import EMBEDDINGS_MANIFEST_NAME, read_embeddings_manifest
-from arxmcp.ingest.embedder import (
+from arxmcp.corpus.chunk import (
+    CHUNKER_VERSION,
     EMBED_INPUT_POLICY_VERSION,
-    EMBEDDER_VERSION,
     EMBEDDING_DIM,
+    reuse_identity,
+)
+from arxmcp.corpus.embedding import (
+    EMBEDDER_VERSION,
+    EMBEDDINGS_MANIFEST_NAME,
+    read_embeddings_manifest,
+)
+from arxmcp.ingest.embedder import (
     EXPECTED_CHUNKER_VERSION,
     _write_embeddings_manifest,
     _write_embeddings_npz,
@@ -189,8 +195,8 @@ def _patched_embed_paper(
         patch("arxmcp.ingest.embedder.EMBEDDINGS_DIR", embeddings_dir),
         patch("arxmcp.ingest.embedder.EMBED_STATS_PATH", stats_path),
         patch("arxmcp.ingest.embedder.EMBED_LOG_PATH", log_path),
-        patch("arxmcp.ingest.embedder._get_tokenizer", return_value=fake_tokenizer),
-        patch("arxmcp.ingest.embedder._get_model", return_value=fake_model),
+        patch("arxmcp.ingest.embedder.get_embedding_tokenizer", return_value=fake_tokenizer),
+        patch("arxmcp.ingest.embedder.get_embedding_model", return_value=fake_model),
     ):
         stats = embed_paper(paper_id)
     return stats, embeddings_dir, stats_path, fake_model
@@ -210,8 +216,8 @@ def _patched_embed_corpus(
         patch("arxmcp.ingest.embedder.EMBEDDINGS_DIR", embeddings_dir),
         patch("arxmcp.ingest.embedder.EMBED_STATS_PATH", stats_path),
         patch("arxmcp.ingest.embedder.EMBED_LOG_PATH", log_path),
-        patch("arxmcp.ingest.embedder._get_tokenizer", return_value=fake_tokenizer),
-        patch("arxmcp.ingest.embedder._get_model", return_value=fake_model),
+        patch("arxmcp.ingest.embedder.get_embedding_tokenizer", return_value=fake_tokenizer),
+        patch("arxmcp.ingest.embedder.get_embedding_model", return_value=fake_model),
     ):
         results = embed_corpus(corpus_path=str(chunks_dir))
     return results, embeddings_dir, stats_path, fake_model

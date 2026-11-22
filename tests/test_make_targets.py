@@ -99,7 +99,7 @@ class TestMakeInit:
         migration's DROP TABLE destroyed the row on a fresh-clone DB."""
         import asyncio
 
-        from arxmcp.server.notebooks_store import NotebooksStore
+        from arxmcp.corpus.notebooks_store import NotebooksStore
         from arxmcp.tools.notebook_init import run
 
         slug, notebooks_base, db_path = env
@@ -369,7 +369,7 @@ class TestNotebookListOffline:
         (the file already exists)."""
         import asyncio
 
-        from arxmcp.server.notebooks_store import NotebooksStore
+        from arxmcp.corpus.notebooks_store import NotebooksStore
         from arxmcp.tools.notebook_list_offline import main
 
         db = tmp_path / "empty.db"
@@ -388,7 +388,7 @@ class TestNotebookListOffline:
     def test_lists_registered_notebooks(self, tmp_path, capsys):
         import asyncio
 
-        from arxmcp.server.notebooks_store import NotebooksStore
+        from arxmcp.corpus.notebooks_store import NotebooksStore
         from arxmcp.tools.notebook_list_offline import main
 
         db = tmp_path / "populated.db"

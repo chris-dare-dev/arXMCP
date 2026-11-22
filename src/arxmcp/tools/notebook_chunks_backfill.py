@@ -116,7 +116,13 @@ from bs4 import BeautifulSoup, Tag
 from arxmcp.corpus import (
     CHUNKER_VERSION,
     CORPUS_PARSED_DIR,
+    DOCUMENTS_DB_FILENAME,
+    LICENSE_STATUS_ELIGIBLE,
+    LICENSE_STATUS_NOT_ALLOWLISTED_OPEN,
+    LICENSE_STATUS_UNKNOWN,
     ChunkRecord,
+    DocumentRecord,
+    DocumentsStore,
     NotebookError,
     compute_chunk_id,
     notebook_dir,
@@ -133,17 +139,7 @@ from arxmcp.ingest.chunker import (
     _extract_section_chunks,
     _resolve_preamble_doc,
 )
-from arxmcp.ingest.oai_license import (
-    LICENSE_STATUS_ELIGIBLE,
-    LICENSE_STATUS_NOT_ALLOWLISTED_OPEN,
-    LICENSE_STATUS_UNKNOWN,
-)
 from arxmcp.ingest.tokenizer import tokenize_body
-from arxmcp.server.documents_store import (
-    DOCUMENTS_DB_FILENAME,
-    DocumentRecord,
-    DocumentsStore,
-)
 
 logger = logging.getLogger("notebook_chunks_backfill")
 

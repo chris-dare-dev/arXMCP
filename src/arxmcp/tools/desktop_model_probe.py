@@ -51,8 +51,7 @@ def probe(queries: list[str], pairs: list[list[str]]) -> dict[str, object]:
     """Encode ``queries`` and score ``pairs`` through the production chains."""
     import torch
 
-    from arxmcp.ingest.embedder import BGE_M3_COMMIT_SHA
-    from arxmcp.server.model_loader import _huggingface_cache_root
+    from arxmcp.corpus import BGE_M3_COMMIT_SHA, huggingface_cache_root
     from arxmcp.server.query_encoder import _encode_query_sync
     from arxmcp.server.resources import _load_reranker_or_raise
     from arxmcp.server.retrieval.rerank import (
@@ -74,7 +73,7 @@ def probe(queries: list[str], pairs: list[list[str]]) -> dict[str, object]:
         "embedder_revision": BGE_M3_COMMIT_SHA,
         "reranker_id": RERANKER_MODEL_ID,
         "reranker_revision": BGE_RERANKER_COMMIT_SHA,
-        "hf_cache_root": _huggingface_cache_root().resolve().as_posix(),
+        "hf_cache_root": huggingface_cache_root().resolve().as_posix(),
         "torch_version": torch.__version__,
         "torch_threads": torch.get_num_threads(),
     }

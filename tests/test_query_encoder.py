@@ -164,12 +164,12 @@ class TestSingleSourceOfTruth:
         # object as the one defined in arxmcp.ingest.embedder. Object identity
         # (``is``) catches a future regression where someone redefines
         # the literal here.
-        from arxmcp.ingest.embedder import BGE_M3_COMMIT_SHA as embedder_sha
+        from arxmcp.corpus.embedding import BGE_M3_COMMIT_SHA as embedder_sha
 
         assert BGE_M3_COMMIT_SHA is embedder_sha
 
     def test_sha_literal_appears_exactly_once_across_ingest_and_server(self):
-        """D14: scan ingest/ + server/ for the 40-char SHA literal.
+        """D14: scan corpus/ + ingest/ + server/ for the 40-char SHA literal.
 
         Mirrors ``tests/test_chunker_ids.py::TestSingleVersionDefinition``
         for ``BGE_M3_COMMIT_SHA``. Closes the redefinition door at
@@ -186,9 +186,9 @@ class TestSingleSourceOfTruth:
                     hits.append(py_file)
         assert len(hits) == 1, (
             f"BGE_M3_COMMIT_SHA literal must appear exactly once across "
-            f"ingest/ + server/; found in: {hits}"
+            f"corpus/ + ingest/ + server/; found in: {hits}"
         )
-        assert hits[0].name == "embedder.py"
+        assert hits[0].name == "embedding.py"
 
 
 # ===========================================================================
@@ -203,8 +203,8 @@ class TestSingleflight:
 
         async def _run() -> list[np.ndarray]:
             with (
-                patch("arxmcp.server.query_encoder._get_tokenizer", return_value=tok),
-                patch("arxmcp.server.query_encoder._get_model", return_value=model),
+                patch("arxmcp.server.query_encoder.get_embedding_tokenizer", return_value=tok),
+                patch("arxmcp.server.query_encoder.get_embedding_model", return_value=model),
             ):
                 # gather 10 concurrent calls.
                 return await asyncio.gather(
@@ -231,8 +231,8 @@ class TestSingleflight:
 
         async def _run():
             with (
-                patch("arxmcp.server.query_encoder._get_tokenizer", return_value=tok),
-                patch("arxmcp.server.query_encoder._get_model", return_value=model),
+                patch("arxmcp.server.query_encoder.get_embedding_tokenizer", return_value=tok),
+                patch("arxmcp.server.query_encoder.get_embedding_model", return_value=model),
             ):
                 a, b = await asyncio.gather(
                     encode_query("same"), encode_query("same")
@@ -253,8 +253,8 @@ class TestSingleflight:
 
         async def _run():
             with (
-                patch("arxmcp.server.query_encoder._get_tokenizer", return_value=tok),
-                patch("arxmcp.server.query_encoder._get_model", return_value=model),
+                patch("arxmcp.server.query_encoder.get_embedding_tokenizer", return_value=tok),
+                patch("arxmcp.server.query_encoder.get_embedding_model", return_value=model),
             ):
                 return await encode_query("foo")
 
@@ -270,8 +270,8 @@ class TestSingleflight:
 
         async def _run():
             with (
-                patch("arxmcp.server.query_encoder._get_tokenizer", return_value=tok),
-                patch("arxmcp.server.query_encoder._get_model", return_value=model),
+                patch("arxmcp.server.query_encoder.get_embedding_tokenizer", return_value=tok),
+                patch("arxmcp.server.query_encoder.get_embedding_model", return_value=model),
             ):
                 return await encode_query("normalized?")
 
@@ -286,8 +286,8 @@ class TestSingleflight:
 
         async def _run():
             with (
-                patch("arxmcp.server.query_encoder._get_tokenizer", return_value=tok),
-                patch("arxmcp.server.query_encoder._get_model", return_value=model),
+                patch("arxmcp.server.query_encoder.get_embedding_tokenizer", return_value=tok),
+                patch("arxmcp.server.query_encoder.get_embedding_model", return_value=model),
             ):
                 return await asyncio.gather(
                     encode_query("query A"),
@@ -556,14 +556,17 @@ class TestErrorPath:
 
 class TestThreat6:
     def test_encoder_uses_embedder_lazy_loaders(self):
-        """The encoder must import _get_model / _get_tokenizer from
-        arxmcp.ingest.embedder rather than redefining them, so Threat 6
-        revision-pinning enforcement (regression-tested in
-        test_embedder.py) automatically covers the query path too."""
+        """The encoder must use the same lazy loaders as the ingest
+        embedder, from arxmcp.corpus.embedding, rather than redefining
+        them, so Threat 6 revision-pinning enforcement (regression-tested
+        in test_embedder.py) automatically covers the query path too."""
+        import arxmcp.corpus.embedding as embedding_mod
         import arxmcp.ingest.embedder as embedder_mod
 
-        assert qe_mod._get_model is embedder_mod._get_model
-        assert qe_mod._get_tokenizer is embedder_mod._get_tokenizer
+        assert qe_mod.get_embedding_model is embedding_mod.get_embedding_model
+        assert qe_mod.get_embedding_tokenizer is embedding_mod.get_embedding_tokenizer
+        assert embedder_mod.get_embedding_model is embedding_mod.get_embedding_model
+        assert embedder_mod.get_embedding_tokenizer is embedding_mod.get_embedding_tokenizer
 
 
 # ===========================================================================
@@ -745,8 +748,8 @@ class TestTrueConcurrencyStress:
 
         async def _run():
             with (
-                patch("arxmcp.server.query_encoder._get_tokenizer", return_value=tok),
-                patch("arxmcp.server.query_encoder._get_model", return_value=model),
+                patch("arxmcp.server.query_encoder.get_embedding_tokenizer", return_value=tok),
+                patch("arxmcp.server.query_encoder.get_embedding_model", return_value=model),
                 patch.object(qe_mod, "_inflight", _CountingDict()),
             ):
                 return await asyncio.gather(

@@ -41,7 +41,7 @@ def _rows(start: int, count: int) -> list[dict[str, Any]]:
 
 
 def _write_marker(lance: Path, *, version: int, chunk_count: int) -> None:
-    from arxmcp.ingest.embedder import EMBEDDER_VERSION
+    from arxmcp.corpus.embedding import EMBEDDER_VERSION
 
     (lance / "corpus-version.json").write_text(
         json.dumps(
@@ -84,8 +84,8 @@ def unbuildable_bm25(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[st
         res_mod, "open_chunks_table_with_fallback", lambda **_kw: (table, None)
     )
     monkeypatch.setattr(cache_mod, "set_cache", lambda _c: None)
-    monkeypatch.setattr(qe_mod, "_get_model", lambda: object())
-    monkeypatch.setattr(qe_mod, "_get_tokenizer", lambda: object())
+    monkeypatch.setattr(qe_mod, "get_embedding_model", lambda: object())
+    monkeypatch.setattr(qe_mod, "get_embedding_tokenizer", lambda: object())
 
     cfg = Config(
         lancedb_path=lance,

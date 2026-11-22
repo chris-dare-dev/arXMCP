@@ -25,7 +25,7 @@ central ``notebooks.db``:
   lockstep edits to the tests that pin its ``SCHEMA_VERSION``.
 
 **Pattern.** Async-over-sync SQLite exactly like
-:mod:`arxmcp.server.notebooks_store`: ``asyncio.to_thread`` + an
+:mod:`arxmcp.corpus.notebooks_store`: ``asyncio.to_thread`` + an
 ``asyncio.Lock`` serializing a single ``sqlite3.Connection``,
 ``open()`` async classmethod, ``PRAGMA user_version`` versioning
 with strictly ADDITIVE migrations. The v0→v1 block is wrapped in
@@ -97,7 +97,7 @@ class PaperMetadataStore:
     Construct via :meth:`open`. All public methods are ``async`` and
     offload SQL I/O via :func:`asyncio.to_thread`, serialized through
     an internal ``asyncio.Lock`` (single-threaded connection, never
-    raced) — the :class:`arxmcp.server.notebooks_store.NotebooksStore`
+    raced) — the :class:`arxmcp.corpus.notebooks_store.NotebooksStore`
     pattern.
     """
 

@@ -247,7 +247,7 @@ six routes the m8 htmx UI will consume, backed by a new SQLite table
 file. The MCP surface is unchanged — `EXPECTED_TOOL_SCHEMA_SHA256`
 remains pinned, no new MCP tools shipped.
 
-- **NEW: `src/arxmcp/server/notebooks_store.py`** — `NotebooksStore` class
+- **NEW: `src/arxmcp/corpus/notebooks_store.py`** — `NotebooksStore` class
   mirroring `cache_sqlite.py::Tier1Store` (asyncio.to_thread +
   asyncio.Lock + WAL mode). Two tables: `notebooks(slug PRIMARY KEY,
   display_name, lancedb_path, created_at)` and

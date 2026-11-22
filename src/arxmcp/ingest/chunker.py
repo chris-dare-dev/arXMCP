@@ -251,11 +251,11 @@ def _get_tokenizer():
     We intentionally load only the tokenizer (vocab + config), NOT the full
     model weights, in this module — keeping the chunker import cheap (~5 MB
     cached download) and confining the heavyweight ``torch`` + safetensors
-    weight load to ``arxmcp.ingest.embedder`` (E03_S01). The chunker itself does
+    weight load to ``arxmcp.corpus.embedding`` (E03_S01). The chunker itself does
     not import ``torch``.
 
     Closes F7 from the E03_S01 adversary critique: the tokenizer is
-    pinned to :data:`arxmcp.ingest.embedder.BGE_M3_COMMIT_SHA` to satisfy
+    pinned to :data:`arxmcp.corpus.BGE_M3_COMMIT_SHA` to satisfy
     Threat 6. Without ``revision=...``
     the tokenizer would float on whatever HuggingFace serves for the
     ``main`` tag — silent rotation of the tokenizer-only files (with
@@ -265,15 +265,13 @@ def _get_tokenizer():
     """
     global _tokenizer
     if _tokenizer is None:
-        # Lazy import inside the function body, mirroring the embedder's
-        # pattern. This also avoids a top-of-file circular import:
-        # arxmcp.ingest.embedder imports from arxmcp.ingest.chunker (paper_id
-        # validators), so a top-level import the other way would close
-        # the cycle.
+        # Lazy import inside the function body, mirroring the corpus
+        # model loaders, so importing the chunker never imports
+        # transformers.
         from transformers import AutoTokenizer  # noqa: PLC0415
 
-        from arxmcp.ingest.embedder import BGE_M3_COMMIT_SHA  # noqa: PLC0415
-        from arxmcp.server.model_loader import (  # noqa: PLC0415
+        from arxmcp.corpus import (  # noqa: PLC0415
+            BGE_M3_COMMIT_SHA,
             resolve_trust_remote_code,
             validate_model_revision,
         )

@@ -223,7 +223,7 @@ class TestSchemaSentinel:
         """Both stores open the SAME ``notebooks.db`` file and neither
         crashes nor corrupts the other's data — the cardinal
         independence guarantee from m2 synthesis §3 D1."""
-        from arxmcp.server.notebooks_store import NotebooksStore
+        from arxmcp.corpus.notebooks_store import NotebooksStore
 
         db = tmp_path / "notebooks.db"
 
@@ -257,7 +257,7 @@ class TestSchemaSentinel:
             # live constant so a future schema bump (e.g. v4→v5 in
             # notebook-paper-discovery-m1) doesn't break this cross-store
             # coupling test.
-            from arxmcp.server.notebooks_store import (
+            from arxmcp.corpus.notebooks_store import (
                 SCHEMA_VERSION as NOTEBOOKS_SCHEMA_VERSION,
             )
             assert user_version == NOTEBOOKS_SCHEMA_VERSION

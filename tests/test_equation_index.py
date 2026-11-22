@@ -145,7 +145,9 @@ def _mock_encode_query(monkeypatch, vector: np.ndarray | None = None) -> None:
         # A unit vector along the first dim; arbitrary, but
         # deterministic. Matches CHUNKS_SCHEMA_V1's embedding_stmt
         # dimensionality (1024).
-        from arxmcp.ingest.embedder import EMBEDDING_DIM
+        from arxmcp.corpus.chunk import (
+            EMBEDDING_DIM,
+        )
 
         vector = np.zeros(EMBEDDING_DIM, dtype=np.float32)
         vector[0] = 1.0
@@ -168,7 +170,9 @@ def _build_chunks_table(tmp_path: Path, chunks: list[dict[str, Any]]) -> Any:
     """
     import lancedb
 
-    from arxmcp.ingest.embedder import EMBEDDING_DIM
+    from arxmcp.corpus.chunk import (
+        EMBEDDING_DIM,
+    )
 
     rows: list[dict[str, Any]] = []
     for ch in chunks:
@@ -743,7 +747,9 @@ class TestHandlerDispatch:
         envelope reports ``retrieval_mode="ted_fused_eq"``. The
         chunks-proxy path is bypassed.
         """
-        from arxmcp.ingest.embedder import EMBEDDING_DIM
+        from arxmcp.corpus.chunk import (
+            EMBEDDING_DIM,
+        )
 
         # Seed a chunks table with a single irrelevant chunk so the
         # ANN setup is plausible; the dense pass should NEVER touch

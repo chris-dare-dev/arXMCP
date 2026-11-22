@@ -33,7 +33,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.testclient import TestClient
 
 from arxmcp.corpus import notebooks as _notebook_common
-from arxmcp.server.notebooks_store import NotebooksStore
+from arxmcp.corpus.notebooks_store import NotebooksStore
 from arxmcp.server.routes import notebooks as notebooks_module
 from arxmcp.server.routes.notebooks import (
     _paper_row_html,

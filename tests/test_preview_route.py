@@ -37,11 +37,11 @@ from fastapi.testclient import TestClient
 
 import arxmcp.corpus
 from arxmcp.corpus import notebooks as _notebook_common
+from arxmcp.corpus.notebooks_store import NotebooksStore
 from arxmcp.server.middleware import (
     CONTENT_SECURITY_POLICY_PREVIEW,
     SecurityHeadersMiddleware,
 )
-from arxmcp.server.notebooks_store import NotebooksStore
 from arxmcp.server.routes import notebooks as notebooks_module
 from arxmcp.server.routes import ui as ui_module
 from arxmcp.server.routes.notebooks import router as notebooks_router

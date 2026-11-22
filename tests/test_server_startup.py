@@ -34,10 +34,16 @@ import pytest
 import uvicorn
 from fastapi.testclient import TestClient
 
-from arxmcp.corpus.chunk import CHUNKER_VERSION, ChunkRecord
+from arxmcp.corpus.chunk import (
+    CHUNKER_VERSION,
+    EMBEDDING_DIM,
+    ChunkRecord,
+)
+from arxmcp.corpus.embedding import (
+    EMBEDDER_VERSION,
+)
 from arxmcp.corpus.schema import EmbedRecord
 from arxmcp.corpus.store import write_chunks
-from arxmcp.ingest.embedder import EMBEDDER_VERSION, EMBEDDING_DIM
 from arxmcp.server.health import reset_metrics_for_tests
 from arxmcp.server.main import create_app
 from arxmcp.server.resources import (
@@ -100,8 +106,8 @@ def mocked_bge_m3(monkeypatch):
 
     fake_model = object()
     fake_tokenizer = object()
-    monkeypatch.setattr(qe_mod, "_get_model", lambda: fake_model)
-    monkeypatch.setattr(qe_mod, "_get_tokenizer", lambda: fake_tokenizer)
+    monkeypatch.setattr(qe_mod, "get_embedding_model", lambda: fake_model)
+    monkeypatch.setattr(qe_mod, "get_embedding_tokenizer", lambda: fake_tokenizer)
     yield
 
 
@@ -144,8 +150,8 @@ class TestModelWarmupIsPatchable:
         import arxmcp.server.query_encoder as qe_mod
 
         calls: list[str] = []
-        monkeypatch.setattr(qe_mod, "_get_tokenizer", lambda: calls.append("tokenizer"))
-        monkeypatch.setattr(qe_mod, "_get_model", lambda: calls.append("model"))
+        monkeypatch.setattr(qe_mod, "get_embedding_tokenizer", lambda: calls.append("tokenizer"))
+        monkeypatch.setattr(qe_mod, "get_embedding_model", lambda: calls.append("model"))
 
         with TestClient(create_app(Config(lancedb_path=seeded_lancedb))):
             pass
@@ -1362,7 +1368,7 @@ class TestEnvVarScan:
     def test_create_app_accepts_the_trust_remote_code_escape_hatch(
         self, monkeypatch, seeded_lancedb
     ):
-        """ARXMCP_TRUST_REMOTE_CODE is read by arxmcp.server.model_loader, not
+        """ARXMCP_TRUST_REMOTE_CODE is read by arxmcp.corpus.model_loader, not
         Config. Setting it must not stop the server from being built."""
         monkeypatch.setenv("ARXMCP_TRUST_REMOTE_CODE", "1")
         cfg = Config(lancedb_path=seeded_lancedb)

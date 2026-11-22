@@ -1,6 +1,6 @@
 """License-coverage report over the documents registry (source-truth-m1).
 
-Reads the per-notebook :class:`arxmcp.server.documents_store.DocumentsStore`
+Reads the per-notebook :class:`arxmcp.corpus.documents_store.DocumentsStore`
 (``var/arxmcp/notebooks/<slug>/documents.db``) for both live notebooks
 and emits, per notebook:
 
@@ -48,16 +48,14 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from arxmcp.corpus import notebook_dir
-from arxmcp.ingest.oai_license import (
+from arxmcp.corpus import (
+    DOCUMENTS_DB_FILENAME,
     LICENSE_STATUS_ELIGIBLE,
     LICENSE_STATUS_NOT_ALLOWLISTED_OPEN,
     LICENSE_STATUS_UNKNOWN,
-)
-from arxmcp.server.documents_store import (
-    DOCUMENTS_DB_FILENAME,
     DocumentRecord,
     DocumentsStore,
+    notebook_dir,
 )
 
 #: The two live notebooks m1's acceptance names (``bridgeland-stability-pdfs``

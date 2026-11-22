@@ -90,6 +90,7 @@ if TYPE_CHECKING:
 from fastapi import FastAPI
 from prometheus_client import make_asgi_app
 
+from arxmcp.corpus import TRUST_REMOTE_CODE_ENV
 from arxmcp.ingest.arxiv_fetch import LATEXML_TIMEOUT_ENV
 from arxmcp.ingest.textbook_parser import MINERU_BIN_ENV, MINERU_TIMEOUT_ENV
 from arxmcp.server import session
@@ -99,7 +100,6 @@ from arxmcp.server.health import (
 from arxmcp.server.health import (
     router as health_router,
 )
-from arxmcp.server.model_loader import TRUST_REMOTE_CODE_ENV
 from arxmcp.server.observability.sanitize import SANITIZE_ENV_VAR
 from arxmcp.server.resources import Resources, StartupProgress
 from arxmcp.settings import CONFIG_REFERENCE_HINT, Config
@@ -571,8 +571,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # the m7-era code path leaked BGE-M3 weights + LanceDB
     # connections + semaphores on startup retry loops (systemd /
     # docker `restart: on-failure`).
+    from arxmcp.corpus import NotebooksStore  # noqa: PLC0415
     from arxmcp.server.ingest_tracker import IngestTaskTracker  # noqa: PLC0415
-    from arxmcp.server.notebooks_store import NotebooksStore  # noqa: PLC0415
     from arxmcp.server.parse_tracker import ParseTaskTracker  # noqa: PLC0415
 
     try:

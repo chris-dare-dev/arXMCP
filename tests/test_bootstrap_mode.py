@@ -834,8 +834,8 @@ def _patch_startup_heavy_io(monkeypatch, lancedb_path: Path) -> None:
     # BGE-M3 model + tokenizer.
     fake_model = object()
     fake_tokenizer = object()
-    monkeypatch.setattr(qe_mod, "_get_model", lambda: fake_model)
-    monkeypatch.setattr(qe_mod, "_get_tokenizer", lambda: fake_tokenizer)
+    monkeypatch.setattr(qe_mod, "get_embedding_model", lambda: fake_model)
+    monkeypatch.setattr(qe_mod, "get_embedding_tokenizer", lambda: fake_tokenizer)
 
     # LanceDB open — return a fake table + no degraded state.
     fake_table = _make_fake_table()

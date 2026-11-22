@@ -92,7 +92,7 @@ def _marker(
 
 
 def _loaded_pin() -> str:
-    from arxmcp.ingest.embedder import EMBEDDER_VERSION
+    from arxmcp.corpus.embedding import EMBEDDER_VERSION
 
     return EMBEDDER_VERSION
 

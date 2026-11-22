@@ -34,12 +34,17 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 
+import arxmcp.corpus.embedding as embedding_mod
 import arxmcp.ingest.embedder as embedder_mod
-from arxmcp.ingest.embedder import (
+from arxmcp.corpus.chunk import (
+    EMBEDDING_DIM,
+)
+from arxmcp.corpus.embedding import (
     BGE_M3_COMMIT_SHA,
     EMBEDDER_VERSION,
-    EMBEDDING_DIM,
     MAX_TOKENS,
+)
+from arxmcp.ingest.embedder import (
     PER_PAPER_FAILURE_EXCEPTIONS,
     _write_embeddings_npz,
     embed_corpus,
@@ -241,8 +246,8 @@ def _patched_embed(
         patch("arxmcp.ingest.embedder.EMBEDDINGS_DIR", embeddings_dir),
         patch("arxmcp.ingest.embedder.EMBED_STATS_PATH", stats_path),
         patch("arxmcp.ingest.embedder.EMBED_LOG_PATH", log_path),
-        patch("arxmcp.ingest.embedder._get_tokenizer", return_value=fake_tokenizer),
-        patch("arxmcp.ingest.embedder._get_model", return_value=fake_model),
+        patch("arxmcp.ingest.embedder.get_embedding_tokenizer", return_value=fake_tokenizer),
+        patch("arxmcp.ingest.embedder.get_embedding_model", return_value=fake_model),
     ):
         stats = embed_paper(paper_id)
     return stats, embeddings_dir, stats_path
@@ -262,8 +267,8 @@ class TestModuleContract:
 
     def test_bge_m3_commit_sha_defined_exactly_once(self):
         # The brief mandates a single source of truth. Confirm the
-        # constant lives only in src/arxmcp/ingest/embedder.py — no stray duplicate
-        # in src/arxmcp/ingest/__init__.py or anywhere else under ingest/.
+        # constant lives only in src/arxmcp/corpus/embedding.py — no stray
+        # duplicate anywhere else under corpus/ or ingest/.
         src_root = Path(__file__).parent.parent / "src" / "arxmcp"
         hits = []
         for py_file in [
@@ -276,7 +281,7 @@ class TestModuleContract:
         assert len(hits) == 1, (
             f"BGE_M3_COMMIT_SHA must be defined exactly once; found in: {hits}"
         )
-        assert hits[0].name == "embedder.py"
+        assert hits[0].name == "embedding.py"
 
     def test_embedder_version_format(self):
         assert EMBEDDER_VERSION.startswith("bge-m3@")
@@ -469,7 +474,7 @@ class TestTokenBudget:
         (``add_special_tokens=False`` at the pre-pass call site), the
         special tokens are excluded from the count.
         """
-        from arxmcp.ingest.embedder import MAX_TOKENS
+        from arxmcp.corpus.embedding import MAX_TOKENS
 
         paper_id = "2307.00021"
         # Body of exactly MAX_TOKENS whitespace-separated "words"; the
@@ -622,15 +627,15 @@ class TestStatsLogging:
 
 class TestThreat6:
     def test_model_loaded_with_pinned_revision(self):
-        """``_get_model`` must pass ``revision=BGE_M3_COMMIT_SHA``."""
+        """``get_embedding_model`` must pass ``revision=BGE_M3_COMMIT_SHA``."""
         # Reset the lazy global so we observe the call.
-        embedder_mod._model = None
-        embedder_mod._tokenizer = None
+        embedding_mod._model = None
+        embedding_mod._tokenizer = None
 
         fake_model = MagicMock()
         fake_model.eval.return_value = fake_model
         with patch("transformers.AutoModel.from_pretrained", return_value=fake_model) as load_call:
-            embedder_mod._get_model()
+            embedding_mod.get_embedding_model()
         load_call.assert_called_once()
         kwargs = load_call.call_args.kwargs
         args = load_call.call_args.args
@@ -641,25 +646,25 @@ class TestThreat6:
         # Threat 6: refuse custom modeling code.
         assert kwargs.get("trust_remote_code") is False
         # Reset for next tests.
-        embedder_mod._model = None
+        embedding_mod._model = None
 
     def test_tokenizer_loaded_with_pinned_revision(self):
-        """``_get_tokenizer`` must pin to the SHA — closes the chunker's
+        """``get_embedding_tokenizer`` must pin to the SHA — closes the chunker's
         pre-existing tokenizer-pinning gap, at least for the embedder's path.
         """
-        embedder_mod._tokenizer = None
-        embedder_mod._model = None
+        embedding_mod._tokenizer = None
+        embedding_mod._model = None
         fake_tok = MagicMock()
         with patch(
             "transformers.AutoTokenizer.from_pretrained", return_value=fake_tok
         ) as load_call:
-            embedder_mod._get_tokenizer()
+            embedding_mod.get_embedding_tokenizer()
         load_call.assert_called_once()
         kwargs = load_call.call_args.kwargs
         args = load_call.call_args.args
         assert args[0] == "BAAI/bge-m3"
         assert kwargs.get("revision") == BGE_M3_COMMIT_SHA
-        embedder_mod._tokenizer = None
+        embedding_mod._tokenizer = None
 
     def test_chunker_tokenizer_loaded_with_pinned_revision(self):
         """Closes F7 from the E03_S01 critique: ``arxmcp.ingest.chunker._get_tokenizer``
@@ -813,8 +818,8 @@ class TestEmbedCorpus:
             patch("arxmcp.ingest.embedder.EMBEDDINGS_DIR", embeddings_dir),
             patch("arxmcp.ingest.embedder.EMBED_STATS_PATH", stats_path),
             patch("arxmcp.ingest.embedder.EMBED_LOG_PATH", log_path),
-            patch("arxmcp.ingest.embedder._get_tokenizer", return_value=fake_tokenizer),
-            patch("arxmcp.ingest.embedder._get_model", return_value=fake_model),
+            patch("arxmcp.ingest.embedder.get_embedding_tokenizer", return_value=fake_tokenizer),
+            patch("arxmcp.ingest.embedder.get_embedding_model", return_value=fake_model),
         ):
             results = embed_corpus(corpus_path=str(chunks_dir))
         assert len(results) == 2
@@ -852,8 +857,8 @@ class TestEmbedCorpus:
             patch("arxmcp.ingest.embedder.EMBEDDINGS_DIR", embeddings_dir),
             patch("arxmcp.ingest.embedder.EMBED_STATS_PATH", stats_path),
             patch("arxmcp.ingest.embedder.EMBED_LOG_PATH", log_path),
-            patch("arxmcp.ingest.embedder._get_tokenizer", return_value=fake_tokenizer),
-            patch("arxmcp.ingest.embedder._get_model", return_value=fake_model),
+            patch("arxmcp.ingest.embedder.get_embedding_tokenizer", return_value=fake_tokenizer),
+            patch("arxmcp.ingest.embedder.get_embedding_model", return_value=fake_model),
         ):
             embed_corpus(corpus_path=str(chunks_dir))
         lines = [
@@ -905,8 +910,8 @@ class TestEmbedCorpus:
             patch("arxmcp.ingest.embedder.EMBEDDINGS_DIR", embeddings_dir),
             patch("arxmcp.ingest.embedder.EMBED_STATS_PATH", stats_path),
             patch("arxmcp.ingest.embedder.EMBED_LOG_PATH", log_path),
-            patch("arxmcp.ingest.embedder._get_tokenizer", return_value=fake_tokenizer),
-            patch("arxmcp.ingest.embedder._get_model", return_value=fake_model),
+            patch("arxmcp.ingest.embedder.get_embedding_tokenizer", return_value=fake_tokenizer),
+            patch("arxmcp.ingest.embedder.get_embedding_model", return_value=fake_model),
             patch(
                 "arxmcp.ingest.embedder._load_chunks",
                 side_effect=_selectively_failing_load_chunks,

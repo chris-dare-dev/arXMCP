@@ -21,9 +21,11 @@ import numpy as np
 import pyarrow as pa
 import pytest
 
-from arxmcp.corpus.chunk import ChunkRecord
+from arxmcp.corpus.chunk import (
+    EMBEDDING_DIM,
+    ChunkRecord,
+)
 from arxmcp.corpus.schema import CHUNKS_TABLE_NAME
-from arxmcp.ingest.embedder import EMBEDDING_DIM
 from arxmcp.ingest.textbook_chunker import TEXTBOOK_CHUNKER_VERSION
 from arxmcp.tools import notebook_textbook_ingest as driver
 
@@ -96,7 +98,7 @@ class TestBuildEmbedRecord:
         assert rec.embedding_proof.shape == (1, EMBEDDING_DIM)
 
     def test_embedder_version_stamped(self) -> None:
-        from arxmcp.ingest.embedder import EMBEDDER_VERSION
+        from arxmcp.corpus.embedding import EMBEDDER_VERSION
 
         rec = driver._build_embed_record(
             [_textbook_chunk(suffix="c" * 16)], encoder=_synthetic_encoder(),

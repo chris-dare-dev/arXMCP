@@ -62,6 +62,7 @@ from arxmcp.corpus import (
     CORPUS_VERSION_MARKER_NAME,
     DEFAULT_LANCEDB_PATH,
     EMBED_INPUT_POLICY_VERSION,
+    EMBEDDER_VERSION,
     EMBEDDING_DIM,
     ChunkRecord,
     EmbedRecord,
@@ -78,7 +79,7 @@ from arxmcp.corpus import (
 from arxmcp.ingest.bulk_ingest import DEFAULT_LANCEDB_STAGING_PATH
 from arxmcp.ingest.chunker import chunk_paper
 from arxmcp.ingest.derived_indexes import build_derived_indexes
-from arxmcp.ingest.embedder import EMBEDDER_VERSION, embed_paper
+from arxmcp.ingest.embedder import embed_paper
 from arxmcp.settings import ApplicationPaths
 
 logger = logging.getLogger(__name__)

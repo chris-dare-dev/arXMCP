@@ -120,7 +120,7 @@ def resolve_trust_remote_code() -> bool:
     return False
 
 
-def _huggingface_cache_root() -> Path:
+def huggingface_cache_root() -> Path:
     """Return the resolved HuggingFace hub cache root.
 
     Mirrors the precedence used elsewhere in the repo
@@ -160,7 +160,7 @@ def assert_no_bin_in_snapshot(model_name: str, revision: str) -> None:
         which is a sidecar produced by Trainer and does NOT carry
         model weights).
     """
-    cache_root = _huggingface_cache_root()
+    cache_root = huggingface_cache_root()
     safe_name = "models--" + model_name.replace("/", "--")
     snapshot_dir = cache_root / safe_name / "snapshots" / revision
     if not snapshot_dir.is_dir():
@@ -194,6 +194,7 @@ def assert_no_bin_in_snapshot(model_name: str, revision: str) -> None:
 __all__ = [
     "ModelPinningError",
     "assert_no_bin_in_snapshot",
+    "huggingface_cache_root",
     "TRUST_REMOTE_CODE_ENV",
     "resolve_trust_remote_code",
     "validate_model_revision",

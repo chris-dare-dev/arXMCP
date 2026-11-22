@@ -14,7 +14,7 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
-from arxmcp.server.documents_store import (
+from arxmcp.corpus.documents_store import (
     DOCUMENTS_DB_FILENAME,
     DocumentRecord,
     DocumentsStore,

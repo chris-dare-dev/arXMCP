@@ -559,7 +559,7 @@ def write_corpus_version_marker(
         can inject arbitrary values; production callers (e.g.
         :func:`write_chunks`) pass the live constant.
     embedder_version:
-        From :data:`arxmcp.ingest.embedder.EMBEDDER_VERSION` — the
+        From :data:`arxmcp.corpus.embedding.EMBEDDER_VERSION` — the
         ``"bge-m3@<8-hex>"`` short form already written to LanceDB
         rows.
     paper_count, chunk_count:

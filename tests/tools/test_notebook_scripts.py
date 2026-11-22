@@ -27,12 +27,12 @@ import pytest
 
 from arxmcp.corpus import notebooks as _notebook_common
 from arxmcp.corpus.notebooks import NotebookError, validate_slug
-from arxmcp.ingest import arxiv_api as _arxiv_api
-from arxmcp.ingest.ar5iv_fetch import Ar5ivResult
-from arxmcp.server.paper_metadata_store import (
+from arxmcp.corpus.paper_metadata_store import (
     PAPER_METADATA_DB_FILENAME,
     PaperMetadataStore,
 )
+from arxmcp.ingest import arxiv_api as _arxiv_api
+from arxmcp.ingest.ar5iv_fetch import Ar5ivResult
 from arxmcp.tools import (
     notebook_fetch,
     notebook_ingest,

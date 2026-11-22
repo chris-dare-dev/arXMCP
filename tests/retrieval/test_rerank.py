@@ -35,10 +35,16 @@ from typing import Any
 import numpy as np
 import pytest
 
-from arxmcp.corpus.chunk import CHUNKER_VERSION, ChunkRecord
+from arxmcp.corpus.chunk import (
+    CHUNKER_VERSION,
+    EMBEDDING_DIM,
+    ChunkRecord,
+)
+from arxmcp.corpus.embedding import (
+    EMBEDDER_VERSION,
+)
 from arxmcp.corpus.schema import EmbedRecord
 from arxmcp.corpus.store import write_chunks
-from arxmcp.ingest.embedder import EMBEDDER_VERSION, EMBEDDING_DIM
 from arxmcp.server.resources import Singleflight
 from arxmcp.server.retrieval.rerank import (
     BGE_RERANKER_COMMIT_SHA,
@@ -713,8 +719,8 @@ class TestResourcesIntegration:
         from arxmcp.server.resources import Resources
         from arxmcp.settings import Config
 
-        monkeypatch.setattr(qe_mod, "_get_model", lambda: object())
-        monkeypatch.setattr(qe_mod, "_get_tokenizer", lambda: object())
+        monkeypatch.setattr(qe_mod, "get_embedding_model", lambda: object())
+        monkeypatch.setattr(qe_mod, "get_embedding_tokenizer", lambda: object())
 
         lancedb_path, _version = _seeded_lancedb
         cfg = Config(

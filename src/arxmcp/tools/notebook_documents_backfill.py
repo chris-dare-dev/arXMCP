@@ -4,8 +4,8 @@ Reads the notebook's ``papers.txt`` (the membership source of truth —
 the central ``notebook_papers`` junction table is EMPTY for every
 notebook, so keying off it would register zero rows and silently
 "pass"), and for every ingested revision computes + persists a
-:class:`arxmcp.server.documents_store.DocumentRecord` into the per-notebook
-:class:`arxmcp.server.documents_store.DocumentsStore` at
+:class:`arxmcp.corpus.documents_store.DocumentRecord` into the per-notebook
+:class:`arxmcp.corpus.documents_store.DocumentsStore` at
 ``var/arxmcp/notebooks/<slug>/documents.db``.
 
 Per revision it records:
@@ -95,6 +95,16 @@ from arxmcp.corpus import (
     CHUNKER_VERSION,
     CORPUS_PARSED_DIR,
     CORPUS_RAW_DIR,
+    DOCUMENT_STATUS_ACTIVE,
+    DOCUMENT_STATUS_WITHDRAWN,
+    DOCUMENTS_DB_FILENAME,
+    LICENSE_STATUS_ELIGIBLE,
+    LICENSE_STATUS_NOT_ALLOWLISTED_OPEN,
+    LICENSE_STATUS_UNKNOWN,
+    RAW_SOURCE_STATUS_PRESENT,
+    RAW_SOURCE_STATUS_UNAVAILABLE,
+    DocumentRecord,
+    DocumentsStore,
     NotebookError,
     is_valid_arxiv_paper_id,
     notebook_dir,
@@ -105,15 +115,6 @@ from arxmcp.ingest import oai_license
 from arxmcp.ingest.arxiv_api import strip_id_version
 from arxmcp.ingest.arxiv_fetch import POLITENESS_SLEEP_SECONDS, build_user_agent
 from arxmcp.ingest.notebooks import resolve_contact_email
-from arxmcp.server.documents_store import (
-    DOCUMENT_STATUS_ACTIVE,
-    DOCUMENT_STATUS_WITHDRAWN,
-    DOCUMENTS_DB_FILENAME,
-    RAW_SOURCE_STATUS_PRESENT,
-    RAW_SOURCE_STATUS_UNAVAILABLE,
-    DocumentRecord,
-    DocumentsStore,
-)
 
 logger = logging.getLogger("notebook_documents_backfill")
 
@@ -585,9 +586,9 @@ def _print_summary(
     # (the coverage report reads the WHOLE registry across both
     # notebooks; this is just what this run wrote).
     lic: dict[str, int] = {
-        oai_license.LICENSE_STATUS_ELIGIBLE: 0,
-        oai_license.LICENSE_STATUS_NOT_ALLOWLISTED_OPEN: 0,
-        oai_license.LICENSE_STATUS_UNKNOWN: 0,
+        LICENSE_STATUS_ELIGIBLE: 0,
+        LICENSE_STATUS_NOT_ALLOWLISTED_OPEN: 0,
+        LICENSE_STATUS_UNKNOWN: 0,
     }
     active = withdrawn = raw_present = raw_unavailable = 0
     for r in registered:
@@ -602,9 +603,9 @@ def _print_summary(
             raw_unavailable += 1
     print(
         "license_status: "
-        f"eligible={lic[oai_license.LICENSE_STATUS_ELIGIBLE]} "
-        f"not-allowlisted-open={lic[oai_license.LICENSE_STATUS_NOT_ALLOWLISTED_OPEN]} "
-        f"unknown={lic[oai_license.LICENSE_STATUS_UNKNOWN]}"
+        f"eligible={lic[LICENSE_STATUS_ELIGIBLE]} "
+        f"not-allowlisted-open={lic[LICENSE_STATUS_NOT_ALLOWLISTED_OPEN]} "
+        f"unknown={lic[LICENSE_STATUS_UNKNOWN]}"
     )
     print(f"status: active={active} withdrawn={withdrawn}")
     print(

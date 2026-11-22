@@ -54,7 +54,7 @@ contains, and no component owns that agreement. Census taken
 8. ``documents.db`` — per-notebook per-revision document records
 
 Issue #207 says "seven"; the count is **eight**. ``documents.db``
-(``src/arxmcp/server/documents_store.py``) is a fifth SQLite store, not a fourth,
+(``src/arxmcp/corpus/documents_store.py``) is a fifth SQLite store, not a fourth,
 and the issue text predates or overlooks it. Recorded here rather than
 silently repeated, per CLAUDE.md §4.9 rule 3 — a census is only useful
 if it is re-counted.
