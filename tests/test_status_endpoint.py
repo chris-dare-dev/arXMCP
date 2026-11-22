@@ -600,8 +600,8 @@ class TestStatusSecFetchSiteDeviation:
         monkeypatch.delenv("ARXMCP_ALLOWED_ORIGINS", raising=False)
         monkeypatch.delenv("ARXMCP_UNSAFE_NETWORK_BIND", raising=False)
         monkeypatch.delenv("ARXMCP_CONTACT_EMAIL", raising=False)
-        from arxmcp.server.config import Config
         from arxmcp.server.main import create_app
+        from arxmcp.settings import Config
 
         return TestClient(create_app(Config()))
 

@@ -68,7 +68,7 @@ import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
 
-from arxmcp.ingest.application_paths import ApplicationPaths, legacy_source_path
+from arxmcp.settings.application_paths import ApplicationPaths, legacy_source_path
 
 logger = logging.getLogger(__name__)
 
@@ -88,7 +88,7 @@ SCHEMA_VERSION: int = 1
 _SCHEMA_VERSION_KEY: str = "__schema_version__"
 
 #: Default ``notebooks.db`` path resolution — mirrors
-#: :class:`arxmcp.server.config.Config`'s default. CLI tools that don't have
+#: :class:`arxmcp.settings.Config`'s default. CLI tools that don't have
 #: a ``Config`` available pass this directly to the sync helpers.
 DEFAULT_DB_PATH: Path = legacy_source_path("notebooks_db")
 _LEGACY_DEFAULT_DB_PATH = DEFAULT_DB_PATH

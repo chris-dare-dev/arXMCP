@@ -82,8 +82,6 @@ from pathlib import Path
 import numpy as np
 import pyarrow as pa
 
-from arxmcp.ingest.application_paths import ApplicationPaths
-
 # ALLOWED_KINDS is re-exported (``__all__``): src/arxmcp/server/handlers/search.py
 # derives its proof-route ``excluded_kinds`` from ``arxmcp.ingest.store.ALLOWED_KINDS``
 # so the two cannot drift. The write-time checks themselves are arxmcp.ingest.chunk's.
@@ -114,6 +112,7 @@ from arxmcp.ingest.schema import (
     add_missing_columns,
 )
 from arxmcp.ingest.write_lock import holds_dataset_write_lock, write_lock_path
+from arxmcp.settings import ApplicationPaths
 
 # NB: ``arxmcp.ingest.corpus.read_corpus_version`` is imported function-locally
 # inside ``write_chunks`` (the WAP gate, corpus-integrity-completion-e1).

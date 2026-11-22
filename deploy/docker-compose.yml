@@ -64,7 +64,7 @@ services:
       # listener. The "localhost-only" defense lives on the HOST side via the
       # ports: 127.0.0.1: prefix above (phoenix-compose.yml §"0.0.0.0 is
       # correct INSIDE the container"). The server's config validator
-      # (src/arxmcp/server/config.py::reject_non_loopback_bind) rejects a non-loopback
+      # (src/arxmcp/settings/config.py::reject_non_loopback_bind) rejects a non-loopback
       # bind at parse time UNLESS ARXMCP_UNSAFE_NETWORK_BIND=1 — so BOTH vars
       # are required here, or the container crashes at startup. A WARN log
       # fires at startup (expected).

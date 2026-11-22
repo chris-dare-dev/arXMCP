@@ -574,7 +574,7 @@ def test_ac5_port_zero_still_rejected_by_config() -> None:
     the desktop ephemeral bind lives entirely outside Config."""
     import pydantic
 
-    from arxmcp.server.config import Config
+    from arxmcp.settings import Config
 
     for port in (0, 80, 65536):
         with pytest.raises(pydantic.ValidationError):
@@ -651,9 +651,9 @@ def test_desktop_boot_installs_the_redaction_filter_and_json_format() -> None:
     import logging
     import tempfile
 
-    from arxmcp.server.config import Config
     from arxmcp.server.desktop_child import _configure_child_logging
     from arxmcp.server.observability.logging_setup import JsonFormatter, RedactionFilter
+    from arxmcp.settings import Config
 
     root = logging.getLogger()
     saved_filters = list(root.filters)
@@ -752,7 +752,7 @@ def test_ac5_desktop_child_never_touches_config_bind_port() -> None:
     assert "bind_port" not in identifiers, (
         "desktop child must pre-bind outside Config, never via bind_port"
     )
-    config_source = (REPO_ROOT / "src/arxmcp/server" / "config.py").read_text(encoding="utf-8")
+    config_source = (REPO_ROOT / "src/arxmcp/settings" / "config.py").read_text(encoding="utf-8")
     assert "if not 1024 <= v <= 65535:" in config_source, (
         "validate_port_range guard changed — AC5 forbids widening it"
     )

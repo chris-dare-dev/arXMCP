@@ -11,7 +11,7 @@ The Threat-5 mitigation has two layers:
 2. **TCP-bind layer** (this file) — Config-validator rejects
    non-loopback `bind_host` values unless the operator explicitly
    opts in via ``ARXMCP_UNSAFE_NETWORK_BIND=1``. Implemented in
-   E13_S05's `src/arxmcp/server/config.py::reject_non_loopback_bind`; this
+   E13_S05's `src/arxmcp/settings/config.py::reject_non_loopback_bind`; this
    file is the dedicated regression-suite name so the contract
    is grep-discoverable.
 
@@ -42,7 +42,7 @@ import logging
 import pytest
 from pydantic import ValidationError
 
-from arxmcp.server.config import LOOPBACK_HOSTS, Config
+from arxmcp.settings import LOOPBACK_HOSTS, Config
 
 # Test inputs used in the milestone brief's verbatim examples.
 _LOOPBACK_IPV4 = "127.0.0.1"

@@ -90,13 +90,13 @@ from arxmcp.ingest.corpus import (
     read_corpus_version,
 )
 from arxmcp.server import query_encoder
-from arxmcp.server.config import Config
 from arxmcp.server.corpus_freshness import (
     DEFAULT_FRESHNESS_INTERVAL_SECONDS,
     FreshnessGate,
     read_marker_off_loop,
 )
 from arxmcp.server.query_encoder import shutdown_executor
+from arxmcp.settings import Config
 
 logger = logging.getLogger(__name__)
 
@@ -793,6 +793,11 @@ class Resources:
             if config.bm25_phase_enabled
             else BM25_PHASE_DISABLED
         )
+
+        # 0. Notebook dataset — Config only joined its path; prove it here,
+        # before anything reads it.
+        if config.notebook is not None:
+            _check_notebook_dataset(config)
 
         # 1. Corpus marker — REFUSE TO START on absent (synthesis D5).
         # onboarding-uplift-m4: bootstrap_mode=True + absent marker → skip
@@ -2366,6 +2371,39 @@ async def _close_quietly(handle: Any, *, label: str) -> None:
         logger.exception("corpus rebind: closing the previous %s failed", label)
 
 
+def _check_notebook_dataset(config: Config) -> None:
+    """Refuse to serve an ``ARXMCP_NOTEBOOK`` dataset that is unsafe or absent.
+
+    Validating a :class:`~arxmcp.settings.Config` touches no file, so the
+    filesystem half of notebook routing runs here. The slug guard (symlink
+    rejection + containment, Threat 1) re-derives the dataset path, and a
+    dataset with no ``corpus-version.json`` — never ingested, or a partial
+    ingest that left the directory but not the marker — gets the ingest
+    command in its error, whether or not bootstrap mode is on (AC5, F3
+    rectification).
+    """
+    from arxmcp.ingest.notebooks import (  # noqa: PLC0415
+        NotebookError,
+        notebook_lancedb_path,
+    )
+
+    slug = config.notebook
+    try:
+        lancedb_path = notebook_lancedb_path(
+            slug, base=config.application_paths.notebooks
+        )
+    except NotebookError as exc:
+        raise ResourceStartupError(
+            f"invalid ARXMCP_NOTEBOOK={slug!r}: {exc}"
+        ) from exc
+    if not (lancedb_path / "corpus-version.json").is_file():
+        raise CorpusNotIngestedError(
+            f"ARXMCP_NOTEBOOK={slug!r}: no ingested corpus "
+            f"at {lancedb_path!s}. Ingest it first: "
+            f"`uv run python src/arxmcp/tools/notebook_ingest.py {slug}`."
+        )
+
+
 async def _open_paper_metadata_store(config: Config) -> Any | None:
     """Open the per-notebook ``paper_metadata.db`` sibling of the
     lancedb dir, or return ``None`` (paper-metadata-m2).
@@ -2374,7 +2412,7 @@ async def _open_paper_metadata_store(config: Config) -> Any | None:
     ``var/arxmcp/notebooks/<slug>/paper_metadata.db`` — the sibling of
     the notebook's ``lancedb/`` dir, which is exactly what
     ``config.lancedb_path`` points at after the ``ARXMCP_NOTEBOOK``
-    rewrite in :meth:`arxmcp.server.config.Config.derive_notebook_lancedb_path`.
+    rewrite in :meth:`arxmcp.settings.Config.derive_notebook_lancedb_path`.
     Derived as ``lancedb_path.parent / PAPER_METADATA_DB_FILENAME`` per
     the m1 placement decision (option B).
 

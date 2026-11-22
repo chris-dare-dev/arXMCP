@@ -132,7 +132,7 @@ REQUIRED_INSTALLED_FILES: tuple[str, ...] = (
     "arxmcp/server/schemas/lean_verify_result.json",
     # The pinned arxiv CA bundle; ARXMCP_PIN_ARXIV_CA=1 refuses to start
     # without it.
-    "arxmcp/server/ca/arxiv-ca-bundle.pem",
+    "arxmcp/settings/ca/arxiv-ca-bundle.pem",
     # desktop-distribution-m3: M4's installed server adapter imports this
     # dependency-light wire parser. A source checkout would hide its absence.
     "arxmcp/server/desktop_contract.py",
@@ -576,8 +576,8 @@ import asyncio, json
 
 from arxmcp.ingest.store import write_corpus_version_marker
 from arxmcp.server.cache import RetrievalCache
-from arxmcp.server.config import Config
-from arxmcp.server.operator_settings import get_setting, set_setting
+from arxmcp.settings.config import Config
+from arxmcp.settings.operator import get_setting, set_setting
 
 async def main():
     config = Config()

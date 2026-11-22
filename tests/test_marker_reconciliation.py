@@ -434,7 +434,7 @@ def test_late_bind_publishes_the_embedder_verdict(
     """
     import asyncio
 
-    from arxmcp.server.config import Config
+    from arxmcp.settings import Config
 
     table = _table(tmp_path, 12, papers=4)
     lancedb_path = tmp_path / "lancedb"
@@ -479,7 +479,7 @@ def test_late_bind_reports_a_paper_count_divergence(
     import asyncio
     import json
 
-    from arxmcp.server.config import Config
+    from arxmcp.settings import Config
 
     table = _table(tmp_path, 12, papers=4)
     lancedb_path = tmp_path / "lancedb"

@@ -47,7 +47,7 @@ except ImportError:  # pragma: no cover — Windows path exercised in CI
     _resource = None
 
 if TYPE_CHECKING:
-    from arxmcp.server.config import Config
+    from arxmcp.settings import Config
 
 logger = logging.getLogger(__name__)
 

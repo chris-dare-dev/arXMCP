@@ -15,7 +15,6 @@ import threading
 import httpx
 import pytest
 
-from arxmcp.server.config import Config
 from arxmcp.server.main import create_app
 from arxmcp.server.resources import (
     WARM_RESOURCE_NAMES,
@@ -23,6 +22,7 @@ from arxmcp.server.resources import (
     Singleflight,
     StartupProgress,
 )
+from arxmcp.settings import Config
 from tests._corpus_helpers import seed_corpus
 
 _WAIT_SECONDS = 30.0

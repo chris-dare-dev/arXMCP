@@ -56,7 +56,7 @@ from arxmcp.ingest.oai_delta import (
     OAI_PMH_ENDPOINT,
     OAI_PMH_MAX_RESPONSE_BYTES,
 )
-from arxmcp.server.config import Config
+from arxmcp.settings import Config
 
 # ===========================================================================
 # AC2 — TLS verification cannot be disabled via any ARXMCP_* env var
@@ -148,7 +148,9 @@ class TestTlsCannotBeDisabled:
         ``_create_unverified_context``.
         """
         repo_root = Path(__file__).resolve().parents[2]
-        scopes = ("src/arxmcp/ingest", "src/arxmcp/tools", "src/arxmcp/server")
+        scopes = (
+            "src/arxmcp/settings", "src/arxmcp/ingest", "src/arxmcp/tools", "src/arxmcp/server",
+        )
         insecure_patterns = (
             re.compile(r"check_hostname\s*=\s*False"),
             re.compile(r"verify_mode\s*=\s*ssl\.CERT_NONE"),
@@ -530,7 +532,9 @@ class TestNoVerifyFalse:
 
     def test_no_verify_false_in_production_code(self):
         repo_root = Path(__file__).resolve().parents[2]
-        scopes = ("src/arxmcp/ingest", "src/arxmcp/tools", "src/arxmcp/server")
+        scopes = (
+            "src/arxmcp/settings", "src/arxmcp/ingest", "src/arxmcp/tools", "src/arxmcp/server",
+        )
         offenders: list[str] = []
         for scope in scopes:
             base = repo_root / scope
@@ -624,7 +628,7 @@ class TestPinArxivCaWiring:
         so callers pass ``context=None`` to ``urlopen`` which uses
         the system trust store. The safe-by-default flag-off posture
         must remain intact post-E13_S07c."""
-        from arxmcp.server.ssl_pin import build_arxiv_ssl_context
+        from arxmcp.settings import build_arxiv_ssl_context
 
         monkeypatch.delenv("ARXMCP_PIN_ARXIV_CA", raising=False)
         monkeypatch.setenv("ARXMCP_DATA_DIR", str(tmp_path))
@@ -644,7 +648,7 @@ class TestPinArxivCaWiring:
         ``ssl.create_default_context(cafile=...)`` semantics)."""
         import ssl as _ssl
 
-        from arxmcp.server.ssl_pin import build_arxiv_ssl_context
+        from arxmcp.settings import build_arxiv_ssl_context
 
         monkeypatch.setenv("ARXMCP_PIN_ARXIV_CA", "1")
         monkeypatch.setenv("ARXMCP_DATA_DIR", str(tmp_path))
@@ -709,7 +713,7 @@ class TestPinArxivCaWiring:
         passes, the factory layer must still raise if the bundle
         is missing at fetch time (e.g. deleted between startup and
         first fetch)."""
-        from arxmcp.server.ssl_pin import (
+        from arxmcp.settings import (
             VENDORED_ARXIV_CA_BUNDLE,
             build_arxiv_ssl_context,
         )
@@ -826,7 +830,7 @@ class TestPinArxivCaWiring:
         """
         import logging
 
-        from arxmcp.server.ssl_pin import resolve_arxiv_ca_bundle
+        from arxmcp.settings import resolve_arxiv_ca_bundle
 
         monkeypatch.setenv("ARXMCP_PIN_ARXIV_CA", "1")
         monkeypatch.setenv("ARXMCP_DATA_DIR", str(tmp_path))

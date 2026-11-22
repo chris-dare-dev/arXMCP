@@ -51,7 +51,7 @@ import pathlib
 import sys
 from dataclasses import dataclass
 
-from arxmcp.ingest.application_paths import ApplicationPaths
+from arxmcp.settings import ApplicationPaths
 
 logger = logging.getLogger(__name__)
 

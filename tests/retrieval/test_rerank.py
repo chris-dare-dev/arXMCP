@@ -619,7 +619,7 @@ class TestShaConstants:
         """``Config.rerank_model_sha`` default MUST equal
         :data:`BGE_RERANKER_COMMIT_SHA` — the constant is the
         single source of truth; the Config field default mirrors."""
-        from arxmcp.server.config import Config
+        from arxmcp.settings import Config
 
         cfg = Config()
         assert cfg.rerank_model_sha == BGE_RERANKER_COMMIT_SHA
@@ -710,8 +710,8 @@ class TestResourcesIntegration:
         self, _seeded_lancedb, monkeypatch
     ):
         import arxmcp.server.query_encoder as qe_mod
-        from arxmcp.server.config import Config
         from arxmcp.server.resources import Resources
+        from arxmcp.settings import Config
 
         monkeypatch.setattr(qe_mod, "_get_model", lambda: object())
         monkeypatch.setattr(qe_mod, "_get_tokenizer", lambda: object())
@@ -753,8 +753,8 @@ class TestOnPathRequiresModel:
         startup load — startup is paid once)."""
         import time as _time
 
-        from arxmcp.server.config import Config
         from arxmcp.server.resources import Resources
+        from arxmcp.settings import Config
 
         lancedb_path, _version = _seeded_lancedb
         cfg = Config(lancedb_path=lancedb_path, enable_rerank=True)

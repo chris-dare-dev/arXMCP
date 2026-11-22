@@ -38,7 +38,6 @@ from arxmcp.ingest.chunk import CHUNKER_VERSION, ChunkRecord
 from arxmcp.ingest.embedder import EMBEDDER_VERSION, EMBEDDING_DIM
 from arxmcp.ingest.schema import EmbedRecord
 from arxmcp.ingest.store import write_chunks
-from arxmcp.server.config import Config
 from arxmcp.server.health import reset_metrics_for_tests
 from arxmcp.server.main import create_app
 from arxmcp.server.resources import (
@@ -47,6 +46,7 @@ from arxmcp.server.resources import (
     Resources,
     Singleflight,
 )
+from arxmcp.settings import Config
 from tests._symlink_support import requires_symlink
 
 # ===========================================================================
@@ -85,23 +85,6 @@ def _seed_corpus(lancedb_path: Path) -> int:
         embedder_version=EMBEDDER_VERSION,
     )
     return write_chunks(chunks, embeddings, lancedb_path=lancedb_path)
-
-
-def _seed_notebook_marker(lancedb_dir: Path) -> None:
-    """Create a notebook ``lancedb`` dir + a ``corpus-version.json``
-    marker so the F3-tightened Config validator's marker check passes.
-
-    Config-only tests (those that construct ``Config`` but do NOT run
-    ``Resources.startup``) need only the marker file to exist — the
-    validator does ``(derived / "corpus-version.json").is_file()``, the
-    same predicate ``Resources.startup`` uses (src/arxmcp/server/resources.py:308).
-    For tests that boot the server end-to-end, use ``_seed_corpus``
-    (writes a real LanceDB table + a real marker).
-    """
-    lancedb_dir.mkdir(parents=True, exist_ok=True)
-    (lancedb_dir / "corpus-version.json").write_text(
-        '{"version": 1}', encoding="utf-8"
-    )
 
 
 @pytest.fixture
@@ -495,13 +478,11 @@ class TestNotebookConfig:
 
     @pytest.fixture
     def notebooks_base(self, tmp_path: Path, monkeypatch):
-        """Redirect the shared notebook-base constant to a tmp dir so
-        the Config validator's notebook_lancedb_path() resolves there."""
-        from arxmcp.ingest import notebooks as _notebook_common
-
+        """Root the application paths in a tmp dir, so Config derives each
+        notebook's dataset under its ``notebooks`` directory."""
+        monkeypatch.setenv("ARXMCP_DATA_DIR", str(tmp_path))
         base = tmp_path / "notebooks"
         base.mkdir()
-        monkeypatch.setattr(_notebook_common, "NOTEBOOKS_BASE", base)
         return base
 
     def test_notebook_unset_keeps_shared_corpus(self, monkeypatch):
@@ -515,7 +496,6 @@ class TestNotebookConfig:
     def test_notebook_set_derives_lancedb_path(self, notebooks_base):
         """AC1 (routing): ARXMCP_NOTEBOOK=<slug> rewrites lancedb_path to
         the per-notebook dataset dir."""
-        _seed_notebook_marker(notebooks_base / "demo-nb" / "lancedb")
         cfg = Config(notebook="demo-nb")
         assert cfg.lancedb_path == (notebooks_base / "demo-nb" / "lancedb").resolve()
 
@@ -529,7 +509,6 @@ class TestNotebookConfig:
 
     def test_notebook_reads_its_own_theorem_names(self, notebooks_base, monkeypatch):
         monkeypatch.delenv("ARXMCP_THEOREM_NAMES_DB_PATH", raising=False)
-        _seed_notebook_marker(notebooks_base / "demo-nb" / "lancedb")
         cfg = Config(notebook="demo-nb")
         assert cfg.theorem_names_db_path == (
             notebooks_base / "demo-nb" / "lancedb" / "derived" / "theorem_names.db"
@@ -543,27 +522,44 @@ class TestNotebookConfig:
         )
 
     def test_explicit_theorem_names_path_wins(self, notebooks_base, tmp_path):
-        _seed_notebook_marker(notebooks_base / "demo-nb" / "lancedb")
         cfg = Config(notebook="demo-nb", theorem_names_db_path=tmp_path / "t.db")
         assert cfg.theorem_names_db_path == tmp_path / "t.db"
 
     def test_notebook_set_via_env(self, notebooks_base, monkeypatch):
         """The slug arrives via ARXMCP_NOTEBOOK env, not just kwargs."""
-        _seed_notebook_marker(notebooks_base / "demo-nb" / "lancedb")
         monkeypatch.setenv("ARXMCP_NOTEBOOK", "demo-nb")
         cfg = Config()
         assert cfg.notebook == "demo-nb"
         assert cfg.lancedb_path == (notebooks_base / "demo-nb" / "lancedb").resolve()
 
     def test_missing_notebook_corpus_clear_error(self, notebooks_base):
-        """AC5: notebook set but never ingested (no lancedb dir) → a
-        clear config-load error naming the ingest command, NOT a deeper
-        CorpusNotIngestedError at Resources.startup."""
-        from pydantic import ValidationError
-
+        """AC5: notebook set but never ingested (no lancedb dir). Loading
+        the config reads no corpus state, so it succeeds; startup then
+        refuses with an error naming the ingest command."""
         # notebooks_base exists but demo-nb/lancedb does not.
-        with pytest.raises(ValidationError, match="notebook_ingest.py demo-nb"):
-            Config(notebook="demo-nb")
+        cfg = Config(notebook="demo-nb")
+        with pytest.raises(CorpusNotIngestedError, match="notebook_ingest.py demo-nb"):
+            asyncio.run(Resources.startup(cfg))
+
+    def test_missing_notebook_corpus_refused_in_bootstrap_mode(self, notebooks_base):
+        """Bootstrap mode serves a stub only for the shared corpus: a named
+        notebook that was never ingested is still refused at startup."""
+        cfg = Config(notebook="demo-nb", bootstrap_mode=True)
+        with pytest.raises(CorpusNotIngestedError, match="notebook_ingest.py demo-nb"):
+            asyncio.run(Resources.startup(cfg))
+
+    @requires_symlink
+    def test_symlinked_notebook_refused_at_startup(self, notebooks_base, tmp_path):
+        """Threat 1: a notebook directory that is a symlink is refused at
+        startup, even when its target holds an ingested corpus."""
+        from arxmcp.server.resources import ResourceStartupError
+
+        real = tmp_path / "elsewhere"
+        _seed_corpus(real / "lancedb")
+        (notebooks_base / "spooky").symlink_to(real, target_is_directory=True)
+        cfg = Config(notebook="spooky")
+        with pytest.raises(ResourceStartupError, match="symlink"):
+            asyncio.run(Resources.startup(cfg))
 
     def test_ac5_named_ingest_script_exists(self):
         """F5 rectification: the AC5 remediation message (and the
@@ -580,21 +576,18 @@ class TestNotebookConfig:
 
     def test_notebook_dir_present_but_marker_absent_rejected(self, notebooks_base):
         """F3 rectification: a partial-ingest state where the lancedb DIR
-        exists but ``corpus-version.json`` is missing must be rejected at
-        config-load with the SAME clean error as a fully-missing corpus —
-        NOT pass the gate then die later with CorpusNotIngestedError at
-        Resources.startup. Tightening ``is_dir()`` → marker-file check
-        makes the config gate share one contract with the startup gate."""
-        from pydantic import ValidationError
-
+        exists but ``corpus-version.json`` is missing is refused with the
+        SAME clean error as a fully-missing corpus: the gate checks the
+        marker file, not the directory."""
         # Dir present, marker absent (the partial-ingest gap).
         (notebooks_base / "demo-nb" / "lancedb").mkdir(parents=True)
-        with pytest.raises(ValidationError, match="notebook_ingest.py demo-nb"):
-            Config(notebook="demo-nb")
+        cfg = Config(notebook="demo-nb")
+        with pytest.raises(CorpusNotIngestedError, match="notebook_ingest.py demo-nb"):
+            asyncio.run(Resources.startup(cfg))
 
     def test_notebook_slug_traversal_rejected(self, notebooks_base):
         """Threat 1: a path-traversal slug is rejected at config-load
-        (inherited from notebook_lancedb_path → notebook_dir → validate_slug)."""
+        by the notebook slug rule."""
         from pydantic import ValidationError
 
         for bad in ("../etc", "..", "a/b", "ABC", "x"):  # traversal / slash / upper / too-short
@@ -607,7 +600,6 @@ class TestNotebookConfig:
         operator must pick one substrate."""
         from pydantic import ValidationError
 
-        _seed_notebook_marker(notebooks_base / "demo-nb" / "lancedb")
         with pytest.raises(ValidationError, match="not.*both|either"):
             Config(notebook="demo-nb", lancedb_path=Path("/some/other/corpus"))
 
@@ -617,7 +609,6 @@ class TestNotebookConfig:
         default override is a no-op). Common foot-gun: an operator carries
         a baseline ARXMCP_LANCEDB_PATH in a shell profile. The notebook
         derivation proceeds and wins."""
-        _seed_notebook_marker(notebooks_base / "demo-nb" / "lancedb")
         cfg = Config(
             notebook="demo-nb",
             lancedb_path=Config.model_fields["lancedb_path"].default,
@@ -637,7 +628,6 @@ class TestNotebookConfig:
         set explicitly — the autouse _patched_cache_db_path fixture sets
         it, so this test removes it to exercise the production posture."""
         monkeypatch.delenv("ARXMCP_CACHE_DB_PATH", raising=False)
-        _seed_notebook_marker(notebooks_base / "demo-nb" / "lancedb")
         cfg = Config(notebook="demo-nb")
         assert (
             cfg.cache_db_path
@@ -651,8 +641,6 @@ class TestNotebookConfig:
         even if their corpus_version integers collide (per-dataset MVCC
         means version=1 is reused across notebooks)."""
         monkeypatch.delenv("ARXMCP_CACHE_DB_PATH", raising=False)
-        _seed_notebook_marker(notebooks_base / "alpha-nb" / "lancedb")
-        _seed_notebook_marker(notebooks_base / "beta-nb" / "lancedb")
         cfg_a = Config(notebook="alpha-nb")
         cfg_b = Config(notebook="beta-nb")
         assert cfg_a.cache_db_path != cfg_b.cache_db_path
@@ -666,7 +654,6 @@ class TestNotebookConfig:
         here we honor rather than reject, since the cache is non-corpus
         state and a deliberate shared cache is a valid operator choice.)"""
         monkeypatch.delenv("ARXMCP_CACHE_DB_PATH", raising=False)
-        _seed_notebook_marker(notebooks_base / "demo-nb" / "lancedb")
         explicit = notebooks_base / "operator-chosen" / "cache.db"
         cfg = Config(notebook="demo-nb", cache_db_path=explicit)
         assert cfg.cache_db_path == explicit
@@ -679,8 +666,6 @@ class TestNotebookConfig:
         Configs share one SQLite file and a relaunch from A to B within
         the TTL serves A's chunks for a B query."""
         monkeypatch.delenv("ARXMCP_CACHE_DB_PATH", raising=False)
-        _seed_notebook_marker(notebooks_base / "alpha-nb" / "lancedb")
-        _seed_notebook_marker(notebooks_base / "beta-nb" / "lancedb")
         cfg_a = Config(notebook="alpha-nb")
         cfg_b = Config(notebook="beta-nb")
         assert cfg_a.cache_db_path != cfg_b.cache_db_path
@@ -720,7 +705,6 @@ class TestNotebookConfig:
         """A notebook-routed config reads the BM25 index inside its own
         dataset."""
         monkeypatch.delenv("ARXMCP_BM25_INDEX_ROOT", raising=False)
-        _seed_notebook_marker(notebooks_base / "demo-nb" / "lancedb")
         cfg = Config(notebook="demo-nb")
         expected = (notebooks_base / "demo-nb" / "lancedb" / "derived" / "bm25").resolve()
         assert cfg.bm25_index_root == expected, (
@@ -735,8 +719,6 @@ class TestNotebookConfig:
         DISTINCT BM25 roots even when their corpus_version integers
         collide (per-dataset MVCC means version=1 is reused)."""
         monkeypatch.delenv("ARXMCP_BM25_INDEX_ROOT", raising=False)
-        _seed_notebook_marker(notebooks_base / "alpha-nb" / "lancedb")
-        _seed_notebook_marker(notebooks_base / "beta-nb" / "lancedb")
         cfg_a = Config(notebook="alpha-nb")
         cfg_b = Config(notebook="beta-nb")
         assert cfg_a.bm25_index_root != cfg_b.bm25_index_root, (
@@ -973,8 +955,8 @@ class TestRouteSurface:
         mount is present in ``app.routes`` — the route exists; the
         wire-up of the session-manager lifespan is E06_S03 territory.
         """
-        from arxmcp.server.config import Config
         from arxmcp.server.main import create_app
+        from arxmcp.settings import Config
 
         app = create_app(Config())
         # Find the /mcp Mount in app.routes.

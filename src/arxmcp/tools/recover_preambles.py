@@ -64,7 +64,7 @@ from arxmcp.ingest.preamble import (
     PER_PAPER_FAILURE_EXCEPTIONS as PREAMBLE_FAILURES,
 )
 from arxmcp.ingest.preamble import extract_preamble
-from arxmcp.server.ssl_pin import arxiv_ssl_context_from_env
+from arxmcp.settings import arxiv_ssl_context_from_env
 
 logger = logging.getLogger("recover_preambles")
 

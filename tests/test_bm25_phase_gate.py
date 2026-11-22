@@ -21,7 +21,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
-from arxmcp.server.config import Config
+from arxmcp.settings import Config
 
 
 def _rows(start: int, count: int) -> list[dict[str, Any]]:

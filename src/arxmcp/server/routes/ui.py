@@ -37,7 +37,6 @@ from fastapi.responses import HTMLResponse, Response
 from fastapi.templating import Jinja2Templates
 from markupsafe import Markup
 
-from arxmcp.ingest.application_paths import ApplicationPaths
 from arxmcp.ingest.identifiers import is_valid_arxiv_paper_id
 from arxmcp.ingest.notebooks import (
     CORPUS_PARSED_DIR,
@@ -53,6 +52,7 @@ from arxmcp.server.routes.notebooks import (
     get_application_paths,
     get_notebooks_store,
 )
+from arxmcp.settings import ApplicationPaths
 
 if TYPE_CHECKING:
     from arxmcp.server.notebooks_store import NotebooksStore

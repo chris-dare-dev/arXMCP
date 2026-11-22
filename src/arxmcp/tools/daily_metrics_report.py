@@ -70,7 +70,7 @@ TOOLS: tuple[str, ...] = (
 CACHE_TIERS: tuple[str, ...] = ("1", "2", "3")
 
 #: Default MCP server endpoint for the cron path. Matches
-#: ``src/arxmcp/server/config.py::Config.bind_port`` default (7733).
+#: ``src/arxmcp/settings/config.py::Config.bind_port`` default (7733).
 DEFAULT_METRICS_URL: str = "http://127.0.0.1:7733/metrics"
 
 #: Default output directory relative to repo root.

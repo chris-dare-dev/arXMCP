@@ -718,8 +718,8 @@ class TestResourcesIntegration:
     ):
         # Mock BGE-M3 model + tokenizer load (no download in CI).
         import arxmcp.server.query_encoder as qe_mod
-        from arxmcp.server.config import Config
         from arxmcp.server.resources import Resources
+        from arxmcp.settings import Config
 
         original_get_model = qe_mod._get_model
         original_get_tok = qe_mod._get_tokenizer

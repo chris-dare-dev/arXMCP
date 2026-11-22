@@ -15,11 +15,11 @@ Hanging the console script off ``arxmcp.server.main:main`` would therefore run
 before argparse ever saw the ``--help``. This module imports
 :mod:`arxmcp.server.main` lazily, *inside* :func:`main`, so ``--help`` and
 ``--version`` are pure argparse and cost nothing; ``--list-config``
-imports only :mod:`arxmcp.server.config`.
+imports only :mod:`arxmcp.settings.config`.
 
 **Config comes from the environment, not from flags.** The CLI surface is
 deliberately minimal: bind host/port, data dir, log level and every other
-knob are ``ARXMCP_*`` env vars parsed by :class:`arxmcp.server.config.Config`
+knob are ``ARXMCP_*`` env vars parsed by :class:`arxmcp.settings.Config`
 (and an unknown ``ARXMCP_*`` var is a startup error — see
 :func:`arxmcp.server.main._scan_unknown_arxmcp_env_vars`). Adding flags here
 would create a second source of truth that the container, the systemd
@@ -125,9 +125,9 @@ def config_reference() -> str:
     """Every ``ARXMCP_*`` setting with its type, default and description.
 
     Read from ``Config.model_fields``, so a field added to
-    :class:`arxmcp.server.config.Config` appears here without another edit.
+    :class:`arxmcp.settings.Config` appears here without another edit.
     """
-    from arxmcp.server.config import Config  # noqa: PLC0415
+    from arxmcp.settings import Config  # noqa: PLC0415
 
     blocks = []
     for name, info in Config.model_fields.items():
@@ -220,7 +220,7 @@ def _format_config_error(exc: BaseException) -> str:
         details = errors()
     except Exception:  # noqa: BLE001 — never let formatting mask the error
         return str(exc)
-    from arxmcp.server.config import CONFIG_REFERENCE_HINT, Config  # noqa: PLC0415
+    from arxmcp.settings import CONFIG_REFERENCE_HINT, Config  # noqa: PLC0415
 
     prefix = Config.model_config["env_prefix"]
     lines = []
@@ -276,8 +276,8 @@ def main(argv: list[str] | None = None) -> int:
         # IMPORT, before the guarded Config() below was ever reached, and the
         # pydantic traceback escaped this handler entirely. The guard looked
         # correct and covered nothing.
-        from arxmcp.server.config import Config
         from arxmcp.server.main import _scan_unknown_arxmcp_env_vars
+        from arxmcp.settings import Config
 
         cfg = Config()
         _scan_unknown_arxmcp_env_vars(cfg)
@@ -320,7 +320,7 @@ def main(argv: list[str] | None = None) -> int:
     # ``Config.validate_arxiv_ca_bundle`` (fail-closed); this log line just
     # makes the active pin visible in the operational log.
     if cfg.pin_arxiv_ca:
-        from arxmcp.server.ssl_pin import resolve_arxiv_ca_bundle
+        from arxmcp.settings import resolve_arxiv_ca_bundle
 
         logger.info(
             "ARXMCP_PIN_ARXIV_CA=1 set; using pinned CA bundle at %s "

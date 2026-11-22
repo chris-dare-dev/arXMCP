@@ -63,8 +63,8 @@ from arxmcp.server.tools import (
 if TYPE_CHECKING:
     from mcp.server.fastmcp import FastMCP
 
-    from arxmcp.ingest.application_paths import ApplicationPaths
     from arxmcp.server.notebooks_store import NotebooksStore
+    from arxmcp.settings import ApplicationPaths
 
 logger = logging.getLogger(__name__)
 

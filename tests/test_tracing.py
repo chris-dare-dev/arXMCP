@@ -33,7 +33,6 @@ from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
     InMemorySpanExporter,
 )
 
-from arxmcp.server.config import Config
 from arxmcp.server.observability import tracing as tracing_mod
 from arxmcp.server.observability.tracing import (
     current_agent_role,
@@ -47,6 +46,7 @@ from arxmcp.server.observability.tracing import (
     span_rerank,
     span_tool_call,
 )
+from arxmcp.settings import Config
 
 # ===========================================================================
 # Shared fixtures

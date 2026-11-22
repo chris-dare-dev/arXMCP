@@ -702,8 +702,8 @@ def _default_compute_eval(
     """
     from arxmcp.ingest.corpus import open_chunks_table  # noqa: PLC0415
     from arxmcp.ops.retrieval_eval import run_hybrid_against_corpus  # noqa: PLC0415
-    from arxmcp.server.config import Config  # noqa: PLC0415
     from arxmcp.server.query_encoder import encode_query  # noqa: PLC0415
+    from arxmcp.settings import Config  # noqa: PLC0415
 
     # Build a Config with the requested rerank flag. Mirrors the
     # E07_S04 eval harness path so a watchdog run sees the same

@@ -24,7 +24,7 @@ exclude = ["arxmcp.tools.desktop_lifecycle_spike*"]
 "arxmcp.server.schemas" = ["*.json"]
 # The pinned arxiv CA bundle. Without it ARXMCP_PIN_ARXIV_CA=1 fails
 # Config validation on any install that is not a source checkout.
-"arxmcp.server.ca" = ["*.pem"]
+"arxmcp.settings.ca" = ["*.pem"]
 "arxmcp.ingest" = ["*.sh"]
 "arxmcp.tools" = ["*.sh", "seed-papers.txt"]
 # The shell, cron and systemd halves of ops are what an operator invokes.
@@ -382,28 +382,23 @@ include_external_packages = false
 
 [[tool.importlinter.contracts]]
 # Invariant: a box imports only the boxes below it. ops and tools sit on top,
-# then server, with ingest at the base. The exceptions list only shrinks.
+# then server, then ingest, with settings at the base. The exceptions list
+# only shrinks.
 name = "Boxes import downward only"
 type = "layers"
 layers = [
     "arxmcp.ops | arxmcp.tools",
     "arxmcp.server",
     "arxmcp.ingest",
+    "arxmcp.settings",
 ]
 ignore_imports = [
-    "arxmcp.ingest.arxiv_fetch -> arxmcp.server.operator_settings",
-    "arxmcp.ingest.bulk_ingest -> arxmcp.server.ssl_pin",
     "arxmcp.ingest.chunker -> arxmcp.server.model_loader",
     "arxmcp.ingest.embedder -> arxmcp.server.model_loader",
-    "arxmcp.ingest.graph_ingest -> arxmcp.server.operator_settings",
     "arxmcp.ingest.graph_ingest -> arxmcp.tools.fetch_seed",
-    "arxmcp.ingest.inspire_ingest -> arxmcp.server.operator_settings",
     "arxmcp.ingest.inspire_ingest -> arxmcp.tools.fetch_seed",
     "arxmcp.ingest.intra_paper_refs -> arxmcp.tools.fetch_seed",
-    "arxmcp.ingest.notebooks -> arxmcp.server.operator_settings",
-    "arxmcp.ingest.notebooks -> arxmcp.server.ssl_pin",
     "arxmcp.ingest.re_embed -> arxmcp.tools.notebook_textbook_ingest",
-    "arxmcp.ingest.textbook_parser -> arxmcp.server.operator_settings",
 ]
 
 [[tool.importlinter.contracts]]
@@ -412,4 +407,6 @@ ignore_imports = [
 name = "The shim imports no other box"
 type = "forbidden"
 source_modules = ["arxmcp.shim"]
-forbidden_modules = ["arxmcp.server", "arxmcp.ingest", "arxmcp.ops", "arxmcp.tools"]
+forbidden_modules = [
+    "arxmcp.server", "arxmcp.ingest", "arxmcp.ops", "arxmcp.settings", "arxmcp.tools",
+]

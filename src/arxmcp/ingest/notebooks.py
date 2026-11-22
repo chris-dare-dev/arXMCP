@@ -1,12 +1,12 @@
 """Shared helpers for the notebook CLI tools (proof-verify-handler-wiring-m6).
 
-This module is the single source of truth for the notebook slug regex and
-the per-notebook path layout (Variant 1: global `corpus/`, per-notebook
+This module is the single source of truth for slug validation and the
+per-notebook path layout (Variant 1: global `corpus/`, per-notebook
 `lancedb/`).  Importing it from each of the four ``tools/notebook_*.py``
 CLI scripts guarantees the four scripts share the same path constants
 and slug validation.
 
-The slug regex (``^[a-z][a-z0-9-]{2,30}$``) is the FIRST-LINE defense
+The slug regex (:data:`arxmcp.settings.NOTEBOOK_SLUG_RE`) is the FIRST-LINE defense
 against path traversal (Threat 1). A path containment check at
 ``(notebooks_base / slug).resolve()`` is the belt-and-braces secondary
 check.
@@ -16,12 +16,11 @@ from __future__ import annotations
 
 import gzip
 import logging
-import re
 import tarfile
 import urllib.error
 from pathlib import Path
 
-from arxmcp.ingest.application_paths import ApplicationPaths
+from arxmcp.settings import NOTEBOOK_SLUG_RE, ApplicationPaths
 
 logger = logging.getLogger("notebook_common")
 
@@ -41,13 +40,6 @@ CORPUS_EMBEDDINGS_DIR: Path = _APPLICATION_PATHS.corpus / "embeddings"
 # is the PARENT dir, never the per-paper subdir.
 CORPUS_RAW_DIR: Path = _APPLICATION_PATHS.corpus / "raw"
 
-# Slug regex — same constraint the roadmap skill applies to its own
-# slugs. Lowercase ASCII + digits + hyphens, 3-31 chars, must start
-# with a letter. Rejects ``..``, slashes, shell metacharacters,
-# uppercase, leading hyphen.
-SLUG_RE: re.Pattern[str] = re.compile(r"^[a-z][a-z0-9-]{2,30}$")
-
-
 class NotebookError(RuntimeError):
     """Raised by any notebook helper when a precondition fails.
 
@@ -57,7 +49,7 @@ class NotebookError(RuntimeError):
 
 
 def validate_slug(slug: str) -> None:
-    """Reject any slug that doesn't match :data:`SLUG_RE`.
+    """Reject any slug that doesn't match :data:`arxmcp.settings.NOTEBOOK_SLUG_RE`.
 
     Raises :class:`NotebookError` (a :class:`RuntimeError` subclass).
     This is the FIRST check every script's ``main()`` performs, before
@@ -67,10 +59,10 @@ def validate_slug(slug: str) -> None:
         raise NotebookError(
             f"slug must be a string, got {type(slug).__name__}"
         )
-    if not SLUG_RE.fullmatch(slug):
+    if not NOTEBOOK_SLUG_RE.fullmatch(slug):
         raise NotebookError(
             f"invalid notebook slug {slug!r}: must match "
-            f"{SLUG_RE.pattern!r} (lowercase letter start, then "
+            f"{NOTEBOOK_SLUG_RE.pattern!r} (lowercase letter start, then "
             f"3-30 chars of [a-z0-9-]). This rule rejects path "
             f"traversal (../, slashes), uppercase, and shell "
             f"metacharacters."
@@ -135,7 +127,7 @@ def notebook_lancedb_path(slug: str, *, base: Path | None = None) -> Path:
     path is safe to hand to ``lancedb.connect``.
 
     **Shared seam (stepping-stone shaping, notebook-retrieval-m1 AC8):**
-    both the fork-C startup path (`src/arxmcp/server/config.py` deriving
+    both the fork-C startup path (`src/arxmcp/settings/config.py` deriving
     ``lancedb_path`` from ``ARXMCP_NOTEBOOK``) AND the future fork-A
     per-request routing path (`filters.notebook=<slug>`) call THIS
     helper, so the C→A migration is additive — A does not re-derive
@@ -159,7 +151,7 @@ def resolve_contact_email(
 
     1. **Explicit ``arg``** — the caller already has it (e.g. an
        ``--email`` CLI flag was passed). Wins outright.
-    2. **SQLite via :func:`arxmcp.server.operator_settings.get_contact_email`**
+    2. **SQLite via :func:`arxmcp.settings.operator.get_contact_email`**
        — the persisted operator pref set by
        ``make init NOTEBOOK=… EMAIL=…``. Sticky across shell restarts.
        This is the m2 mechanism that lets the CLI fetch tools work
@@ -188,7 +180,7 @@ def resolve_contact_email(
     # a stripped-down virtualenv during early bootstrap).
     import os  # noqa: PLC0415
 
-    from arxmcp.server.operator_settings import get_contact_email
+    from arxmcp.settings import get_contact_email
 
     persisted = get_contact_email(db_path)
     env_value = os.environ.get("ARXMCP_CONTACT_EMAIL")
@@ -300,7 +292,7 @@ def fetch_raw_tex_if_missing(
     # from arxmcp.ingest.notebooks, but keeping the import lazy means tests
     # that don't exercise the raw-tex path don't pay the import cost.
     from arxmcp.ingest.arxiv_fetch import fetch_eprint  # noqa: PLC0415
-    from arxmcp.server.ssl_pin import arxiv_ssl_context_from_env  # noqa: PLC0415
+    from arxmcp.settings import arxiv_ssl_context_from_env  # noqa: PLC0415
 
     try:
         fetch_eprint(
@@ -370,7 +362,6 @@ __all__ = [
     "NOTEBOOKS_BASE",
     "NotebookError",
     "REPO_ROOT",
-    "SLUG_RE",
     "fetch_raw_tex_if_missing",
     "notebook_dir",
     "notebook_lancedb_path",

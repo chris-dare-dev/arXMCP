@@ -59,8 +59,6 @@ from typing import TYPE_CHECKING
 
 from bs4 import BeautifulSoup, NavigableString, Tag
 
-from arxmcp.ingest.application_paths import ApplicationPaths
-
 # The record, its version and the chunk-id hash live in arxmcp.ingest.chunk. The id
 # function is imported under its bare name so ``_chunk_paper_impl`` resolves
 # it in this module's namespace (tests patch ``arxmcp.ingest.chunker._compute_chunk_id``
@@ -68,6 +66,7 @@ from arxmcp.ingest.application_paths import ApplicationPaths
 from arxmcp.ingest.chunk import CHUNKER_VERSION, ChunkRecord, _compute_chunk_id
 from arxmcp.ingest.hidden_text import count_by_kind, scan_hidden_text
 from arxmcp.ingest.tokenizer import tokenize_body
+from arxmcp.settings import ApplicationPaths
 
 if TYPE_CHECKING:
     pass

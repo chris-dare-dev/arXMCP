@@ -8,7 +8,7 @@ JSON-RPC frames over Streamable HTTP to ``--server`` (default
 
 **Loopback-only** (Threat 4, egress side). The ``--server`` URL host MUST be one of
 ``127.0.0.1``, ``::1``, or ``localhost``. The server-side
-:class:`arxmcp.server.config.Config` enforces the symmetric LISTEN-side
+:class:`arxmcp.settings.Config` enforces the symmetric LISTEN-side
 guard; the shim closes the EGRESS-side gap. A misconfigured or
 malicious ``~/.claude.json`` pointing at a remote host is rejected
 at startup with a clear FATAL message rather than silently

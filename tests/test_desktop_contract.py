@@ -705,7 +705,9 @@ def test_desktop_readme_never_claims_a_descendant_free_child() -> None:
     re-assert descendant-freedom."""
     spawners = sorted(
         path
-        for tree in ("src/arxmcp/server", "src/arxmcp/ingest", "src/arxmcp/tools")
+        for tree in (
+            "src/arxmcp/settings", "src/arxmcp/server", "src/arxmcp/ingest", "src/arxmcp/tools",
+        )
         for path in (REPO_ROOT / tree).rglob("*.py")
         if re.search(
             r"create_subprocess_exec|subprocess\.(?:Popen|run)",

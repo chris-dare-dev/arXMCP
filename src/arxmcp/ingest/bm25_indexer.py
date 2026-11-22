@@ -84,8 +84,8 @@ from pathlib import Path
 
 from rank_bm25 import BM25Okapi
 
-from arxmcp.ingest.application_paths import ApplicationPaths
 from arxmcp.ingest.corpus import open_chunks_table, project_columns
+from arxmcp.settings import ApplicationPaths
 
 logger = logging.getLogger(__name__)
 
@@ -118,7 +118,7 @@ def resolve_bm25_root(
     """
     if index_root is not None:
         return Path(index_root)
-    from arxmcp.ingest.application_paths import derived_index_path
+    from arxmcp.settings import derived_index_path
 
     return derived_index_path(lancedb_path, BM25_DIR_NAME)
 

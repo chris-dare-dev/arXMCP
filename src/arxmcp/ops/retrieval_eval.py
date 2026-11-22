@@ -58,8 +58,8 @@ def run_hybrid_against_corpus(
     BM25 phase does not load, including when its artifact fails the
     cross-check against the live chunks table.
     """
-    from arxmcp.server.config import Config  # noqa: PLC0415
     from arxmcp.server.resources import Resources  # noqa: PLC0415
+    from arxmcp.settings import Config  # noqa: PLC0415
 
     # Config() reads every declared ARXMCP_* variable, so a stray value
     # in the operator's shell fails here. Name the likely cause.

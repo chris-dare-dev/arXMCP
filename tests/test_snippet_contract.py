@@ -26,10 +26,10 @@ from fastapi.testclient import TestClient
 from jsonschema import Draft7Validator
 
 from arxmcp.ingest.embedder import EMBEDDING_DIM
-from arxmcp.server.config import Config
 from arxmcp.server.health import reset_metrics_for_tests
 from arxmcp.server.main import create_app
 from arxmcp.server.tools import reset_resources_for_tests
+from arxmcp.settings import Config
 from tests.test_tools_all import _call_tool, _seed_corpus
 
 REPO_ROOT = Path(__file__).resolve().parent.parent

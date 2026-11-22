@@ -3,13 +3,13 @@ from pathlib import Path
 import kuzu
 import pytest
 
-import arxmcp.ingest.application_paths as paths_module
-from arxmcp.ingest.application_paths import (
+import arxmcp.settings.application_paths as paths_module
+from arxmcp.settings import (
     COMPATIBILITY_ALIAS_FIELDS,
     ApplicationPathError,
     ApplicationPaths,
+    Config,
 )
-from arxmcp.server.config import Config
 from tests._symlink_support import requires_symlink
 
 

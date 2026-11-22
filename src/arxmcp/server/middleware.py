@@ -47,7 +47,7 @@ only when** :func:`mcp.server.fastmcp.FastMCP.__init__` auto-enables
 it (which happens when the configured ``host`` is in
 ``("127.0.0.1", "localhost", "::1")``; see
 ``mcp/server/fastmcp/server.py:178``). Because
-:func:`arxmcp.server.config.Config.reject_non_loopback_bind` already pins the
+:func:`arxmcp.settings.Config.reject_non_loopback_bind` already pins the
 host to a loopback value, FastMCP's protection IS active in the
 v1 server — but the dependency is implicit. **Operators must NOT
 construct FastMCP with a non-loopback host even in tests, or the
@@ -67,7 +67,7 @@ the E06_S05 critique.
 
 The first MUST is satisfied by :class:`OriginValidationMiddleware`.
 The second SHOULD is satisfied by the existing
-:func:`arxmcp.server.config.Config.reject_non_loopback_bind` validator
+:func:`arxmcp.settings.Config.reject_non_loopback_bind` validator
 (escalated from SHOULD to MUST for our deployment per the brief).
 """
 
@@ -440,7 +440,7 @@ class OriginValidationMiddleware:
         allowed_origins: Optional iterable of additional Origin
             strings (full URLs, lowercase recommended) to accept
             beyond the hardcoded loopback floor. From
-            :attr:`arxmcp.server.config.Config.allowed_origins`. Empty
+            :attr:`arxmcp.settings.Config.allowed_origins`. Empty
             list = loopback-only (default; preserves E06_S05
             behavior).
     """

@@ -189,14 +189,13 @@ else:
 def _mineru_bin_from_operator_settings() -> str | None:
     """Read the persisted ``mineru_bin`` path, or ``None`` if unavailable.
 
-    Local import + broad degrade (ingest-robustness-m1 AC3): ``ingest`` must
-    not hard-depend on the ``server`` package at import time, and a missing
+    Local import + broad degrade (ingest-robustness-m1 AC3): a missing
     ``notebooks.db`` (or ANY read error) must fall through to the next
     resolution tier rather than raise — a parse on a box that never ran
     ``make init`` still resolves via ``shutil.which`` below.
     """
     try:
-        from arxmcp.server.operator_settings import get_mineru_bin  # noqa: PLC0415
+        from arxmcp.settings import get_mineru_bin  # noqa: PLC0415
 
         value = get_mineru_bin()
     except Exception:  # noqa: BLE001 — degrade to the next tier on any failure

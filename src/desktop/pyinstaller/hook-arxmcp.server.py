@@ -11,7 +11,8 @@ because its only launch was a rejected one). ``src/arxmcp/server/router.py`` and
 This is CLAUDE.md §4.5b's rule one layer down: declaring the package ships its
 modules and nothing else, at BOTH the wheel and the freeze boundary. One hook
 per box package named in ``[tool.setuptools.package-data]`` —
-``hook-arxmcp.ingest.py`` / ``hook-arxmcp.ops.py`` / ``hook-arxmcp.tools.py`` are the siblings, and
+``hook-arxmcp.ingest.py`` / ``hook-arxmcp.ops.py`` / ``hook-arxmcp.settings.py`` /
+``hook-arxmcp.tools.py`` are the siblings, and
 the gate test derives the list from that table rather than repeating it.
 """
 

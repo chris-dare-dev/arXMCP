@@ -72,10 +72,10 @@ from typing import Any
 
 import pytest
 
-from arxmcp.server.config import Config
 from arxmcp.server.health import reset_metrics_for_tests
 from arxmcp.server.main import create_app
 from arxmcp.server.tools import ALL_TOOLS, TOOL_SCHEMA_VERSION, reset_resources_for_tests
+from arxmcp.settings import Config
 
 # ---------------------------------------------------------------------------
 # Pinned hash (the load-bearing constant)

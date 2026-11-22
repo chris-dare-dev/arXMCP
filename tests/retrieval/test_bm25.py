@@ -927,8 +927,8 @@ class TestResourcesIntegration:
         ``r.bm25_phase`` with a working ``BM25Phase`` instance."""
         # Mock BGE-M3 so we don't pay the model download in CI.
         import arxmcp.server.query_encoder as qe_mod
-        from arxmcp.server.config import Config
         from arxmcp.server.resources import Resources
+        from arxmcp.settings import Config
 
         original_get_model = qe_mod._get_model
         original_get_tok = qe_mod._get_tokenizer

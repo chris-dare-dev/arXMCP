@@ -68,7 +68,7 @@ Enforced at config-parse time, request-handling time, or via the test suite.
 
 | Invariant | Enforced by |
 |---|---|
-| **Loopback-only bind** (`127.0.0.1` / `::1`; refuses `0.0.0.0`). | `src/arxmcp/server/config.py::reject_non_loopback` |
+| **Loopback-only bind** (`127.0.0.1` / `::1`; refuses `0.0.0.0`). | `src/arxmcp/settings/config.py::reject_non_loopback` |
 | **Origin pinning** — MCP 2025-06-18 MUST; 403 on non-loopback `Origin`. | `src/arxmcp/server/middleware.py::OriginValidationMiddleware` |
 | **Host pinning** — DNS-rebinding defense (Threat 5). | `src/arxmcp/server/middleware.py::HostValidationMiddleware` |
 | **Request body cap** — 1 MB (uvicorn has no native knob). | `src/arxmcp/server/middleware.py::RequestBodySizeLimitMiddleware` |

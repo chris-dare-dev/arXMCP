@@ -162,7 +162,7 @@ class TestResolveMineruBinary:
     ) -> None:
         # env unset, which() empty, but a persisted mineru_bin exists (the
         # conftest fixture isolates operator_settings into tmp) -> resolve it.
-        from arxmcp.server.operator_settings import set_setting
+        from arxmcp.settings import set_setting
 
         fake_bin = tmp_path / "mineru"
         fake_bin.write_text("#!/bin/sh\n")
@@ -174,7 +174,7 @@ class TestResolveMineruBinary:
     def test_operator_settings_stale_path_raises(
         self, monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        from arxmcp.server.operator_settings import set_setting
+        from arxmcp.settings import set_setting
 
         set_setting("mineru_bin", "/gone/mineru")
         monkeypatch.delenv("ARXMCP_MINERU_BIN", raising=False)
@@ -191,7 +191,7 @@ class TestResolveMineruBinary:
         monkeypatch.delenv("ARXMCP_MINERU_BIN", raising=False)
         with (
             patch(
-                "arxmcp.server.operator_settings.get_mineru_bin",
+                "arxmcp.settings.get_mineru_bin",
                 side_effect=RuntimeError("boom"),
             ),
             patch.object(shutil, "which", return_value="/usr/bin/mineru"),

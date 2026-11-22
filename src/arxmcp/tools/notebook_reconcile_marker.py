@@ -49,7 +49,7 @@ from arxmcp.ingest.notebooks import (
 logger = logging.getLogger("notebook_reconcile_marker")
 
 #: Path to the SHARED global corpus's marker (used when ``--shared`` is
-#: passed). Resolves the same way :class:`arxmcp.server.config.Config`
+#: passed). Resolves the same way :class:`arxmcp.settings.Config`
 #: defaults its ``lancedb_path`` field.
 _SHARED_LANCEDB_PATH: Path = Path("var/arxmcp/index/lancedb")
 

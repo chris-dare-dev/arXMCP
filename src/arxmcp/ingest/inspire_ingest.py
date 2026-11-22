@@ -101,7 +101,6 @@ from typing import Any
 
 import kuzu
 
-from arxmcp.ingest.application_paths import ApplicationPaths
 from arxmcp.ingest.arxiv_fetch import (
     DEFAULT_503_BACKOFF_SECONDS,
     MAX_503_BACKOFF_SECONDS,
@@ -116,6 +115,7 @@ from arxmcp.ingest.graph_ingest import (
 )
 from arxmcp.ingest.identifiers import is_valid_arxiv_paper_id
 from arxmcp.ingest.kuzudb_schema import apply_schema
+from arxmcp.settings import ApplicationPaths
 
 
 def _validate_paper_id_either_style(paper_id: str) -> None:
@@ -789,9 +789,9 @@ def main(argv: list[str] | None = None) -> int:
     # onboarding-uplift-m2: priority chain — SQLite operator_settings
     # (via `make init EMAIL=...`) wins over env var; the env var is
     # the historical fallback. Imported directly from
-    # ``arxmcp.server.operator_settings`` to avoid the ``ingest/ → tools/``
+    # ``arxmcp.settings`` to avoid the ``ingest/ → tools/``
     # cross-package import the m2 synthesis §3 D3 flagged.
-    from arxmcp.server.operator_settings import get_contact_email  # noqa: PLC0415
+    from arxmcp.settings import get_contact_email  # noqa: PLC0415
 
     contact_email = get_contact_email() or os.environ.get("ARXMCP_CONTACT_EMAIL")
     if not contact_email:

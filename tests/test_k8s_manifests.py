@@ -33,7 +33,7 @@ K8S_DIR = REPO_ROOT / "deploy" / "k8s"
 EXPECTED_IMAGE = "arxmcp-server:dev"
 #: NodePort the Service must publish (stable, so the shim URL is predictable).
 EXPECTED_NODEPORT = 30733
-#: Container port the server listens on (src/arxmcp/server/config.py DEFAULT_BIND_PORT).
+#: Container port the server listens on (src/arxmcp/settings/config.py DEFAULT_BIND_PORT).
 SERVER_PORT = 7733
 
 
@@ -101,14 +101,14 @@ def test_configmap_required_env_present() -> None:
 
 
 def test_configmap_arxmcp_keys_are_real_config_fields() -> None:
-    """FM-I: src/arxmcp/server/config.py uses env_prefix=ARXMCP_ + extra='forbid' — an
+    """FM-I: src/arxmcp/settings/config.py uses env_prefix=ARXMCP_ + extra='forbid' — an
     unknown ARXMCP_* var crashes the pod at startup. Every ARXMCP_* ConfigMap
     key must map to a declared Config field. Skips only if the server package
     cannot be imported in this environment (keeps the manifest test hermetic)."""
     try:
-        from arxmcp.server.config import Config
+        from arxmcp.settings import Config
     except Exception as exc:  # pragma: no cover - import-environment dependent
-        pytest.skip(f"arxmcp.server.config not importable here: {exc}")
+        pytest.skip(f"arxmcp.settings.config not importable here: {exc}")
 
     field_names = set(Config.model_fields.keys())
     data = _by_kind("ConfigMap")["data"]

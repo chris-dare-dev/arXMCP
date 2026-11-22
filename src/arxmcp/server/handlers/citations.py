@@ -7,7 +7,7 @@ citation-graph read path shipped in E09_S03.
 
 **F2 path-validation contract (E09_S03 critique F2, HIGH).** The Kùzu
 and LanceDB paths passed to the library are derived from
-:class:`arxmcp.server.config.Config` via :func:`arxmcp.server.tools.get_resources` —
+:class:`arxmcp.settings.Config` via :func:`arxmcp.server.tools.get_resources` —
 NEVER from agent-supplied JSON arguments. The agent controls only
 ``chunk_id``, ``direction``, ``depth``, ``limit`` and ``notebook`` (a
 validated slug that selects a notebook's chunks table through

@@ -25,7 +25,7 @@ from pathlib import Path
 
 from starlette.testclient import TestClient
 
-from arxmcp.server.config import Config
+from arxmcp.settings.config import Config
 from arxmcp.server.main import create_app
 
 app = create_app(Config(data_dir=Path(sys.argv[1]), bootstrap_mode=True))

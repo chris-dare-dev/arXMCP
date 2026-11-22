@@ -57,12 +57,12 @@ import pytest
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
-from arxmcp.server.config import LOOPBACK_HOSTS, Config
 from arxmcp.server.main import create_app
 from arxmcp.server.middleware import (
     OriginValidationMiddleware,
     SecFetchSiteMiddleware,
 )
+from arxmcp.settings import LOOPBACK_HOSTS, Config
 
 # ===========================================================================
 # Fixtures

@@ -89,9 +89,9 @@ from __future__ import annotations
 
 from fastapi.testclient import TestClient
 
-from arxmcp.server.config import Config
 from arxmcp.server.health import reset_metrics_for_tests
 from arxmcp.server.main import create_app
+from arxmcp.settings import Config
 from tests._corpus_helpers import (
     patch_bge_m3_model,
     seed_corpus_multi_paper,

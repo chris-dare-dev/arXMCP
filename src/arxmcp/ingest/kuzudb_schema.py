@@ -30,7 +30,7 @@ from pathlib import Path
 
 import kuzu
 
-from arxmcp.ingest.application_paths import ApplicationPaths
+from arxmcp.settings import ApplicationPaths
 
 #: Schema version. Bump whenever ``SCHEMA_STATEMENTS`` mutates so
 #: callers (and downstream cache layers, e.g. ``cite_neighbors`` in

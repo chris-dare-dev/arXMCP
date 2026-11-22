@@ -7,7 +7,7 @@ child spans scope the BGE-M3 forward pass, the LanceDB ANN query,
 and the BGE-reranker-v2-m3 cross-encoder call.
 
 **Tracing disabled is the default.** When
-:data:`arxmcp.server.config.Config.otel_endpoint` is ``None``,
+:data:`arxmcp.settings.Config.otel_endpoint` is ``None``,
 :func:`setup_tracing` returns without registering a
 :class:`opentelemetry.sdk.trace.TracerProvider`. Every
 ``tracer.start_as_current_span(...)`` then takes the
@@ -60,7 +60,7 @@ if TYPE_CHECKING:
 
     from opentelemetry.trace import Span
 
-    from arxmcp.server.config import Config
+    from arxmcp.settings import Config
 
 
 logger = logging.getLogger(__name__)
@@ -188,7 +188,7 @@ _setup_lock: threading.Lock = threading.Lock()
 
 def setup_tracing(config: Config) -> None:
     """Install the OTel ``TracerProvider`` + ``BatchSpanProcessor``
-    when :data:`arxmcp.server.config.Config.otel_endpoint` is set.
+    when :data:`arxmcp.settings.Config.otel_endpoint` is set.
 
     When unset, returns immediately. Every subsequent
     ``tracer.start_as_current_span(...)`` takes the OTel SDK's

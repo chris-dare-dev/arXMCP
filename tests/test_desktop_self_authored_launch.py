@@ -38,8 +38,8 @@ from pathlib import Path
 
 import pytest
 
-from arxmcp.ingest.application_paths import _platform_data_root
 from arxmcp.server.desktop_child import COMPONENT as _DESKTOP_CHILD_COMPONENT
+from arxmcp.settings.application_paths import _platform_data_root
 
 
 def _desktop_package_module():

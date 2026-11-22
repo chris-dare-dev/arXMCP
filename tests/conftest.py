@@ -417,7 +417,7 @@ def _patched_cache_db_path(tmp_path, monkeypatch):
 
 @pytest.fixture(autouse=True)
 def _patched_operator_settings_db(tmp_path, monkeypatch):
-    """Redirect ``arxmcp.server.operator_settings``'s default DB path into ``tmp_path``.
+    """Redirect the operator-settings default DB path into ``tmp_path``.
 
     Direct sibling of ``_patched_cache_db_path`` — same ``var/arxmcp/cache/``
     dir, same checkout-relative-path bug class. ``DEFAULT_DB_PATH`` is the
@@ -442,14 +442,18 @@ def _patched_operator_settings_db(tmp_path, monkeypatch):
     everything after the test.
     """
     try:
-        import arxmcp.server.operator_settings as ops
+        import arxmcp.settings as settings
+        import arxmcp.settings.operator as ops
     except ImportError:
-        # arxmcp.server.operator_settings may not be importable from every test
+        # arxmcp.settings may not be importable from every test
         # environment; the redirect is a no-op when it can't be imported.
         yield
         return
     fake = tmp_path / "cache" / "notebooks.db"
+    # The module global is what the store's own resolver reads; the package
+    # attribute is what callers in other boxes read.
     monkeypatch.setattr(ops, "DEFAULT_DB_PATH", fake)
+    monkeypatch.setattr(settings, "DEFAULT_DB_PATH", fake)
     # Each of these takes db_path as its sole default arg
     # (__defaults__ == (DEFAULT_DB_PATH,)); re-point it at the tmp file.
     # ingest-robustness-m1 AC3 added get_mineru_bin (read by

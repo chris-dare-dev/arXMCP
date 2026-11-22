@@ -183,7 +183,7 @@ def fake_resources(graph_corpus: dict):
     """
     import lancedb
 
-    from arxmcp.server.config import Config
+    from arxmcp.settings import Config
 
     cfg = Config(result_byte_cap=256 * 1024)
 
@@ -441,7 +441,7 @@ def handler_resources(graph_corpus: dict):
     path-validation contract — so this fixture points a real ``Config``
     at the synthetic ``graph_corpus`` paths.
     """
-    from arxmcp.server.config import Config
+    from arxmcp.settings import Config
 
     cfg = Config(
         result_byte_cap=256 * 1024,
@@ -558,8 +558,8 @@ class TestHandlerEndToEnd:
         """When ``Config.kuzu_path`` does not exist (graph not
         ingested), the handler returns ``graph_status='absent'`` + an
         empty ``neighbors`` list rather than erroring."""
-        from arxmcp.server.config import Config
         from arxmcp.server.handlers.citations import handle_cite_neighbors
+        from arxmcp.settings import Config
 
         cfg = Config(
             result_byte_cap=256 * 1024,
@@ -599,8 +599,8 @@ class TestHandlerEndToEnd:
         a 5xx. Covers the half-ingested / corrupt / stray-path
         operator-failure modes the bare Path.exists() guard cannot
         distinguish."""
-        from arxmcp.server.config import Config
         from arxmcp.server.handlers.citations import handle_cite_neighbors
+        from arxmcp.settings import Config
 
         bad_kuzu = tmp_path / "kuzu_is_a_directory"
         bad_kuzu.mkdir()  # exists() is True; Kùzu rejects a directory path.

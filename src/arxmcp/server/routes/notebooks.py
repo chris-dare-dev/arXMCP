@@ -66,7 +66,6 @@ from fastapi import (
 from fastapi.responses import HTMLResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
-from arxmcp.ingest.application_paths import ApplicationPaths
 from arxmcp.ingest.identifiers import is_valid_arxiv_paper_id, is_valid_paper_id
 from arxmcp.ingest.notebooks import (
     NOTEBOOKS_BASE,
@@ -77,7 +76,7 @@ from arxmcp.ingest.notebooks import (
 )
 from arxmcp.ingest.security.pdfid import find_javascript as _pdf_find_javascript
 from arxmcp.server.discovery import discover_for_notebook_async
-from arxmcp.server.operator_settings import get_contact_email
+from arxmcp.settings import ApplicationPaths, get_contact_email
 
 if TYPE_CHECKING:
     from arxmcp.server.discovery import DiscoveryCandidate

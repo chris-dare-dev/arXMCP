@@ -45,7 +45,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-from arxmcp.ingest.application_paths import ApplicationPaths
+from arxmcp.settings import ApplicationPaths
 
 logger = logging.getLogger("re_embed_all")
 

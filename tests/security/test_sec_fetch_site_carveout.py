@@ -36,9 +36,9 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from arxmcp.server.config import Config
 from arxmcp.server.main import create_app
 from arxmcp.server.middleware import SecFetchSiteMiddleware
+from arxmcp.settings import Config
 
 
 def _build_test_client(tmp_path: Path, monkeypatch) -> TestClient:

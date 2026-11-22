@@ -29,7 +29,7 @@
 PYTHON ?= python3
 MIN_PY_MINOR := 11
 # notebook-ops-hardening-m4: port `make status` curls. Mirrors the server
-# default (src/arxmcp/server/config.py DEFAULT_BIND_PORT); override via the env var.
+# default (src/arxmcp/settings/config.py DEFAULT_BIND_PORT); override via the env var.
 ARXMCP_BIND_PORT ?= 7733
 # onboarding-uplift-m2: per-call args for `make init` / `make add`.
 # Override on the command line: `make init NOTEBOOK=demo EMAIL=me@x`.
@@ -99,7 +99,7 @@ help:
 	@echo "  make daily-report           Scrape /metrics and write the daily ops report"
 	@echo "  make parser-failures-report Roll up parser-failures/*.{log,jsonl} into the weekly review"
 	@echo "  make sbom        Generate CycloneDX SBOMs + grype scan (into var/sbom/)"
-	@echo "  make refresh-arxiv-ca       Re-download src/arxmcp/server/ca/arxiv-ca-bundle.pem and verify against live arxiv hosts (E13_S07c)"
+	@echo "  make refresh-arxiv-ca       Re-download src/arxmcp/settings/ca/arxiv-ca-bundle.pem and verify against live arxiv hosts (E13_S07c)"
 	@echo "  make wheel-check            Build the wheel, install it into a throwaway venv, assert ops/ + src/arxmcp/server/frontend/ + console scripts (issue #206; ~10s)"
 	@echo "  make wheel-check-full       Same, but an isolated venv with the REAL deps + an ARXMCP_BOOTSTRAP_MODE=1 boot polled at /healthz. Pre-publish gate (~4 min warm)"
 	@echo "  make desktop-conformance    Build the locked fixture sidecar, then run its Rust/Python contract and lifecycle gate with zero skips"
@@ -281,7 +281,7 @@ Try: make eval PYTHON=python3.$(MIN_PY_MINOR)'"
 # Start the long-running arxmcp-server (E06_S01). Binds to 127.0.0.1
 # only (Threat 4); container deployments expose the port via host
 # port-mapping. Honors ARXMCP_BIND_HOST and ARXMCP_BIND_PORT (and
-# all other ARXMCP_* env vars per src/arxmcp/server/config.py).
+# all other ARXMCP_* env vars per src/arxmcp/settings/config.py).
 #
 # The server eager-loads BGE-M3 at startup (~5-30s) before /readyz
 # flips to 200. Use the docker image (deploy/Dockerfile.server) for
@@ -582,7 +582,7 @@ refresh-arxiv-ca:
 	@# (Threat 7 mitigation #2). Re-downloads the canonical Let's
 	@# Encrypt ISRG Root X1 PEM and verifies the resulting bundle
 	@# accepts the live arxiv.org cert chain BEFORE writing to
-	@# src/arxmcp/server/ca/arxiv-ca-bundle.pem.
+	@# src/arxmcp/settings/ca/arxiv-ca-bundle.pem.
 	@#
 	@# Cadence: ISRG Root X1 is valid until 2035-06-04. Roots
 	@# rotate rarely; intermediates rotate every 60-90 days but the
@@ -598,19 +598,19 @@ refresh-arxiv-ca:
 	@# failure and refresh manually if needed.
 	@command -v curl >/dev/null 2>&1 || { echo "ERROR: curl not found" >&2; exit 1; }
 	@command -v openssl >/dev/null 2>&1 || { echo "ERROR: openssl not found" >&2; exit 1; }
-	@mkdir -p src/arxmcp/server/ca
+	@mkdir -p src/arxmcp/settings/ca
 	@tmp=$$(mktemp); \
 		echo "Fetching ISRG Root X1 from letsencrypt.org..."; \
 		curl -fsSL https://letsencrypt.org/certs/isrgrootx1.pem -o $$tmp || { rm -f $$tmp; echo "ERROR: download failed" >&2; exit 1; }; \
 		echo "Verifying live arxiv.org cert chain against new bundle..."; \
-		openssl s_client -connect arxiv.org:443 -servername arxiv.org -CAfile $$tmp -verify_return_error </dev/null >/dev/null 2>&1 || { rm -f $$tmp; echo "ERROR: live arxiv.org cert does NOT verify against the new bundle. NOT writing src/arxmcp/server/ca/arxiv-ca-bundle.pem." >&2; exit 1; }; \
+		openssl s_client -connect arxiv.org:443 -servername arxiv.org -CAfile $$tmp -verify_return_error </dev/null >/dev/null 2>&1 || { rm -f $$tmp; echo "ERROR: live arxiv.org cert does NOT verify against the new bundle. NOT writing src/arxmcp/settings/ca/arxiv-ca-bundle.pem." >&2; exit 1; }; \
 		echo "Verifying live export.arxiv.org cert chain..."; \
-		openssl s_client -connect export.arxiv.org:443 -servername export.arxiv.org -CAfile $$tmp -verify_return_error </dev/null >/dev/null 2>&1 || { rm -f $$tmp; echo "ERROR: live export.arxiv.org cert does NOT verify against the new bundle. NOT writing src/arxmcp/server/ca/arxiv-ca-bundle.pem." >&2; exit 1; }; \
+		openssl s_client -connect export.arxiv.org:443 -servername export.arxiv.org -CAfile $$tmp -verify_return_error </dev/null >/dev/null 2>&1 || { rm -f $$tmp; echo "ERROR: live export.arxiv.org cert does NOT verify against the new bundle. NOT writing src/arxmcp/settings/ca/arxiv-ca-bundle.pem." >&2; exit 1; }; \
 		echo "Verifying live ar5iv.labs.arxiv.org cert chain..."; \
-		openssl s_client -connect ar5iv.labs.arxiv.org:443 -servername ar5iv.labs.arxiv.org -CAfile $$tmp -verify_return_error </dev/null >/dev/null 2>&1 || { rm -f $$tmp; echo "ERROR: live ar5iv.labs.arxiv.org cert does NOT verify against the new bundle. NOT writing src/arxmcp/server/ca/arxiv-ca-bundle.pem." >&2; exit 1; }; \
-		mv $$tmp src/arxmcp/server/ca/arxiv-ca-bundle.pem || { rm -f $$tmp; echo "ERROR: mv failed; bundle NOT updated (temp file removed)." >&2; exit 1; }; \
-		echo "OK: bundle refreshed at src/arxmcp/server/ca/arxiv-ca-bundle.pem (all three hosts verified)."; \
-		echo "Review the diff and commit: git diff src/arxmcp/server/ca/arxiv-ca-bundle.pem"
+		openssl s_client -connect ar5iv.labs.arxiv.org:443 -servername ar5iv.labs.arxiv.org -CAfile $$tmp -verify_return_error </dev/null >/dev/null 2>&1 || { rm -f $$tmp; echo "ERROR: live ar5iv.labs.arxiv.org cert does NOT verify against the new bundle. NOT writing src/arxmcp/settings/ca/arxiv-ca-bundle.pem." >&2; exit 1; }; \
+		mv $$tmp src/arxmcp/settings/ca/arxiv-ca-bundle.pem || { rm -f $$tmp; echo "ERROR: mv failed; bundle NOT updated (temp file removed)." >&2; exit 1; }; \
+		echo "OK: bundle refreshed at src/arxmcp/settings/ca/arxiv-ca-bundle.pem (all three hosts verified)."; \
+		echo "Review the diff and commit: git diff src/arxmcp/settings/ca/arxiv-ca-bundle.pem"
 
 
 # ============================================================================

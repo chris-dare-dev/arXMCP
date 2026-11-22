@@ -41,8 +41,8 @@ from pathlib import Path
 
 # m2 critique F7 rectification (LOW): single source of truth for the
 # canonical ``notebooks.db`` path. Imported from
-# :mod:`arxmcp.server.operator_settings` rather than redeclared here.
-from arxmcp.server.operator_settings import DEFAULT_DB_PATH
+# :mod:`arxmcp.settings.operator` rather than redeclared here.
+from arxmcp.settings import DEFAULT_DB_PATH
 
 
 def _list_notebooks_read_only(db_path: Path) -> list[tuple[str, str]]:
@@ -53,7 +53,7 @@ def _list_notebooks_read_only(db_path: Path) -> list[tuple[str, str]]:
     attempt raises ``sqlite3.OperationalError`` immediately. A missing
     ``notebooks`` table is treated as "no notebooks yet" — the table
     may legitimately not exist on a fresh file that's only been
-    touched by :class:`arxmcp.server.operator_settings.OperatorSettingsStore`
+    touched by :class:`arxmcp.settings.operator.OperatorSettingsStore`
     (which creates ``operator_settings`` but not ``notebooks``).
     """
     # ``mode=ro`` is a SQLite URI parameter — disables ALL writes

@@ -100,7 +100,6 @@ from typing import Any
 
 import kuzu
 
-from arxmcp.ingest.application_paths import ApplicationPaths
 from arxmcp.ingest.arxiv_fetch import (
     DEFAULT_503_BACKOFF_SECONDS,
     MAX_503_BACKOFF_SECONDS,
@@ -109,6 +108,7 @@ from arxmcp.ingest.arxiv_fetch import (
     validate_paper_id,
 )
 from arxmcp.ingest.kuzudb_schema import apply_schema
+from arxmcp.settings import ApplicationPaths
 from arxmcp.tools.fetch_seed import read_seed_list
 
 logger = logging.getLogger(__name__)
@@ -779,8 +779,8 @@ def main(argv: list[str] | None = None) -> int:
 
     # onboarding-uplift-m2: priority chain — SQLite operator_settings
     # (via `make init EMAIL=...`) wins over env var. Imported directly
-    # from ``arxmcp.server.operator_settings`` (synthesis §3 D3).
-    from arxmcp.server.operator_settings import get_contact_email  # noqa: PLC0415
+    # from ``arxmcp.settings`` (synthesis §3 D3).
+    from arxmcp.settings import get_contact_email  # noqa: PLC0415
 
     contact_email = get_contact_email() or os.environ.get("ARXMCP_CONTACT_EMAIL")
     if not contact_email:

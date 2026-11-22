@@ -5,11 +5,11 @@ from __future__ import annotations
 import re
 from bisect import bisect_left
 
-from arxmcp.ingest.application_paths import ApplicationPaths
 from arxmcp.ingest.arxiv_fetch import find_main_tex
 from arxmcp.ingest.chunk import CHUNKER_VERSION, ChunkRecord, _compute_chunk_id
 from arxmcp.ingest.chunker import STMT_MAX_TOKENS, _window_text_spans
 from arxmcp.ingest.tokenizer import tokenize_body
+from arxmcp.settings import ApplicationPaths
 
 _DECL = re.compile(
     r"\\newtheorem(?P<star>\*)?\{(?P<env>[^}]+)\}"

@@ -324,9 +324,9 @@ def test_a_cacheless_boot_says_cacheless_and_not_warm(
     import arxmcp.server.resources as res_mod
     from arxmcp.ingest.embedder import EMBEDDER_VERSION
     from arxmcp.ingest.schema import CHUNKS_SCHEMA_V1
-    from arxmcp.server.config import Config
     from arxmcp.server.resources import Resources
     from arxmcp.server.retrieval import BM25Phase
+    from arxmcp.settings import Config
 
     rows = [
         {

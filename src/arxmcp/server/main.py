@@ -2,7 +2,7 @@
 
 The long-running ``arxmcp-server`` process. Wires:
 
-- :func:`arxmcp.server.config.Config` (env-var loading + validation).
+- :func:`arxmcp.settings.Config` (env-var loading + validation).
 - :class:`arxmcp.server.resources.Resources` (lifecycle container — the
   embedder, LanceDB handle, reranker, semaphores, singleflights).
 - :mod:`arxmcp.server.health` (``/healthz``, ``/readyz``).
@@ -93,7 +93,6 @@ from prometheus_client import make_asgi_app
 from arxmcp.ingest.arxiv_fetch import LATEXML_TIMEOUT_ENV
 from arxmcp.ingest.textbook_parser import MINERU_BIN_ENV, MINERU_TIMEOUT_ENV
 from arxmcp.server import session
-from arxmcp.server.config import CONFIG_REFERENCE_HINT, Config
 from arxmcp.server.health import (
     refresh_metrics_from_singleton_state,
 )
@@ -103,6 +102,7 @@ from arxmcp.server.health import (
 from arxmcp.server.model_loader import TRUST_REMOTE_CODE_ENV
 from arxmcp.server.observability.sanitize import SANITIZE_ENV_VAR
 from arxmcp.server.resources import Resources, StartupProgress
+from arxmcp.settings import CONFIG_REFERENCE_HINT, Config
 
 logger = logging.getLogger(__name__)
 
@@ -836,7 +836,7 @@ def create_app(config: Config | None = None) -> FastAPI:
     # buffered fully in memory before the handler returns 413. This
     # is acceptable under the loopback-only deployment model (CLAUDE.md
     # "Must run locally in Docker"; server binds to 127.0.0.1 per
-    # ``src/arxmcp/server/config.py::reject_non_loopback``) but is a memory-
+    # ``src/arxmcp/settings/config.py::reject_non_loopback``) but is a memory-
     # pressure regression vs the pre-m4 10 MB middleware envelope.
     # If arXMCP ever runs in a networked deployment, the per-kind cap
     # should be moved into ``RequestBodySizeLimitMiddleware`` (e.g.

@@ -66,7 +66,7 @@ from arxmcp.ingest.notebooks import (
     read_paper_ids_from_papers_txt,
     validate_slug,
 )
-from arxmcp.server.ssl_pin import arxiv_ssl_context_from_env
+from arxmcp.settings import arxiv_ssl_context_from_env
 
 logger = logging.getLogger("notebook_fetch")
 
