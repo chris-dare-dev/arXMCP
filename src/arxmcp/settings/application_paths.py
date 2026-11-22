@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import errno
 import os
+import re
 import sys
 import tempfile
 import warnings
@@ -33,6 +34,12 @@ _LAYOUT = (
     ("logs", "logs"), ("backups", "backups"), ("tmp", "tmp"),
 )
 _STARTUP_CWD = Path.cwd().resolve()
+
+#: A notebook's slug names its directory under ``notebooks``. Lowercase
+#: ASCII, digits and hyphens, 3-31 characters, starting with a letter, so a
+#: slug can never be ``..``, hold a slash or a shell metacharacter, or
+#: differ from another only in case.
+NOTEBOOK_SLUG_RE: re.Pattern[str] = re.compile(r"^[a-z][a-z0-9-]{2,30}$")
 _WINERROR_CANT_RESOLVE_FILENAME = 1921
 
 
@@ -104,7 +111,7 @@ def _source_checkout_root() -> Path | None:
     source_module_dir = Path(__file__).resolve().parent
     if (
         (root / "pyproject.toml").is_file()
-        and (root / "src" / "arxmcp" / "ingest").resolve() == source_module_dir
+        and (root / "src" / "arxmcp" / "settings").resolve() == source_module_dir
     ):
         return root
     return None
@@ -235,4 +242,5 @@ class ApplicationPaths:
 
 
 __all__ = ["ApplicationMode", "ApplicationPathError", "ApplicationPaths",
-           "COMPATIBILITY_ALIAS_FIELDS", "legacy_source_path"]
+           "COMPATIBILITY_ALIAS_FIELDS", "NOTEBOOK_SLUG_RE", "derived_index_path",
+           "legacy_source_path"]

@@ -46,7 +46,6 @@ from arxmcp.ingest.chunk import CHUNKER_VERSION, ChunkRecord
 from arxmcp.ingest.embedder import EMBEDDER_VERSION, EMBEDDING_DIM
 from arxmcp.ingest.schema import EmbedRecord
 from arxmcp.ingest.store import write_chunks
-from arxmcp.server.config import Config
 from arxmcp.server.health import reset_metrics_for_tests
 from arxmcp.server.main import create_app
 from arxmcp.server.middleware import (
@@ -58,6 +57,7 @@ from arxmcp.server.middleware import (
     _origin_is_allowed,
     _validate_host_header,
 )
+from arxmcp.settings import Config
 
 # ===========================================================================
 # Fixtures (mirror tests/test_server_startup.py to avoid cross-import)

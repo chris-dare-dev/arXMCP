@@ -560,7 +560,7 @@ class TestF5VoyageKeyIsSecretStr:
     def test_secret_value_masked_in_repr(self, tmp_path):
         from pydantic import SecretStr  # noqa: PLC0415
 
-        from arxmcp.server.config import Config  # noqa: PLC0415
+        from arxmcp.settings import Config  # noqa: PLC0415
 
         cfg = Config(
             lancedb_path=tmp_path,

@@ -46,8 +46,6 @@ import unicodedata
 import uuid
 from pathlib import Path
 
-from arxmcp.ingest.application_paths import ApplicationPaths
-
 # Reuse the existing root-tex heuristic from the fetcher tooling rather than
 # re-implementing it. The function lives in src/arxmcp/ingest/arxiv_fetch.py and the
 # project's package layout puts both `tools/` and `ingest/` on sys.path.
@@ -60,6 +58,7 @@ from arxmcp.ingest.chunker import (
     _validate_paper_id,
 )
 from arxmcp.ingest.preamble_types import PreambleDoc
+from arxmcp.settings import ApplicationPaths
 
 logger = logging.getLogger(__name__)
 

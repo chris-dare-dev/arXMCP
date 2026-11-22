@@ -42,7 +42,7 @@ is installed; it is intentionally not automated.
 
 - **`imagePullPolicy: Never`** + pinned tag `arxmcp-server:dev` (never `:latest`).
 - **`ARXMCP_BIND_HOST=0.0.0.0` + `ARXMCP_UNSAFE_NETWORK_BIND=1`** — both required,
-  or `src/arxmcp/server/config.py::reject_non_loopback_bind` crashes the pod.
+  or `src/arxmcp/settings/config.py::reject_non_loopback_bind` crashes the pod.
 - **Loopback at the host boundary** comes from Rancher Desktop forwarding the
   NodePort to `127.0.0.1` (non-admin install) — NOT from the manifests. This is
   the residual delta vs Compose's `127.0.0.1:` daemon-level bind.

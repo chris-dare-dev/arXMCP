@@ -189,7 +189,7 @@ def default_db_path(lancedb_path: str | Path) -> Path:
     """Where the theorem-name index of the dataset at ``lancedb_path`` lives:
     inside the dataset, so cutover and rollback move it with the chunks it
     indexes. The server derives the same path."""
-    from arxmcp.ingest.application_paths import derived_index_path
+    from arxmcp.settings import derived_index_path
 
     return derived_index_path(Path(lancedb_path).resolve(), "theorem_names.db")
 

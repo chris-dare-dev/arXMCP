@@ -32,7 +32,7 @@ in-process collapse; the LRU is the cross-request memo.
 
 **Two-tier concurrency.** ``async with r.rerank_semaphore:`` caps
 distinct-rerank parallelism (``max_concurrent_reranks=4`` per
-``src/arxmcp/server/config.py:120``); the ``r.rerank_singleflight.run(...)``
+``src/arxmcp/settings/config.py:120``); the ``r.rerank_singleflight.run(...)``
 inside collapses same-rerank duplicates. Mirrors the embedder's
 ``embed_semaphore`` + ``encode_query`` singleflight pattern.
 

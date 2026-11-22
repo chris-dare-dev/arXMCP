@@ -121,7 +121,7 @@ class TestMakeInit:
     def test_persists_email_when_given(self, env):
         """AC1 + AC2 link: the EMAIL arg flows through to
         operator_settings, where ``resolve_contact_email`` reads it."""
-        from arxmcp.server.operator_settings import get_setting
+        from arxmcp.settings import get_setting
         from arxmcp.tools.notebook_init import run
 
         slug, notebooks_base, db_path = env
@@ -138,7 +138,7 @@ class TestMakeInit:
     def test_skips_email_persist_when_none(self, env):
         """Calling ``make init NOTEBOOK=foo`` without EMAIL must NOT
         wipe an existing operator pref — both edits are independent."""
-        from arxmcp.server.operator_settings import get_setting, set_setting
+        from arxmcp.settings import get_setting, set_setting
         from arxmcp.tools.notebook_init import run
 
         slug, notebooks_base, db_path = env
@@ -232,7 +232,7 @@ class TestResolveContactEmail:
 
     def test_explicit_arg_wins_outright(self, isolated_db):
         from arxmcp.ingest.notebooks import resolve_contact_email
-        from arxmcp.server.operator_settings import set_setting
+        from arxmcp.settings import set_setting
 
         set_setting("contact_email", "sqlite@x", db_path=isolated_db)
         os.environ["ARXMCP_CONTACT_EMAIL"] = "env@x"
@@ -248,7 +248,7 @@ class TestResolveContactEmail:
         """m2 synthesis §3 D1 / FM-3: SQLite is the sticky pref;
         env var is the historical fallback."""
         from arxmcp.ingest.notebooks import resolve_contact_email
-        from arxmcp.server.operator_settings import set_setting
+        from arxmcp.settings import set_setting
 
         set_setting("contact_email", "sqlite@x", db_path=isolated_db)
         os.environ["ARXMCP_CONTACT_EMAIL"] = "env@x"
@@ -292,7 +292,7 @@ class TestResolveContactEmail:
         import logging
 
         from arxmcp.ingest.notebooks import resolve_contact_email
-        from arxmcp.server.operator_settings import set_setting
+        from arxmcp.settings import set_setting
 
         set_setting("contact_email", "sqlite@x", db_path=isolated_db)
         os.environ["ARXMCP_CONTACT_EMAIL"] = "env@x"
@@ -324,7 +324,7 @@ class TestResolveContactEmail:
         import logging
 
         from arxmcp.ingest.notebooks import resolve_contact_email
-        from arxmcp.server.operator_settings import set_setting
+        from arxmcp.settings import set_setting
 
         set_setting("contact_email", "sqlite@x", db_path=isolated_db)
         os.environ.pop("ARXMCP_CONTACT_EMAIL", None)
@@ -621,7 +621,7 @@ class TestNoMCPSurfaceTouch:
     @pytest.mark.parametrize(
         "path",
         [
-            "src/arxmcp/server/operator_settings.py",
+            "src/arxmcp/settings/operator.py",
             "src/arxmcp/tools/notebook_list_offline.py",
         ],
     )

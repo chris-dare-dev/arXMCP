@@ -35,7 +35,6 @@ from arxmcp.ingest.chunk import CHUNKER_VERSION, ChunkRecord
 from arxmcp.ingest.embedder import EMBEDDER_VERSION, EMBEDDING_DIM
 from arxmcp.ingest.schema import EmbedRecord
 from arxmcp.ingest.store import write_chunks
-from arxmcp.server.config import Config
 from arxmcp.server.health import (
     refresh_sentinel_metrics,
     reset_metrics_for_tests,
@@ -70,6 +69,7 @@ from arxmcp.server.observability.metrics import (
     reset_request_metrics_for_tests,
 )
 from arxmcp.server.tools import _wrap_with_metrics
+from arxmcp.settings import Config
 
 # ===========================================================================
 # Fixtures (mirror tests/test_server_startup.py)

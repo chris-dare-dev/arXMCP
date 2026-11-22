@@ -34,7 +34,7 @@ from pathlib import Path
 from arxmcp.ingest.arxiv_api import fetch_candidates
 from arxmcp.ingest.notebooks import NotebookError, validate_slug
 from arxmcp.server.notebooks_store import NotebooksStore
-from arxmcp.server.operator_settings import DEFAULT_DB_PATH
+from arxmcp.settings import DEFAULT_DB_PATH
 
 
 @dataclass(frozen=True)

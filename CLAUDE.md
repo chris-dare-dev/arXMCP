@@ -174,7 +174,7 @@ platform work or treats results from the wrong host as release evidence.
 | Symptom | First file |
 |---|---|
 | Tests segfault on macOS | `tests/conftest.py` |
-| Server refuses to bind | `src/arxmcp/server/config.py` (`reject_non_loopback`) |
+| Server refuses to bind | `src/arxmcp/settings/config.py` (`reject_non_loopback`) |
 | `tools/list` hash drift | `tests/test_server_tool_schema.py`, `src/arxmcp/server/tools.py` |
 | Prompt cache misses between roles | `src/arxmcp/server/prompts.py`, `src/arxmcp/server/orchestrator/id_canon.py` |
 | Stale retrieval results | `src/arxmcp/server/corpus_freshness.py`, then `src/arxmcp/server/cache.py` |

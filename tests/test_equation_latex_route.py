@@ -185,7 +185,7 @@ class TestHonestFallback:
     def test_config_default_is_on(self):
         """agent-platform-m3 / W1 flipped the default ON (from m4's
         default-OFF), atomically with the corrected tool description."""
-        from arxmcp.server.config import Config
+        from arxmcp.settings import Config
 
         assert Config().eq_latex_route is True
 

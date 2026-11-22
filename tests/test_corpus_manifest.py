@@ -66,8 +66,8 @@ from arxmcp.server.mcp_resources import (
     set_notebooks_store,
 )
 from arxmcp.server.notebooks_store import NotebooksStore
-from arxmcp.server.operator_settings import set_setting
 from arxmcp.server.tools import register_all
+from arxmcp.settings import set_setting
 from arxmcp.tools.notebook_documents_backfill import (
     _hash_raw_source_tree,
     _parse_artifact_sha256,

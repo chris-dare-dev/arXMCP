@@ -2,7 +2,7 @@
 
 Speaks the M3 ``launch``/``bound``/``shutdown`` control protocol over stdio
 for the Tauri supervisor. The child binds ``127.0.0.1:0`` OUTSIDE
-:class:`arxmcp.server.config.Config` (``validate_port_range`` is untouched; the
+:class:`arxmcp.settings.Config` (``validate_port_range`` is untouched; the
 validated ``bind_port`` default is simply unused here), hands the live
 socket to a hand-driven uvicorn server, and emits the single token-free
 ``bound`` frame only after uvicorn reports started — which is strictly
@@ -55,7 +55,7 @@ from arxmcp.server.desktop_contract import (
 from arxmcp.server.middleware import _get_header, _send_json_error
 
 if TYPE_CHECKING:  # heavy import; the child loads Config only after `launch`
-    from arxmcp.server.config import Config
+    from arxmcp.settings import Config
 
 logger = logging.getLogger(__name__)
 
@@ -373,8 +373,8 @@ def main() -> int:
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     try:
         sock.bind(("127.0.0.1", 0))
-        from arxmcp.server.config import Config
         from arxmcp.server.main import create_app
+        from arxmcp.settings import Config
 
         try:
             # issue #426: ALWAYS bootstrap_mode. A double-clicked application

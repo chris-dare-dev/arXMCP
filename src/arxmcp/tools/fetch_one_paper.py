@@ -23,7 +23,7 @@ from arxmcp.ingest.arxiv_fetch import (
     fetch_eprint,
     parse_with_latexml,
 )
-from arxmcp.server.ssl_pin import arxiv_ssl_context_from_env
+from arxmcp.settings import arxiv_ssl_context_from_env
 from arxmcp.tools.fetch_seed import PER_PAPER_FAILURE_EXCEPTIONS
 
 REPO_ROOT = Path(__file__).resolve().parents[3]

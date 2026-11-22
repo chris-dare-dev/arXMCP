@@ -530,7 +530,7 @@ class TestCapConfiguration:
     ``extra="forbid"`` startup scan."""
 
     def test_config_fields_read_the_env_vars(self, monkeypatch):
-        from arxmcp.server.config import Config
+        from arxmcp.settings import Config
 
         monkeypatch.setenv("ARXMCP_MAX_SEARCH_PAPERS_CALLS", "7")
         monkeypatch.setenv("ARXMCP_MAX_GET_CHUNK_CALLS", "11")
@@ -542,7 +542,7 @@ class TestCapConfiguration:
         """The effective cap — the value check_both_caps reads —
         reflects the configured value."""
         import arxmcp.server.session as session_mod
-        from arxmcp.server.config import Config
+        from arxmcp.settings import Config
 
         monkeypatch.setattr(session_mod, "MAX_SEARCH_PAPERS_CALLS", 3)
         monkeypatch.setattr(session_mod, "MAX_GET_CHUNK_CALLS", 4)
@@ -558,7 +558,7 @@ class TestCapConfiguration:
         """End to end: configure a cap of 2, and the 3rd call is the
         one that gets RETRIEVAL_CAP_REACHED."""
         import arxmcp.server.session as session_mod
-        from arxmcp.server.config import Config
+        from arxmcp.settings import Config
 
         # Register the restore BEFORE configure_caps rebinds the global:
         # monkeypatch remembers the pre-call value and puts it back at
@@ -596,8 +596,8 @@ class TestCapConfiguration:
         implementation would have shipped: an undeclared ARXMCP_* var
         makes the server refuse to boot, so setting the documented
         knob would have been worse than not having it."""
-        from arxmcp.server.config import Config
         from arxmcp.server.main import _scan_unknown_arxmcp_env_vars
+        from arxmcp.settings import Config
 
         monkeypatch.setenv("ARXMCP_MAX_SEARCH_PAPERS_CALLS", "30")
         monkeypatch.setenv("ARXMCP_MAX_GET_CHUNK_CALLS", "100")
@@ -610,7 +610,7 @@ class TestCapConfiguration:
         import pytest
         from pydantic import ValidationError
 
-        from arxmcp.server.config import Config
+        from arxmcp.settings import Config
 
         monkeypatch.setenv("ARXMCP_MAX_SEARCH_PAPERS_CALLS", "0")
         with pytest.raises(ValidationError):
@@ -749,7 +749,6 @@ class TestRectificationGuards:
         SessionCap MUST be INSIDE RequestBodySizeLimit so a
         100MB malicious body is 413-rejected BEFORE SessionCap
         buffers it."""
-        from arxmcp.server.config import Config
         from arxmcp.server.main import create_app
         from arxmcp.server.middleware import (
             HostValidationMiddleware,
@@ -758,6 +757,7 @@ class TestRectificationGuards:
             SecurityHeadersMiddleware,
             SessionCapMiddleware,
         )
+        from arxmcp.settings import Config
 
         app = create_app(Config())
         # FastAPI exposes ``app.user_middleware`` as a list of

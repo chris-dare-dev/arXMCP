@@ -96,24 +96,14 @@ from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, TypeVar
 
+from arxmcp.settings import DEFAULT_FRESHNESS_INTERVAL_SECONDS
+
 if TYPE_CHECKING:  # pragma: no cover
     from arxmcp.ingest.corpus import CorpusVersionInfo
 
 logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
-
-#: Default minimum wall-clock gap between two request-path marker
-#: probes, in seconds. A probe is a ``stat`` + small-JSON read routed
-#: through the default executor — cheap, but not free at 10+
-#: search_papers/sec, so it is throttled rather than run per call.
-#:
-#: The value bounds the worst-case staleness window for the PULL path
-#: only (out-of-band ingest). The PUSH path — the ``/ui/`` Ingest
-#: button, which is the reachable consequence in #207 — force-refreshes
-#: and is not subject to it.
-DEFAULT_FRESHNESS_INTERVAL_SECONDS: float = 2.0
-
 
 class FreshnessGate:
     """Throttle + single-flight for corpus-freshness probes.
@@ -283,7 +273,6 @@ async def read_marker_off_loop(
 
 
 __all__ = [
-    "DEFAULT_FRESHNESS_INTERVAL_SECONDS",
     "FreshnessGate",
     "read_marker_off_loop",
 ]

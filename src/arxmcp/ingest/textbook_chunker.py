@@ -53,7 +53,6 @@ from pathlib import Path
 
 from bs4 import BeautifulSoup, Tag
 
-from arxmcp.ingest.application_paths import ApplicationPaths
 from arxmcp.ingest.chunk import ChunkRecord, _compute_textbook_chunk_id
 from arxmcp.ingest.chunker import (
     PER_PAPER_FAILURE_EXCEPTIONS,
@@ -65,6 +64,7 @@ from arxmcp.ingest.chunker import (
 )
 from arxmcp.ingest.notebooks import NotebookError, notebook_dir
 from arxmcp.ingest.tokenizer import tokenize_body
+from arxmcp.settings import ApplicationPaths
 
 logger = logging.getLogger(__name__)
 

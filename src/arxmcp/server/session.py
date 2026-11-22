@@ -418,7 +418,7 @@ def configure_caps(config: Any) -> None:
     milestone. Same mechanism, one more writer.
 
     ``config`` is typed loosely to keep :mod:`arxmcp.server.session` free of a
-    :mod:`arxmcp.server.config` import — session state is imported by
+    :mod:`arxmcp.settings.config` import — session state is imported by
     middleware on a hot path and has no other config coupling.
 
     Not idempotent-by-value across differing configs: the last caller

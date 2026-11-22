@@ -2,7 +2,7 @@
 
 Sibling to :mod:`arxmcp.server.cache_sqlite` — same async-over-sync pattern
 (``asyncio.to_thread`` + ``asyncio.Lock`` + WAL mode). The DB file
-lives at :data:`arxmcp.server.config.Config.notebooks_db_path` (default
+lives at :data:`arxmcp.settings.Config.notebooks_db_path` (default
 ``var/arxmcp/cache/notebooks.db`` — sibling to ``cache_db_path`` per
 the m7 brief). Stored as a SEPARATE file from the Tier-1 cache so a
 schema-version bump on either side does not trigger the OTHER's

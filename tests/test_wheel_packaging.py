@@ -242,7 +242,7 @@ class TestPackageDataCoversEveryDataFile:
         for package, filename in [
             ("arxmcp.server", "router_patterns.yaml"),
             ("arxmcp.server.schemas", "search_papers_result.json"),
-            ("arxmcp.server.ca", "arxiv-ca-bundle.pem"),
+            ("arxmcp.settings.ca", "arxiv-ca-bundle.pem"),
             ("arxmcp.tools", "seed-papers.txt"),
             ("arxmcp.ops", "cutover.sh"),
             ("arxmcp.ops", "restic-env.sh.template"),

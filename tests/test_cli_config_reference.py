@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from arxmcp.server.cli import _format_config_error, config_reference, main
-from arxmcp.server.config import CONFIG_REFERENCE_HINT, Config
+from arxmcp.settings import CONFIG_REFERENCE_HINT, Config
 
 
 def _blocks() -> dict[str, list[str]]:

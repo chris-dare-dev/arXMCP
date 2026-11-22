@@ -41,12 +41,12 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from arxmcp.server.config import Config
 from arxmcp.server.resources import CorpusNotIngestedError, Resources
 from arxmcp.server.tools import (
     BOOTSTRAP_CORPUS_VERSION_SENTINEL,
     _build_bootstrap_envelope,
 )
+from arxmcp.settings import Config
 
 # ---------------------------------------------------------------------------
 # Shared helpers
@@ -671,7 +671,7 @@ class TestOnSuccessCallback:
 
     def test_main_closure_passes_through_to_late_bind(self, tmp_path, monkeypatch):
         """The _on_ingest_success closure in main.py calls resources.late_bind(config)."""
-        from arxmcp.server.config import Config
+        from arxmcp.settings import Config
 
         cfg = Config(
             lancedb_path=tmp_path / "lancedb",

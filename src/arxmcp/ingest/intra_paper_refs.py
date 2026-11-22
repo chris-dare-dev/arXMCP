@@ -67,10 +67,10 @@ from typing import Any
 import kuzu
 from bs4 import BeautifulSoup
 
-from arxmcp.ingest.application_paths import ApplicationPaths
 from arxmcp.ingest.graph_ingest import _merge_cite, save_checkpoint
 from arxmcp.ingest.identifiers import is_valid_arxiv_paper_id
 from arxmcp.ingest.kuzudb_schema import apply_schema
+from arxmcp.settings import ApplicationPaths
 
 logger = logging.getLogger(__name__)
 

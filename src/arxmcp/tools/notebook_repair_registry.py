@@ -176,10 +176,10 @@ def main(
     """
     del argv  # accepted for symmetry with other tools/notebook_*.py mains
 
-    # Resolve the canonical DB path lazily (the arxmcp.server.operator_settings
+    # Resolve the canonical DB path lazily (the arxmcp.settings.operator
     # import is the single source of truth; m2 critique F7 lesson).
     if db_path is None:
-        from arxmcp.server.operator_settings import DEFAULT_DB_PATH  # local
+        from arxmcp.settings import DEFAULT_DB_PATH  # local
 
         db_path = DEFAULT_DB_PATH
     if notebooks_base is None:

@@ -67,7 +67,6 @@ import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from arxmcp.ingest.application_paths import ApplicationPaths
 from arxmcp.ingest.ar5iv_fetch import DEFAULT_AR5IV_CACHE_DIR, DEFAULT_PARSED_DIR
 from arxmcp.ingest.bulk_ingest import (
     DEFAULT_LANCEDB_STAGING_PATH,
@@ -87,6 +86,7 @@ from arxmcp.ingest.store import (
     refuse_stale_chunker_rows,
 )
 from arxmcp.ingest.write_lock import exits_when_write_locked, holds_dataset_write_lock
+from arxmcp.settings import ApplicationPaths
 
 logger = logging.getLogger(__name__)
 

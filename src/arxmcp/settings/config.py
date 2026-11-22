@@ -30,15 +30,14 @@ from pathlib import Path
 from pydantic import Field, PrivateAttr, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from arxmcp.ingest.application_paths import (
+from arxmcp.settings.application_paths import (
     COMPATIBILITY_ALIAS_FIELDS,
+    NOTEBOOK_SLUG_RE,
     ApplicationPaths,
     derived_index_path,
     legacy_source_path,
 )
-from arxmcp.server.corpus_freshness import DEFAULT_FRESHNESS_INTERVAL_SECONDS
-from arxmcp.server.metrics_refresh import DEFAULT_REFRESH_INTERVAL_SECONDS
-from arxmcp.server.ssl_pin import VENDORED_ARXIV_CA_BUNDLE
+from arxmcp.settings.ssl_pin import VENDORED_ARXIV_CA_BUNDLE
 
 # ---------------------------------------------------------------------------
 # Module-level constants
@@ -58,6 +57,23 @@ LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "localhost"})
 #: ``arxmcp-server --list-config`` prints each field below with its
 #: default and description.
 CONFIG_REFERENCE_HINT = "Run `arxmcp-server --list-config` for every ARXMCP_* setting."
+
+#: Default minimum wall-clock gap between two request-path marker
+#: probes, in seconds. A probe is a ``stat`` + small-JSON read routed
+#: through the default executor — cheap, but not free at 10+
+#: search_papers/sec, so it is throttled rather than run per call.
+#:
+#: The value bounds the worst-case staleness window for the PULL path
+#: only (out-of-band ingest). The PUSH path — the ``/ui/`` Ingest
+#: button — force-refreshes and is not subject to it.
+DEFAULT_FRESHNESS_INTERVAL_SECONDS: float = 2.0
+
+#: Seconds between filesystem-metric refreshes. The values this reads move on
+#: cron timescales (the nightly backup, the daily drift check) or slowly (disk
+#: free), so a 30s cadence is already far finer-grained than the signals it
+#: samples. It is comfortably under the 5m ``for:`` on ``ArXMCPDiskFull``, so
+#: the alert's own debounce still governs when it fires.
+DEFAULT_REFRESH_INTERVAL_SECONDS: float = 30.0
 
 #: Default 256 KB inline result-payload cap. Larger payloads must be returned
 #: via ``resource_link`` (E06_S03 enforcement).
@@ -723,7 +739,7 @@ class Config(BaseSettings):
     #: ``src/arxmcp/ingest/arxiv_fetch.py::fetch_eprint`` — use an
     #: ``ssl.SSLContext`` built from a pinned CA bundle instead of
     #: the system trust store. The bundle defaults to the vendored
-    #: ISRG Root X1 PEM at ``src/arxmcp/server/ca/arxiv-ca-bundle.pem``
+    #: ISRG Root X1 PEM at ``src/arxmcp/settings/ca/arxiv-ca-bundle.pem``
     #: (arxiv.org and ar5iv chain to Let's Encrypt; pinning the root
     #: survives the 60-90-day intermediate rotation cadence). An
     #: operator-supplied alternative path is accepted via
@@ -752,7 +768,7 @@ class Config(BaseSettings):
 
     #: E13_S07c — operator override for the pinned CA bundle path.
     #: Default ``None`` means "use the vendored bundle at
-    #: ``src/arxmcp/server/ca/arxiv-ca-bundle.pem``". A non-None value is taken
+    #: ``src/arxmcp/settings/ca/arxiv-ca-bundle.pem``". A non-None value is taken
     #: verbatim (no path traversal, no envvar expansion); the
     #: validator below checks the resolved file exists.
     #:
@@ -821,31 +837,25 @@ class Config(BaseSettings):
     def derive_notebook_lancedb_path(self) -> Config:
         """notebook-retrieval-m1 (fork C) — when ``ARXMCP_NOTEBOOK=<slug>``
         is set, rewrite :attr:`lancedb_path` to the per-notebook dataset
-        ``var/arxmcp/notebooks/<slug>/lancedb`` BEFORE ``Resources.startup``
+        ``<notebooks>/<slug>/lancedb`` BEFORE ``Resources.startup``
         reads it (the substitution must precede ``read_corpus_version`` —
         see the notebook-retrieval-m1 synthesis).
 
         Safety + clarity:
 
-        * The slug is validated (regex + symlink rejection + containment)
-          by :func:`arxmcp.ingest.notebooks.notebook_lancedb_path`, which
-          raises ``NotebookError`` (re-wrapped as ``ValueError`` →
-          pydantic ``ValidationError``) for any path-traversal attempt
-          (Threat 1).
+        * The slug must match :data:`NOTEBOOK_SLUG_RE`, so a path-traversal
+          attempt is a ``ValueError`` → pydantic ``ValidationError`` here
+          (Threat 1). The derivation itself only joins paths: validating
+          a config touches no file. ``Resources.startup`` re-runs the full
+          slug guard (symlink rejection + containment) and checks that the
+          notebook has been ingested, before it serves anything.
         * Setting BOTH ``ARXMCP_NOTEBOOK`` and an explicit
           ``ARXMCP_LANCEDB_PATH`` *that differs from the field default*
           is rejected as ambiguous — the operator must pick one
           substrate. Setting ``ARXMCP_LANCEDB_PATH`` to its own default
           value is a no-op and does NOT conflict (F4 rectification).
-        * If the notebook corpus has not been ingested (no
-          ``corpus-version.json`` marker on disk — the SAME marker
-          ``Resources.startup`` reads), fail fast at config-load with a
-          remediation message naming the ingest command, rather than
-          surfacing a deeper ``CorpusNotIngestedError`` from
-          ``Resources.startup`` (AC5 — clean typed error, not a 500;
-          F3 rectification).
         * The Tier-1 retrieval cache is redirected to a per-notebook
-          sibling (``var/arxmcp/notebooks/<slug>/cache/retrieval.db``)
+          sibling (``<notebooks>/<slug>/cache/retrieval.db``)
           unless ``ARXMCP_CACHE_DB_PATH`` is set explicitly, so two
           notebooks relaunched within the cache TTL cannot serve each
           other's chunks (F1 rectification).
@@ -869,40 +879,15 @@ class Config(BaseSettings):
                 f"lancedb_path={self.lancedb_path!s}). ARXMCP_NOTEBOOK "
                 "derives the lancedb path from the notebook slug."
             )
-        # Defer the import: arxmcp.ingest.notebooks is the shared seam
-        # (also called by the future fork-A per-request path). Loading
-        # it lazily keeps it off the module-load path for the common
-        # (notebook-unset) case.
-        from arxmcp.ingest.notebooks import (  # noqa: PLC0415
-            NotebookError,
-            notebook_lancedb_path,
-        )
-        try:
-            canonical_base = (
-                self._application_paths.notebooks
-                if self._application_paths.mode != "source"
-                or "data_dir" in self._supplied_path_fields
-                else None
-            )
-            derived = notebook_lancedb_path(self.notebook, base=canonical_base)
-        except NotebookError as exc:
+        if not NOTEBOOK_SLUG_RE.fullmatch(self.notebook):
             raise ValueError(
-                f"invalid ARXMCP_NOTEBOOK={self.notebook!r}: {exc}"
-            ) from exc
-        # F3 rectification: prove the corpus is actually INGESTED, not
-        # merely that the lancedb directory exists. ``Resources.startup``
-        # reads ``<lancedb_path>/corpus-version.json`` (src/arxmcp/server/resources.py
-        # line 308); a dir-present / marker-absent partial ingest passes an
-        # ``is_dir()`` check then dies later with ``CorpusNotIngestedError``
-        # — the exact "deeper error, not a clean config error" that AC5 was
-        # written to prevent. Check the SAME marker the startup path checks,
-        # so the config gate and the startup gate share one contract.
-        if not (derived / "corpus-version.json").is_file():
-            raise ValueError(
-                f"ARXMCP_NOTEBOOK={self.notebook!r}: no ingested corpus "
-                f"at {derived!s}. Ingest it first: "
-                f"`uv run python src/arxmcp/tools/notebook_ingest.py {self.notebook}`."
+                f"invalid ARXMCP_NOTEBOOK={self.notebook!r}: must match "
+                f"{NOTEBOOK_SLUG_RE.pattern!r} (lowercase letter start, then "
+                f"3-30 chars of [a-z0-9-]). This rule rejects path "
+                f"traversal (../, slashes), uppercase, and shell "
+                f"metacharacters."
             )
+        derived = self._application_paths.notebooks / self.notebook / "lancedb"
         self.lancedb_path = derived
         # F1 rectification (HIGH): redirect the Tier-1 retrieval cache to a
         # per-notebook sibling unless ARXMCP_CACHE_DB_PATH was set
@@ -984,7 +969,7 @@ class Config(BaseSettings):
 
         1. If :attr:`arxiv_ca_bundle_path` is set, take it verbatim.
         2. Otherwise, fall back to the vendored bundle at
-           :data:`arxmcp.server.ssl_pin.VENDORED_ARXIV_CA_BUNDLE`, shipped
+           :data:`arxmcp.settings.ssl_pin.VENDORED_ARXIV_CA_BUNDLE`, shipped
            as package data.
 
         Raises ``ValueError`` if the resolved path does not point at
@@ -1279,6 +1264,8 @@ class Config(BaseSettings):
 
 __all__ = [
     "DEFAULT_BIND_PORT",
+    "DEFAULT_FRESHNESS_INTERVAL_SECONDS",
+    "DEFAULT_REFRESH_INTERVAL_SECONDS",
     "DEFAULT_RESULT_BYTE_CAP",
     "LOOPBACK_HOSTS",
     "Config",

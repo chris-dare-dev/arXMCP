@@ -45,7 +45,6 @@ import pytest
 from fastapi.testclient import TestClient
 
 from arxmcp.ingest.embedder import EMBEDDING_DIM
-from arxmcp.server.config import Config
 from arxmcp.server.corpus_freshness import (
     DEFAULT_FRESHNESS_INTERVAL_SECONDS,
     FreshnessGate,
@@ -54,6 +53,7 @@ from arxmcp.server.corpus_freshness import (
 from arxmcp.server.health import reset_metrics_for_tests
 from arxmcp.server.main import create_app
 from arxmcp.server.tools import reset_resources_for_tests
+from arxmcp.settings import Config
 from tests._corpus_helpers import patch_bge_m3_model, seed_corpus
 
 

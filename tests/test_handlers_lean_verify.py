@@ -28,7 +28,6 @@ from typing import Any
 
 import pytest
 
-from arxmcp.server.config import Config
 from arxmcp.server.handlers.lean_verify import (
     _DECL_KEYWORDS,
     _DECL_MODIFIERS,
@@ -57,6 +56,7 @@ from arxmcp.server.tools import (
     reset_resources_for_tests,
     set_resources,
 )
+from arxmcp.settings import Config
 
 # ---------------------------------------------------------------------------
 # Tier-3 opt-in detection (mirrors test_lean_repl.py)

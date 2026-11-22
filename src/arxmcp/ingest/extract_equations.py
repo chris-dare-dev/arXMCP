@@ -66,11 +66,11 @@ from typing import Any, NamedTuple
 import pyarrow as pa
 from bs4 import BeautifulSoup, Tag
 
-from arxmcp.ingest.application_paths import ApplicationPaths
 from arxmcp.ingest.identifiers import is_valid_arxiv_paper_id
 from arxmcp.ingest.index_equations import open_or_create_equations_table
 from arxmcp.ingest.schema import CHUNKS_TABLE_NAME, EQUATIONS_SCHEMA_V1
 from arxmcp.ingest.write_lock import exits_when_write_locked, holds_dataset_write_lock
+from arxmcp.settings import ApplicationPaths
 
 logger = logging.getLogger(__name__)
 

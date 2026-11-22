@@ -165,15 +165,15 @@ COPY src/arxmcp/ops/ ./src/arxmcp/ops/
 # Every shipped package must resolve from the venv, never from /app.
 RUN python -c "import importlib.util, sys; \
 bad = {n: importlib.util.find_spec(n).origin \
-       for n in ('arxmcp', 'arxmcp.server', 'arxmcp.ingest', 'arxmcp.tools', 'arxmcp.shim', 'arxmcp.ops') \
+       for n in ('arxmcp', 'arxmcp.settings', 'arxmcp.server', 'arxmcp.ingest', 'arxmcp.tools', 'arxmcp.shim', 'arxmcp.ops') \
        if not (importlib.util.find_spec(n).origin or '').startswith('/opt/venv/')}; \
 sys.exit(f'imports resolve outside /opt/venv: {bad}' if bad else 0)"
 
-# The pinned arxiv CA bundle ships inside the wheel as src/arxmcp/server/ca/ package
+# The pinned arxiv CA bundle ships inside the wheel as src/arxmcp/settings/ca/ package
 # data. Building the pinned context from the installed copy proves
 # ARXMCP_PIN_ARXIV_CA=1 can start in this image.
 RUN ARXMCP_PIN_ARXIV_CA=1 python -c "import sys; \
-from arxmcp.server.ssl_pin import arxiv_ssl_context_from_env; \
+from arxmcp.settings import arxiv_ssl_context_from_env; \
 sys.exit(0 if arxiv_ssl_context_from_env() else 'pinned arxiv CA context did not build')"
 
 # Create the var/arxmcp tree. IS6: scope chown to /app/var only —

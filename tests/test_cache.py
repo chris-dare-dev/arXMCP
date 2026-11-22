@@ -836,7 +836,7 @@ class TestRectificationGuards:
         writes don't pollute the worktree."""
         # Importing Config inside the test ensures pydantic-settings
         # picks up the env var the autouse fixture set.
-        from arxmcp.server.config import Config
+        from arxmcp.settings import Config
 
         cfg = Config()
         # Path should now point under the per-test tmp_path.

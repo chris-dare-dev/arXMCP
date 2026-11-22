@@ -55,7 +55,7 @@ from arxmcp.ingest.preamble_types import PreambleDoc
 
 @dataclass
 class _MinimalConfig:
-    """Mirror just enough of ``arxmcp.server.config.Config`` for the handler.
+    """Mirror just enough of ``arxmcp.settings.Config`` for the handler.
 
     The real Config carries dozens of fields; the handler only reads
     ``r.config`` indirectly (via the ``envelope`` helper) and never

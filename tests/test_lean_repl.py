@@ -20,7 +20,6 @@ from pathlib import Path
 
 import pytest
 
-from arxmcp.server.config import Config
 from arxmcp.server.lean_repl import (
     DEFAULT_QUERY_TIMEOUT_S,
     LeanRepl,
@@ -30,6 +29,7 @@ from arxmcp.server.lean_repl import (
     LeanUnavailableError,
 )
 from arxmcp.server.resources import ResourceStartupError
+from arxmcp.settings import Config
 
 # ---------------------------------------------------------------------------
 # Lean-toolchain opt-in detection (mirrors ARXMCP_RUN_REAL_BGE_RERANKER)

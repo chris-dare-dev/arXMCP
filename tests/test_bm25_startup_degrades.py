@@ -67,7 +67,7 @@ def unbuildable_bm25(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[st
     import arxmcp.server.query_encoder as qe_mod
     import arxmcp.server.resources as res_mod
     from arxmcp.ingest.schema import CHUNKS_SCHEMA_V1
-    from arxmcp.server.config import Config
+    from arxmcp.settings import Config
 
     lance = tmp_path / "lancedb"
     table = lancedb.connect(str(lance)).create_table(
@@ -131,8 +131,8 @@ def test_rebind_lands_without_an_unbuildable_bm25_index(
     import pyarrow as pa
 
     from arxmcp.ingest.schema import CHUNKS_SCHEMA_V1
-    from arxmcp.server.config import Config
     from arxmcp.server.resources import Resources
+    from arxmcp.settings import Config
 
     lance = unbuildable_bm25["lance"]
     bm25_root = lance.parent / "bm25"

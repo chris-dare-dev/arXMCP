@@ -218,7 +218,7 @@ def _persist_email(email: str, *, db_path: Path) -> None:
     The store handles the chmod-0600-on-create + WAL + busy_timeout
     discipline. ``INSERT OR REPLACE`` is naturally idempotent.
     """
-    from arxmcp.server.operator_settings import set_setting  # local import
+    from arxmcp.settings import set_setting  # local import
 
     set_setting("contact_email", email, db_path=db_path)
     print(f"persisted contact_email to operator_settings ({db_path})")
@@ -231,7 +231,7 @@ def _persist_mineru_bin(mineru_bin: str, *, db_path: Path) -> None:
     a per-shell ``ARXMCP_MINERU_BIN`` export (ingest-robustness-m1 AC3).
     Validated to be an existing file before persisting — a stale path helps
     no one and would raise later at parse time."""
-    from arxmcp.server.operator_settings import set_setting  # local import
+    from arxmcp.settings import set_setting  # local import
 
     if not Path(mineru_bin).is_file():
         raise NotebookError(
@@ -305,7 +305,7 @@ def run(
     if (
         register or email is not None or mineru_bin is not None
     ) and db_path is None:
-        from arxmcp.server.operator_settings import DEFAULT_DB_PATH  # local
+        from arxmcp.settings import DEFAULT_DB_PATH  # local
 
         db_path = DEFAULT_DB_PATH
 

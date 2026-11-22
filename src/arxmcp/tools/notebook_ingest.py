@@ -58,7 +58,7 @@ logger = logging.getLogger("notebook_ingest")
 def runtime_paths_report() -> dict[str, str]:
     """Return every mutable default reached by the ingest child boundary."""
     from arxmcp.ingest import ar5iv_fetch, bulk_ingest, chunker, embedder, store
-    from arxmcp.ingest.application_paths import ApplicationPaths
+    from arxmcp.settings import ApplicationPaths
 
     paths = ApplicationPaths.resolve()
     return {

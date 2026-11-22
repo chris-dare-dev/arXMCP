@@ -39,6 +39,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 #: The boxes that ship in the wheel, under the one ``arxmcp`` package that
 #: ``[tool.setuptools.packages.find]`` in ``pyproject.toml`` declares.
 SHIPPED_TREES: tuple[str, ...] = (
+    "src/arxmcp/settings",
     "src/arxmcp/server",
     "src/arxmcp/ingest",
     "src/arxmcp/tools",

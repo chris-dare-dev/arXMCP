@@ -97,7 +97,7 @@ def _snapshot(dataset: Path) -> dict[str, bytes]:
 
 def test_cutover_then_rollback_restores_the_live_indexes(tmp_path, monkeypatch):
     from arxmcp.ops.cutover import perform_directory_swap, perform_rollback
-    from arxmcp.server.config import Config
+    from arxmcp.settings import Config
 
     live = _dataset(tmp_path, monkeypatch, "lancedb", PAPERS[:1])
     build_derived_indexes(live)

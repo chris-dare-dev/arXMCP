@@ -31,8 +31,8 @@ from unittest.mock import Mock
 import pytest
 
 from arxmcp.ingest.corpus import DegradedState
-from arxmcp.server.config import Config
 from arxmcp.server.resources import Resources, compute_chunk_count_divergence
+from arxmcp.settings import Config
 
 # corpus-integrity-completion-m3 rect F3: `_seed_corpus` and
 # `_patch_model` moved to tests/_corpus_helpers.py so both this

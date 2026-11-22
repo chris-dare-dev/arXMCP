@@ -56,7 +56,6 @@ from pathlib import Path
 
 import numpy as np
 
-from arxmcp.ingest.application_paths import ApplicationPaths
 from arxmcp.ingest.bulk_ingest import DEFAULT_LANCEDB_STAGING_PATH
 from arxmcp.ingest.chunk import (
     CHUNKER_VERSION,
@@ -83,6 +82,7 @@ from arxmcp.ingest.store import (
     write_chunks,
 )
 from arxmcp.ingest.write_lock import exits_when_write_locked, holds_dataset_write_lock
+from arxmcp.settings import ApplicationPaths
 
 logger = logging.getLogger(__name__)
 

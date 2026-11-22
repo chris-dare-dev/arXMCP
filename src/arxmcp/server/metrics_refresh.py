@@ -43,18 +43,12 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING
 
+from arxmcp.settings import DEFAULT_REFRESH_INTERVAL_SECONDS
+
 if TYPE_CHECKING:
     from arxmcp.server.resources import Resources
 
 logger = logging.getLogger(__name__)
-
-#: Seconds between filesystem-metric refreshes. The values this reads move on
-#: cron timescales (the nightly backup, the daily drift check) or slowly (disk
-#: free), so a 30s cadence is already far finer-grained than the signals it
-#: samples. It is comfortably under the 5m ``for:`` on ``ArXMCPDiskFull``, so
-#: the alert's own debounce still governs when it fires.
-DEFAULT_REFRESH_INTERVAL_SECONDS: float = 30.0
-
 
 async def _run_one_tick(resources: Resources) -> bool:
     """Run a single refresh off-loop. Returns True when the tick succeeded.
@@ -143,7 +137,6 @@ async def stop_metrics_refresh_task(task: asyncio.Task | None) -> None:
 
 
 __all__ = [
-    "DEFAULT_REFRESH_INTERVAL_SECONDS",
     "run_metrics_refresh_loop",
     "start_metrics_refresh_task",
     "stop_metrics_refresh_task",

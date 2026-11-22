@@ -16,7 +16,6 @@ from fastapi.testclient import TestClient
 from mcp.server.fastmcp import FastMCP
 
 from arxmcp.ingest import notebooks as _notebook_common
-from arxmcp.server.config import Config
 from arxmcp.server.ingest_tracker import IngestTaskTracker
 from arxmcp.server.mcp_resources import (
     CORPUS_MANIFEST_URI,
@@ -28,6 +27,7 @@ from arxmcp.server.notebooks_store import NotebooksStore
 from arxmcp.server.routes.notebooks import router as notebooks_router
 from arxmcp.server.routes.ui import router as ui_router
 from arxmcp.server.tools import reset_resources_for_tests, set_resources
+from arxmcp.settings import Config
 from arxmcp.tools import wheel_install_check
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -381,7 +381,7 @@ def test_server_ingest_child_uses_application_paths(
     env["PYTHONPATH"] = str(REPO_ROOT)
     probe = (
         "import json\n"
-        "import arxmcp.ingest.application_paths as application_paths\n"
+        "import arxmcp.settings.application_paths as application_paths\n"
         "application_paths._source_checkout_root = lambda: None\n"
         "from arxmcp.tools.notebook_ingest import runtime_paths_report\n"
         "print(json.dumps(runtime_paths_report(), sort_keys=True))\n"
@@ -410,7 +410,7 @@ def test_installed_writer_probe_is_independent_of_cwd(tmp_path: Path) -> None:
     )
     reports: list[dict[str, str]] = []
     probe = (
-        "import arxmcp.ingest.application_paths as application_paths\n"
+        "import arxmcp.settings.application_paths as application_paths\n"
         "application_paths._source_checkout_root = lambda: None\n"
         + wheel_install_check._WRITER_PROBE
     )

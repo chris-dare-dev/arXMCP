@@ -1,4 +1,4 @@
-"""Tests for ``arxmcp.server.operator_settings`` (``onboarding-uplift-m2``).
+"""Tests for ``arxmcp.settings.operator`` (``onboarding-uplift-m2``).
 
 Covers the m2 acceptance criteria for the new SQLite-backed key-value
 store:
@@ -29,7 +29,7 @@ from pathlib import Path
 
 import pytest
 
-from arxmcp.server.operator_settings import (
+from arxmcp.settings.operator import (
     DEFAULT_DB_PATH,
     SCHEMA_VERSION,
     OperatorSettingsStore,

@@ -187,7 +187,7 @@ def build_user_agent(contact_email: str | None = None) -> str:
         # the env var. ``get_contact_email`` returns ``None`` if the
         # file doesn't exist yet — that's the cold-bootstrap case
         # where only the env var has been set.
-        from arxmcp.server.operator_settings import get_contact_email  # noqa: PLC0415
+        from arxmcp.settings import get_contact_email  # noqa: PLC0415
 
         email = get_contact_email() or os.environ.get("ARXMCP_CONTACT_EMAIL")
     if not email:
@@ -336,7 +336,7 @@ def fetch_eprint(
     The ``ssl_context`` parameter is the E13_S07c CA-pinning injection
     point (Threat 7 mitigation #2). Pass ``None`` (the default) to
     use the system trust store; pass an :class:`ssl.SSLContext` built
-    via :func:`arxmcp.server.ssl_pin.build_arxiv_ssl_context` to pin the
+    via :func:`arxmcp.settings.ssl_pin.build_arxiv_ssl_context` to pin the
     bundle. ``export.arxiv.org`` chains to the same Let's Encrypt
     root (ISRG Root X1) as ``arxiv.org`` and ``ar5iv.labs.arxiv.org``,
     so the same vendored bundle covers all three.

@@ -54,10 +54,10 @@ import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 
-from arxmcp.ingest.application_paths import ApplicationPaths
 from arxmcp.ingest.arxiv_fetch import parse_retry_after
 from arxmcp.ingest.chunker import STRUCTURE_SIGNAL_CLASSES
 from arxmcp.ingest.identifiers import is_valid_arxiv_paper_id
+from arxmcp.settings import ApplicationPaths
 
 logger = logging.getLogger(__name__)
 
@@ -184,7 +184,7 @@ def try_cache(
     injection point (Threat 7 mitigation #2). Pass ``None`` (the
     default) to use the system trust store; pass an
     :class:`ssl.SSLContext` built via
-    :func:`arxmcp.server.ssl_pin.build_arxiv_ssl_context` to pin the
+    :func:`arxmcp.settings.ssl_pin.build_arxiv_ssl_context` to pin the
     bundle. Threaded into ``urllib.request.urlopen(context=...)``.
 
     ``max_attempts`` bounds the requests made for one paper when ar5iv

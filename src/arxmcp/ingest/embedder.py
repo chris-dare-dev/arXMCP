@@ -79,8 +79,6 @@ import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from arxmcp.ingest.application_paths import ApplicationPaths
-
 # Alias rather than redefine. ``CHUNKER_VERSION`` lives in
 # ``arxmcp.ingest.chunk`` as the SINGLE source of truth (locked by
 # ``tests/test_chunker_ids.py::TestSingleVersionDefinition``). Defining
@@ -103,6 +101,7 @@ from arxmcp.ingest.chunker import (
     _sanitize_log_field,
     _validate_paper_id,
 )
+from arxmcp.settings import ApplicationPaths
 
 logger = logging.getLogger(__name__)
 

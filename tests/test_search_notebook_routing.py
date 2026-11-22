@@ -175,8 +175,8 @@ class TestArrowRowsSourceKindGuard:
 
 class TestNotebookTableRegistry:
     def _make_resources(self):
-        from arxmcp.server.config import Config
         from arxmcp.server.resources import Resources, Singleflight
+        from arxmcp.settings import Config
 
         return Resources(
             config=Config(),

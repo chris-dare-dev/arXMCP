@@ -51,7 +51,7 @@ from arxmcp.ingest.arxiv_fetch import (
     parse_with_latexml,
     politeness_sleep,
 )
-from arxmcp.server.ssl_pin import arxiv_ssl_context_from_env
+from arxmcp.settings import arxiv_ssl_context_from_env
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 SEED_FILE = REPO_ROOT / "src" / "arxmcp" / "tools" / "seed-papers.txt"

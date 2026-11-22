@@ -36,7 +36,6 @@ from arxmcp.ingest.chunk import CHUNKER_VERSION, ChunkRecord
 from arxmcp.ingest.embedder import EMBEDDER_VERSION, EMBEDDING_DIM
 from arxmcp.ingest.schema import EmbedRecord
 from arxmcp.ingest.store import write_chunks
-from arxmcp.server.config import Config
 from arxmcp.server.health import reset_metrics_for_tests
 from arxmcp.server.main import create_app
 from arxmcp.server.tools import (
@@ -44,6 +43,7 @@ from arxmcp.server.tools import (
     TOOL_SCHEMA_VERSION,
     reset_resources_for_tests,
 )
+from arxmcp.settings import Config
 
 # ===========================================================================
 # Helpers (mirror E06_S01's _seed_corpus pattern)
@@ -697,8 +697,8 @@ class TestByteCapEnforcement:
 
     def test_enforce_byte_cap_truncates_nested_body(self):
 
-        from arxmcp.server.config import Config
         from arxmcp.server.tools import enforce_byte_cap, set_resources
+        from arxmcp.settings import Config
 
         # Synthesize a Resources with a tiny cap.
         cfg = Config(result_byte_cap=200)
@@ -738,8 +738,8 @@ class TestByteCapEnforcement:
         assert len(big_body) > 100  # sanity
 
     def test_enforce_byte_cap_under_cap_passthrough(self):
-        from arxmcp.server.config import Config
         from arxmcp.server.tools import enforce_byte_cap, set_resources
+        from arxmcp.settings import Config
 
         cfg = Config(result_byte_cap=10000)
 
