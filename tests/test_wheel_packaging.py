@@ -9,11 +9,11 @@ none of it. Five separate holes were open simultaneously until 2026-07-31:
 * ``ops/`` — the whole operability layer. An operator installing the
   documented way got no backup, no cutover, no restore drill, no drift
   watchdog, and **no error announcing their absence**.
-* the operator-console assets (now ``server/frontend/``) — ``create_app()``
+* the operator-console assets (now ``src/arxmcp/server/frontend/``) — ``create_app()``
   raises on the missing StaticFiles dir.
-* ``server/router_patterns.yaml`` — ``server/router.py`` raises outright.
-* ``server/schemas/*.json`` — the declared result-row source of truth.
-* ``tools/seed-papers.txt`` — ``tools/fetch_seed.py`` cannot find it.
+* ``src/arxmcp/server/router_patterns.yaml`` — ``src/arxmcp/server/router.py`` raises outright.
+* ``src/arxmcp/server/schemas/*.json`` — the declared result-row source of truth.
+* ``src/arxmcp/tools/seed-papers.txt`` — ``src/arxmcp/tools/fetch_seed.py`` cannot find it.
 
 Plus a sixth at the docs boundary: ``docs/install.md`` told every new
 operator to verify their install with ``arxmcp-server --help`` while
@@ -27,7 +27,7 @@ rot the way a hand-maintained list would: adding a new data file to a
 shipped package, or a new package to ``pyproject.toml``, fails here until
 the packaging declarations catch up.
 
-**The real thing (opt-in).** ``tools/wheel_install_check.py`` builds the
+**The real thing (opt-in).** ``src/arxmcp/tools/wheel_install_check.py`` builds the
 wheel, installs it into a fresh venv and boots the server. It is opt-in via
 the ``requires_wheel_build`` marker because it costs ~4 min and a ~2 GB
 dependency resolve; ``make wheel-check`` and ``make wheel-check-full`` are
@@ -50,7 +50,7 @@ from setuptools import find_namespace_packages
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PYPROJECT = REPO_ROOT / "pyproject.toml"
-DOCKERFILE = REPO_ROOT / "docker" / "Dockerfile.server"
+DOCKERFILE = REPO_ROOT / "deploy" / "Dockerfile.server"
 
 #: Filenames that are repo navigation, not distribution content. This is an
 #: explicit decision rather than an oversight: ``README.md`` inside a
@@ -81,12 +81,26 @@ def _exclude_patterns(pyproject: dict) -> list[str]:
     return pyproject["tool"]["setuptools"]["packages"]["find"].get("exclude", [])
 
 
-def _shipped_trees(pyproject: dict) -> list[str]:
-    """Top-level directory names the wheel claims to ship.
+def _package_root(pyproject: dict) -> str:
+    """The directory setuptools discovers packages under (``src``)."""
+    return pyproject["tool"]["setuptools"]["packages"]["find"].get("where", ["."])[0]
 
-    ``["server*", "ops*"]`` -> ``["server", "ops"]``.
+
+def _shipped_trees(pyproject: dict) -> list[str]:
+    """Repo-relative directories the wheel claims to ship.
+
+    ``where = ["src"]``, ``include = ["arxmcp*"]`` -> ``["src/arxmcp"]``.
     """
-    return sorted({p.rstrip("*") for p in _include_patterns(pyproject)})
+    root = _package_root(pyproject)
+    return sorted({f"{root}/{p.rstrip('*')}" for p in _include_patterns(pyproject)})
+
+
+def _discovered(pyproject: dict) -> list[str]:
+    return find_namespace_packages(
+        where=str(REPO_ROOT / _package_root(pyproject)),
+        include=_include_patterns(pyproject),
+        exclude=_exclude_patterns(pyproject),
+    )
 
 
 def _iter_data_files(tree: str):
@@ -113,7 +127,7 @@ def _iter_data_files(tree: str):
 class TestPackagesDeclared:
     def test_ops_is_in_the_wheel_include_list(self, pyproject: dict) -> None:
         """issue #206's headline: the operability layer shipped nowhere."""
-        assert "ops*" in _include_patterns(pyproject), (
+        assert "arxmcp.ops" in _discovered(pyproject), (
             "pyproject.toml [tool.setuptools.packages.find].include does not "
             "list 'ops*'. Backup, cutover, restore drill and the drift "
             "watchdog would ship in no artifact, with no error."
@@ -124,42 +138,40 @@ class TestPackagesDeclared:
     ) -> None:
         """trustworthy-release-m4: without these create_app() cannot start.
 
-        They live at ``server/frontend/`` and are therefore carried by the
+        They live at ``src/arxmcp/server/frontend/`` and are therefore carried by the
         ``server*`` glob — there is deliberately NO ``frontend*`` entry.
         A top-level ``frontend`` package would claim that very generic name
         in every installing environment's site-packages, and un-claiming it
         after a PyPI publish is a one-way door.
         """
         patterns = _include_patterns(pyproject)
-        assert "server*" in patterns
+        assert "arxmcp.server.frontend.static" in _discovered(pyproject)
         assert "frontend*" not in patterns, (
             "pyproject.toml re-added a TOP-LEVEL 'frontend*' package. The "
-            "console assets belong at server/frontend/ so the distribution "
+            "console assets belong at src/arxmcp/server/frontend/ so the distribution "
             "does not claim the generic name 'frontend' in site-packages."
         )
         assert not (REPO_ROOT / "frontend").exists(), (
             "a top-level frontend/ directory reappeared; the console assets "
-            "belong at server/frontend/"
+            "belong at src/arxmcp/server/frontend/"
         )
 
     def test_console_asset_dirs_exist_where_the_code_looks(self) -> None:
         """Pin the move against the two call sites that resolve it.
 
-        ``server/routes/ui.py`` uses ``parents[1]`` and ``server/main.py``
+        ``src/arxmcp/server/routes/ui.py`` uses ``parents[1]`` and ``src/arxmcp/server/main.py``
         uses ``parent`` — both package-relative, which is what makes one
         expression work for a source checkout and an installed wheel. If the
         assets move again without those being updated, the server raises at
         ``create_app()``; this fails first and says so.
         """
         for sub in ("templates", "static"):
-            path = REPO_ROOT / "server" / "frontend" / sub
+            path = REPO_ROOT / "src" / "arxmcp" / "server" / "frontend" / sub
             assert path.is_dir(), f"missing console assets dir: {path}"
 
-    @pytest.mark.parametrize("tree", ["server", "ingest", "tools", "shim"])
-    def test_original_package_trees_still_declared(
-        self, pyproject: dict, tree: str
-    ) -> None:
-        assert f"{tree}*" in _include_patterns(pyproject)
+    @pytest.mark.parametrize("box", ["server", "ingest", "tools", "shim", "ops"])
+    def test_every_box_is_discovered(self, pyproject: dict, box: str) -> None:
+        assert f"arxmcp.{box}" in _discovered(pyproject)
 
     def test_every_declared_tree_exists_on_disk(self, pyproject: dict) -> None:
         missing = [t for t in _shipped_trees(pyproject) if not (REPO_ROOT / t).is_dir()]
@@ -172,15 +184,12 @@ class TestPackagesDeclared:
     def test_desktop_lifecycle_spike_is_not_a_wheel_package(
         self, pyproject: dict
     ) -> None:
-        assert "tools.desktop_lifecycle_spike*" in _exclude_patterns(pyproject)
-        discovered = find_namespace_packages(
-            where=str(REPO_ROOT),
-            include=_include_patterns(pyproject),
-            exclude=_exclude_patterns(pyproject),
-        )
+        assert "arxmcp.tools.desktop_lifecycle_spike*" in _exclude_patterns(pyproject)
+        discovered = _discovered(pyproject)
+        assert discovered, "no packages discovered; the find config is stale"
         assert not any(
-            package == "tools.desktop_lifecycle_spike"
-            or package.startswith("tools.desktop_lifecycle_spike.")
+            package == "arxmcp.tools.desktop_lifecycle_spike"
+            or package.startswith("arxmcp.tools.desktop_lifecycle_spike.")
             for package in discovered
         )
 
@@ -191,7 +200,7 @@ class TestPackageDataCoversEveryDataFile:
     Declaring a directory in ``packages.find`` ships only its ``.py``
     modules. Every other file needs a ``package-data`` glob, and forgetting
     one is silent — that is precisely how ``router_patterns.yaml`` (whose
-    absence makes ``server/router.py`` raise) went missing unnoticed.
+    absence makes ``src/arxmcp/server/router.py`` raise) went missing unnoticed.
     """
 
     def test_no_data_file_is_silently_dropped(self, pyproject: dict) -> None:
@@ -204,7 +213,7 @@ class TestPackageDataCoversEveryDataFile:
             for path in _iter_data_files(tree):
                 if path.name in _NOT_SHIPPED_FILENAMES:
                     continue
-                rel = path.relative_to(REPO_ROOT)
+                rel = path.relative_to(REPO_ROOT / _package_root(pyproject))
                 # setuptools resolves a package-data glob against the
                 # package directory, and the glob does NOT descend into
                 # subdirectories — so match the BASENAME against the globs
@@ -231,19 +240,19 @@ class TestPackageDataCoversEveryDataFile:
         """
         package_data = pyproject["tool"]["setuptools"]["package-data"]
         for package, filename in [
-            ("server", "router_patterns.yaml"),
-            ("server.schemas", "search_papers_result.json"),
-            ("server.ca", "arxiv-ca-bundle.pem"),
-            ("tools", "seed-papers.txt"),
-            ("ops", "cutover.sh"),
-            ("ops", "restic-env.sh.template"),
-            ("ops.cron", "arxmcp-backup.sh"),
-            ("ops.cron", "arxmcp-cron.cron"),
-            ("ops.systemd", "arxmcp-backup.service"),
-            ("ops.systemd", "arxmcp-backup.timer"),
-            ("server.frontend.templates", "base.html"),
-            ("server.frontend.static", "htmx.min.js"),
-            ("server.frontend.static", "app.css"),
+            ("arxmcp.server", "router_patterns.yaml"),
+            ("arxmcp.server.schemas", "search_papers_result.json"),
+            ("arxmcp.server.ca", "arxiv-ca-bundle.pem"),
+            ("arxmcp.tools", "seed-papers.txt"),
+            ("arxmcp.ops", "cutover.sh"),
+            ("arxmcp.ops", "restic-env.sh.template"),
+            ("arxmcp.ops.cron", "arxmcp-backup.sh"),
+            ("arxmcp.ops.cron", "arxmcp-cron.cron"),
+            ("arxmcp.ops.systemd", "arxmcp-backup.service"),
+            ("arxmcp.ops.systemd", "arxmcp-backup.timer"),
+            ("arxmcp.server.frontend.templates", "base.html"),
+            ("arxmcp.server.frontend.static", "htmx.min.js"),
+            ("arxmcp.server.frontend.static", "app.css"),
             # ui-uplift-m7 split the :root token blocks out of app.css. The
             # existing "*.css" glob and the wholesale `COPY server/` already
             # carry it — verified, not assumed, so no pyproject or Dockerfile
@@ -252,7 +261,7 @@ class TestPackageDataCoversEveryDataFile:
             # value (transparent backgrounds, no fonts), and the source
             # checkout cannot see that because the file is on disk either
             # way. This is precisely the §4.5b invisible-from-source class.
-            ("server.frontend.static", "tokens.css"),
+            ("arxmcp.server.frontend.static", "tokens.css"),
         ]:
             globs = package_data.get(package, [])
             assert any(fnmatch.fnmatch(filename, g) for g in globs), (
@@ -274,7 +283,7 @@ class TestConsoleScripts:
 
     def test_arxmcp_shim_still_declared(self, pyproject: dict) -> None:
         # Claude Code's ~/.claude.json registers this name verbatim.
-        assert pyproject["project"]["scripts"]["arxmcp-shim"] == "shim.arxmcp_shim:main"
+        assert pyproject["project"]["scripts"]["arxmcp-shim"] == "arxmcp.shim.arxmcp_shim:main"
 
     @pytest.mark.parametrize("script", ["arxmcp-server", "arxmcp-shim"])
     def test_entry_point_target_is_importable_and_callable(
@@ -292,11 +301,11 @@ class TestConsoleScripts:
     ) -> None:
         """``arxmcp-server --help`` must not construct the FastAPI app.
 
-        ``server/main.py`` builds ``app`` at module scope, so pointing the
+        ``src/arxmcp/server/main.py`` builds ``app`` at module scope, so pointing the
         console script at it would make ``--help`` open LanceDB handles and
         mount StaticFiles — and exit non-zero on any config error before
-        argparse ran. This asserts the indirection through ``server.cli``
-        is real: importing it must not drag in ``server.main``.
+        argparse ran. This asserts the indirection through ``arxmcp.server.cli``
+        is real: importing it must not drag in ``arxmcp.server.main``.
         """
         target = pyproject["project"]["scripts"]["arxmcp-server"]
         module_name = target.partition(":")[0]
@@ -306,7 +315,7 @@ class TestConsoleScripts:
                 sys.executable,
                 "-c",
                 f"import {module_name}, sys; "
-                f"print('server.main' in sys.modules)",
+                f"print('arxmcp.server.main' in sys.modules)",
             ],
             capture_output=True,
             text=True,
@@ -315,7 +324,7 @@ class TestConsoleScripts:
         )
         assert proc.returncode == 0, proc.stderr
         assert proc.stdout.strip() == "False", (
-            f"importing {module_name} eagerly imported server.main, which "
+            f"importing {module_name} eagerly imported arxmcp.server.main, which "
             "builds the whole FastAPI app. Keep the import inside main()."
         )
 
@@ -331,7 +340,7 @@ class TestConsoleScripts:
                 [
                     sys.executable,
                     "-c",
-                    "import sys; from server.cli import main; "
+                    "import sys; from arxmcp.server.cli import main; "
                     f"sys.argv=['arxmcp-server','{flag}']; "
                     "sys.exit(main())",
                 ],
@@ -365,7 +374,7 @@ class TestDockerfileMatchesPackaging:
             if not re.search(rf"^COPY {re.escape(tree)}/ ", text, re.MULTILINE)
         ]
         assert not missing, (
-            f"docker/Dockerfile.server has no `COPY {{tree}}/` line for "
+            f"deploy/Dockerfile.server has no `COPY {{tree}}/` line for "
             f"{missing}, but pyproject.toml declares them as packages. The "
             "wheel build inside the image fails on the first one."
         )
@@ -373,8 +382,8 @@ class TestDockerfileMatchesPackaging:
     def test_ops_is_copied(self) -> None:
         """issue #206 names this explicitly."""
         text = DOCKERFILE.read_text(encoding="utf-8")
-        assert re.search(r"^COPY ops/ ", text, re.MULTILINE), (
-            "docker/Dockerfile.server does not COPY ops/ — the container "
+        assert re.search(r"^COPY src/arxmcp/ops/ ", text, re.MULTILINE), (
+            "deploy/Dockerfile.server does not COPY src/arxmcp/ops/ — the container "
             "ships without backup, cutover, restore drill or drift watchdog."
         )
 
@@ -447,17 +456,17 @@ class TestImageImportsTheWheel:
         self, pyproject: dict
     ) -> None:
         runtime = _dockerfile_stages()["runtime"]
-        # ops/ stays: operators run its scripts by path inside the container.
+        # src/arxmcp/ops/ is copied on its own: operators run its scripts by
+        # path inside the container, and it is not on sys.path.
         shadowing = [
             tree
             for tree in _shipped_trees(pyproject)
-            if tree != "ops"
-            and re.search(rf"^COPY {re.escape(tree)}/ ", runtime, re.MULTILINE)
+            if re.search(rf"^COPY {re.escape(tree)}/ ", runtime, re.MULTILINE)
         ]
         assert not shadowing, (
             f"the runtime stage copies {shadowing} beside the installed "
             "wheel; with /app as the working directory those copies are "
-            "what `python -m server.main` imports"
+            "what `python -m arxmcp.server.main` imports"
         )
         assert not re.search(r"^COPY [^\n]*\bpyproject\.toml\b", runtime, re.MULTILINE), (
             "a pyproject.toml next to the code makes the server treat /app "
@@ -499,7 +508,7 @@ class TestCleanEnvironmentInstall:
 
     def _run_check(self, mode: str) -> None:
         proc = subprocess.run(
-            [sys.executable, str(REPO_ROOT / "tools" / "wheel_install_check.py"),
+            [sys.executable, str(REPO_ROOT / "src" / "arxmcp" / "tools" / "wheel_install_check.py"),
              "--mode", mode],
             capture_output=True,
             text=True,
@@ -507,7 +516,7 @@ class TestCleanEnvironmentInstall:
             timeout=3600,
         )
         assert proc.returncode == 0, (
-            f"tools/wheel_install_check.py --mode {mode} failed:\n"
+            f"src/arxmcp/tools/wheel_install_check.py --mode {mode} failed:\n"
             f"{proc.stdout[-8000:]}\n{proc.stderr[-8000:]}"
         )
 

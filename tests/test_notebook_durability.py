@@ -2,7 +2,7 @@
 
 Two independent hardening changes are covered here:
 
-1. **SQLite crash durability** — ``server/notebooks_store.py`` opens its
+1. **SQLite crash durability** — ``src/arxmcp/server/notebooks_store.py`` opens its
    single, long-lived ``notebooks.db`` connection with
    ``PRAGMA synchronous=FULL`` + ``PRAGMA fullfsync=ON``. ``notebooks.db``
    holds user-authored, NON-regenerable state, so a committed write must
@@ -31,10 +31,10 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from ingest.chunk import CHUNKER_VERSION, ChunkRecord
-from ingest.embedder import EMBEDDER_VERSION, EMBEDDING_DIM
-from ingest.schema import CHUNKS_TABLE_NAME, LANCE_STORAGE_OPTIONS, EmbedRecord
-from server.notebooks_store import NotebooksStore
+from arxmcp.ingest.chunk import CHUNKER_VERSION, ChunkRecord
+from arxmcp.ingest.embedder import EMBEDDER_VERSION, EMBEDDING_DIM
+from arxmcp.ingest.schema import CHUNKS_TABLE_NAME, LANCE_STORAGE_OPTIONS, EmbedRecord
+from arxmcp.server.notebooks_store import NotebooksStore
 
 # SQLite PRAGMA synchronous integer codes: OFF=0, NORMAL=1, FULL=2, EXTRA=3.
 _SYNC_FULL = 2
@@ -152,14 +152,14 @@ class TestDurabilityScope:
     """
 
     def test_cache_sqlite_stays_normal(self) -> None:
-        src = Path("server/cache_sqlite.py").read_text(encoding="utf-8")
+        src = Path("src/arxmcp/server/cache_sqlite.py").read_text(encoding="utf-8")
         assert "PRAGMA synchronous=NORMAL" in src, (
             "cache_sqlite.py should stay NORMAL (regenerable cache)"
         )
         assert "PRAGMA synchronous=FULL" not in src
 
     def test_notebooks_store_uses_full_and_fullfsync(self) -> None:
-        src = Path("server/notebooks_store.py").read_text(encoding="utf-8")
+        src = Path("src/arxmcp/server/notebooks_store.py").read_text(encoding="utf-8")
         assert "PRAGMA synchronous=FULL" in src
         assert "PRAGMA fullfsync=ON" in src
         assert "PRAGMA synchronous=NORMAL" not in src
@@ -295,7 +295,7 @@ class TestLanceFormatPin:
 
         chunks = _make_minimal_corpus(2)
         embeddings = _make_embeddings(chunks)
-        from ingest.store import write_chunks
+        from arxmcp.ingest.store import write_chunks
 
         write_chunks(chunks, embeddings, lancedb_path=tmp_path / "lancedb")
 
@@ -307,7 +307,7 @@ class TestLanceFormatPin:
         """The pin must not break writes: a pinned table reads back."""
         chunks = _make_minimal_corpus(2)
         embeddings = _make_embeddings(chunks)
-        from ingest.store import write_chunks
+        from arxmcp.ingest.store import write_chunks
 
         write_chunks(chunks, embeddings, lancedb_path=tmp_path / "lancedb")
         import lancedb
@@ -319,9 +319,9 @@ class TestLanceFormatPin:
     @pytest.mark.parametrize(
         "src_path",
         [
-            "ingest/store.py",
-            "ingest/index_equations.py",
-            "ingest/index_definitions.py",
+            "src/arxmcp/ingest/store.py",
+            "src/arxmcp/ingest/index_equations.py",
+            "src/arxmcp/ingest/index_definitions.py",
         ],
     )
     def test_all_create_table_sites_pin_storage_options(

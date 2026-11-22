@@ -1,7 +1,7 @@
 """source-truth-m3 — the ``arxmcp://corpus-manifest`` MCP resource.
 
-Covers :mod:`server.corpus_manifest` (the pure builder + content hash +
-rollup) and its registration in :mod:`server.mcp_resources`. Mirrors the
+Covers :mod:`arxmcp.server.corpus_manifest` (the pure builder + content hash +
+rollup) and its registration in :mod:`arxmcp.server.mcp_resources`. Mirrors the
 discipline of ``tests/test_mcp_resources.py``.
 
 ACs (brief-2 §ACs):
@@ -31,25 +31,25 @@ from pathlib import Path
 import pytest
 from mcp.server.fastmcp import FastMCP
 
-from ingest import notebooks as _notebook_common
-from ingest.notebooks import (
+from arxmcp.ingest import notebooks as _notebook_common
+from arxmcp.ingest.notebooks import (
     CORPUS_PARSED_DIR,
     CORPUS_RAW_DIR,
     notebook_dir,
 )
-from ingest.oai_license import (
+from arxmcp.ingest.oai_license import (
     LICENSE_STATUS_ELIGIBLE,
     LICENSE_STATUS_NOT_ALLOWLISTED_OPEN,
     LICENSE_STATUS_UNKNOWN,
 )
-from server.corpus_manifest import (
+from arxmcp.server.corpus_manifest import (
     MANIFEST_VERSION,
     OVERRIDE_KEY_PREFIX,
     build_manifest,
     compute_manifest_hash,
     rollup_sha256,
 )
-from server.documents_store import (
+from arxmcp.server.documents_store import (
     DOCUMENT_STATUS_ACTIVE,
     DOCUMENT_STATUS_SUPERSEDED,
     DOCUMENT_STATUS_WITHDRAWN,
@@ -59,24 +59,24 @@ from server.documents_store import (
     DocumentRecord,
     DocumentsStore,
 )
-from server.mcp_resources import (
+from arxmcp.server.mcp_resources import (
     CORPUS_MANIFEST_URI,
     register_resources,
     reset_notebooks_store_for_tests,
     set_notebooks_store,
 )
-from server.notebooks_store import NotebooksStore
-from server.operator_settings import set_setting
-from server.tools import register_all
+from arxmcp.server.notebooks_store import NotebooksStore
+from arxmcp.server.operator_settings import set_setting
+from arxmcp.server.tools import register_all
+from arxmcp.tools.notebook_documents_backfill import (
+    _hash_raw_source_tree,
+    _parse_artifact_sha256,
+)
 
 # Reuse the canonical tool-schema hash machinery (the pinned baseline).
 from tests.test_server_tool_schema import (  # noqa: E402
     EXPECTED_TOOL_SCHEMA_SHA256,
     compute_tool_schema_hash,
-)
-from tools.notebook_documents_backfill import (
-    _hash_raw_source_tree,
-    _parse_artifact_sha256,
 )
 
 _CREATED_AT = "2026-01-01T00:00:00Z"
@@ -693,7 +693,7 @@ class TestRegistryDegrade:
         is present) is monkeypatched to raise ``RuntimeError`` for one slug —
         a stand-in for any future non-caught exception (e.g.
         ``sqlite3.InterfaceError``, a ``DatabaseError`` sibling)."""
-        import server.corpus_manifest as cm
+        import arxmcp.server.corpus_manifest as cm
 
         orig = cm._read_override
 

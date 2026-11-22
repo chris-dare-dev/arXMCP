@@ -30,16 +30,16 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from ingest.bm25_indexer import (
+from arxmcp.ingest.bm25_indexer import (
     BM25_CHUNK_IDS_NAME,
     BM25_INDEX_NAME,
     BM25Stats,
     build_bm25_index,
 )
-from ingest.chunk import CHUNKER_VERSION, ChunkRecord
-from ingest.embedder import EMBEDDER_VERSION, EMBEDDING_DIM
-from ingest.schema import EmbedRecord
-from ingest.store import write_chunks
+from arxmcp.ingest.chunk import CHUNKER_VERSION, ChunkRecord
+from arxmcp.ingest.embedder import EMBEDDER_VERSION, EMBEDDING_DIM
+from arxmcp.ingest.schema import EmbedRecord
+from arxmcp.ingest.store import write_chunks
 
 # ===========================================================================
 # Helpers — curated chunks with hand-crafted body_tokens
@@ -55,7 +55,7 @@ def _curated_chunk(
 ) -> ChunkRecord:
     """Build a ChunkRecord with the EXACT body_tokens we want indexed.
 
-    Bypasses ``ingest.tokenizer.tokenize_body`` so the test's BM25
+    Bypasses ``arxmcp.ingest.tokenizer.tokenize_body`` so the test's BM25
     query matches reliably. The brief query "Spec mathrm_Pic"
     requires a chunk whose body_tokens contains those exact tokens
     after a whitespace split.
@@ -154,7 +154,7 @@ class TestModuleContract:
         Whitespace-collapsed substring match so the sentence can wrap
         across source lines.
         """
-        import ingest.bm25_indexer as bm25_mod
+        import arxmcp.ingest.bm25_indexer as bm25_mod
 
         doc = bm25_mod.__doc__ or ""
         doc_collapsed = " ".join(doc.split())
@@ -163,7 +163,7 @@ class TestModuleContract:
             "No Tantivy, no custom analyzer. See H4 remediation."
         )
         assert required in doc_collapsed, (
-            "ingest/bm25_indexer.py docstring must contain the H4 "
+            "src/arxmcp/ingest/bm25_indexer.py docstring must contain the H4 "
             "remediation sentence verbatim per E04_S04 AC"
         )
 
@@ -171,7 +171,7 @@ class TestModuleContract:
         """Mirrors the discipline from E04_S03 M2: any function
         accepting a filesystem path must carry the Threat 1 deferral
         marker."""
-        from ingest.bm25_indexer import build_bm25_index
+        from arxmcp.ingest.bm25_indexer import build_bm25_index
 
         doc = build_bm25_index.__doc__ or ""
         doc_collapsed = " ".join(doc.split())
@@ -188,7 +188,7 @@ class TestBuildIndex:
     def test_writes_pkl_and_chunk_ids(self, tmp_path, monkeypatch):
         """AC: bm25.pkl + chunk_ids.json are written under
         ``derived/bm25/v<N>/`` inside the dataset."""
-        import ingest.bm25_indexer as bm25_mod
+        import arxmcp.ingest.bm25_indexer as bm25_mod
 
 
         chunks = _curated_corpus()
@@ -210,7 +210,7 @@ class TestBuildIndex:
         """The chunk_ids.json list is row-aligned with the BM25
         corpus stored in bm25.pkl. Loading both back must produce
         equal-length sequences."""
-        import ingest.bm25_indexer as bm25_mod
+        import arxmcp.ingest.bm25_indexer as bm25_mod
 
 
         chunks = _curated_corpus()
@@ -244,7 +244,7 @@ class TestQueryAccuracy:
     ):
         """AC: BM25 query over "Spec mathrm_Pic" returns the chunk
         containing those tokens with the highest score."""
-        import ingest.bm25_indexer as bm25_mod
+        import arxmcp.ingest.bm25_indexer as bm25_mod
 
 
         chunks = _curated_corpus()
@@ -293,7 +293,7 @@ class TestQueryAccuracy:
         wins because it has TF=2 for the query terms vs chunks[2]'s
         TF=1.
         """
-        import ingest.bm25_indexer as bm25_mod
+        import arxmcp.ingest.bm25_indexer as bm25_mod
 
 
         chunks = _curated_corpus()
@@ -333,7 +333,7 @@ class TestQueryAccuracy:
 
 class TestIdempotency:
     def test_rerun_is_skipped_when_files_exist(self, tmp_path, monkeypatch):
-        import ingest.bm25_indexer as bm25_mod
+        import arxmcp.ingest.bm25_indexer as bm25_mod
 
 
         chunks = _curated_corpus()
@@ -371,7 +371,7 @@ class TestIdempotency:
         coarse-grained mtime (e.g. APFS often rounds to seconds for
         replace-induced writes).
         """
-        import ingest.bm25_indexer as bm25_mod
+        import arxmcp.ingest.bm25_indexer as bm25_mod
 
 
         chunks = _curated_corpus()
@@ -459,7 +459,7 @@ class _ScanRecorder:
 
 class TestScanProjection:
     def _recorded_build(self, tmp_path, monkeypatch, *, extra_rows: int = 0):
-        import ingest.bm25_indexer as bm25_mod
+        import arxmcp.ingest.bm25_indexer as bm25_mod
 
         chunks = _curated_corpus()
         version = write_chunks(
@@ -518,7 +518,7 @@ class TestScanProjection:
 
 class TestStatsLogging:
     def test_stats_line_appended_on_build(self, tmp_path, monkeypatch):
-        import ingest.bm25_indexer as bm25_mod
+        import arxmcp.ingest.bm25_indexer as bm25_mod
 
 
         chunks = _curated_corpus()
@@ -546,7 +546,7 @@ class TestStatsLogging:
     def test_stats_line_records_skipped_on_no_op_rerun(
         self, tmp_path, monkeypatch
     ):
-        import ingest.bm25_indexer as bm25_mod
+        import arxmcp.ingest.bm25_indexer as bm25_mod
 
 
         chunks = _curated_corpus()
@@ -579,11 +579,11 @@ class TestStatsLogging:
 class TestSingleSourceOfTruth:
     def test_constants_defined_exactly_once(self):
         """``BM25_DIR_NAME``, ``BM25_INDEX_NAME``, ``BM25_CHUNK_IDS_NAME``
-        live only in ``ingest/bm25_indexer.py``."""
+        live only in ``src/arxmcp/ingest/bm25_indexer.py``."""
         repo_root = Path(__file__).parent.parent
         for name in ("BM25_DIR_NAME", "BM25_INDEX_NAME", "BM25_CHUNK_IDS_NAME"):
             hits = []
-            for src_dir in ("ingest", "server"):
+            for src_dir in ("src/arxmcp/ingest", "src/arxmcp/server"):
                 for py in (repo_root / src_dir).rglob("*.py"):
                     text = py.read_text(encoding="utf-8")
                     if f"{name} = " in text:
@@ -602,7 +602,7 @@ class TestSingleSourceOfTruth:
         # only hit bm25_indexer.py.
         repo_root = Path(__file__).parent.parent
         hits = []
-        for src_dir in ("ingest", "server"):
+        for src_dir in ("src/arxmcp/ingest", "src/arxmcp/server"):
             for py in (repo_root / src_dir).rglob("*.py"):
                 text = py.read_text(encoding="utf-8")
                 if 'f"v{' in text:
@@ -671,7 +671,7 @@ class TestBM25IndexRootIsolation:
         This is the structural guarantee that no collision can occur when
         two callers supply distinct roots for the same version integer.
         """
-        import ingest.bm25_indexer as bm25_mod
+        import arxmcp.ingest.bm25_indexer as bm25_mod
 
         root_a = tmp_path / "notebook-a" / "index" / "bm25"
         root_b = tmp_path / "notebook-b" / "index" / "bm25"
@@ -700,7 +700,7 @@ class TestBM25IndexRootIsolation:
         Post-fix each call writes to its own root, so the files are
         fully separated.
         """
-        import ingest.bm25_indexer as bm25_mod
+        import arxmcp.ingest.bm25_indexer as bm25_mod
 
         root_a = tmp_path / "nb-alpha" / "index" / "bm25"
         root_b = tmp_path / "nb-beta" / "index" / "bm25"
@@ -761,7 +761,7 @@ class TestBM25IndexRootIsolation:
         datasets that both reach version N never read each other's."""
         import json as _json
 
-        import ingest.bm25_indexer as bm25_mod
+        import arxmcp.ingest.bm25_indexer as bm25_mod
 
         ids = {}
         for name, paper_id, chunk_hash in (
@@ -790,7 +790,7 @@ class TestBM25IndexRootIsolation:
         skip path returns before it), so spying on it distinguishes
         skip-vs-rebuild without flaky mtime comparisons.
         """
-        import ingest.bm25_indexer as bm25_mod
+        import arxmcp.ingest.bm25_indexer as bm25_mod
 
         root_a = tmp_path / "nb-a" / "index" / "bm25"
         root_b = tmp_path / "nb-b" / "index" / "bm25"

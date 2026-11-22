@@ -1,4 +1,4 @@
-"""Unit tests for `ingest.arxiv_fetch` — the offline-testable surface.
+"""Unit tests for `arxmcp.ingest.arxiv_fetch` — the offline-testable surface.
 
 The actual `/e-print/` HTTP fetch and the `latexmlc` invocation are
 network/binary dependencies that Phase 4 exercises after user
@@ -14,8 +14,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from ingest import arxiv_fetch
-from ingest.arxiv_fetch import (
+from arxmcp.ingest import arxiv_fetch
+from arxmcp.ingest.arxiv_fetch import (
     DEFAULT_503_BACKOFF_SECONDS,
     MIN_PARSED_HTML_BYTES,
     LatexmlProcessError,

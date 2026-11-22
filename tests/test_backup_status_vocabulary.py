@@ -1,7 +1,7 @@
 """The backup-status producer/consumer contract — chris-dare-dev/arXMCP#202 + #203.
 
-#202: ``ops/cron/arxmcp-backup.sh`` emitted ``"success"`` and composites of
-the form ``backup_<phase>_forget_<phase>``, while ``server/health.py``
+#202: ``src/arxmcp/ops/cron/arxmcp-backup.sh`` emitted ``"success"`` and composites of
+the form ``backup_<phase>_forget_<phase>``, while ``src/arxmcp/server/health.py``
 declared the enum ``("ok", "failed", "running", "unknown")``. The two sets
 were **disjoint** — no value the producer could emit was a member of the
 consumer's enum — so a perfect backup classified as ``unknown`` and
@@ -30,7 +30,7 @@ from pathlib import Path
 
 import pytest
 
-from server.backup_status import (
+from arxmcp.server.backup_status import (
     BACKUP_STATE_FAILED,
     BACKUP_STATE_OK,
     BACKUP_STATE_PARTIAL,
@@ -41,16 +41,16 @@ from server.backup_status import (
     advances_freshness,
     classify_backup_state,
 )
-from server.health import compute_health_status, refresh_sentinel_metrics
-from server.metrics import (
+from arxmcp.server.health import compute_health_status, refresh_sentinel_metrics
+from arxmcp.server.metrics import (
     BACKUP_LAST_SUCCESS_GAUGE,
     BACKUP_STATUS_GAUGE,
     reset_sentinel_metrics_for_tests,
 )
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-WRAPPER = REPO_ROOT / "ops" / "cron" / "arxmcp-backup.sh"
-STATUS_LIB = REPO_ROOT / "ops" / "cron" / "backup-status-lib.sh"
+WRAPPER = REPO_ROOT / "src" / "arxmcp" / "ops" / "cron" / "arxmcp-backup.sh"
+STATUS_LIB = REPO_ROOT / "src" / "arxmcp" / "ops" / "cron" / "backup-status-lib.sh"
 
 #: ``ARXMCP_BACKUP_STATE_OK="ok"`` — the shell half's declarations.
 _SHELL_STATE_DECL = re.compile(
@@ -89,7 +89,7 @@ class TestSharedVocabulary:
 
     def test_shell_lib_exists(self):
         assert STATUS_LIB.is_file(), (
-            "ops/cron/backup-status-lib.sh is the shell half of the shared "
+            "src/arxmcp/ops/cron/backup-status-lib.sh is the shell half of the shared "
             "vocabulary; without it the wrapper re-invents its own tokens, "
             "which is arXMCP#202"
         )
@@ -109,7 +109,7 @@ class TestSharedVocabulary:
         assert shell_states, "no ARXMCP_BACKUP_STATE_* declarations found"
         assert shell_states == set(EMITTABLE_STATES), (
             "producer/consumer vocabulary drift: shell declares "
-            f"{sorted(shell_states)}, server.backup_status.EMITTABLE_STATES "
+            f"{sorted(shell_states)}, arxmcp.server.backup_status.EMITTABLE_STATES "
             f"is {sorted(EMITTABLE_STATES)}"
         )
 
@@ -130,7 +130,7 @@ class TestSharedVocabulary:
         bare = [v for v in values if not re.fullmatch(r"\$\{[A-Z_]+\}", v)]
         assert not bare, (
             f"wrapper writes bare status literal(s) {bare}; they must come "
-            "from the shared vocabulary in ops/cron/backup-status-lib.sh"
+            "from the shared vocabulary in src/arxmcp/ops/cron/backup-status-lib.sh"
         )
 
     def test_wrapper_status_variables_are_vocabulary_bound(self):
@@ -168,10 +168,10 @@ class TestRealShellOutputThroughHealthPy:
     """Pipe the REAL producer's output through the REAL consumer.
 
     ``arxmcp_backup_final_status`` is sourced from the shipped
-    ``ops/cron/backup-status-lib.sh`` and driven over the full cross-product
+    ``src/arxmcp/ops/cron/backup-status-lib.sh`` and driven over the full cross-product
     of phase outcomes; every token it yields is written to a real
     ``backup-status.json`` and passed to
-    :func:`server.health.refresh_sentinel_metrics`. Nothing here is
+    :func:`arxmcp.server.health.refresh_sentinel_metrics`. Nothing here is
     hand-typed, so the assertion "no emitted value classifies as unknown"
     is a claim about production code, not about a fixture.
     """

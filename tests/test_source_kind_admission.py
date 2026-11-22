@@ -22,16 +22,16 @@ from pathlib import Path
 
 import pytest
 
-from ingest.identifiers import (
+from arxmcp.ingest.identifiers import (
     SOURCE_KIND_ARXIV,
     SOURCE_KIND_TEXTBOOK,
     is_valid_paper_id,
     paper_id_source_kind,
 )
-from server.handlers import definitions as definitions_mod
-from server.handlers import lemma as lemma_mod
-from server.handlers import paper as paper_mod
-from server.source_kinds import (
+from arxmcp.server.handlers import definitions as definitions_mod
+from arxmcp.server.handlers import lemma as lemma_mod
+from arxmcp.server.handlers import paper as paper_mod
+from arxmcp.server.source_kinds import (
     ALL_SOURCE_KINDS,
     UNSUPPORTED_BY_PROVIDER,
     UnsupportedSourceKind,
@@ -108,7 +108,7 @@ class TestOneIdentifierDomain:
         """The producer half. If search_papers ever narrowed to arXiv-only,
         these tests would pass while the workflow silently lost textbooks."""
         src = (
-            REPO_ROOT / "server" / "handlers" / "search.py"
+            REPO_ROOT / "src" / "arxmcp" / "server" / "handlers" / "search.py"
         ).read_text(encoding="utf-8")
         assert "is_valid_paper_id" in src
         assert is_valid_paper_id(TEXTBOOK_ID)
@@ -187,10 +187,10 @@ class TestAbstentionIsDistinctFromInvalidInput:
 
     def test_outcome_token_matches_the_policy_vocabulary(self):
         """§4.9 names the four epistemic outcomes literally; this is one of
-        them, spelled the same way ``server/proof_linkage.py`` spells it."""
+        them, spelled the same way ``src/arxmcp/server/proof_linkage.py`` spells it."""
         assert UNSUPPORTED_BY_PROVIDER == "unsupported-by-provider"
         linkage = (
-            REPO_ROOT / "server" / "proof_linkage.py"
+            REPO_ROOT / "src" / "arxmcp" / "server" / "proof_linkage.py"
         ).read_text(encoding="utf-8")
         assert UNSUPPORTED_BY_PROVIDER in linkage
 
@@ -217,6 +217,6 @@ class TestSourceKindClassification:
         """The admission vocabulary and the storage enum must not drift —
         six independent encodings of source-type knowledge is the root cause
         the issue records, and this pins two of them together."""
-        from server.handlers.search import _VALID_SOURCE_KIND_FILTER_VALUES
+        from arxmcp.server.handlers.search import _VALID_SOURCE_KIND_FILTER_VALUES
 
         assert ALL_SOURCE_KINDS == _VALID_SOURCE_KIND_FILTER_VALUES

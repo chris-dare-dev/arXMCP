@@ -33,9 +33,9 @@ from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
     InMemorySpanExporter,
 )
 
-from server.config import Config
-from server.observability import tracing as tracing_mod
-from server.observability.tracing import (
+from arxmcp.server.config import Config
+from arxmcp.server.observability import tracing as tracing_mod
+from arxmcp.server.observability.tracing import (
     current_agent_role,
     current_cache_layer,
     current_session_id,
@@ -109,7 +109,7 @@ class TestSetupTracing:
         reset_tracing_for_tests()
         try:
             cfg = Config(lancedb_path=tmp_path, otel_endpoint=None)
-            with caplog.at_level(logging.INFO, logger="server.observability.tracing"):
+            with caplog.at_level(logging.INFO, logger="arxmcp.server.observability.tracing"):
                 setup_tracing(cfg)
             # Disabled path logs INFO, never WARN.
             info_msgs = [r.message for r in caplog.records if r.levelname == "INFO"]
@@ -132,7 +132,7 @@ class TestSetupTracing:
             cfg = Config(
                 lancedb_path=tmp_path, otel_endpoint="http://127.0.0.1:4317"
             )
-            with caplog.at_level(logging.INFO, logger="server.observability.tracing"):
+            with caplog.at_level(logging.INFO, logger="arxmcp.server.observability.tracing"):
                 setup_tracing(cfg)
             assert any(
                 "already_installed" in r.message for r in caplog.records
@@ -412,7 +412,7 @@ class TestTracingContextMiddleware:
     from headers correctly and resets them on scope exit."""
 
     def test_middleware_sets_session_id_from_header(self):
-        from server.middleware import TracingContextMiddleware  # noqa: PLC0415
+        from arxmcp.server.middleware import TracingContextMiddleware  # noqa: PLC0415
 
         seen: dict[str, Any] = {}
 
@@ -462,7 +462,7 @@ class TestWrapperIntegration:
     def test_wrap_with_observability_opens_parent_span(
         self, clear_spans: InMemorySpanExporter
     ):
-        from server.tools import _wrap_with_observability  # noqa: PLC0415
+        from arxmcp.server.tools import _wrap_with_observability  # noqa: PLC0415
 
         async def handler(query: str, k: int = 5):
             return SimpleNamespace(structuredContent={"results": []})
@@ -480,7 +480,10 @@ class TestWrapperIntegration:
         """Backwards-compat: existing tests/test_server_metrics.py
         imports `_wrap_with_metrics`. The rename must keep the old
         name as an alias to the new function."""
-        from server.tools import _wrap_with_metrics, _wrap_with_observability  # noqa: PLC0415
+        from arxmcp.server.tools import (  # noqa: PLC0415
+            _wrap_with_metrics,
+            _wrap_with_observability,
+        )
 
         assert _wrap_with_metrics is _wrap_with_observability
 
@@ -600,7 +603,7 @@ class TestF2AgentRoleValidation:
     Arxmcp-Agent-Role values rather than echoing them onto a span."""
 
     def test_known_role_accepted(self):
-        from server.middleware import TracingContextMiddleware  # noqa: PLC0415
+        from arxmcp.server.middleware import TracingContextMiddleware  # noqa: PLC0415
 
         seen: dict[str, Any] = {}
 
@@ -625,7 +628,7 @@ class TestF2AgentRoleValidation:
         assert seen["agent_role"] == "tactician"
 
     def test_unknown_role_dropped(self):
-        from server.middleware import TracingContextMiddleware  # noqa: PLC0415
+        from arxmcp.server.middleware import TracingContextMiddleware  # noqa: PLC0415
 
         seen: dict[str, Any] = {}
 
@@ -650,8 +653,8 @@ class TestF2AgentRoleValidation:
         assert seen["agent_role"] is None
 
     def test_oversized_role_dropped(self):
-        from server.middleware import TracingContextMiddleware  # noqa: PLC0415
-        from server.observability.tracing import MAX_HEADER_BYTES  # noqa: PLC0415
+        from arxmcp.server.middleware import TracingContextMiddleware  # noqa: PLC0415
+        from arxmcp.server.observability.tracing import MAX_HEADER_BYTES  # noqa: PLC0415
 
         seen: dict[str, Any] = {}
 
@@ -687,10 +690,10 @@ class TestF4ResourcesNotReady:
         self, clear_spans: InMemorySpanExporter, caplog
     ):
         # Force the resources singleton into the "not ready" state.
-        from server.observability.tracing import (  # noqa: PLC0415
+        from arxmcp.server.observability.tracing import (  # noqa: PLC0415
             CORPUS_VERSION_RESOURCES_NOT_READY,
         )
-        from server.tools import (  # noqa: PLC0415
+        from arxmcp.server.tools import (  # noqa: PLC0415
             _reset_resources_not_ready_warned_for_tests,
             _wrap_with_observability,
             reset_resources_for_tests,
@@ -703,7 +706,7 @@ class TestF4ResourcesNotReady:
             return SimpleNamespace(structuredContent={"ok": True})
 
         wrapped = _wrap_with_observability("search_papers", handler)
-        with caplog.at_level(logging.WARNING, logger="server.tools"):
+        with caplog.at_level(logging.WARNING, logger="arxmcp.server.tools"):
             asyncio.run(wrapped())
 
         spans = _spans_by_name(clear_spans, "mcp.tool_call")
@@ -734,7 +737,7 @@ class TestF7CacheLayerEnum:
 
     def test_typo_is_ignored(self, clear_spans: InMemorySpanExporter, caplog):
         set_cache_layer("tier1")
-        with caplog.at_level(logging.DEBUG, logger="server.observability.tracing"):
+        with caplog.at_level(logging.DEBUG, logger="arxmcp.server.observability.tracing"):
             set_cache_layer("Tier1")  # capital T — typo
         # Original "tier1" preserved.
         assert current_cache_layer.get() == "tier1"
@@ -810,7 +813,7 @@ class TestF14StrictHeaderDecode:
     (None), not silently rendered as U+FFFD."""
 
     def test_non_ascii_session_id_becomes_none(self):
-        from server.middleware import TracingContextMiddleware  # noqa: PLC0415
+        from arxmcp.server.middleware import TracingContextMiddleware  # noqa: PLC0415
 
         seen: dict[str, Any] = {}
 

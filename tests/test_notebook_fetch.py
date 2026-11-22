@@ -1,8 +1,8 @@
-"""Tests for the notebook ar5iv + raw-tex fetcher (tools/notebook_fetch.py).
+"""Tests for the notebook ar5iv + raw-tex fetcher (src/arxmcp/tools/notebook_fetch.py).
 
 Focus: the ``run()`` batch loop must not abort when a single paper's
 best-effort raw-`.tex` recovery raises. All network + filesystem side
-effects are mocked at the ``tools.notebook_fetch`` module boundary so the
+effects are mocked at the ``arxmcp.tools.notebook_fetch`` module boundary so the
 suite runs offline (mirrors ``tests/test_ar5iv_fetch.py`` conventions:
 ``unittest.mock.patch``, ``tmp_path`` isolation, class-based grouping).
 """
@@ -15,9 +15,9 @@ from unittest.mock import patch
 
 import pytest
 
-from ingest.ar5iv_fetch import Ar5ivResult
-from ingest.notebooks import fetch_raw_tex_if_missing
-from tools import notebook_fetch
+from arxmcp.ingest.ar5iv_fetch import Ar5ivResult
+from arxmcp.ingest.notebooks import fetch_raw_tex_if_missing
+from arxmcp.tools import notebook_fetch
 
 
 def _local_cache_hit(paper_id: str, **_kwargs) -> Ar5ivResult:
@@ -116,7 +116,7 @@ class TestNotebookFetchRun:
 
         The batch test above mocks that boundary, so it cannot pin the
         exception TYPE. This test drives the real helper (offline:
-        ``validate_paper_id`` raises at ``ingest/arxiv_fetch.py:273`` BEFORE
+        ``validate_paper_id`` raises at ``src/arxmcp/ingest/arxiv_fetch.py:273`` BEFORE
         the ``urlopen`` at ``:282``, so no network egress occurs) and locks
         the contract. If a refactor ever changed the raised type, this
         fails — catching the type-drift the over-mocked test cannot.

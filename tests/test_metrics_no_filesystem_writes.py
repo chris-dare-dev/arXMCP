@@ -15,7 +15,7 @@ And it failed in the condition it exists to report — on a read-only ``var/``
 the sentinel write raised, taking down both ``/metrics`` and startup.
 
 The tests here pin the split: the scrape path is pure, the mitigation lives on
-:mod:`server.metrics_refresh`'s background task, and neither startup nor a
+:mod:`arxmcp.server.metrics_refresh`'s background task, and neither startup nor a
 scrape dies on a filesystem that refuses writes.
 """
 
@@ -26,7 +26,7 @@ import inspect
 from pathlib import Path
 from types import SimpleNamespace
 
-from server import health, metrics_refresh
+from arxmcp.server import health, metrics_refresh
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -86,7 +86,7 @@ class TestScrapePathIsPure:
         ``refresh_filesystem_metrics`` from the wrapper rather than by moving
         the code back, and the body-level test above would still pass.
         """
-        source = (REPO_ROOT / "server" / "main.py").read_text(encoding="utf-8")
+        source = (REPO_ROOT / "src" / "arxmcp" / "server" / "main.py").read_text(encoding="utf-8")
         # Extract the WHOLE function rather than a fixed window: #470 added a
         # method gate to this wrapper and a 600-char slice stopped before the
         # refresh call, failing on a correct change. Cut at the mount that
@@ -124,7 +124,7 @@ class TestReadOnlyFilesystemSurvival:
                 total=100, used=100, free=1  # far below the 10 GB pause floor
             ),
         )
-        from ingest import sentinel as ingest_sentinel
+        from arxmcp.ingest import sentinel as ingest_sentinel
 
         def _readonly(*_a, **_k):
             raise OSError(30, "Read-only file system")
@@ -153,7 +153,7 @@ class TestReadOnlyFilesystemSurvival:
     ):
         """The ALERT must survive even though the automatic pause did not —
         losing the mitigation is tolerable, losing the signal is not."""
-        from server.observability.metrics import DISK_FREE_BYTES
+        from arxmcp.server.observability.metrics import DISK_FREE_BYTES
 
         resources = self._readonly_resources(tmp_path, monkeypatch)
         health.refresh_filesystem_metrics(resources)
@@ -249,7 +249,7 @@ class TestBackgroundRefresher:
     def test_lifespan_starts_and_stops_the_task(self):
         """Pin the wiring — an unstarted task means the mitigation is inert
         again, which is defect #2 in the issue."""
-        source = (REPO_ROOT / "server" / "main.py").read_text(encoding="utf-8")
+        source = (REPO_ROOT / "src" / "arxmcp" / "server" / "main.py").read_text(encoding="utf-8")
         assert "start_metrics_refresh_task" in source
         assert "stop_metrics_refresh_task" in source
         assert source.index("start_metrics_refresh_task") < source.index(
@@ -258,8 +258,9 @@ class TestBackgroundRefresher:
 
 
 # NOTE deliberately no frontend-asset-path tests here. The console assets
-# moved to ``server/frontend/`` in a commit that left 11 consumers pointing at
-# the old top-level ``frontend/`` — ``server/main.py``, ``server/routes/ui.py``
+# moved to ``src/arxmcp/server/frontend/`` in a commit that left 11 consumers
+# pointing at the old top-level ``frontend/`` — ``src/arxmcp/server/main.py``,
+# ``src/arxmcp/server/routes/ui.py``
 # and nine test modules — so ``create_app()`` raises and several UI test files
 # fail at collection. That repair belongs to the session that did the move
 # (which already has all 11 fixed, uncommitted); duplicating it here would

@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from server.cli import _format_config_error, config_reference, main
-from server.config import CONFIG_REFERENCE_HINT, Config
+from arxmcp.server.cli import _format_config_error, config_reference, main
+from arxmcp.server.config import CONFIG_REFERENCE_HINT, Config
 
 
 def _blocks() -> dict[str, list[str]]:
@@ -56,7 +56,7 @@ def test_validation_error_names_the_variable_and_the_listing(monkeypatch) -> Non
 
 
 def test_unknown_variable_error_points_at_the_listing(monkeypatch) -> None:
-    from server.main import _scan_unknown_arxmcp_env_vars
+    from arxmcp.server.main import _scan_unknown_arxmcp_env_vars
 
     monkeypatch.setenv("ARXMCP_BIND_HOSTT", "127.0.0.1")
     with pytest.raises(ValueError) as exc_info:

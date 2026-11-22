@@ -21,7 +21,7 @@ from typing import BinaryIO
 
 import pytest
 
-from server.desktop_contract import (
+from arxmcp.server.desktop_contract import (
     Bound,
     ChildControlState,
     DesktopContractError,
@@ -38,7 +38,7 @@ from server.desktop_contract import (
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-DESKTOP_ROOT = REPO_ROOT / "apps" / "desktop"
+DESKTOP_ROOT = REPO_ROOT / "src" / "desktop"
 FIXTURES = DESKTOP_ROOT / "contract-fixtures"
 POSITIVE_FIXTURES = (
     "launch-v1.jsonl",
@@ -705,7 +705,7 @@ def test_desktop_readme_never_claims_a_descendant_free_child() -> None:
     re-assert descendant-freedom."""
     spawners = sorted(
         path
-        for tree in ("server", "ingest", "tools")
+        for tree in ("src/arxmcp/server", "src/arxmcp/ingest", "src/arxmcp/tools")
         for path in (REPO_ROOT / tree).rglob("*.py")
         if re.search(
             r"create_subprocess_exec|subprocess\.(?:Popen|run)",

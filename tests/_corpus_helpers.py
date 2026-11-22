@@ -28,10 +28,10 @@ from pathlib import Path
 
 import numpy as np
 
-from ingest.chunk import CHUNKER_VERSION, ChunkRecord
-from ingest.embedder import EMBEDDER_VERSION, EMBEDDING_DIM
-from ingest.schema import EmbedRecord
-from ingest.store import write_chunks
+from arxmcp.ingest.chunk import CHUNKER_VERSION, ChunkRecord
+from arxmcp.ingest.embedder import EMBEDDER_VERSION, EMBEDDING_DIM
+from arxmcp.ingest.schema import EmbedRecord
+from arxmcp.ingest.store import write_chunks
 
 
 def seed_corpus(lancedb_path: Path, *, n: int = 2) -> int:
@@ -152,10 +152,10 @@ def patch_bge_m3_model(monkeypatch) -> None:
     """Mock the BGE-M3 load, for any test that runs ``Resources.startup``.
 
     ``Resources.startup`` reaches the loaders through
-    ``server.query_encoder``'s module attributes, so patching them there
+    ``arxmcp.server.query_encoder``'s module attributes, so patching them there
     covers both the startup warm-up and request-time encoding.
     """
-    import server.query_encoder as qe_mod  # noqa: PLC0415
+    import arxmcp.server.query_encoder as qe_mod  # noqa: PLC0415
 
     fake_model = object()
     fake_tokenizer = object()

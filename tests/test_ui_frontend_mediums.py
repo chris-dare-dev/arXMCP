@@ -15,15 +15,15 @@ import re
 from pathlib import Path
 
 REPO_ROOT: Path = Path(__file__).resolve().parents[1]
-FRONTEND: Path = REPO_ROOT / "server" / "frontend"
+FRONTEND: Path = REPO_ROOT / "src" / "arxmcp" / "server" / "frontend"
 INDEX: str = (FRONTEND / "templates" / "index.html").read_text(encoding="utf-8")
 DETAIL: str = (FRONTEND / "templates" / "notebook_detail.html").read_text(encoding="utf-8")
 BASE: str = (FRONTEND / "templates" / "base.html").read_text(encoding="utf-8")
 APP_CSS: str = (FRONTEND / "static" / "app.css").read_text(encoding="utf-8")
 UI_JS: str = (FRONTEND / "static" / "ui.js").read_text(encoding="utf-8")
-UI_PY: str = (REPO_ROOT / "server" / "routes" / "ui.py").read_text(encoding="utf-8")
+UI_PY: str = (REPO_ROOT / "src/arxmcp/server" / "routes" / "ui.py").read_text(encoding="utf-8")
 NOTEBOOKS_PY: str = (
-    REPO_ROOT / "server" / "routes" / "notebooks.py"
+    REPO_ROOT / "src" / "arxmcp" / "server" / "routes" / "notebooks.py"
 ).read_text(encoding="utf-8")
 
 
@@ -239,7 +239,7 @@ def test_the_idle_ingest_state_polls_slowly() -> None:
     left open on a notebook nobody has ingested.
 
     Not stopped outright: a run started OUTSIDE the UI (`make ingest`,
-    tools/notebook_ingest.py) is still discovered, now within a minute
+    src/arxmcp/tools/notebook_ingest.py) is still discovered, now within a minute
     instead of never. ~1,440/day is a 97% reduction.
     """
     none_block = _status_branch("none")

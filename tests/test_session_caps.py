@@ -32,8 +32,8 @@ import json
 
 import pytest
 
-from server.middleware import SessionCapMiddleware
-from server.session import (
+from arxmcp.server.middleware import SessionCapMiddleware
+from arxmcp.server.session import (
     MAX_GET_CHUNK_CALLS,
     MAX_SEARCH_PAPERS_CALLS,
     check_and_increment,
@@ -364,7 +364,7 @@ class TestPassThroughPaths:
 
 
 class TestSessionStateAPI:
-    """Direct tests on the ``server.session`` API — no middleware
+    """Direct tests on the ``arxmcp.server.session`` API — no middleware
     involved. Verifies the per-session state primitives the
     middleware composes."""
 
@@ -530,7 +530,7 @@ class TestCapConfiguration:
     ``extra="forbid"`` startup scan."""
 
     def test_config_fields_read_the_env_vars(self, monkeypatch):
-        from server.config import Config
+        from arxmcp.server.config import Config
 
         monkeypatch.setenv("ARXMCP_MAX_SEARCH_PAPERS_CALLS", "7")
         monkeypatch.setenv("ARXMCP_MAX_GET_CHUNK_CALLS", "11")
@@ -541,8 +541,8 @@ class TestCapConfiguration:
     def test_configure_caps_rebinds_the_module_globals(self, monkeypatch):
         """The effective cap — the value check_both_caps reads —
         reflects the configured value."""
-        import server.session as session_mod
-        from server.config import Config
+        import arxmcp.server.session as session_mod
+        from arxmcp.server.config import Config
 
         monkeypatch.setattr(session_mod, "MAX_SEARCH_PAPERS_CALLS", 3)
         monkeypatch.setattr(session_mod, "MAX_GET_CHUNK_CALLS", 4)
@@ -557,8 +557,8 @@ class TestCapConfiguration:
     def test_configured_cap_is_the_enforced_cap(self, monkeypatch):
         """End to end: configure a cap of 2, and the 3rd call is the
         one that gets RETRIEVAL_CAP_REACHED."""
-        import server.session as session_mod
-        from server.config import Config
+        import arxmcp.server.session as session_mod
+        from arxmcp.server.config import Config
 
         # Register the restore BEFORE configure_caps rebinds the global:
         # monkeypatch remembers the pre-call value and puts it back at
@@ -596,8 +596,8 @@ class TestCapConfiguration:
         implementation would have shipped: an undeclared ARXMCP_* var
         makes the server refuse to boot, so setting the documented
         knob would have been worse than not having it."""
-        from server.config import Config
-        from server.main import _scan_unknown_arxmcp_env_vars
+        from arxmcp.server.config import Config
+        from arxmcp.server.main import _scan_unknown_arxmcp_env_vars
 
         monkeypatch.setenv("ARXMCP_MAX_SEARCH_PAPERS_CALLS", "30")
         monkeypatch.setenv("ARXMCP_MAX_GET_CHUNK_CALLS", "100")
@@ -610,7 +610,7 @@ class TestCapConfiguration:
         import pytest
         from pydantic import ValidationError
 
-        from server.config import Config
+        from arxmcp.server.config import Config
 
         monkeypatch.setenv("ARXMCP_MAX_SEARCH_PAPERS_CALLS", "0")
         with pytest.raises(ValidationError):
@@ -687,7 +687,7 @@ class TestRectificationGuards:
         """F6 fix: when the registry is at MAX_REGISTRY_SIZE,
         creating a new SessionState evicts the LRU (oldest)
         entry. Patch the cap to a tiny value so the test is fast."""
-        import server.session as session_mod
+        import arxmcp.server.session as session_mod
 
         monkeypatch.setattr(session_mod, "MAX_REGISTRY_SIZE", 4)
 
@@ -715,7 +715,7 @@ class TestRectificationGuards:
     def test_f6_lru_eviction_promotes_recently_used_entry(self, monkeypatch):
         """F6 sub-test: ``move_to_end`` on a registry hit means the
         most-recently-used entry is NOT evicted next."""
-        import server.session as session_mod
+        import arxmcp.server.session as session_mod
 
         monkeypatch.setattr(session_mod, "MAX_REGISTRY_SIZE", 3)
 
@@ -749,9 +749,9 @@ class TestRectificationGuards:
         SessionCap MUST be INSIDE RequestBodySizeLimit so a
         100MB malicious body is 413-rejected BEFORE SessionCap
         buffers it."""
-        from server.config import Config
-        from server.main import create_app
-        from server.middleware import (
+        from arxmcp.server.config import Config
+        from arxmcp.server.main import create_app
+        from arxmcp.server.middleware import (
             HostValidationMiddleware,
             OriginValidationMiddleware,
             RequestBodySizeLimitMiddleware,
@@ -804,7 +804,7 @@ class TestRectificationGuards:
         counter ``arxmcp_retrieval_cap_rejections_total{tool}``.
         Without this, operators have no visibility into how often
         caps fire (FastMCP-side per-tool counters are bypassed)."""
-        from server.metrics import RETRIEVAL_CAP_REJECTIONS_COUNTER
+        from arxmcp.server.metrics import RETRIEVAL_CAP_REJECTIONS_COUNTER
 
         # Reset the counter to 0 for the tool we're about to exercise.
         RETRIEVAL_CAP_REJECTIONS_COUNTER.labels(tool="search_papers")._value.set(0)
@@ -833,7 +833,7 @@ class TestBatchCapByN:
     consumes N per-tool cap units, not 1."""
 
     def test_batch_increments_chunk_count_by_n(self, monkeypatch):
-        import server.session as sm
+        import arxmcp.server.session as sm
         monkeypatch.setattr(sm, "MAX_GET_CHUNK_CALLS", 100)
 
         async def _run_():
@@ -846,7 +846,7 @@ class TestBatchCapByN:
         asyncio.run(_run_())
 
     def test_batch_wholesale_rejected_when_over_cap(self, monkeypatch):
-        import server.session as sm
+        import arxmcp.server.session as sm
         monkeypatch.setattr(sm, "MAX_GET_CHUNK_CALLS", 10)
 
         async def _run_():
@@ -864,7 +864,7 @@ class TestBatchCapByN:
         asyncio.run(_run_())
 
     def test_batch_exactly_at_cap_allowed(self, monkeypatch):
-        import server.session as sm
+        import arxmcp.server.session as sm
         monkeypatch.setattr(sm, "MAX_GET_CHUNK_CALLS", 10)
 
         async def _run_():
@@ -933,7 +933,7 @@ class TestCapUnitsFollowToolSchema:
     def test_batch_cost_reads_the_argument_get_chunk_accepts(self):
         from mcp.server.fastmcp import FastMCP
 
-        from server.tools import cap_units, register_all
+        from arxmcp.server.tools import cap_units, register_all
 
         server = FastMCP("arxmcp", json_response=True)
         register_all(server)
@@ -950,7 +950,7 @@ class TestCapUnitsFollowToolSchema:
         assert cap_units("get_chunk", {batch_arg: self._GOOD}) == 1
 
     def test_tools_without_a_cost_function_cost_one(self):
-        from server.tools import cap_units
+        from arxmcp.server.tools import cap_units
 
         assert cap_units("search_papers", {"query": "x"}) == 1
         assert cap_units("get_chunk", "not-an-object") == 1
@@ -960,7 +960,7 @@ class TestCapLayerFailure:
     def test_event_loop_mismatch_forwards_and_is_counted(self, monkeypatch):
         from prometheus_client import REGISTRY
 
-        import server.middleware as mw_mod
+        import arxmcp.server.middleware as mw_mod
 
         def _fail_open_count() -> float:
             return REGISTRY.get_sample_value("arxmcp_session_cap_fail_open_total") or 0.0
@@ -979,7 +979,7 @@ class TestCapLayerFailure:
         assert _fail_open_count() == before + 1
 
     def test_any_other_cap_failure_propagates(self, monkeypatch):
-        import server.middleware as mw_mod
+        import arxmcp.server.middleware as mw_mod
 
         async def _broken(session_id):
             raise KeyError("registry corrupted")

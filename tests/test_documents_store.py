@@ -1,4 +1,4 @@
-"""Tests for ``server.documents_store`` (source-truth-m1).
+"""Tests for ``arxmcp.server.documents_store`` (source-truth-m1).
 
 Mirrors ``tests/test_paper_metadata_store.py``: the schema-idempotency
 acceptance (double-init no-op; additive + atomic + re-runnable
@@ -18,8 +18,8 @@ from pathlib import Path
 
 import pytest
 
-import server.documents_store as store_mod
-from server.documents_store import (
+import arxmcp.server.documents_store as store_mod
+from arxmcp.server.documents_store import (
     DOCUMENTS_SCHEMA_VERSION,
     RAW_SOURCE_STATUS_PRESENT,
     RAW_SOURCE_STATUS_UNAVAILABLE,
@@ -304,6 +304,6 @@ class TestColdReopen:
         LanceDB / corpus / chunks-table / embedder imports."""
         source = inspect.getsource(store_mod)
         assert "import lancedb" not in source
-        assert "ingest.corpus" not in source
+        assert "arxmcp.ingest.corpus" not in source
         assert "chunks_table" not in source
         assert "embedder" not in source

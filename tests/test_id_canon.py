@@ -6,11 +6,13 @@ Coverage map (acceptance criteria → test class):
   ────────────────────────────────────────────────────────────────────────────
   Replaces non-deterministic IDs with toolu_00000000, ...        TestCanonicalForm
   Idempotent — twice produces same as once                       TestIdempotency
-  Test path: brief says server/orchestrator/test_id_canon.py     this file (see note below)
+  Test path: brief says src/arxmcp/server/orchestrator/test_id_canon.py
+             this file (see note below)
 
-**Note on test path.** The brief AC #6 says ``pytest server/orchestrator/test_id_canon.py``
+**Note on test path.** The brief AC #6 says
+``pytest src/arxmcp/server/orchestrator/test_id_canon.py``
 must pass. The project's ``pyproject.toml`` pins ``testpaths = ["tests"]``
-so a test file under ``server/orchestrator/`` would NOT be collected
+so a test file under ``src/arxmcp/server/orchestrator/`` would NOT be collected
 by plain ``pytest``. Per E08_S04 research synthesis D1, this test
 file lives at ``tests/test_id_canon.py`` and the deviation is
 documented in ``docs/orchestrator-rules.md``. The brief's AC is
@@ -31,7 +33,7 @@ from __future__ import annotations
 
 import copy
 
-from server.orchestrator.id_canon import (
+from arxmcp.server.orchestrator.id_canon import (
     CANONICAL_ID_FORMAT,
     canonicalize_turn,
     is_canonical_id,

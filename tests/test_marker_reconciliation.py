@@ -35,9 +35,9 @@ from typing import Any
 import pyarrow as pa
 import pytest
 
-from ingest.corpus import CorpusVersionInfo, DegradedState, project_column
-from ingest.schema import CHUNKS_SCHEMA_V1
-from server.resources import Resources, _escalate, reconcile_corpus_marker
+from arxmcp.ingest.corpus import CorpusVersionInfo, DegradedState, project_column
+from arxmcp.ingest.schema import CHUNKS_SCHEMA_V1
+from arxmcp.server.resources import Resources, _escalate, reconcile_corpus_marker
 
 EMBEDDING_DIM = 1024
 
@@ -92,7 +92,7 @@ def _marker(
 
 
 def _loaded_pin() -> str:
-    from ingest.embedder import EMBEDDER_VERSION
+    from arxmcp.ingest.embedder import EMBEDDER_VERSION
 
     return EMBEDDER_VERSION
 
@@ -300,7 +300,7 @@ def test_every_reason_the_validator_can_emit_has_a_rank() -> None:
     """A reason with no rank sorts at 0 and would never win — including
     against nothing at all, which is the one case that still works. Keeping
     the two sets in step is what stops that from mattering."""
-    from server.resources import _DEGRADED_SEVERITY
+    from arxmcp.server.resources import _DEGRADED_SEVERITY
 
     for reason in (
         "corpus_corruption",
@@ -314,12 +314,12 @@ def test_every_reason_the_validator_can_emit_has_a_rank() -> None:
 def test_ranked_reasons_are_all_known_to_the_metrics_gauge() -> None:
     """A reason absent from health.py's label tuple never resets its gauge to
     0 after the condition clears, so it reads as permanently active."""
-    health = Path("server/health.py").read_text(encoding="utf-8")
-    from server.resources import _DEGRADED_SEVERITY
+    health = Path("src/arxmcp/server/health.py").read_text(encoding="utf-8")
+    from arxmcp.server.resources import _DEGRADED_SEVERITY
 
     for reason in _DEGRADED_SEVERITY:
         assert f'"{reason}"' in health, (
-            f"{reason} is missing from server/health.py's gauge label space"
+            f"{reason} is missing from src/arxmcp/server/health.py's gauge label space"
         )
 
 
@@ -328,7 +328,7 @@ def test_ranked_reasons_are_all_known_to_the_metrics_gauge() -> None:
 # ---------------------------------------------------------------------------
 def test_the_tip_lookup_reads_a_row(tmp_path: Path) -> None:
     """A healthy dataset resolves its tip."""
-    from ingest.corpus import _dataset_tip_version
+    from arxmcp.ingest.corpus import _dataset_tip_version
 
     _table(tmp_path, 12, papers=4)
     assert _dataset_tip_version(tmp_path / "lancedb") == 1
@@ -342,7 +342,7 @@ def test_an_unreadable_tip_yields_no_version(tmp_path: Path) -> None:
     went on to tell the operator "The data is NOT corrupt". With the tip
     smoke-read, the lookup returns None and that claim is never reached.
     """
-    from ingest.corpus import _dataset_tip_version
+    from arxmcp.ingest.corpus import _dataset_tip_version
 
     _table(tmp_path, 12, papers=4)
     data_dir = tmp_path / "lancedb" / "chunks.lance" / "data"
@@ -367,10 +367,10 @@ def _patch_bind_heavy_io(monkeypatch: pytest.MonkeyPatch, table: Any) -> None:
     """
     from unittest.mock import MagicMock
 
-    import server.cache as cache_mod
-    import server.resources as res_mod
-    from server.cache import RetrievalCache
-    from server.retrieval import BM25Phase
+    import arxmcp.server.cache as cache_mod
+    import arxmcp.server.resources as res_mod
+    from arxmcp.server.cache import RetrievalCache
+    from arxmcp.server.retrieval import BM25Phase
 
     monkeypatch.setattr(
         res_mod, "open_chunks_table_with_fallback", lambda **_kw: (table, None)
@@ -434,7 +434,7 @@ def test_late_bind_publishes_the_embedder_verdict(
     """
     import asyncio
 
-    from server.config import Config
+    from arxmcp.server.config import Config
 
     table = _table(tmp_path, 12, papers=4)
     lancedb_path = tmp_path / "lancedb"
@@ -479,7 +479,7 @@ def test_late_bind_reports_a_paper_count_divergence(
     import asyncio
     import json
 
-    from server.config import Config
+    from arxmcp.server.config import Config
 
     table = _table(tmp_path, 12, papers=4)
     lancedb_path = tmp_path / "lancedb"

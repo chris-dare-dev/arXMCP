@@ -23,7 +23,7 @@ from pathlib import Path
 
 import pytest
 
-from ingest.bulk_ingest import DEFAULT_LANCEDB_STAGING_PATH
+from arxmcp.ingest.bulk_ingest import DEFAULT_LANCEDB_STAGING_PATH
 
 
 def _opted_in() -> bool:
@@ -86,7 +86,7 @@ class TestBulkIngestSanity:
         """AC2: the active `corpus-version.json` was NOT advanced by
         bulk ingest. The staging path holds the new marker; the
         active path is byte-identical to its pre-ingest state."""
-        from ingest.store import DEFAULT_LANCEDB_PATH
+        from arxmcp.ingest.store import DEFAULT_LANCEDB_PATH
 
         active = DEFAULT_LANCEDB_PATH / "corpus-version.json"
         staging = DEFAULT_LANCEDB_STAGING_PATH / "corpus-version.json"

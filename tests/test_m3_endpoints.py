@@ -31,10 +31,10 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from ingest import notebooks as _notebook_common
-from server.notebooks_store import NotebooksStore
-from server.routes import notebooks as notebooks_module
-from server.routes.notebooks import router as notebooks_router
+from arxmcp.ingest import notebooks as _notebook_common
+from arxmcp.server.notebooks_store import NotebooksStore
+from arxmcp.server.routes import notebooks as notebooks_module
+from arxmcp.server.routes.notebooks import router as notebooks_router
 
 # ===========================================================================
 # Shared fixtures
@@ -360,7 +360,7 @@ class TestReconcileMarker:
         Matches the sibling ``notebook_health`` endpoint's redacted
         form (which references the slug instead of the lancedb path).
         Aligns with the project's `redact_paths` precedent at
-        ``server/ingest_tracker.py:81``."""
+        ``src/arxmcp/server/ingest_tracker.py:81``."""
         # AC: no_marker case
         rv = client.post(
             "/ui/api/notebooks",
@@ -506,13 +506,13 @@ class TestStatusBadgeRemediation:
     """
 
     def test_ok_status_returns_empty_block(self):
-        from server.routes.ui import _build_remediation_block
+        from arxmcp.server.routes.ui import _build_remediation_block
 
         block = _build_remediation_block({"checks": {}}, css="ok")
         assert block == ""
 
     def test_warn_status_names_failing_check_and_make_command(self):
-        from server.routes.ui import _build_remediation_block
+        from arxmcp.server.routes.ui import _build_remediation_block
 
         report = {
             "checks": {
@@ -531,7 +531,7 @@ class TestStatusBadgeRemediation:
         assert "<details" not in block
 
     def test_notebooks_count_check_names_repair_registry(self):
-        from server.routes.ui import _build_remediation_block
+        from arxmcp.server.routes.ui import _build_remediation_block
 
         report = {
             "checks": {
@@ -542,7 +542,7 @@ class TestStatusBadgeRemediation:
         assert "make repair-registry" in block
 
     def test_backup_time_check_is_ops_side_remediation(self):
-        from server.routes.ui import _build_remediation_block
+        from arxmcp.server.routes.ui import _build_remediation_block
 
         report = {
             "checks": {
@@ -556,7 +556,7 @@ class TestStatusBadgeRemediation:
         assert "make reconcile" not in block
 
     def test_multiple_failing_checks_each_get_a_line(self):
-        from server.routes.ui import _build_remediation_block
+        from arxmcp.server.routes.ui import _build_remediation_block
 
         report = {
             "checks": {
@@ -569,7 +569,7 @@ class TestStatusBadgeRemediation:
         assert block.count("<br>") >= 1
 
     def test_pass_status_emits_no_block_when_no_checks_fail(self):
-        from server.routes.ui import _build_remediation_block
+        from arxmcp.server.routes.ui import _build_remediation_block
 
         report = {
             "checks": {
@@ -589,7 +589,7 @@ class TestStatusBadgeRemediation:
         UPL-3 contract from ui-attractive-polish-m1 requires the
         atomic group to be the announce unit; a nested live region
         breaks that."""
-        from server.routes.ui import _build_remediation_block
+        from arxmcp.server.routes.ui import _build_remediation_block
 
         report = {
             "checks": {
@@ -622,15 +622,15 @@ class TestNoMCPSurfaceTouch:
     @pytest.mark.parametrize(
         "path",
         [
-            "tools/notebook_repair_registry.py",
-            "tools/notebook_reconcile_marker.py",
+            "src/arxmcp/tools/notebook_repair_registry.py",
+            "src/arxmcp/tools/notebook_reconcile_marker.py",
         ],
     )
     def test_new_module_does_not_register_mcp_tool(self, path):
         repo_root = Path(__file__).parent.parent
         contents = (repo_root / path).read_text(encoding="utf-8")
-        assert "from server.tools import" not in contents, (
-            f"{path} imports from server.tools — m3 must not extend "
+        assert "from arxmcp.server.tools import" not in contents, (
+            f"{path} imports from arxmcp.server.tools — m3 must not extend "
             f"the MCP tool registry (AC8 BP1 byte-stability risk)"
         )
         assert "ALL_TOOLS" not in contents

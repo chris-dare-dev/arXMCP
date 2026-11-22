@@ -3,7 +3,7 @@
 Two tests:
 
 1. :func:`test_compose_file_parses` — runs
-   ``docker compose -f infra/observability/phoenix-compose.yml
+   ``docker compose -f deploy/observability/phoenix-compose.yml
    config --quiet`` and asserts exit-0. Skipped on hosts without
    ``docker`` on PATH (the same pattern as the ``requires_model``
    marker — pulling in Docker as a test prereq is heavier than
@@ -30,7 +30,7 @@ import yaml
 
 COMPOSE_PATH = (
     Path(__file__).resolve().parents[1]
-    / "infra"
+    / "deploy"
     / "observability"
     / "phoenix-compose.yml"
 )
@@ -124,7 +124,7 @@ def test_compose_file_parses_with_profile() -> None:
       ``var/arxmcp/observability/phoenix`` (F1 regression guard —
       Compose v2 resolves relative paths against the compose-
       file's directory, so a bare ``./var/...`` would have landed
-      under ``infra/observability/var/...``).
+      under ``deploy/observability/var/...``).
     - The pinned image references an ``arizephoenix/phoenix:``
       tag AND carries an ``@sha256:`` digest (F7/IS3 supply-chain
       pin).
@@ -171,7 +171,7 @@ def test_compose_file_parses_with_profile() -> None:
     )
 
     # F1 — bind-mount source must resolve to repo-root var/arxmcp,
-    # NOT to infra/observability/var/arxmcp.
+    # NOT to deploy/observability/var/arxmcp.
     volumes = phoenix.get("volumes", [])
     assert len(volumes) == 1, f"expected 1 volume, got {volumes!r}"
     src = volumes[0].get("source") if isinstance(volumes[0], dict) else None
@@ -185,7 +185,7 @@ def test_compose_file_parses_with_profile() -> None:
         f"var/arxmcp/...; got {src!r}. F1 regression."
     )
     assert "/infra/observability/var/" not in src, (
-        f"bind-mount source resolved INSIDE infra/ — "
+        f"bind-mount source resolved INSIDE deploy/ — "
         f"compose-file-relative resolution bug. Got {src!r}"
     )
 
@@ -234,7 +234,7 @@ def test_capability_hardening() -> None:
 def test_init_for_pid1_reaping() -> None:
     """IS8 — ``init: true`` injects tini as PID 1 so signal
     handling on ``docker compose down`` matches the project's
-    docker/Dockerfile.server precedent."""
+    deploy/Dockerfile.server precedent."""
     spec = yaml.safe_load(COMPOSE_PATH.read_text(encoding="utf-8"))
     assert spec["services"]["phoenix"].get("init") is True, (
         "init: true must be set on the phoenix service"

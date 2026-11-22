@@ -35,7 +35,7 @@ import re
 from pathlib import Path
 
 REPO_ROOT: Path = Path(__file__).resolve().parents[1]
-FRONTEND: Path = REPO_ROOT / "server" / "frontend"
+FRONTEND: Path = REPO_ROOT / "src" / "arxmcp" / "server" / "frontend"
 HTMX_JS: str = (FRONTEND / "static" / "htmx.min.js").read_text(encoding="utf-8")
 TEMPLATES: list[Path] = sorted((FRONTEND / "templates").glob("*.html"))
 
@@ -147,7 +147,7 @@ def test_no_hx_on_attributes_remain() -> None:
 
     Then the chaos run (#431) measured what #383 could not: htmx compiles an
     ``hx-on`` body with ``new Function()``, and this console's own CSP
-    (``CONTENT_SECURITY_POLICY_UI``, ``server/middleware.py``) grants
+    (``CONTENT_SECURITY_POLICY_UI``, ``src/arxmcp/server/middleware.py``) grants
     ``script-src 'self' 'unsafe-inline'`` and withholds ``'unsafe-eval'``. So
     every one of those attributes threw ``EvalError`` at parse time and did
     nothing — a SECOND, independent reason they never fired, still live after
@@ -155,7 +155,7 @@ def test_no_hx_on_attributes_remain() -> None:
 
     An ``hx-on`` attribute in this console is therefore dead on arrival by
     construction, not by mistake. Behaviour belongs in
-    ``server/frontend/static/ui.js``, which ``script-src 'self'`` already
+    ``src/arxmcp/server/frontend/static/ui.js``, which ``script-src 'self'`` already
     admits; templates declare intent via ``data-error-target`` /
     ``data-on-success`` and ``tests/test_ui_delegated_listeners.py`` pins that
     contract. The normaliser guards below stay: they still protect anyone who
@@ -165,7 +165,7 @@ def test_no_hx_on_attributes_remain() -> None:
     assert not offenders, (
         "hx-on attributes are dead under this console's CSP (no 'unsafe-eval'); "
         "htmx compiles them with new Function(). Put the behaviour in "
-        "server/frontend/static/ui.js and declare intent with "
+        "src/arxmcp/server/frontend/static/ui.js and declare intent with "
         "data-error-target / data-on-success instead. Offenders:\n"
         + "\n".join(f"  {path.name}: {attr}" for path, attr in offenders)
     )

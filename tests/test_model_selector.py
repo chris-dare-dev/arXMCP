@@ -31,21 +31,21 @@ from pathlib import Path
 
 import pytest
 
-from server.orchestrator.model_selector import (
+from arxmcp.server.orchestrator.model_selector import (
     MODEL_HAIKU_4_5,
     MODEL_SONNET_4_6,
     POLICY_VERSION,
     TurnType,
     select_model,
 )
-from server.router import RouteTag
+from arxmcp.server.router import RouteTag
 
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
 
 #: Path to ``server/`` for the forbidden-string scan.
-SERVER_DIR: Path = Path(__file__).resolve().parent.parent / "server"
+SERVER_DIR: Path = Path(__file__).resolve().parent.parent / "src" / "arxmcp" / "server"
 
 
 #: The forbidden substring per AC #4.
@@ -292,18 +292,18 @@ class TestClosedAtNInvariantSurvivesDashO:
     so it survives ``python -O``. Mirrors the F4 fix from E08_S02."""
 
     def test_module_imports_under_dash_o(self):
-        """Spawn ``python -O -c "import server.orchestrator.model_selector"``
+        """Spawn ``python -O -c "import arxmcp.server.orchestrator.model_selector"``
         and assert it succeeds. If the closed-at-N check were a
         bare ``assert``, ``-O`` would compile it away — but the
         check would still need to fire on a divergence."""
         result = subprocess.run(
             [sys.executable, "-O", "-c",
-             "import server.orchestrator.model_selector"],
+             "import arxmcp.server.orchestrator.model_selector"],
             capture_output=True, text=True, timeout=30,
             cwd=str(SERVER_DIR.parent),
         )
         assert result.returncode == 0, (
-            f"`python -O -c 'import server.orchestrator.model_selector'` "
+            f"`python -O -c 'import arxmcp.server.orchestrator.model_selector'` "
             f"failed: stdout={result.stdout!r} stderr={result.stderr!r}"
         )
 
@@ -358,7 +358,7 @@ class TestRectificationGuards:
         ``messages.create`` call must trip this test.
 
         Allows the model ID strings ONLY in
-        ``server/orchestrator/model_selector.py`` (the SSoT). The
+        ``src/arxmcp/server/orchestrator/model_selector.py`` (the SSoT). The
         Opus ID is forbidden everywhere (see the existing
         TestForbiddenStrings::test_no_claude_opus_in_server_python_files
         test)."""
@@ -380,7 +380,7 @@ class TestRectificationGuards:
                     )
         assert not offenders, (
             f"F2 violation: {model_id!r} (constant {name}) found "
-            f"OUTSIDE server/orchestrator/model_selector.py. The "
+            f"OUTSIDE src/arxmcp/server/orchestrator/model_selector.py. The "
             f"brief mandates that select_model() be the single "
             f"source of truth for model IDs; hardcoded references "
             f"break this guarantee. Offending lines:\n"
@@ -415,7 +415,7 @@ class TestRectificationGuards:
         value distinct from any model ID. Verify by inspection
         that the table entry for the two forbidden cells is the
         sentinel."""
-        from server.orchestrator.model_selector import (
+        from arxmcp.server.orchestrator.model_selector import (
             _FORBIDDEN,
             _SELECTION_TABLE,
         )

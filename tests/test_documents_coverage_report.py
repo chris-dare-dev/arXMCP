@@ -1,4 +1,4 @@
-"""Tests for ``tools.documents_coverage_report`` (source-truth-m1).
+"""Tests for ``arxmcp.tools.documents_coverage_report`` (source-truth-m1).
 
 Seeds per-notebook ``documents.db`` files under ``tmp_path`` and drives
 the report through its test seams. Covers per-``license_status`` +
@@ -14,12 +14,12 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
-from server.documents_store import (
+from arxmcp.server.documents_store import (
     DOCUMENTS_DB_FILENAME,
     DocumentRecord,
     DocumentsStore,
 )
-from tools import documents_coverage_report
+from arxmcp.tools import documents_coverage_report
 
 BRIDGELAND = "bridgeland-stability"
 

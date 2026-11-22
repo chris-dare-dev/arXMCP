@@ -1,4 +1,4 @@
-"""``ingest.derived_indexes`` builds a dataset's indexes inside it."""
+"""``arxmcp.ingest.derived_indexes`` builds a dataset's indexes inside it."""
 
 from __future__ import annotations
 
@@ -9,10 +9,10 @@ from pathlib import Path
 import lancedb
 import pyarrow as pa
 
-from ingest.derived_indexes import build_derived_indexes
-from ingest.preamble import PreambleDoc
-from ingest.schema import CHUNKS_SCHEMA_V1
-from ingest.store import write_corpus_version_marker
+from arxmcp.ingest.derived_indexes import build_derived_indexes
+from arxmcp.ingest.preamble import PreambleDoc
+from arxmcp.ingest.schema import CHUNKS_SCHEMA_V1
+from arxmcp.ingest.store import write_corpus_version_marker
 
 PAPERS = ("2401.00001", "2401.00002")
 
@@ -50,7 +50,7 @@ def _dataset(tmp_path, monkeypatch, name="lancedb-staging", papers=PAPERS):
         (preamble_dir / paper_id / "preamble.json").write_text(
             json.dumps(doc.to_dict()), encoding="utf-8"
         )
-    monkeypatch.setattr("ingest.preamble.PREAMBLE_DIR", preamble_dir)
+    monkeypatch.setattr("arxmcp.ingest.preamble.PREAMBLE_DIR", preamble_dir)
     return staging
 
 
@@ -96,8 +96,8 @@ def _snapshot(dataset: Path) -> dict[str, bytes]:
 
 
 def test_cutover_then_rollback_restores_the_live_indexes(tmp_path, monkeypatch):
-    from ops.cutover import perform_directory_swap, perform_rollback
-    from server.config import Config
+    from arxmcp.ops.cutover import perform_directory_swap, perform_rollback
+    from arxmcp.server.config import Config
 
     live = _dataset(tmp_path, monkeypatch, "lancedb", PAPERS[:1])
     build_derived_indexes(live)

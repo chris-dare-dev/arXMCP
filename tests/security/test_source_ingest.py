@@ -51,12 +51,12 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from ingest.ar5iv_fetch import AR5IV_MAX_RESPONSE_BYTES, try_cache
-from ingest.oai_delta import (
+from arxmcp.ingest.ar5iv_fetch import AR5IV_MAX_RESPONSE_BYTES, try_cache
+from arxmcp.ingest.oai_delta import (
     OAI_PMH_ENDPOINT,
     OAI_PMH_MAX_RESPONSE_BYTES,
 )
-from server.config import Config
+from arxmcp.server.config import Config
 
 # ===========================================================================
 # AC2 — TLS verification cannot be disabled via any ARXMCP_* env var
@@ -148,7 +148,7 @@ class TestTlsCannotBeDisabled:
         ``_create_unverified_context``.
         """
         repo_root = Path(__file__).resolve().parents[2]
-        scopes = ("ingest", "tools", "server")
+        scopes = ("src/arxmcp/ingest", "src/arxmcp/tools", "src/arxmcp/server")
         insecure_patterns = (
             re.compile(r"check_hostname\s*=\s*False"),
             re.compile(r"verify_mode\s*=\s*ssl\.CERT_NONE"),
@@ -366,7 +366,7 @@ class TestContentLengthCap:
         oai_delta._fetch_page private helper, which is the
         single HTTP call site in that module.
         """
-        from ingest.oai_delta import _fetch_page
+        from arxmcp.ingest.oai_delta import _fetch_page
 
         mock_response = MagicMock()
         mock_response.url = OAI_PMH_ENDPOINT + "?verb=ListRecords"
@@ -406,7 +406,7 @@ class TestContentLengthCap:
         the read-cap catches it after the read but before any
         downstream parser sees the bytes.
         """
-        from ingest.oai_delta import _fetch_page
+        from arxmcp.ingest.oai_delta import _fetch_page
 
         oversized = b"<oversized>" * ((OAI_PMH_MAX_RESPONSE_BYTES // 11) + 2)
         assert len(oversized) > OAI_PMH_MAX_RESPONSE_BYTES
@@ -465,7 +465,7 @@ class TestHarvestSurvivesCapBreach:
         """
         import logging
 
-        from ingest.oai_delta import harvest_set
+        from arxmcp.ingest.oai_delta import harvest_set
 
         def poison_fetcher(*_a, **_kw):
             raise RuntimeError(
@@ -473,7 +473,7 @@ class TestHarvestSurvivesCapBreach:
                 "104857600 bytes (Threat 7); refusing"
             )
 
-        with caplog.at_level(logging.WARNING, logger="ingest.oai_delta"):
+        with caplog.at_level(logging.WARNING, logger="arxmcp.ingest.oai_delta"):
             records, pages = harvest_set(
                 "math:math:AG",
                 from_date="2026-05-01",
@@ -530,7 +530,7 @@ class TestNoVerifyFalse:
 
     def test_no_verify_false_in_production_code(self):
         repo_root = Path(__file__).resolve().parents[2]
-        scopes = ("ingest", "tools", "server")
+        scopes = ("src/arxmcp/ingest", "src/arxmcp/tools", "src/arxmcp/server")
         offenders: list[str] = []
         for scope in scopes:
             base = repo_root / scope
@@ -624,7 +624,7 @@ class TestPinArxivCaWiring:
         so callers pass ``context=None`` to ``urlopen`` which uses
         the system trust store. The safe-by-default flag-off posture
         must remain intact post-E13_S07c."""
-        from server.ssl_pin import build_arxiv_ssl_context
+        from arxmcp.server.ssl_pin import build_arxiv_ssl_context
 
         monkeypatch.delenv("ARXMCP_PIN_ARXIV_CA", raising=False)
         monkeypatch.setenv("ARXMCP_DATA_DIR", str(tmp_path))
@@ -644,7 +644,7 @@ class TestPinArxivCaWiring:
         ``ssl.create_default_context(cafile=...)`` semantics)."""
         import ssl as _ssl
 
-        from server.ssl_pin import build_arxiv_ssl_context
+        from arxmcp.server.ssl_pin import build_arxiv_ssl_context
 
         monkeypatch.setenv("ARXMCP_PIN_ARXIV_CA", "1")
         monkeypatch.setenv("ARXMCP_DATA_DIR", str(tmp_path))
@@ -709,7 +709,7 @@ class TestPinArxivCaWiring:
         passes, the factory layer must still raise if the bundle
         is missing at fetch time (e.g. deleted between startup and
         first fetch)."""
-        from server.ssl_pin import (
+        from arxmcp.server.ssl_pin import (
             VENDORED_ARXIV_CA_BUNDLE,
             build_arxiv_ssl_context,
         )
@@ -737,7 +737,7 @@ class TestPinArxivCaWiring:
         but not the other would create partial coverage — the
         regression guard for failure-mode (g) in research-brief-2.
         """
-        from ingest.ar5iv_fetch import try_cache
+        from arxmcp.ingest.ar5iv_fetch import try_cache
 
         sentinel = MagicMock(name="sentinel_ssl_context")
         captured: dict[str, object] = {}
@@ -777,8 +777,8 @@ class TestPinArxivCaWiring:
     ):
         """``fetch_eprint`` must pass the ``ssl_context`` kwarg to
         ``urlopen`` — same partial-coverage guard for the
-        ``ingest/arxiv_fetch.py`` site."""
-        from ingest.arxiv_fetch import fetch_eprint
+        ``src/arxmcp/ingest/arxiv_fetch.py`` site."""
+        from arxmcp.ingest.arxiv_fetch import fetch_eprint
 
         sentinel = MagicMock(name="sentinel_ssl_context")
         captured: dict[str, object] = {}
@@ -814,7 +814,7 @@ class TestPinArxivCaWiring:
     def test_startup_log_fires_when_pin_enabled(
         self, monkeypatch, tmp_path, caplog
     ):
-        """The ``server/main.py`` startup block emits an INFO log
+        """The ``src/arxmcp/server/main.py`` startup block emits an INFO log
         line when ``pin_arxiv_ca=True`` so the operator sees the
         opt-in. F3 closure: pin the log so a future refactor that
         drops it (and removes the operator's visibility into the
@@ -826,18 +826,18 @@ class TestPinArxivCaWiring:
         """
         import logging
 
-        from server.ssl_pin import resolve_arxiv_ca_bundle
+        from arxmcp.server.ssl_pin import resolve_arxiv_ca_bundle
 
         monkeypatch.setenv("ARXMCP_PIN_ARXIV_CA", "1")
         monkeypatch.setenv("ARXMCP_DATA_DIR", str(tmp_path))
         cfg = Config(_env_file=None)  # type: ignore[call-arg]
-        # Replicate the startup-log block from ``server/main.py``.
+        # Replicate the startup-log block from ``src/arxmcp/server/main.py``.
         # If this test ever drifts from the production block, the
         # block has been refactored — update the test (and the F3
         # finding stays closed only as long as the production log
         # is observable through some accessor).
-        logger = logging.getLogger("server.main")
-        with caplog.at_level(logging.INFO, logger="server.main"):
+        logger = logging.getLogger("arxmcp.server.main")
+        with caplog.at_level(logging.INFO, logger="arxmcp.server.main"):
             if cfg.pin_arxiv_ca:
                 logger.info(
                     "ARXMCP_PIN_ARXIV_CA=1 set; using pinned CA "
@@ -901,7 +901,7 @@ class TestPinArxivCaWiring:
 class TestRedirectHostPin:
     """E13_S07b — closes Threat 7 partial-coverage gap G2.
 
-    ``ingest/ar5iv_fetch.py`` and ``ingest/oai_delta.py`` already pin
+    ``src/arxmcp/ingest/ar5iv_fetch.py`` and ``src/arxmcp/ingest/oai_delta.py`` already pin
     the post-fetch ``response.url`` against their expected host so a
     poisoned upstream that issues a 30x to an attacker-controlled host
     is rejected before its body is parsed. ``graph_ingest.py``
@@ -941,7 +941,7 @@ class TestRedirectHostPin:
         """A redirect off ``api.openalex.org`` raises ``RuntimeError``
         before the JSON body is trusted as a citation source.
         """
-        from ingest.graph_ingest import _fetch_openalex_work
+        from arxmcp.ingest.graph_ingest import _fetch_openalex_work
 
         ctx = self._ctx(
             url="https://evil.example/works/poisoned",
@@ -958,7 +958,7 @@ class TestRedirectHostPin:
         parsed and returned unchanged — the guard does not break the
         happy path.
         """
-        from ingest.graph_ingest import OPENALEX_BASE, _fetch_openalex_work
+        from arxmcp.ingest.graph_ingest import OPENALEX_BASE, _fetch_openalex_work
 
         payload = {"id": "https://openalex.org/W1", "ok": True}
         ctx = self._ctx(
@@ -975,7 +975,7 @@ class TestRedirectHostPin:
         """A redirect off ``inspirehep.net/api`` raises ``RuntimeError``
         before the JSON body is trusted.
         """
-        from ingest.inspire_ingest import _fetch_inspire_record
+        from arxmcp.ingest.inspire_ingest import _fetch_inspire_record
 
         ctx = self._ctx(
             url="https://evil.example/api/arxiv/poisoned",
@@ -991,7 +991,7 @@ class TestRedirectHostPin:
         """A response whose final URL stays on ``inspirehep.net/api`` is
         parsed and returned unchanged.
         """
-        from ingest.inspire_ingest import (
+        from arxmcp.ingest.inspire_ingest import (
             INSPIRE_API_BASE,
             _fetch_inspire_record,
         )
@@ -1012,7 +1012,7 @@ class TestRedirectHostPin:
         ``https://api.openalex.org.evil.com/...`` — a domain an
         attacker can register. The ``+ "/"`` in the pin rejects it.
         """
-        from ingest.graph_ingest import _fetch_openalex_work
+        from arxmcp.ingest.graph_ingest import _fetch_openalex_work
 
         ctx = self._ctx(
             url="https://api.openalex.org.evil.com/works/W1",
@@ -1028,7 +1028,7 @@ class TestRedirectHostPin:
         """A bare ``startswith(INSPIRE_API_BASE)`` would accept
         ``https://inspirehep.net/apiEVIL/...``. The ``+ "/"`` rejects it.
         """
-        from ingest.inspire_ingest import _fetch_inspire_record
+        from arxmcp.ingest.inspire_ingest import _fetch_inspire_record
 
         ctx = self._ctx(
             url="https://inspirehep.net/apiEVIL/arxiv/x",
@@ -1050,7 +1050,7 @@ class TestRedirectHostPin:
         a host-only pin (dropping the scheme) fails loudly instead of
         silently re-opening the downgrade hole.
         """
-        from ingest.graph_ingest import _fetch_openalex_work
+        from arxmcp.ingest.graph_ingest import _fetch_openalex_work
 
         ctx = self._ctx(
             url="http://api.openalex.org/works/W1",
@@ -1067,7 +1067,7 @@ class TestRedirectHostPin:
         target on the same host is rejected because ``INSPIRE_API_BASE``
         embeds ``https://``.
         """
-        from ingest.inspire_ingest import _fetch_inspire_record
+        from arxmcp.ingest.inspire_ingest import _fetch_inspire_record
 
         ctx = self._ctx(
             url="http://inspirehep.net/api/arxiv/2412.00001",

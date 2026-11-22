@@ -29,7 +29,7 @@
 PYTHON ?= python3
 MIN_PY_MINOR := 11
 # notebook-ops-hardening-m4: port `make status` curls. Mirrors the server
-# default (server/config.py DEFAULT_BIND_PORT); override via the env var.
+# default (src/arxmcp/server/config.py DEFAULT_BIND_PORT); override via the env var.
 ARXMCP_BIND_PORT ?= 7733
 # onboarding-uplift-m2: per-call args for `make init` / `make add`.
 # Override on the command line: `make init NOTEBOOK=demo EMAIL=me@x`.
@@ -99,17 +99,17 @@ help:
 	@echo "  make daily-report           Scrape /metrics and write the daily ops report"
 	@echo "  make parser-failures-report Roll up parser-failures/*.{log,jsonl} into the weekly review"
 	@echo "  make sbom        Generate CycloneDX SBOMs + grype scan (into var/sbom/)"
-	@echo "  make refresh-arxiv-ca       Re-download server/ca/arxiv-ca-bundle.pem and verify against live arxiv hosts (E13_S07c)"
-	@echo "  make wheel-check            Build the wheel, install it into a throwaway venv, assert ops/ + server/frontend/ + console scripts (issue #206; ~10s)"
+	@echo "  make refresh-arxiv-ca       Re-download src/arxmcp/server/ca/arxiv-ca-bundle.pem and verify against live arxiv hosts (E13_S07c)"
+	@echo "  make wheel-check            Build the wheel, install it into a throwaway venv, assert ops/ + src/arxmcp/server/frontend/ + console scripts (issue #206; ~10s)"
 	@echo "  make wheel-check-full       Same, but an isolated venv with the REAL deps + an ARXMCP_BOOTSTRAP_MODE=1 boot polled at /healthz. Pre-publish gate (~4 min warm)"
 	@echo "  make desktop-conformance    Build the locked fixture sidecar, then run its Rust/Python contract and lifecycle gate with zero skips"
 	@echo "  make desktop-package        Build the PyInstaller onedir desktop bundle from the committed spec into var/desktop-package/dist/ (macOS/Linux only; first run provisions the pinned build venv and NEEDS NETWORK; fails on any build-machine path in the artifact)"
 	@echo "  make desktop-package-check  Packaging gate: two consecutive cold-cache builds + determinism/hygiene proofs (AC1-AC5) with zero skips (macOS/Linux only; ~150s of builds after the one-time network provisioning)"
 	@echo "  make desktop-model-check    Real-model gate: build the bundle, then load the REAL BGE-M3 + reranker weights from the EXTERNAL HuggingFace cache and check the production encode/rerank output against the committed golden fixture (both pinned revisions must already be cached)"
-	@echo "  make desktop-icons          Regenerate apps/desktop/crates/supervisor/icons/icon.ico from icon.png via the pinned Tauri CLI (NEEDS NETWORK; run only when icon.png changes)"
+	@echo "  make desktop-icons          Regenerate src/desktop/crates/supervisor/icons/icon.ico from icon.png via the pinned Tauri CLI (NEEDS NETWORK; run only when icon.png changes)"
 	@echo "  make desktop-bundle         Assemble the macOS .app: build the frozen child, pre-sign every nested Mach-O bottom-up, build the Tauri shell and place the payload at Contents/Resources/arxmcp-desktop-child/, then seal the outer bundle (macOS only; first run compiles the pinned tauri-cli and NEEDS NETWORK)"
 	@echo "  make desktop-bundle-check   Bundle gate: assemble, then measure the artifact — containment against the real bundle root, placed-child byte identity, m7/m8/m9 guards re-run over the assembled tree, and both minos declarations — with zero skips"
-	@echo "  make desktop-package-clean  Reclaim var/desktop-package/ AND apps/desktop/target/release (build venv ~1 GB, onedir ~0.75 GB, assembled .app ~0.75 GB, Rust release profile)"
+	@echo "  make desktop-package-clean  Reclaim var/desktop-package/ AND src/desktop/target/release (build venv ~1 GB, onedir ~0.75 GB, assembled .app ~0.75 GB, Rust release profile)"
 	@echo ""
 	@echo "Override the python interpreter with: make test PYTHON=python3.13"
 	@echo ""
@@ -132,7 +132,7 @@ bootstrap:
 	mkdir -p var/arxmcp/ops/parser-failures
 	# E14_S03: Phoenix's SQLite trace store under PHOENIX_WORKING_DIR.
 	# The host path bind-mounts to /mnt/data inside the container per
-	# infra/observability/phoenix-compose.yml.
+	# deploy/observability/phoenix-compose.yml.
 	mkdir -p var/arxmcp/observability/phoenix
 	# NOTE: the LaTeXML container runs as an unprivileged UID and needs
 	# write access to corpus/parsed/.
@@ -144,6 +144,7 @@ test:
 		f'arXMCP requires Python >= 3.$(MIN_PY_MINOR); got {sys.version_info[:2]}. \
 Try: make test PYTHON=python3.$(MIN_PY_MINOR)'"
 	$(PYTHON) -m ruff check .
+	$(PYTHON) -c "from importlinter.cli import lint_imports_command as c; c(['--no-cache'])"
 	$(PYTHON) -m pytest
 
 # desktop-distribution-m3 (+m5): the authoritative desktop boundary gate. The
@@ -153,7 +154,7 @@ Try: make test PYTHON=python3.$(MIN_PY_MINOR)'"
 # marker expression opts the requires_desktop_stack tests IN while still
 # running the file's fast tests, so the gate runs test_desktop_child.py with
 # zero skips. DESKTOP_SUPERVISOR_BIN is deliberately NOT ARXMCP_-prefixed —
-# tests in that file import server.main, whose unknown-ARXMCP_* scan would
+# tests in that file import arxmcp.server.main, whose unknown-ARXMCP_* scan would
 # FATAL on a harness-only variable. BOTH env vars arm conftest's zero-skip
 # guard (m6 critique H2/H5): keying it on DESKTOP_SUPERVISOR_BIN alone left
 # the contract line — which runs AC3's stress and AC5's loopback proof —
@@ -161,11 +162,11 @@ Try: make test PYTHON=python3.$(MIN_PY_MINOR)'"
 # line with BOTH vars set: its artifact check reads minos off the two binaries
 # built above, so it must run where they exist and must not be skippable.
 desktop-conformance:
-	cargo fmt --all --manifest-path apps/desktop/Cargo.toml -- --check
-	cargo test --locked --manifest-path apps/desktop/Cargo.toml --workspace
-	cargo clippy --locked --manifest-path apps/desktop/Cargo.toml --workspace --all-targets --all-features -- -D warnings
-	cargo build --locked --manifest-path apps/desktop/Cargo.toml --bin fixture-sidecar
-	cargo build --locked --manifest-path apps/desktop/Cargo.toml --bin supervisor
+	cargo fmt --all --manifest-path src/desktop/Cargo.toml -- --check
+	cargo test --locked --manifest-path src/desktop/Cargo.toml --workspace
+	cargo clippy --locked --manifest-path src/desktop/Cargo.toml --workspace --all-targets --all-features -- -D warnings
+	cargo build --locked --manifest-path src/desktop/Cargo.toml --bin fixture-sidecar
+	cargo build --locked --manifest-path src/desktop/Cargo.toml --bin supervisor
 	ARXMCP_FIXTURE_SIDECAR="$(CURDIR)/apps/desktop/target/debug/fixture-sidecar$(DESKTOP_EXE_SUFFIX)" $(PYTHON) -m pytest tests/test_desktop_contract.py -m "requires_desktop_stack or not requires_desktop_stack"
 	DESKTOP_SUPERVISOR_BIN="$(CURDIR)/apps/desktop/target/debug/supervisor$(DESKTOP_EXE_SUFFIX)" $(PYTHON) -m pytest tests/test_desktop_child.py -m "requires_desktop_stack or not requires_desktop_stack"
 	ARXMCP_FIXTURE_SIDECAR="$(CURDIR)/apps/desktop/target/debug/fixture-sidecar$(DESKTOP_EXE_SUFFIX)" DESKTOP_SUPERVISOR_BIN="$(CURDIR)/apps/desktop/target/debug/supervisor$(DESKTOP_EXE_SUFFIX)" $(PYTHON) -m pytest tests/test_desktop_support_floor.py -m "requires_desktop_stack or not requires_desktop_stack"
@@ -178,14 +179,14 @@ desktop-conformance:
 
 # desktop-distribution-m7 — build the PyInstaller onedir sidecar bundle. The
 # driver provisions a uv-locked build venv (PyInstaller hash-pinned in
-# apps/desktop/pyinstaller/requirements-build.txt, deliberately OUTSIDE
+# src/desktop/pyinstaller/requirements-build.txt, deliberately OUTSIDE
 # pyproject.toml/uv.lock), sanitizes direct_url.json BEFORE freezing, and
 # fails on any build-machine path string in the artifact — including .pyc
 # bytes inside the executables' embedded PYZ archives. Work/dist paths live
 # under gitignored var/desktop-package/, never PyInstaller's repo-root
 # build/ default.
 desktop-package:
-	$(PYTHON) apps/desktop/pyinstaller/desktop_package.py build
+	$(PYTHON) src/desktop/pyinstaller/desktop_package.py build
 
 # The m7 packaging gate. DESKTOP_PACKAGE_GATE arms conftest's zero-skip guard
 # (same mechanism as desktop-conformance) and the tautology -m expression
@@ -240,13 +241,13 @@ TAURI_CLI_VERSION := 2.11.4
 desktop-icons:
 	@tmp=$$(mktemp -d) && \
 	npx --yes @tauri-apps/cli@$(TAURI_CLI_VERSION) icon \
-		apps/desktop/crates/supervisor/icons/icon.png --output $$tmp >/dev/null && \
-	cp $$tmp/icon.ico apps/desktop/crates/supervisor/icons/icon.ico && \
+		src/desktop/crates/supervisor/icons/icon.png --output $$tmp >/dev/null && \
+	cp $$tmp/icon.ico src/desktop/crates/supervisor/icons/icon.ico && \
 	rm -rf $$tmp && \
-	echo "regenerated apps/desktop/crates/supervisor/icons/icon.ico from icon.png"
+	echo "regenerated src/desktop/crates/supervisor/icons/icon.ico from icon.png"
 
 desktop-bundle: desktop-package
-	$(PYTHON) apps/desktop/pyinstaller/desktop_package.py assemble
+	$(PYTHON) src/desktop/pyinstaller/desktop_package.py assemble
 
 # The m15 bundle gate. Same zero-skip mechanism and tautology -m expression as
 # desktop-package-check. Runs AFTER desktop-bundle so every assertion is made
@@ -260,13 +261,13 @@ desktop-bundle-check: desktop-bundle
 # documented way to reclaim it; the next build re-provisions from the network.
 # m15 critique M14: `var/desktop-package` was the only thing reclaimed, but
 # assembly also writes the `.app` and a Rust RELEASE profile into
-# apps/desktop/target — together the larger half of the footprint, and neither
+# src/desktop/target — together the larger half of the footprint, and neither
 # was reachable from any documented clean path. Both are gitignored build
 # output; nothing here touches a source tree.
 desktop-package-clean:
 	rm -rf var/desktop-package
-	rm -rf apps/desktop/target/release/bundle
-	rm -rf apps/desktop/target/release
+	rm -rf src/desktop/target/release/bundle
+	rm -rf src/desktop/target/release
 
 # The Tier-0 → Tier-1 exit gate. SKIP is NOT a pass for promotion —
 # verify the test reports `1 passed`, not `1 skipped`, before declaring
@@ -280,23 +281,23 @@ Try: make eval PYTHON=python3.$(MIN_PY_MINOR)'"
 # Start the long-running arxmcp-server (E06_S01). Binds to 127.0.0.1
 # only (Threat 4); container deployments expose the port via host
 # port-mapping. Honors ARXMCP_BIND_HOST and ARXMCP_BIND_PORT (and
-# all other ARXMCP_* env vars per server/config.py).
+# all other ARXMCP_* env vars per src/arxmcp/server/config.py).
 #
 # The server eager-loads BGE-M3 at startup (~5-30s) before /readyz
-# flips to 200. Use the docker image (docker/Dockerfile.server) for
+# flips to 200. Use the docker image (deploy/Dockerfile.server) for
 # production; this target is for local dev.
 #
 # Closes IS3 from the E06_S01 critique: invokes ``python -m
-# server.main`` (rather than the bare ``uvicorn server.main:app``
+# arxmcp.server.main`` (rather than the bare ``uvicorn arxmcp.server.main:app``
 # CLI form) so the env-var bind overrides actually apply. The
-# ``__main__`` block in server/main.py reads Config and passes
+# ``__main__`` block in src/arxmcp/server/main.py reads Config and passes
 # bind_host / bind_port into uvicorn.run(). The CLI form would
 # silently ignore ARXMCP_BIND_PORT.
 up:
 	@$(PYTHON) -c "import sys; assert sys.version_info >= (3, $(MIN_PY_MINOR)), \
 		f'arXMCP requires Python >= 3.$(MIN_PY_MINOR); got {sys.version_info[:2]}. \
 Try: make up PYTHON=python3.$(MIN_PY_MINOR)'"
-	$(PYTHON) -m server.main
+	$(PYTHON) -m arxmcp.server.main
 
 # onboarding-uplift-m4: wizard-mode entry point for fresh-clone operators.
 # Sets ARXMCP_BOOTSTRAP_MODE=1 so the server boots without a corpus;
@@ -307,7 +308,7 @@ up-wizard:
 	@$(PYTHON) -c "import sys; assert sys.version_info >= (3, $(MIN_PY_MINOR)), \
 		f'arXMCP requires Python >= 3.$(MIN_PY_MINOR); got {sys.version_info[:2]}. \
 Try: make up-wizard PYTHON=python3.$(MIN_PY_MINOR)'"
-	ARXMCP_BOOTSTRAP_MODE=1 $(PYTHON) -m server.main
+	ARXMCP_BOOTSTRAP_MODE=1 $(PYTHON) -m arxmcp.server.main
 
 status:
 	@# notebook-ops-hardening-m4: one-action "is it running + ready?".
@@ -318,7 +319,7 @@ status:
 	@# rather than being silently misreported as "DOWN" (a healthy server +
 	@# broken parser must not look like a down server).
 	@if out=$$(curl -sf --max-time 5 "http://127.0.0.1:$(ARXMCP_BIND_PORT)/status" 2>/dev/null); then \
-		printf '%s' "$$out" | $(PYTHON) tools/status_line.py; \
+		printf '%s' "$$out" | $(PYTHON) src/arxmcp/tools/status_line.py; \
 	else \
 		echo "DOWN: arxmcp-server at 127.0.0.1:$(ARXMCP_BIND_PORT)/status is down or warming up"; \
 	fi
@@ -327,7 +328,7 @@ ingest:
 	@# E11_S01 — bulk ingest orchestrator. The Python module owns the
 	@# per-paper loop (ar5iv → LaTeXML → chunk → embed → staging
 	@# LanceDB). The operator runs `make ingest ARGS="--paper-ids-file=
-	@# tools/seed-papers.txt --limit=5"` for a smoke test before the
+	@# src/arxmcp/tools/seed-papers.txt --limit=5"` for a smoke test before the
 	@# full multi-day run. The active corpus-version.json is NOT
 	@# advanced — that's E11_S05's atomic cutover.
 	@#
@@ -337,7 +338,7 @@ ingest:
 	@$(PYTHON) -c "import sys; assert sys.version_info >= (3, $(MIN_PY_MINOR)), \
 		f'arXMCP requires Python >= 3.$(MIN_PY_MINOR); got {sys.version_info[:2]}. \
 Try: make ingest PYTHON=python3.$(MIN_PY_MINOR)'"
-	$(PYTHON) -m ingest.bulk_ingest $(ARGS)
+	$(PYTHON) -m arxmcp.ingest.bulk_ingest $(ARGS)
 
 delta:
 	@# E11_S02 — OAI-PMH nightly delta loop. The Python module
@@ -345,13 +346,13 @@ delta:
 	@# https://oaipmh.arxiv.org/oai and feeds them through the same
 	@# per-paper pipeline as `make ingest` (writes to the staging
 	@# LanceDB). Canonical production invocation is via systemd
-	@# (ops/systemd/arxmcp-delta.{service,timer}) or cron
-	@# (ops/cron/arxmcp-delta.sh). This Makefile target is for
+	@# (src/arxmcp/ops/systemd/arxmcp-delta.{service,timer}) or cron
+	@# (src/arxmcp/ops/cron/arxmcp-delta.sh). This Makefile target is for
 	@# operator smoke tests + manual one-shot runs.
 	@$(PYTHON) -c "import sys; assert sys.version_info >= (3, $(MIN_PY_MINOR)), \
 		f'arXMCP requires Python >= 3.$(MIN_PY_MINOR); got {sys.version_info[:2]}. \
 Try: make delta PYTHON=python3.$(MIN_PY_MINOR)'"
-	$(PYTHON) -m ingest.oai_delta $(ARGS)
+	$(PYTHON) -m arxmcp.ingest.oai_delta $(ARGS)
 
 re-embed:
 	@# E11_S03 — partial re-embed driver. Reads the active LanceDB,
@@ -372,7 +373,7 @@ re-embed:
 	@$(PYTHON) -c "import sys; assert sys.version_info >= (3, $(MIN_PY_MINOR)), \
 		f'arXMCP requires Python >= 3.$(MIN_PY_MINOR); got {sys.version_info[:2]}. \
 Try: make re-embed PYTHON=python3.$(MIN_PY_MINOR)'"
-	$(PYTHON) -m ingest.re_embed $(ARGS)
+	$(PYTHON) -m arxmcp.ingest.re_embed $(ARGS)
 
 ingest-recover-preambles:
 	@# notebook-preamble-recovery-m1 — back-fill raw .tex + preamble.json
@@ -396,7 +397,7 @@ ingest-recover-preambles:
 	@$(PYTHON) -c "import sys; assert sys.version_info >= (3, $(MIN_PY_MINOR)), \
 		f'arXMCP requires Python >= 3.$(MIN_PY_MINOR); got {sys.version_info[:2]}. \
 Try: make ingest-recover-preambles PYTHON=python3.$(MIN_PY_MINOR)'"
-	$(PYTHON) -m tools.recover_preambles $(ARGS)
+	$(PYTHON) -m arxmcp.tools.recover_preambles $(ARGS)
 
 re-embed-all:
 	@# embedder-truncation-m1 — notebook-aware re-embed driver.
@@ -421,7 +422,7 @@ re-embed-all:
 	@$(PYTHON) -c "import sys; assert sys.version_info >= (3, $(MIN_PY_MINOR)), \
 		f'arXMCP requires Python >= 3.$(MIN_PY_MINOR); got {sys.version_info[:2]}. \
 Try: make re-embed-all PYTHON=python3.$(MIN_PY_MINOR)'"
-	$(PYTHON) -m tools.re_embed_all $(ARGS)
+	$(PYTHON) -m arxmcp.tools.re_embed_all $(ARGS)
 
 watchdog:
 	@# E11_S04 — drift watchdog. Runs the E05 retrieval-quality
@@ -440,7 +441,7 @@ watchdog:
 	@$(PYTHON) -c "import sys; assert sys.version_info >= (3, $(MIN_PY_MINOR)), \
 		f'arXMCP requires Python >= 3.$(MIN_PY_MINOR); got {sys.version_info[:2]}. \
 Try: make watchdog PYTHON=python3.$(MIN_PY_MINOR)'"
-	$(PYTHON) -m ops.watchdog_eval $(ARGS)
+	$(PYTHON) -m arxmcp.ops.watchdog_eval $(ARGS)
 
 cutover:
 	@# E11_S05 — 200K cutover activation. Checks the 4 activation
@@ -456,7 +457,7 @@ cutover:
 	@$(PYTHON) -c "import sys; assert sys.version_info >= (3, $(MIN_PY_MINOR)), \
 		f'arXMCP requires Python >= 3.$(MIN_PY_MINOR); got {sys.version_info[:2]}. \
 Try: make cutover PYTHON=python3.$(MIN_PY_MINOR)'"
-	$(PYTHON) -m ops.cutover $(ARGS)
+	$(PYTHON) -m arxmcp.ops.cutover $(ARGS)
 
 notebook-cutover:
 	@# notebook-cutover-m1 — per-notebook staging->active cutover.
@@ -487,7 +488,7 @@ notebook-cutover:
 	@$(PYTHON) -c "import sys; assert sys.version_info >= (3, $(MIN_PY_MINOR)), \
 		f'arXMCP requires Python >= 3.$(MIN_PY_MINOR); got {sys.version_info[:2]}. \
 Try: make notebook-cutover PYTHON=python3.$(MIN_PY_MINOR)'"
-	$(PYTHON) -m tools.notebook_cutover $(ARGS)
+	$(PYTHON) -m arxmcp.tools.notebook_cutover $(ARGS)
 
 daily-report:
 	@# E14_S04 — daily ops metrics report. Scrapes /metrics from
@@ -499,7 +500,7 @@ daily-report:
 	@$(PYTHON) -c "import sys; assert sys.version_info >= (3, $(MIN_PY_MINOR)), \
 		f'arXMCP requires Python >= 3.$(MIN_PY_MINOR); got {sys.version_info[:2]}. \
 Try: make daily-report PYTHON=python3.$(MIN_PY_MINOR)'"
-	$(PYTHON) -m tools.daily_metrics_report $(ARGS)
+	$(PYTHON) -m arxmcp.tools.daily_metrics_report $(ARGS)
 
 parser-failures-report:
 	@# E14_S04 — weekly parser-failures review. Aggregates
@@ -511,7 +512,7 @@ parser-failures-report:
 	@$(PYTHON) -c "import sys; assert sys.version_info >= (3, $(MIN_PY_MINOR)), \
 		f'arXMCP requires Python >= 3.$(MIN_PY_MINOR); got {sys.version_info[:2]}. \
 Try: make parser-failures-report PYTHON=python3.$(MIN_PY_MINOR)'"
-	$(PYTHON) -m tools.parser_failures_report $(ARGS)
+	$(PYTHON) -m arxmcp.tools.parser_failures_report $(ARGS)
 
 sbom:
 	@# E13_S06 — Threat-6 SBOM generation + grype scan. This target
@@ -534,17 +535,17 @@ sbom:
 	@#   make sbom ARGS="--skip-image"      # Python-only (no docker)
 	@#   make sbom ARGS="--no-scan"         # generate SBOMs, no grype
 	@#
-	@# Exit codes propagate from tools/sbom.sh:
+	@# Exit codes propagate from src/arxmcp/tools/sbom.sh:
 	@#   0 OK / 1 missing tool / 2 grype found critical / 3 generator failed
 	@#
-	@# ARGS forwarding: tools/sbom.sh accepts only fixed flags
+	@# ARGS forwarding: src/arxmcp/tools/sbom.sh accepts only fixed flags
 	@# (--skip-image, --no-scan, -h/--help) — none take an argument,
 	@# so ARGS is space-safe today. For the output directory, use
 	@# the SBOM_DIR env var (read by the script directly): e.g.
 	@# ``SBOM_DIR=/tmp/sbom make sbom`` works without touching ARGS.
 	@# A future flag that takes a path-bearing argument would need
 	@# the same "no spaces in ARGS" warning as ingest/re-embed/cutover.
-	bash tools/sbom.sh $(ARGS)
+	bash src/arxmcp/tools/sbom.sh $(ARGS)
 
 wheel-check:
 	@# issue #206 / trustworthy-release-m4 — the packaging-boundary gate.
@@ -556,12 +557,12 @@ wheel-check:
 	@# there on disk, so the suite passes and `make up` works while the
 	@# wheel ships none of it. Five holes were once open at the same time —
 	@# the whole ops/ layer, frontend/, router_patterns.yaml,
-	@# server/schemas/*.json and tools/seed-papers.txt — plus an
+	@# src/arxmcp/server/schemas/*.json and src/arxmcp/tools/seed-papers.txt — plus an
 	@# arxmcp-server console script the install guide promised and
 	@# pyproject.toml never declared.
 	@#
 	@# Needs `uv` (or `python -m build`) on PATH. No network.
-	$(PYTHON) tools/wheel_install_check.py --mode contents
+	$(PYTHON) src/arxmcp/tools/wheel_install_check.py --mode contents
 
 wheel-check-full:
 	@# The pre-publish gate. Same as `wheel-check`,
@@ -573,7 +574,7 @@ wheel-check-full:
 	@# Run it before any PyPI upload — it is the only check that proves an
 	@# operator with nothing pre-installed ends up with a server that
 	@# starts.
-	$(PYTHON) tools/wheel_install_check.py --mode full
+	$(PYTHON) src/arxmcp/tools/wheel_install_check.py --mode full
 
 refresh-arxiv-ca:
 	@# E13_S07c — refresh the pinned CA bundle for arxiv.org /
@@ -581,7 +582,7 @@ refresh-arxiv-ca:
 	@# (Threat 7 mitigation #2). Re-downloads the canonical Let's
 	@# Encrypt ISRG Root X1 PEM and verifies the resulting bundle
 	@# accepts the live arxiv.org cert chain BEFORE writing to
-	@# server/ca/arxiv-ca-bundle.pem.
+	@# src/arxmcp/server/ca/arxiv-ca-bundle.pem.
 	@#
 	@# Cadence: ISRG Root X1 is valid until 2035-06-04. Roots
 	@# rotate rarely; intermediates rotate every 60-90 days but the
@@ -597,19 +598,19 @@ refresh-arxiv-ca:
 	@# failure and refresh manually if needed.
 	@command -v curl >/dev/null 2>&1 || { echo "ERROR: curl not found" >&2; exit 1; }
 	@command -v openssl >/dev/null 2>&1 || { echo "ERROR: openssl not found" >&2; exit 1; }
-	@mkdir -p server/ca
+	@mkdir -p src/arxmcp/server/ca
 	@tmp=$$(mktemp); \
 		echo "Fetching ISRG Root X1 from letsencrypt.org..."; \
 		curl -fsSL https://letsencrypt.org/certs/isrgrootx1.pem -o $$tmp || { rm -f $$tmp; echo "ERROR: download failed" >&2; exit 1; }; \
 		echo "Verifying live arxiv.org cert chain against new bundle..."; \
-		openssl s_client -connect arxiv.org:443 -servername arxiv.org -CAfile $$tmp -verify_return_error </dev/null >/dev/null 2>&1 || { rm -f $$tmp; echo "ERROR: live arxiv.org cert does NOT verify against the new bundle. NOT writing server/ca/arxiv-ca-bundle.pem." >&2; exit 1; }; \
+		openssl s_client -connect arxiv.org:443 -servername arxiv.org -CAfile $$tmp -verify_return_error </dev/null >/dev/null 2>&1 || { rm -f $$tmp; echo "ERROR: live arxiv.org cert does NOT verify against the new bundle. NOT writing src/arxmcp/server/ca/arxiv-ca-bundle.pem." >&2; exit 1; }; \
 		echo "Verifying live export.arxiv.org cert chain..."; \
-		openssl s_client -connect export.arxiv.org:443 -servername export.arxiv.org -CAfile $$tmp -verify_return_error </dev/null >/dev/null 2>&1 || { rm -f $$tmp; echo "ERROR: live export.arxiv.org cert does NOT verify against the new bundle. NOT writing server/ca/arxiv-ca-bundle.pem." >&2; exit 1; }; \
+		openssl s_client -connect export.arxiv.org:443 -servername export.arxiv.org -CAfile $$tmp -verify_return_error </dev/null >/dev/null 2>&1 || { rm -f $$tmp; echo "ERROR: live export.arxiv.org cert does NOT verify against the new bundle. NOT writing src/arxmcp/server/ca/arxiv-ca-bundle.pem." >&2; exit 1; }; \
 		echo "Verifying live ar5iv.labs.arxiv.org cert chain..."; \
-		openssl s_client -connect ar5iv.labs.arxiv.org:443 -servername ar5iv.labs.arxiv.org -CAfile $$tmp -verify_return_error </dev/null >/dev/null 2>&1 || { rm -f $$tmp; echo "ERROR: live ar5iv.labs.arxiv.org cert does NOT verify against the new bundle. NOT writing server/ca/arxiv-ca-bundle.pem." >&2; exit 1; }; \
-		mv $$tmp server/ca/arxiv-ca-bundle.pem || { rm -f $$tmp; echo "ERROR: mv failed; bundle NOT updated (temp file removed)." >&2; exit 1; }; \
-		echo "OK: bundle refreshed at server/ca/arxiv-ca-bundle.pem (all three hosts verified)."; \
-		echo "Review the diff and commit: git diff server/ca/arxiv-ca-bundle.pem"
+		openssl s_client -connect ar5iv.labs.arxiv.org:443 -servername ar5iv.labs.arxiv.org -CAfile $$tmp -verify_return_error </dev/null >/dev/null 2>&1 || { rm -f $$tmp; echo "ERROR: live ar5iv.labs.arxiv.org cert does NOT verify against the new bundle. NOT writing src/arxmcp/server/ca/arxiv-ca-bundle.pem." >&2; exit 1; }; \
+		mv $$tmp src/arxmcp/server/ca/arxiv-ca-bundle.pem || { rm -f $$tmp; echo "ERROR: mv failed; bundle NOT updated (temp file removed)." >&2; exit 1; }; \
+		echo "OK: bundle refreshed at src/arxmcp/server/ca/arxiv-ca-bundle.pem (all three hosts verified)."; \
+		echo "Review the diff and commit: git diff src/arxmcp/server/ca/arxiv-ca-bundle.pem"
 
 
 # ============================================================================
@@ -636,7 +637,7 @@ init:
 	@# ingest-robustness-m1 AC3: also persist MINERU_BIN when given. make's
 	@# its conditional-flag idiom emits each flag only when its var is set, so
 	@# EMAIL and MINERU_BIN stay independent and correctly quoted.
-	@$(PYTHON) -m tools.notebook_init "$(NOTEBOOK)" $(if $(strip $(EMAIL)),--email "$(EMAIL)") $(if $(strip $(MINERU_BIN)),--mineru-bin "$(MINERU_BIN)")
+	@$(PYTHON) -m arxmcp.tools.notebook_init "$(NOTEBOOK)" $(if $(strip $(EMAIL)),--email "$(EMAIL)") $(if $(strip $(MINERU_BIN)),--mineru-bin "$(MINERU_BIN)")
 
 add:
 	@# AC3 — tag a paper into a notebook. If server is up
@@ -676,13 +677,13 @@ notebook-list:
 	@# AC4 — list registered notebooks. Live REST when server up
 	@# (curl /ui/api/notebooks → one-line jq via python -c), else the
 	@# offline helper opens notebooks.db directly via
-	@# tools/notebook_list_offline.py (which uses NotebooksStore so
+	@# src/arxmcp/tools/notebook_list_offline.py (which uses NotebooksStore so
 	@# any pending migrations auto-run on open).
 	@if curl -sf --max-time 2 "http://127.0.0.1:$(ARXMCP_BIND_PORT)/healthz" >/dev/null 2>&1; then \
 		curl -sf --max-time 5 "http://127.0.0.1:$(ARXMCP_BIND_PORT)/ui/api/notebooks" \
 			| $(PYTHON) -c 'import json,sys; rows=json.load(sys.stdin); print(f"{len(rows)} notebook(s) — via /ui/api/notebooks:"); [print(f"  {r[\"slug\"]} ({r.get(\"display_name\") or r[\"slug\"]})") for r in rows]'; \
 	else \
-		$(PYTHON) -m tools.notebook_list_offline; \
+		$(PYTHON) -m arxmcp.tools.notebook_list_offline; \
 	fi
 
 # ============================================================================
@@ -690,8 +691,8 @@ notebook-list:
 # ============================================================================
 #
 # Two heal commands. Server-up = curl the REST endpoint; server-down =
-# direct Python via tools/notebook_repair_registry.py +
-# tools/notebook_reconcile_marker.py (which themselves route writes
+# direct Python via src/arxmcp/tools/notebook_repair_registry.py +
+# src/arxmcp/tools/notebook_reconcile_marker.py (which themselves route writes
 # through NotebooksStore.create_notebook — never a direct SQLite
 # INSERT to the notebooks table).
 
@@ -709,8 +710,8 @@ repair-registry:
 			|| { echo "ERROR: REST call failed — see above" >&2; exit 1; }; \
 		echo; \
 	else \
-		echo "server down — running tools.notebook_repair_registry"; \
-		$(PYTHON) -m tools.notebook_repair_registry; \
+		echo "server down — running arxmcp.tools.notebook_repair_registry"; \
+		$(PYTHON) -m arxmcp.tools.notebook_repair_registry; \
 	fi
 
 reconcile:
@@ -728,7 +729,7 @@ reconcile:
 	if curl -sf --max-time 2 "http://127.0.0.1:$(ARXMCP_BIND_PORT)/healthz" >/dev/null 2>&1; then \
 		if [ -z "$$SCOPE_SLUG" ]; then \
 			echo "server-up + no NOTEBOOK= → falling back to CLI (REST path is per-notebook only)"; \
-			$(PYTHON) -m tools.notebook_reconcile_marker --shared; \
+			$(PYTHON) -m arxmcp.tools.notebook_reconcile_marker --shared; \
 		else \
 			echo "server up — POST /ui/api/notebooks/$$SCOPE_SLUG/reconcile-marker"; \
 			curl -sf --fail-with-body --max-time 30 \
@@ -738,10 +739,10 @@ reconcile:
 			echo; \
 		fi; \
 	else \
-		echo "server down — running tools.notebook_reconcile_marker"; \
+		echo "server down — running arxmcp.tools.notebook_reconcile_marker"; \
 		if [ -z "$$SCOPE_SLUG" ]; then \
-			$(PYTHON) -m tools.notebook_reconcile_marker --shared; \
+			$(PYTHON) -m arxmcp.tools.notebook_reconcile_marker --shared; \
 		else \
-			$(PYTHON) -m tools.notebook_reconcile_marker "$$SCOPE_SLUG"; \
+			$(PYTHON) -m arxmcp.tools.notebook_reconcile_marker "$$SCOPE_SLUG"; \
 		fi; \
 	fi

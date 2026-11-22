@@ -24,9 +24,9 @@ from unittest.mock import patch
 
 import pytest
 
-from ingest import textbook_renderer
-from ingest.textbook_parser import MinerUResult
-from ingest.textbook_renderer import (
+from arxmcp.ingest import textbook_renderer
+from arxmcp.ingest.textbook_parser import MinerUResult
+from arxmcp.ingest.textbook_renderer import (
     RenderResult,
     _build_latex_wrapper,
     _flat_paper_id,

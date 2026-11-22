@@ -31,15 +31,15 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.testclient import TestClient
 
-from ingest import notebooks as _notebook_common
-from server.notebooks_store import NotebooksStore
-from server.routes import notebooks as notebooks_module
-from server.routes.notebooks import _ingest_status_fragment
-from server.routes.notebooks import router as notebooks_router
-from server.routes.ui import router as ui_router
+from arxmcp.ingest import notebooks as _notebook_common
+from arxmcp.server.notebooks_store import NotebooksStore
+from arxmcp.server.routes import notebooks as notebooks_module
+from arxmcp.server.routes.notebooks import _ingest_status_fragment
+from arxmcp.server.routes.notebooks import router as notebooks_router
+from arxmcp.server.routes.ui import router as ui_router
 
 REPO_ROOT: Path = Path(__file__).resolve().parents[1]
-FRONTEND: Path = REPO_ROOT / "server" / "frontend"
+FRONTEND: Path = REPO_ROOT / "src" / "arxmcp" / "server" / "frontend"
 FRONTEND_STATIC: Path = FRONTEND / "static"
 APP_CSS: str = (FRONTEND_STATIC / "app.css").read_text(encoding="utf-8")
 APP_CSS_NO_COMMENTS: str = re.sub(r"/\*.*?\*/", "", APP_CSS, flags=re.S)

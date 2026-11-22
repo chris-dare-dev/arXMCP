@@ -1,8 +1,8 @@
 """Unit tests for the embedder-truncation-m1 re-embed driver.
 
-The driver at ``tools/re_embed_all.py`` discovers every LanceDB
+The driver at ``src/arxmcp/tools/re_embed_all.py`` discovers every LanceDB
 dataset under ``var/arxmcp/notebooks/<slug>/lancedb/`` (plus the
-shared corpus) and invokes :func:`ingest.re_embed.run_re_embed`
+shared corpus) and invokes :func:`arxmcp.ingest.re_embed.run_re_embed`
 against each. These tests exercise the discovery logic and the
 exit-code semantics WITHOUT invoking ``run_re_embed`` itself —
 that would require the BGE-M3 model (a ``requires_model`` gate).
@@ -13,11 +13,11 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import patch
 
-from tests._symlink_support import requires_symlink
-from tools.re_embed_all import (
+from arxmcp.tools.re_embed_all import (
     discover_targets,
     run,
 )
+from tests._symlink_support import requires_symlink
 
 
 def _make_notebook_dataset(base: Path, slug: str, *, with_chunks: bool) -> Path:
@@ -109,7 +109,7 @@ class TestDiscovery:
     @requires_symlink
     def test_skips_symlinked_notebook_dir(self, tmp_path, caplog):
         """F3 (rect): align with the m6 F3 symlink-rejection contract
-        codified at ingest/notebooks.py::notebook_dir. A symlink
+        codified at src/arxmcp/ingest/notebooks.py::notebook_dir. A symlink
         at the slug position is a red flag and must NOT be treated as
         a re-embed target — even if it would otherwise look like a
         valid lancedb-bearing notebook.
@@ -179,7 +179,7 @@ class TestRunExitCodes:
         nb_base = tmp_path / "notebooks"
         _make_notebook_dataset(nb_base, "alpha", with_chunks=True)
 
-        with patch("ingest.re_embed.run_re_embed") as mock_run_re_embed:
+        with patch("arxmcp.ingest.re_embed.run_re_embed") as mock_run_re_embed:
             rc = run(
                 dry_run=True,
                 notebooks_base=nb_base,
@@ -200,7 +200,7 @@ class TestRunExitCodes:
 
         # Mock run_re_embed to fail on the second dataset only.
         # F2 (rect): papers_failed is list[str] per
-        # ingest/re_embed.py:103; mock must mirror the real type so
+        # src/arxmcp/ingest/re_embed.py:103; mock must mirror the real type so
         # the formatted-failure-message regression is exercised.
         call_count = {"n": 0}
 
@@ -222,7 +222,7 @@ class TestRunExitCodes:
                 elapsed_seconds=0.1,
             )
 
-        with patch("ingest.re_embed.run_re_embed", side_effect=fake_run):
+        with patch("arxmcp.ingest.re_embed.run_re_embed", side_effect=fake_run):
             rc = run(
                 dry_run=False,
                 notebooks_base=nb_base,
@@ -261,7 +261,7 @@ class TestRunExitCodes:
                 elapsed_seconds=0.1,
             )
 
-        with patch("ingest.re_embed.run_re_embed", side_effect=fake_run):
+        with patch("arxmcp.ingest.re_embed.run_re_embed", side_effect=fake_run):
             rc = run(
                 dry_run=False,
                 notebooks_base=nb_base,
@@ -275,7 +275,7 @@ class TestRunExitCodes:
 
         with (
             patch(
-                "ingest.re_embed.run_re_embed",
+                "arxmcp.ingest.re_embed.run_re_embed",
                 side_effect=RuntimeError("bge-m3 OOM"),
             ),
             caplog.at_level("ERROR", logger="re_embed_all"),

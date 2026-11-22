@@ -34,8 +34,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from tools import cdm_eval
-from tools.cdm_eval import (
+from arxmcp.tools import cdm_eval
+from arxmcp.tools.cdm_eval import (
     AggregateResult,
     TokenBbox,
     _cost_matrix,  # noqa: PLC2701 — regression-test target for F1
@@ -268,7 +268,7 @@ class TestFixtureStructure:
             f"Manifest totals out of sync: sum-of-classes="
             f"{per_class_sum}, totals.current_pages="
             f"{manifest['totals']['current_pages']}. Run "
-            f"`python -m tools.cdm_eval --recount-manifest` (NYI) or "
+            f"`python -m arxmcp.tools.cdm_eval --recount-manifest` (NYI) or "
             f"hand-fix manifest.json."
         )
 

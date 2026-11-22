@@ -20,7 +20,7 @@ changes — see `.claude/notes/07-multi-agent-caching.md` lines 40-49:
 This file IS that unit test. The hash is :data:`EXPECTED_TOOL_SCHEMA_SHA256`.
 A drift means: either you intentionally changed a tool name /
 description / argument schema (in which case bump
-``server.tools.TOOL_SCHEMA_VERSION`` AND run ``pytest
+``arxmcp.server.tools.TOOL_SCHEMA_VERSION`` AND run ``pytest
 --update-tool-schema-hash`` to refresh the constant below), or you
 made an accidental edit that just nuked every sub-agent's cached
 prefix (in which case revert).
@@ -72,10 +72,10 @@ from typing import Any
 
 import pytest
 
-from server.config import Config
-from server.health import reset_metrics_for_tests
-from server.main import create_app
-from server.tools import ALL_TOOLS, TOOL_SCHEMA_VERSION, reset_resources_for_tests
+from arxmcp.server.config import Config
+from arxmcp.server.health import reset_metrics_for_tests
+from arxmcp.server.main import create_app
+from arxmcp.server.tools import ALL_TOOLS, TOOL_SCHEMA_VERSION, reset_resources_for_tests
 
 # ---------------------------------------------------------------------------
 # Pinned hash (the load-bearing constant)
@@ -95,7 +95,7 @@ EXPECTED_TOOL_SCHEMA_SHA256: str = (  # UPDATE-ANCHOR — do not delete
     "5dbb867a7f3b78a26bedc9ff7e351f6a4a2ce5bfe727e9b7954399a5b7accd58"
 )
 
-#: The :data:`server.tools.TOOL_SCHEMA_VERSION` value that produced
+#: The :data:`arxmcp.server.tools.TOOL_SCHEMA_VERSION` value that produced
 #: :data:`EXPECTED_TOOL_SCHEMA_SHA256`. F2 fix from the E06_S06
 #: critique: hash drift MUST imply a version bump. The
 #: ``--update-tool-schema-hash`` flag refuses to proceed if the
@@ -105,7 +105,7 @@ EXPECTED_TOOL_SCHEMA_SHA256: str = (  # UPDATE-ANCHOR — do not delete
 #: Decorative-version risk closed: if a contributor bumps a tool
 #: description without bumping ``TOOL_SCHEMA_VERSION``, the flag
 #: refuses, and they cannot ship the new hash without also editing
-#: ``server/tools.py``'s ``TOOL_SCHEMA_VERSION`` constant.
+#: ``src/arxmcp/server/tools.py``'s ``TOOL_SCHEMA_VERSION`` constant.
 EXPECTED_TOOL_SCHEMA_VERSION_AT_HASH: int = 26  # VERSION-ANCHOR — do not delete
 
 
@@ -118,7 +118,7 @@ EXPECTED_TOOL_SCHEMA_VERSION_AT_HASH: int = 26  # VERSION-ANCHOR — do not dele
 @pytest.fixture
 def _mocked_bge(monkeypatch):
     """Replace BGE-M3 model + tokenizer load with no-ops."""
-    import server.query_encoder as qe_mod
+    import arxmcp.server.query_encoder as qe_mod
 
     monkeypatch.setattr(qe_mod, "_get_model", lambda: object())
     monkeypatch.setattr(qe_mod, "_get_tokenizer", lambda: object())
@@ -346,7 +346,7 @@ class TestPinnedHash:
 
         F4 fix: refuse to honor the flag in CI. F2 fix: require a
         ``TOOL_SCHEMA_VERSION`` bump alongside any hash drift."""
-        from server.tools import TOOL_SCHEMA_VERSION as live_version
+        from arxmcp.server.tools import TOOL_SCHEMA_VERSION as live_version
 
         live_hash = compute_tool_schema_hash(_live_tools)
         pinned_hash, pinned_version = _read_current_pin()
@@ -377,7 +377,7 @@ class TestPinnedHash:
                     f"for every sub-agent (see "
                     f".claude/notes/07-multi-agent-caching.md lines "
                     f"40-49). To make the change visible to consumers, "
-                    f"bump server.tools.TOOL_SCHEMA_VERSION FIRST, "
+                    f"bump arxmcp.server.tools.TOOL_SCHEMA_VERSION FIRST, "
                     f"then re-run --update-tool-schema-hash.\n"
                 )
 
@@ -397,7 +397,7 @@ class TestPinnedHash:
 
         # F2: enforce version pin matches in normal-mode runs too.
         assert live_version == pinned_version, (
-            f"server.tools.TOOL_SCHEMA_VERSION ({live_version}) does "
+            f"arxmcp.server.tools.TOOL_SCHEMA_VERSION ({live_version}) does "
             f"not match the pinned version ({pinned_version}). Either "
             f"the version was bumped without rerunning "
             f"--update-tool-schema-hash, or the pinned version was "
@@ -415,7 +415,7 @@ class TestPinnedHash:
             f"every sub-agent (see .claude/notes/07-multi-agent-"
             f"caching.md lines 40-49).\n\n"
             f"To accept the drift (intentional schema change):\n"
-            f"  1. Bump server.tools.TOOL_SCHEMA_VERSION\n"
+            f"  1. Bump arxmcp.server.tools.TOOL_SCHEMA_VERSION\n"
             f"  2. Run: pytest tests/test_server_tool_schema.py "
             f"--update-tool-schema-hash\n"
             f"  3. Commit the new pinned hash + version.\n"
@@ -545,10 +545,10 @@ class TestUpdateProcedure:
         which bypassed the registration code path. A regression
         where ``register_all`` accidentally hardcoded a description
         or swapped ``description`` for ``name`` would not be caught.
-        This version monkeypatches ``server.tools.SEARCH_PAPERS`` to
+        This version monkeypatches ``arxmcp.server.tools.SEARCH_PAPERS`` to
         a new ``ToolMeta`` and re-runs the registration, exercising
         the actual production path."""
-        import server.tools as tools_mod
+        import arxmcp.server.tools as tools_mod
 
         # Baseline: live hash with the un-monkeypatched ToolMeta.
         baseline_tools = _build_app_and_list_tools(tmp_path)
@@ -578,7 +578,7 @@ class TestUpdateProcedure:
             "Bumping a ToolMeta description and re-running "
             "register_all did NOT change the hash — the description "
             "is not flowing through registration. Inspect "
-            "register_all in server/tools.py."
+            "register_all in src/arxmcp/server/tools.py."
         )
 
     def test_rewrite_helper_idempotent_when_hash_unchanged(self, tmp_path):

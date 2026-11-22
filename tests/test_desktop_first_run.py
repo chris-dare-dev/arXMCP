@@ -55,8 +55,8 @@ from tests._source_blocks import (
 )
 
 REPO_ROOT: Path = Path(__file__).resolve().parents[1]
-DESKTOP_CHILD: Path = REPO_ROOT / "server" / "desktop_child.py"
-SUPERVISOR_SRC: Path = REPO_ROOT / "apps" / "desktop" / "crates" / "supervisor" / "src"
+DESKTOP_CHILD: Path = REPO_ROOT / "src" / "arxmcp" / "server" / "desktop_child.py"
+SUPERVISOR_SRC: Path = REPO_ROOT / "src" / "desktop" / "crates" / "supervisor" / "src"
 LIFECYCLE_RS: str = (SUPERVISOR_SRC / "lifecycle.rs").read_text(encoding="utf-8")
 
 
@@ -82,14 +82,14 @@ def _config_call_keywords() -> dict[str, ast.expr]:
             and node.func.id == "Config"
         ):
             return {kw.arg: kw.value for kw in node.keywords if kw.arg}
-    raise AssertionError("no Config(...) call found in server/desktop_child.py")
+    raise AssertionError("no Config(...) call found in src/arxmcp/server/desktop_child.py")
 
 
 def test_the_desktop_child_asks_for_bootstrap_mode() -> None:
     """#426. Without this the shipped .app cannot start on a fresh machine."""
     keywords = _config_call_keywords()
     assert "bootstrap_mode" in keywords, (
-        "server/desktop_child.py must build its Config with "
+        "src/arxmcp/server/desktop_child.py must build its Config with "
         "bootstrap_mode=True; without it a fresh install raises "
         "CorpusNotIngestedError and never emits `bound` (#426)"
     )
@@ -317,7 +317,7 @@ def test_the_inverted_containment_comment_is_gone() -> None:
 # #436 / #435 — the seal is consulted, and the digest stops overclaiming
 # ---------------------------------------------------------------------------
 README: str = (
-    REPO_ROOT / "apps" / "desktop" / "README.md"
+    REPO_ROOT / "src" / "desktop" / "README.md"
 ).read_text(encoding="utf-8")
 
 
@@ -513,7 +513,11 @@ def test_the_spawners_keep_their_own_containment() -> None:
     the supervisor's group sweep sufficient and break that containment — a
     tempting shortcut that must stay closed.
     """
-    for rel in ("ingest/arxiv_fetch.py", "ingest/textbook_parser.py", "tools/cdm_eval.py"):
+    for rel in (
+        "src/arxmcp/ingest/arxiv_fetch.py",
+        "src/arxmcp/ingest/textbook_parser.py",
+        "src/arxmcp/tools/cdm_eval.py",
+    ):
         source = (REPO_ROOT / rel).read_text(encoding="utf-8")
         assert "start_new_session=True" in source, (
             f"{rel} must keep its session containment; the supervisor now "
@@ -525,7 +529,7 @@ def test_the_spawners_keep_their_own_containment() -> None:
 def test_the_readme_states_the_remaining_limits_precisely() -> None:
     """The non-claim #467 needed is gone because #499 closed that gap. What
     replaces it must be specific, not a vague reassurance."""
-    readme = (REPO_ROOT / "apps" / "desktop" / "README.md").read_text(encoding="utf-8")
+    readme = (REPO_ROOT / "src" / "desktop" / "README.md").read_text(encoding="utf-8")
     flat = " ".join(readme.split())
     for required in (
         "start_new_session",          # names the mechanism it now handles
@@ -648,7 +652,7 @@ def test_the_digest_no_longer_claims_to_detect_tampering() -> None:
         "lifecycle.rs must state what the identity digest actually is (#435)"
     )
     assert "self-consistency check, not a tamper\n   check" in README, (
-        "apps/desktop/README.md must not imply the digest detects tampering"
+        "src/desktop/README.md must not imply the digest detects tampering"
     )
 
 
@@ -1014,7 +1018,7 @@ def test_the_quarantine_experience_is_documented() -> None:
     non-developer.
     """
     readme = (
-        REPO_ROOT / "apps" / "desktop" / "README.md"
+        REPO_ROOT / "src" / "desktop" / "README.md"
     ).read_text(encoding="utf-8")
     assert "Not Opened" in readme and "Move to Trash" in readme, (
         "the README must record the dialog the operator actually sees (#434)"

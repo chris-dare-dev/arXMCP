@@ -10,7 +10,7 @@ Covers:
   (no embedding input).
 * AC2 coverage.
 
-We mock `ingest.embedder._encode_batch` rather than loading the real
+We mock `arxmcp.ingest.embedder._encode_batch` rather than loading the real
 2 GB BGE-M3 model. The real model is exercised at production-ingest
 time and via the `requires_model` test marker on per-model
 opt-in tests elsewhere; this milestone's logic is independent of
@@ -26,10 +26,10 @@ import numpy as np
 import pyarrow as pa
 import pytest
 
-from ingest.embed_equations import embed_pending_equations
-from ingest.embedder import EMBEDDING_DIM
-from ingest.index_equations import open_or_create_equations_table
-from ingest.schema import EQUATIONS_SCHEMA_V1
+from arxmcp.ingest.embed_equations import embed_pending_equations
+from arxmcp.ingest.embedder import EMBEDDING_DIM
+from arxmcp.ingest.index_equations import open_or_create_equations_table
+from arxmcp.ingest.schema import EQUATIONS_SCHEMA_V1
 
 
 def _empty_lancedb_path(tmp_path: Path) -> Path:
@@ -76,7 +76,7 @@ def _mocked_encoder(monkeypatch):
     input. The actual values do not matter for the embedder logic
     test — only that vectors land in the right rows.
     """
-    import ingest.embed_equations as eq_mod
+    import arxmcp.ingest.embed_equations as eq_mod
 
     def _fake_encode(texts, chunk_ids=None):
         n = len(texts)

@@ -34,10 +34,10 @@ from pathlib import Path
 
 import pytest
 
-from server.graph_queries import cite_neighbors
-from server.graph_types import CitationNeighbor
-from server.handlers.chunk import handle_get_chunk
-from server.tools import reset_resources_for_tests, set_resources
+from arxmcp.server.graph_queries import cite_neighbors
+from arxmcp.server.graph_types import CitationNeighbor
+from arxmcp.server.handlers.chunk import handle_get_chunk
+from arxmcp.server.tools import reset_resources_for_tests, set_resources
 from tests._graph_helpers import build_synthetic_kuzu_graph, build_synthetic_lancedb
 
 # ---------------------------------------------------------------------------
@@ -183,7 +183,7 @@ def fake_resources(graph_corpus: dict):
     """
     import lancedb
 
-    from server.config import Config
+    from arxmcp.server.config import Config
 
     cfg = Config(result_byte_cap=256 * 1024)
 
@@ -441,7 +441,7 @@ def handler_resources(graph_corpus: dict):
     path-validation contract — so this fixture points a real ``Config``
     at the synthetic ``graph_corpus`` paths.
     """
-    from server.config import Config
+    from arxmcp.server.config import Config
 
     cfg = Config(
         result_byte_cap=256 * 1024,
@@ -479,7 +479,7 @@ class TestHandlerEndToEnd:
         """AC#1 + AC#5: the handler routes through the live library and
         returns real neighbors — verified at the HANDLER boundary, not
         only the library."""
-        from server.handlers.citations import handle_cite_neighbors
+        from arxmcp.server.handlers.citations import handle_cite_neighbors
 
         result = _run(
             handle_cite_neighbors(
@@ -507,7 +507,7 @@ class TestHandlerEndToEnd:
         """AC#2: the handler's ``direction`` enum is re-aligned to the
         library's — ``cited_by`` is a valid library direction (the old
         stub enum had ``citers``/``cited``, never the library's set)."""
-        from server.handlers.citations import handle_cite_neighbors
+        from arxmcp.server.handlers.citations import handle_cite_neighbors
 
         result = _run(
             handle_cite_neighbors(
@@ -524,7 +524,7 @@ class TestHandlerEndToEnd:
     ):
         """AC#5: the 500 ms performance gate holds at the HANDLER level
         (library call + envelope + cap + dataclasses.asdict)."""
-        from server.handlers.citations import handle_cite_neighbors
+        from arxmcp.server.handlers.citations import handle_cite_neighbors
 
         async def _runner():
             start = time.monotonic()
@@ -547,7 +547,7 @@ class TestHandlerEndToEnd:
     def test_handler_rejects_malformed_chunk_id(self):
         """The Threat-1 chunk_id validator fires before any resource
         access — no Resources singleton is needed for this path."""
-        from server.handlers.citations import handle_cite_neighbors
+        from arxmcp.server.handlers.citations import handle_cite_neighbors
 
         with pytest.raises(ValueError, match="chunk_id"):
             _run(handle_cite_neighbors(chunk_id="not-a-valid-chunk-id"))
@@ -558,8 +558,8 @@ class TestHandlerEndToEnd:
         """When ``Config.kuzu_path`` does not exist (graph not
         ingested), the handler returns ``graph_status='absent'`` + an
         empty ``neighbors`` list rather than erroring."""
-        from server.config import Config
-        from server.handlers.citations import handle_cite_neighbors
+        from arxmcp.server.config import Config
+        from arxmcp.server.handlers.citations import handle_cite_neighbors
 
         cfg = Config(
             result_byte_cap=256 * 1024,
@@ -599,8 +599,8 @@ class TestHandlerEndToEnd:
         a 5xx. Covers the half-ingested / corrupt / stray-path
         operator-failure modes the bare Path.exists() guard cannot
         distinguish."""
-        from server.config import Config
-        from server.handlers.citations import handle_cite_neighbors
+        from arxmcp.server.config import Config
+        from arxmcp.server.handlers.citations import handle_cite_neighbors
 
         bad_kuzu = tmp_path / "kuzu_is_a_directory"
         bad_kuzu.mkdir()  # exists() is True; Kùzu rejects a directory path.
@@ -641,7 +641,7 @@ class TestHandlerEndToEnd:
         'for testability' fails loudly here."""
         import inspect
 
-        from server.handlers.citations import handle_cite_neighbors
+        from arxmcp.server.handlers.citations import handle_cite_neighbors
 
         params = set(inspect.signature(handle_cite_neighbors).parameters)
         forbidden = {

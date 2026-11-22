@@ -6,8 +6,8 @@ fixture strings — no MinerU, no LaTeXML, no file IO.
 
 from __future__ import annotations
 
-from ingest.chunk import ALLOWED_PARSER_USED
-from ingest.textbook_markdown_chunker import (
+from arxmcp.ingest.chunk import ALLOWED_PARSER_USED
+from arxmcp.ingest.textbook_markdown_chunker import (
     _MAX_TOKENS,
     TEXTBOOK_MD_CHUNKER_VERSION,
     TEXTBOOK_MD_PARSER_USED,
@@ -206,7 +206,7 @@ class TestParityHardening:
     def test_merge_cap_bounds_blast_radius(self) -> None:
         # F3: one stray unbalanced $ must NOT swallow the whole document — the
         # merge run is capped, so tail blocks survive as separate blocks.
-        from ingest.textbook_markdown_chunker import (
+        from arxmcp.ingest.textbook_markdown_chunker import (
             _MAX_MERGE_BLOCKS,
             _paragraph_blocks,
         )
@@ -223,7 +223,7 @@ class TestErrorEnvelopeAndRouting:
     ) -> None:
         # F1: a missing MinerU markdown must return [] (logged), NOT raise and
         # abort a batch — matching chunk_textbook's per-paper envelope.
-        import ingest.textbook_markdown_chunker as mod
+        import arxmcp.ingest.textbook_markdown_chunker as mod
 
         monkeypatch.setattr(mod, "_resolve_notebook_dir", lambda slug: tmp_path)
         # tmp_path has no parsed/**/auto/*.md -> _markdown_path raises -> caught.
@@ -232,8 +232,8 @@ class TestErrorEnvelopeAndRouting:
     def test_several_markdowns_for_one_paper_are_refused(
         self, monkeypatch, tmp_path, caplog
     ) -> None:
-        import ingest.textbook_markdown_chunker as mod
-        from ingest.textbook_chunker import _flat_paper_id
+        import arxmcp.ingest.textbook_markdown_chunker as mod
+        from arxmcp.ingest.textbook_chunker import _flat_paper_id
 
         base = tmp_path / "parsed" / _flat_paper_id(PID)
         for parse in ("old_mineru", "new_mineru"):
@@ -247,8 +247,8 @@ class TestErrorEnvelopeAndRouting:
         assert "old_mineru" in caplog.text and "new_mineru" in caplog.text
 
     def test_one_markdown_is_chunked(self, monkeypatch, tmp_path) -> None:
-        import ingest.textbook_markdown_chunker as mod
-        from ingest.textbook_chunker import _flat_paper_id
+        import arxmcp.ingest.textbook_markdown_chunker as mod
+        from arxmcp.ingest.textbook_chunker import _flat_paper_id
 
         auto = tmp_path / "parsed" / _flat_paper_id(PID) / "p_mineru" / "auto"
         auto.mkdir(parents=True)
@@ -262,7 +262,7 @@ class TestErrorEnvelopeAndRouting:
     ) -> None:
         # F5: non-UTF-8 markdown is a per-paper failure (strict decode), not a
         # silent U+FFFD substitution into math body_text.
-        import ingest.textbook_markdown_chunker as mod
+        import arxmcp.ingest.textbook_markdown_chunker as mod
 
         bad = tmp_path / "bad.md"
         bad.write_bytes(b"# H\n\nmath \xa1 and \xca bytes\n")
@@ -272,7 +272,7 @@ class TestErrorEnvelopeAndRouting:
 
     def test_chunker_flag_routes_to_correct_chunker(self, monkeypatch) -> None:
         # F2: the --chunker selection must actually route to the chosen chunker.
-        import tools.notebook_textbook_ingest as nti
+        import arxmcp.tools.notebook_textbook_ingest as nti
 
         called: list[str] = []
         monkeypatch.setattr(

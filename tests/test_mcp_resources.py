@@ -1,6 +1,6 @@
 """notebook-surface-expansion-m4 — notebooks as MCP resources.
 
-Covers ``server/mcp_resources.py``: the ``arxmcp://notebooks`` index resource +
+Covers ``src/arxmcp/server/mcp_resources.py``: the ``arxmcp://notebooks`` index resource +
 the ``arxmcp://notebooks/{slug}`` template, registered on FastMCP. The
 load-bearing assertion is **byte-stability**: registering resources must NOT
 drift ``EXPECTED_TOOL_SCHEMA_SHA256`` or the BP1 hash (spike-1 GO). Security:
@@ -22,14 +22,14 @@ from pathlib import Path
 import pytest
 from mcp.server.fastmcp import FastMCP
 
-from ingest import notebooks as _notebook_common
-from server.mcp_resources import (
+from arxmcp.ingest import notebooks as _notebook_common
+from arxmcp.server.mcp_resources import (
     register_resources,
     reset_notebooks_store_for_tests,
     set_notebooks_store,
 )
-from server.notebooks_store import NotebooksStore
-from server.tools import register_all
+from arxmcp.server.notebooks_store import NotebooksStore
+from arxmcp.server.tools import register_all
 from tests._symlink_support import requires_symlink
 
 # Reuse the canonical tool-schema hash machinery (the pinned baseline).
@@ -214,7 +214,7 @@ class TestDetailRead:
         (base / "elsewhere").mkdir()
         (base / "symlink-nb").symlink_to(base / "elsewhere")
         mcp = _mcp_with_resources()
-        with caplog.at_level(logging.WARNING, logger="server.mcp_resources"):
+        with caplog.at_level(logging.WARNING, logger="arxmcp.server.mcp_resources"):
             text = _read_text(loop, mcp, "arxmcp://notebooks/symlink-nb")
         inner = text[len("<retrieved_notebook>") : -len("</retrieved_notebook>")]
         assert json.loads(inner)["is_ingested"] is False

@@ -1,7 +1,7 @@
 """notebook-surface-expansion-m6 — portable export bundle (tar + manifest).
 
 ``GET /ui/api/notebooks/{slug}/export`` streams a USTAR tar of one notebook for
-backup/move (`server/routes/notebooks.py::export_notebook`). Load-bearing
+backup/move (`src/arxmcp/server/routes/notebooks.py::export_notebook`). Load-bearing
 properties pinned here: (a) the manifest allowlists safe fields only — NO
 ``lancedb_path`` / ``parsed_html_path`` / ``parse_error`` (host-path / internal-
 state info-leak class, m4 D3 + m6 synthesis D3); (b) the tar bytes are
@@ -30,11 +30,11 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from ingest import notebooks as _notebook_common
-from server.main import _is_exempt_path
-from server.notebooks_store import NotebooksStore
-from server.routes import notebooks as notebooks_module
-from server.routes.notebooks import router as notebooks_router
+from arxmcp.ingest import notebooks as _notebook_common
+from arxmcp.server.main import _is_exempt_path
+from arxmcp.server.notebooks_store import NotebooksStore
+from arxmcp.server.routes import notebooks as notebooks_module
+from arxmcp.server.routes.notebooks import router as notebooks_router
 from tests._symlink_support import requires_symlink
 
 
@@ -252,7 +252,7 @@ class TestPreflightSafety:
         target = base / "elsewhere.html"
         target.write_bytes(b"outside")
         (base / "sym-nb" / "ar5iv" / "danger.html").symlink_to(target)
-        with caplog.at_level(logging.WARNING, logger="server.routes.notebooks"):
+        with caplog.at_level(logging.WARNING, logger="arxmcp.server.routes.notebooks"):
             r = client.get("/ui/api/notebooks/sym-nb/export")
         assert r.status_code == 200
         with _open_tar(r.content) as tar:
@@ -321,7 +321,7 @@ class TestPreflightAdditional:
         # for USTAR's name/prefix split to rescue it).
         long_name = "x" * 150 + ".html"
         _seed_asset(base, "long-nb", long_name, b"too long")
-        with caplog.at_level(logging.WARNING, logger="server.routes.notebooks"):
+        with caplog.at_level(logging.WARNING, logger="arxmcp.server.routes.notebooks"):
             r = client.get("/ui/api/notebooks/long-nb/export")
         assert r.status_code == 200  # NOT 500
         with _open_tar(r.content) as tar:
@@ -356,7 +356,7 @@ class TestPreflightAdditional:
         bad.parent.mkdir(parents=True, exist_ok=True)
         bad.write_bytes(b"bad")
         _seed_asset(base, "ctrl-nb", "ar5iv/clean.html", b"clean")
-        with caplog.at_level(logging.WARNING, logger="server.routes.notebooks"):
+        with caplog.at_level(logging.WARNING, logger="arxmcp.server.routes.notebooks"):
             r = client.get("/ui/api/notebooks/ctrl-nb/export")
         assert r.status_code == 200
         with _open_tar(r.content) as tar:
@@ -416,7 +416,7 @@ class TestManifestNullCoercion:
     def test_build_manifest_coerces_none_to_empty(self) -> None:
         """Direct unit test on the helper: ``parse_status: None`` becomes
         ``""`` in the manifest (m6-rect F5)."""
-        from server.routes.notebooks import _build_export_manifest
+        from arxmcp.server.routes.notebooks import _build_export_manifest
 
         notebook = {
             "slug": "x-nb", "display_name": "X",

@@ -1,4 +1,4 @@
-"""Unit tests for ``server.discovery`` (notebook-paper-discovery-m3).
+"""Unit tests for ``arxmcp.server.discovery`` (notebook-paper-discovery-m3).
 
 The arXiv HTTP layer is mocked via ``monkeypatch.setattr(_arxiv_api, "_fetch_url", …)``
 (the m2 / graph_ingest pattern) so NO live arXiv call happens in CI. Each test opens
@@ -15,12 +15,12 @@ from pathlib import Path
 
 import pytest
 
-from ingest import arxiv_api as _arxiv_api
-from server.discovery import (
+from arxmcp.ingest import arxiv_api as _arxiv_api
+from arxmcp.server.discovery import (
     DiscoveryCandidate,
     discover_for_notebook_async,
 )
-from server.notebooks_store import NotebooksStore
+from arxmcp.server.notebooks_store import NotebooksStore
 
 
 def _feed(entries: list[tuple[str, str, str]]) -> bytes:

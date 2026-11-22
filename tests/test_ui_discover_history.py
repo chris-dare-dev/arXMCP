@@ -9,7 +9,7 @@ a page that is not the one that was there.
 These tests read the pushed URL out of the rendered page and then load it, so
 the attribute and the route are checked against each other rather than each
 against a hand-copied string. No live arXiv call is made:
-``ingest.arxiv_api._fetch_url`` is replaced in every test.
+``arxmcp.ingest.arxiv_api._fetch_url`` is replaced in every test.
 """
 
 from __future__ import annotations
@@ -23,12 +23,12 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from ingest import arxiv_api as _arxiv_api
-from ingest import notebooks as _notebook_common
-from server.notebooks_store import NotebooksStore
-from server.routes import notebooks as notebooks_module
-from server.routes.notebooks import router as notebooks_router
-from server.routes.ui import router as ui_router
+from arxmcp.ingest import arxiv_api as _arxiv_api
+from arxmcp.ingest import notebooks as _notebook_common
+from arxmcp.server.notebooks_store import NotebooksStore
+from arxmcp.server.routes import notebooks as notebooks_module
+from arxmcp.server.routes.notebooks import router as notebooks_router
+from arxmcp.server.routes.ui import router as ui_router
 from tests.test_discover_route import _feed
 
 _THREE = [

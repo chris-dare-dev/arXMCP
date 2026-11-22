@@ -54,12 +54,12 @@ Design decisions (resolved at synthesis time):
     NOT used here — see rect F1.
   - BGE-M3 is mocked via ``patch_bge_m3_model``.
   - Monkeypatch target for the mutation test:
-    ``ingest.store.write_corpus_version_marker`` — the module's own
+    ``arxmcp.ingest.store.write_corpus_version_marker`` — the module's own
     namespace (since ``write_chunks`` calls it by bare name at module
-    scope per ``ingest/store.py:946``). **Coverage scope (rect F2):**
-    this monkeypatch intercepts ONLY the ``ingest.store`` write path.
-    It does NOT intercept ``server/routes/notebooks._rewrite_corpus_version_marker``
-    or ``tools/notebook_reconcile_marker.py`` — those are parallel
+    scope per ``src/arxmcp/ingest/store.py:946``). **Coverage scope (rect F2):**
+    this monkeypatch intercepts ONLY the ``arxmcp.ingest.store`` write path.
+    It does NOT intercept ``src/arxmcp/server/routes/notebooks._rewrite_corpus_version_marker``
+    or ``src/arxmcp/tools/notebook_reconcile_marker.py`` — those are parallel
     marker-write paths that mirror the schema but bypass the
     module-local binding. A future "marker corruption" through those
     paths would NOT be caught by this test; that gap is documented
@@ -89,9 +89,9 @@ from __future__ import annotations
 
 from fastapi.testclient import TestClient
 
-from server.config import Config
-from server.health import reset_metrics_for_tests
-from server.main import create_app
+from arxmcp.server.config import Config
+from arxmcp.server.health import reset_metrics_for_tests
+from arxmcp.server.main import create_app
 from tests._corpus_helpers import (
     patch_bge_m3_model,
     seed_corpus_multi_paper,
@@ -204,7 +204,7 @@ def test_pre_m1_bug_shape_is_caught_by_integration(tmp_path, monkeypatch):
 
     **e1 disposition note.** Before
     ``corpus-integrity-completion-e1`` shipped the WAP gate at
-    ``ingest/store.py::write_chunks``, this test could
+    ``src/arxmcp/ingest/store.py::write_chunks``, this test could
     ``monkeypatch.setattr(store_mod, "write_corpus_version_marker",
     ...)`` to inject the pre-m1 bug shape DURING the ingest, run
     ``seed_corpus_multi_paper`` cleanly, and then expect ``/readyz``
@@ -230,8 +230,8 @@ def test_pre_m1_bug_shape_is_caught_by_integration(tmp_path, monkeypatch):
        completes — simulating the production-real cases where a bad
        marker reaches disk via paths the e1 gate does NOT cover:
        sibling marker writers
-       (``server/routes/notebooks._rewrite_corpus_version_marker``,
-       ``tools/notebook_reconcile_marker.py``), an externally-edited
+       (``src/arxmcp/server/routes/notebooks._rewrite_corpus_version_marker``,
+       ``src/arxmcp/tools/notebook_reconcile_marker.py``), an externally-edited
        marker, or a backup-restore that brought a stale marker
        back.
     3. Booting the server; ``Resources.startup`` runs
@@ -254,7 +254,7 @@ def test_pre_m1_bug_shape_is_caught_by_integration(tmp_path, monkeypatch):
     regresses), the read-side defence-in-depth contract is broken
     even though e1's write-side may still hold.
     """
-    from ingest.store import CORPUS_VERSION_MARKER_NAME
+    from arxmcp.ingest.store import CORPUS_VERSION_MARKER_NAME
 
     patch_bge_m3_model(monkeypatch)
     lancedb_path = tmp_path / "lancedb"
@@ -349,7 +349,7 @@ def test_synthetic_corpus_size_exceeds_divergence_tolerance_floor():
     Confirms the chosen multi-call configuration is safe for the
     mutation test.
     """
-    from server.resources import compute_chunk_count_divergence
+    from arxmcp.server.resources import compute_chunk_count_divergence
 
     mutation_marker_count = _CHUNKS_PER_PAPER
     result = compute_chunk_count_divergence(

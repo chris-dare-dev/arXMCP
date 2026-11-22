@@ -31,15 +31,15 @@ from typing import Any
 import pyarrow as pa
 import pytest
 
-import ingest.theorem_names_store as store_mod
-import server.handlers.lemma as lemma_handler_mod
-import server.tools as server_tools
-from ingest.index_theorem_names import (
+import arxmcp.ingest.theorem_names_store as store_mod
+import arxmcp.server.handlers.lemma as lemma_handler_mod
+import arxmcp.server.tools as server_tools
+from arxmcp.ingest.index_theorem_names import (
     build_rows_from_chunks_for_paper,
     index_theorem_names_for_paper,
 )
-from ingest.schema import CHUNKS_SCHEMA_V1
-from ingest.theorem_names_store import (
+from arxmcp.ingest.schema import CHUNKS_SCHEMA_V1
+from arxmcp.ingest.theorem_names_store import (
     DEFAULT_JACCARD_THRESHOLD,
     SCHEMA_VERSION,
     TheoremNamesStore,
@@ -477,7 +477,7 @@ def _chunks_table_from_records(
     """
     import lancedb
 
-    from ingest.embedder import EMBEDDING_DIM
+    from arxmcp.ingest.embedder import EMBEDDING_DIM
 
     rows: list[dict[str, Any]] = []
     for ch in records:
@@ -863,7 +863,7 @@ class TestServedProcessNeverRebuildsTheStore:
     def _open(path: Path):
         from types import SimpleNamespace
 
-        from server.resources import _open_theorem_names_store
+        from arxmcp.server.resources import _open_theorem_names_store
 
         return _run(_open_theorem_names_store(
             SimpleNamespace(theorem_names_db_path=path), caller="test"

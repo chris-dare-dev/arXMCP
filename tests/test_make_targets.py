@@ -1,13 +1,13 @@
 """Tests for the ``onboarding-uplift-m2`` Make targets.
 
 Covers AC1, AC4, AC6, AC9 (regression test for the
-``tools/notebook_init.py`` extension) plus the ``notebook_list_offline``
+``src/arxmcp/tools/notebook_init.py`` extension) plus the ``notebook_list_offline``
 helper that backs the server-down path of ``make notebook-list``.
 
 We do NOT shell out to ``make`` in unit tests — that would entangle
 tests in shell + Make versioning. Instead we test the underlying
-Python entry points (``tools.notebook_init.run`` for ``make init``,
-``tools.notebook_list_offline.main`` for ``make notebook-list``
+Python entry points (``arxmcp.tools.notebook_init.run`` for ``make init``,
+``arxmcp.tools.notebook_list_offline.main`` for ``make notebook-list``
 offline path) + parse ``make help`` output as text for the AC6 doc
 contract. Tests against actual REST + curl live in their own
 e2e file (out of scope for m2; the m4 wizard milestone will add them).
@@ -32,12 +32,12 @@ import pytest
 
 class TestMakeInit:
     """``make init NOTEBOOK=<slug> [EMAIL=<addr>]`` → calls
-    :func:`tools.notebook_init.run`. We test the entry point directly
+    :func:`arxmcp.tools.notebook_init.run`. We test the entry point directly
     rather than shelling out to ``make`` — the Make recipe is a
-    one-line ``$(PYTHON) -m tools.notebook_init …`` wrapper.
+    one-line ``$(PYTHON) -m arxmcp.tools.notebook_init …`` wrapper.
 
     m2 critique F3 rectification (MEDIUM): every test in this class
-    redirects ``tools.notebook_init.run`` to a per-test ``tmp_path``
+    redirects ``arxmcp.tools.notebook_init.run`` to a per-test ``tmp_path``
     via the ``notebooks_base`` + ``db_path`` kwargs. Nothing is
     written to ``var/arxmcp/cache/notebooks.db`` or
     ``var/arxmcp/notebooks/`` — no shared-workstation pollution, no
@@ -55,7 +55,7 @@ class TestMakeInit:
         return slug, notebooks_base, db_path
 
     def test_creates_on_disk_scaffold(self, env):
-        from tools.notebook_init import run
+        from arxmcp.tools.notebook_init import run
 
         slug, notebooks_base, db_path = env
         rc = run(
@@ -73,7 +73,7 @@ class TestMakeInit:
     def test_registers_notebook_in_sqlite(self, env):
         """AC1 cardinal: the new --register flag (default ON) inserts
         a ``notebooks`` row so ``make add`` (server-up) doesn't 404."""
-        from tools.notebook_init import run
+        from arxmcp.tools.notebook_init import run
 
         slug, notebooks_base, db_path = env
         run(slug, db_path=db_path, notebooks_base=notebooks_base)
@@ -99,8 +99,8 @@ class TestMakeInit:
         migration's DROP TABLE destroyed the row on a fresh-clone DB."""
         import asyncio
 
-        from server.notebooks_store import NotebooksStore
-        from tools.notebook_init import run
+        from arxmcp.server.notebooks_store import NotebooksStore
+        from arxmcp.tools.notebook_init import run
 
         slug, notebooks_base, db_path = env
         run(slug, db_path=db_path, notebooks_base=notebooks_base)
@@ -121,8 +121,8 @@ class TestMakeInit:
     def test_persists_email_when_given(self, env):
         """AC1 + AC2 link: the EMAIL arg flows through to
         operator_settings, where ``resolve_contact_email`` reads it."""
-        from server.operator_settings import get_setting
-        from tools.notebook_init import run
+        from arxmcp.server.operator_settings import get_setting
+        from arxmcp.tools.notebook_init import run
 
         slug, notebooks_base, db_path = env
         run(
@@ -138,8 +138,8 @@ class TestMakeInit:
     def test_skips_email_persist_when_none(self, env):
         """Calling ``make init NOTEBOOK=foo`` without EMAIL must NOT
         wipe an existing operator pref — both edits are independent."""
-        from server.operator_settings import get_setting, set_setting
-        from tools.notebook_init import run
+        from arxmcp.server.operator_settings import get_setting, set_setting
+        from arxmcp.tools.notebook_init import run
 
         slug, notebooks_base, db_path = env
         set_setting(
@@ -158,7 +158,7 @@ class TestMakeInit:
     def test_idempotent_double_run(self, env):
         """AC1 idempotency: re-running ``make init`` is a no-op on all
         three side-effects."""
-        from tools.notebook_init import run
+        from arxmcp.tools.notebook_init import run
 
         slug, notebooks_base, db_path = env
         # First call.
@@ -187,7 +187,7 @@ class TestMakeInit:
     def test_no_register_flag_skips_sqlite_write(self, env):
         """The --no-register escape hatch is for tests / pre-population
         callers; verify it actually skips the INSERT."""
-        from tools.notebook_init import run
+        from arxmcp.tools.notebook_init import run
 
         slug, notebooks_base, db_path = env
         run(
@@ -217,7 +217,7 @@ class TestMakeInit:
 
 
 class TestResolveContactEmail:
-    """``ingest.notebooks.resolve_contact_email`` is the
+    """``arxmcp.ingest.notebooks.resolve_contact_email`` is the
     priority chain: explicit arg → SQLite operator_settings →
     ARXMCP_CONTACT_EMAIL env var → ``None`` when no address is set. Tested against an isolated
     tmp_path SQLite to avoid polluting the shared notebooks.db.
@@ -231,8 +231,8 @@ class TestResolveContactEmail:
         return tmp_path / "notebooks.db"
 
     def test_explicit_arg_wins_outright(self, isolated_db):
-        from ingest.notebooks import resolve_contact_email
-        from server.operator_settings import set_setting
+        from arxmcp.ingest.notebooks import resolve_contact_email
+        from arxmcp.server.operator_settings import set_setting
 
         set_setting("contact_email", "sqlite@x", db_path=isolated_db)
         os.environ["ARXMCP_CONTACT_EMAIL"] = "env@x"
@@ -247,8 +247,8 @@ class TestResolveContactEmail:
     def test_sqlite_wins_over_env_var(self, isolated_db):
         """m2 synthesis §3 D1 / FM-3: SQLite is the sticky pref;
         env var is the historical fallback."""
-        from ingest.notebooks import resolve_contact_email
-        from server.operator_settings import set_setting
+        from arxmcp.ingest.notebooks import resolve_contact_email
+        from arxmcp.server.operator_settings import set_setting
 
         set_setting("contact_email", "sqlite@x", db_path=isolated_db)
         os.environ["ARXMCP_CONTACT_EMAIL"] = "env@x"
@@ -263,7 +263,7 @@ class TestResolveContactEmail:
     def test_env_var_used_when_sqlite_empty(self, isolated_db):
         """Cold-bootstrap case: no operator_settings yet, the env var
         is the only source. Historical pre-m2 behaviour."""
-        from ingest.notebooks import resolve_contact_email
+        from arxmcp.ingest.notebooks import resolve_contact_email
 
         # isolated_db does NOT exist (the fixture doesn't create it).
         os.environ["ARXMCP_CONTACT_EMAIL"] = "env-only@x"
@@ -276,7 +276,7 @@ class TestResolveContactEmail:
             os.environ.pop("ARXMCP_CONTACT_EMAIL", None)
 
     def test_missing_address_is_optional(self, isolated_db):
-        from ingest.notebooks import resolve_contact_email
+        from arxmcp.ingest.notebooks import resolve_contact_email
 
         os.environ.pop("ARXMCP_CONTACT_EMAIL", None)
         assert resolve_contact_email(None, db_path=isolated_db) is None
@@ -291,8 +291,8 @@ class TestResolveContactEmail:
         (synthesis §3 D1) but discoverable per FM-3."""
         import logging
 
-        from ingest.notebooks import resolve_contact_email
-        from server.operator_settings import set_setting
+        from arxmcp.ingest.notebooks import resolve_contact_email
+        from arxmcp.server.operator_settings import set_setting
 
         set_setting("contact_email", "sqlite@x", db_path=isolated_db)
         os.environ["ARXMCP_CONTACT_EMAIL"] = "env@x"
@@ -323,8 +323,8 @@ class TestResolveContactEmail:
         values. Just SQLite + no env var must NOT log."""
         import logging
 
-        from ingest.notebooks import resolve_contact_email
-        from server.operator_settings import set_setting
+        from arxmcp.ingest.notebooks import resolve_contact_email
+        from arxmcp.server.operator_settings import set_setting
 
         set_setting("contact_email", "sqlite@x", db_path=isolated_db)
         os.environ.pop("ARXMCP_CONTACT_EMAIL", None)
@@ -347,12 +347,12 @@ class TestResolveContactEmail:
 
 class TestNotebookListOffline:
     """The Make recipe's server-down branch calls
-    ``tools/notebook_list_offline.py`` which we test directly. The
+    ``src/arxmcp/tools/notebook_list_offline.py`` which we test directly. The
     server-up path is just a curl one-liner and is covered by the
     REST tests in tests/test_notebook_api.py."""
 
     def test_missing_db_prints_friendly_message(self, tmp_path, capsys):
-        from tools.notebook_list_offline import main
+        from arxmcp.tools.notebook_list_offline import main
 
         rc = main([str(tmp_path / "nonexistent.db")])
         assert rc == 0
@@ -369,8 +369,8 @@ class TestNotebookListOffline:
         (the file already exists)."""
         import asyncio
 
-        from server.notebooks_store import NotebooksStore
-        from tools.notebook_list_offline import main
+        from arxmcp.server.notebooks_store import NotebooksStore
+        from arxmcp.tools.notebook_list_offline import main
 
         db = tmp_path / "empty.db"
 
@@ -388,8 +388,8 @@ class TestNotebookListOffline:
     def test_lists_registered_notebooks(self, tmp_path, capsys):
         import asyncio
 
-        from server.notebooks_store import NotebooksStore
-        from tools.notebook_list_offline import main
+        from arxmcp.server.notebooks_store import NotebooksStore
+        from arxmcp.tools.notebook_list_offline import main
 
         db = tmp_path / "populated.db"
 
@@ -434,7 +434,7 @@ class TestNotebookListOffline:
         unchanged. Before the F2 fix this test would have failed
         because ``NotebooksStore.open`` ran the full v0->v4 migration
         on every call."""
-        from tools.notebook_list_offline import main
+        from arxmcp.tools.notebook_list_offline import main
 
         db = tmp_path / "preserve.db"
         conn = sqlite3.connect(str(db), isolation_level=None)
@@ -577,17 +577,17 @@ class TestMakeHelp:
 
 
 # ===========================================================================
-# Smoke: tools/notebook_init.py CLI argparse
+# Smoke: src/arxmcp/tools/notebook_init.py CLI argparse
 # ===========================================================================
 
 
 class TestNotebookInitCLI:
-    """The Make recipe invokes ``$(PYTHON) -m tools.notebook_init``
+    """The Make recipe invokes ``$(PYTHON) -m arxmcp.tools.notebook_init``
     with positional + flag args; verify the argparse surface still
     accepts every shape the recipe uses."""
 
     def test_help_text_lists_email_and_no_register(self, capsys):
-        from tools.notebook_init import _build_arg_parser
+        from arxmcp.tools.notebook_init import _build_arg_parser
 
         buf = io.StringIO()
         parser = _build_arg_parser()
@@ -598,7 +598,7 @@ class TestNotebookInitCLI:
         assert "--no-register" in text
 
     def test_main_returns_nonzero_on_invalid_slug(self, capsys):
-        from tools.notebook_init import main
+        from arxmcp.tools.notebook_init import main
 
         rc = main(["INVALID UPPERCASE"])
         assert rc == 1
@@ -621,19 +621,19 @@ class TestNoMCPSurfaceTouch:
     @pytest.mark.parametrize(
         "path",
         [
-            "server/operator_settings.py",
-            "tools/notebook_list_offline.py",
+            "src/arxmcp/server/operator_settings.py",
+            "src/arxmcp/tools/notebook_list_offline.py",
         ],
     )
     def test_new_module_does_not_register_mcp_tool(self, path):
-        """The new files must NOT import or extend ``server.tools``
+        """The new files must NOT import or extend ``arxmcp.server.tools``
         (the ToolMeta registry) — any such import would risk a BP1
         cache-discipline regression even without an obvious schema
         change."""
         repo_root = Path(__file__).parent.parent
         contents = (repo_root / path).read_text(encoding="utf-8")
-        assert "from server.tools import" not in contents, (
-            f"{path} imports from server.tools — m2 must not extend "
+        assert "from arxmcp.server.tools import" not in contents, (
+            f"{path} imports from arxmcp.server.tools — m2 must not extend "
             f"the MCP tool registry (AC8 BP1 byte-stability risk)"
         )
         assert "ALL_TOOLS" not in contents

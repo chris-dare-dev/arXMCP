@@ -25,7 +25,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from server.middleware import (
+from arxmcp.server.middleware import (
     REQUEST_BODY_MAX_BYTES,
     RequestBodySizeLimitMiddleware,
 )

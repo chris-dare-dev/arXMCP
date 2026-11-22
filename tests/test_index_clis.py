@@ -13,11 +13,11 @@ from unittest.mock import patch
 import lancedb
 import pyarrow as pa
 
-from ingest import index_definitions
-from ingest.index_equations import open_or_create_equations_table
-from ingest.mathml_tree import MATHML_TREE_NORMALIZER_VERSION
-from ingest.preamble import PreambleDoc
-from ingest.schema import CHUNKS_SCHEMA_V1, EQUATIONS_SCHEMA_V1
+from arxmcp.ingest import index_definitions
+from arxmcp.ingest.index_equations import open_or_create_equations_table
+from arxmcp.ingest.mathml_tree import MATHML_TREE_NORMALIZER_VERSION
+from arxmcp.ingest.preamble import PreambleDoc
+from arxmcp.ingest.schema import CHUNKS_SCHEMA_V1, EQUATIONS_SCHEMA_V1
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -61,7 +61,7 @@ def _chunks_db(tmp_path: Path) -> Path:
 def test_theorem_names_command_builds_the_index_the_server_reads(tmp_path):
     lancedb_path = _chunks_db(tmp_path)
 
-    result = _run("ingest.index_theorem_names", "--lancedb-path", str(lancedb_path))
+    result = _run("arxmcp.ingest.index_theorem_names", "--lancedb-path", str(lancedb_path))
 
     assert result.returncode == 0, result.stderr
     assert "across 2 paper(s)" in result.stdout
@@ -113,7 +113,7 @@ def _trees(path: Path) -> dict[str, tuple[str, int]]:
 def test_equations_command_rebuilds_trees_another_normalizer_wrote(tmp_path):
     path = _equations_db(tmp_path)
 
-    result = _run("ingest.index_equations", "--lancedb-path", str(path))
+    result = _run("arxmcp.ingest.index_equations", "--lancedb-path", str(path))
 
     assert result.returncode == 0, result.stderr
     trees = _trees(path)
@@ -126,7 +126,7 @@ def test_equations_command_rebuilds_trees_another_normalizer_wrote(tmp_path):
 def test_equations_rebuild_replaces_every_tree(tmp_path):
     path = _equations_db(tmp_path)
 
-    result = _run("ingest.index_equations", "--lancedb-path", str(path), "--rebuild")
+    result = _run("arxmcp.ingest.index_equations", "--lancedb-path", str(path), "--rebuild")
 
     assert result.returncode == 0, result.stderr
     trees = _trees(path)
@@ -150,7 +150,7 @@ def test_trees_from_before_the_version_column_are_rebuilt(tmp_path):
         "equations", data=pa.Table.from_pylist([row], schema=old_schema)
     )
 
-    result = _run("ingest.index_equations", "--lancedb-path", str(path))
+    result = _run("arxmcp.ingest.index_equations", "--lancedb-path", str(path))
 
     assert result.returncode == 0, result.stderr
     tree, version = _trees(path)["eq-old"]
@@ -159,7 +159,7 @@ def test_trees_from_before_the_version_column_are_rebuilt(tmp_path):
 
 def test_equations_command_refuses_a_missing_dataset(tmp_path):
     result = _run(
-        "ingest.index_equations", "--lancedb-path", str(tmp_path / "absent")
+        "arxmcp.ingest.index_equations", "--lancedb-path", str(tmp_path / "absent")
     )
 
     assert result.returncode == 2
@@ -167,10 +167,10 @@ def test_equations_command_refuses_a_missing_dataset(tmp_path):
 
 
 def test_definitions_command_is_runnable():
-    result = _run("ingest.index_definitions", "--help")
+    result = _run("arxmcp.ingest.index_definitions", "--help")
 
     assert result.returncode == 0
-    assert "usage: python -m ingest.index_definitions" in result.stdout
+    assert "usage: python -m arxmcp.ingest.index_definitions" in result.stdout
 
 
 def test_definitions_command_indexes_every_paper_in_the_chunks_table(
@@ -189,7 +189,7 @@ def test_definitions_command_indexes_every_paper_in_the_chunks_table(
             json.dumps(doc.to_dict()), encoding="utf-8"
         )
 
-    with patch("ingest.preamble.PREAMBLE_DIR", preamble_dir):
+    with patch("arxmcp.ingest.preamble.PREAMBLE_DIR", preamble_dir):
         assert index_definitions._cli(["--lancedb-path", str(lancedb_path)]) == 0
 
     assert "indexed 2 definition(s) across 2 paper(s)" in capsys.readouterr().out

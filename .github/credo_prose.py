@@ -26,13 +26,11 @@ ROOT_FILES = frozenset({
 })
 
 # A navigational README.md is allowed anywhere under these.
-README_DIRS = frozenset({
-    "apps", "docker", "infra", "ingest", "ops", "server", "shim", "tests", "tools",
-})
+README_DIRS = frozenset({"deploy", "src", "tests"})
 
 OTHER_FILES = frozenset({
     ".github/pull_request_template.md",
-    "server/frontend/static/VENDORED.md",
+    "src/arxmcp/server/frontend/static/VENDORED.md",
 })
 
 

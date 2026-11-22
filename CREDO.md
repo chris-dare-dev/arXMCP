@@ -68,9 +68,9 @@ only with the reason stated in the pull request.
 
 | | |
 |---|---|
-| Product | `server/`, `ingest/`, `apps/`, `shim/`, `infra/`, `docker/`, `ops/`, `tools/`, `pyproject.toml`, `uv.lock`, `Makefile` |
+| Product | `src/`, `deploy/`, `pyproject.toml`, `uv.lock`, `Makefile` |
 | Tests | `tests/`, for product code only |
-| Prose allowed in the tree | the root files `README.md`, `AGENTS.md`, `CLAUDE.md`, `CONTRIBUTING.md`, `CREDO.md`, `CHANGES.md`, `SECURITY.md`, `OWNERS.md`, `CONTRIBUTORS.md`, `LICENSE`; a `README.md` in a product or test directory; `.github/pull_request_template.md`; `server/frontend/static/VENDORED.md`. Nothing else, and nothing under `docs/`, `.claude/` or `plans/` |
+| Prose allowed in the tree | the root files `README.md`, `AGENTS.md`, `CLAUDE.md`, `CONTRIBUTING.md`, `CREDO.md`, `CHANGES.md`, `SECURITY.md`, `OWNERS.md`, `CONTRIBUTORS.md`, `LICENSE`; a `README.md` in a product or test directory; `.github/pull_request_template.md`; `src/arxmcp/server/frontend/static/VENDORED.md`. Nothing else, and nothing under `docs/`, `.claude/` or `plans/` |
 | Wiki | install, usage and API guides, architecture, operator runbooks, design notes and decision records, rules agents follow, roadmap, spike write-ups |
 | Issue or pull request | plans, research, critiques, handoffs |
 | Never committed | pipeline output (state, briefs, critiques, summaries), agent memory, chaos-run evidence, measurement dumps |

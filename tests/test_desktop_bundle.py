@@ -64,10 +64,10 @@ from pathlib import Path
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-PYINSTALLER_DIR = REPO_ROOT / "apps" / "desktop" / "pyinstaller"
-SUPERVISOR_SRC = REPO_ROOT / "apps" / "desktop" / "crates" / "supervisor" / "src" / "main.rs"
-TAURI_CONF = REPO_ROOT / "apps" / "desktop" / "crates" / "supervisor" / "tauri.conf.json"
-ICON = REPO_ROOT / "apps" / "desktop" / "crates" / "supervisor" / "icons" / "icon.png"
+PYINSTALLER_DIR = REPO_ROOT / "src" / "desktop" / "pyinstaller"
+SUPERVISOR_SRC = REPO_ROOT / "src" / "desktop" / "crates" / "supervisor" / "src" / "main.rs"
+TAURI_CONF = REPO_ROOT / "src" / "desktop" / "crates" / "supervisor" / "tauri.conf.json"
+ICON = REPO_ROOT / "src" / "desktop" / "crates" / "supervisor" / "icons" / "icon.png"
 FLOOR = "14.0"
 
 #: `make desktop-bundle-check` sets this so ANY skip fails the session
@@ -103,7 +103,7 @@ _MINOS = re.compile(r"^\s*minos\s+(\S+)\s*$", re.MULTILINE)
 
 def _load_desktop_package():
     """Import the build driver by path — it lives outside every packaged tree
-    (`apps/desktop/pyinstaller/`), so there is no importable module name."""
+    (`src/desktop/pyinstaller/`), so there is no importable module name."""
     spec = importlib.util.spec_from_file_location(
         "_m15_desktop_package", PYINSTALLER_DIR / "desktop_package.py"
     )
@@ -771,7 +771,7 @@ class TestOuterSeal:
     def test_the_seal_actually_covers_the_payload_bytes(self, tmp_path: Path):
         """The seal's COVERAGE, measured rather than asserted (critique M1).
 
-        `apps/desktop/README.md` calls `_CodeSignature/` "the outer seal, over
+        `src/desktop/README.md` calls `_CodeSignature/` "the outer seal, over
         everything below", and `codesign --verify` passing on an intact bundle
         does not establish that: a seal that covered only `Contents/MacOS`
         would also pass. The discriminating experiment is to break a payload

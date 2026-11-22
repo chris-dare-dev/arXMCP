@@ -1,0 +1,1285 @@
+"""Server configuration via ``pydantic-settings`` (E06_S01).
+
+The single source of truth for the long-running ``arxmcp-server``
+process's runtime knobs. Every value is overridable via an
+``ARXMCP_*`` environment variable; defaults are the v1 production
+values.
+
+**Loopback-only binding (load-bearing).** ``bind_host`` is validated
+at config-parse time to reject any non-loopback value
+(``0.0.0.0``, public interfaces, etc.). The brief AC: *"binding to
+``0.0.0.0`` is rejected at config parse time."* The validator
+raises ``ValueError`` so pydantic-settings turns it into a
+``ValidationError`` at instantiation, before uvicorn binds the
+socket. Closes Threat 4 at the config layer.
+
+**Containers.** A container binds ``0.0.0.0`` internally (with the
+host-side port-publish at ``127.0.0.1:7733``). That takes the explicit
+``unsafe_network_bind`` escape hatch, which logs a WARN at startup.
+
+**Why pydantic-settings.** A field-level ``@field_validator`` raises
+at instantiation, satisfying the "rejected at config parse time"
+AC without ad-hoc startup checks scattered across modules.
+"""
+
+from __future__ import annotations
+
+from dataclasses import replace
+from pathlib import Path
+
+from pydantic import Field, PrivateAttr, SecretStr, field_validator, model_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from arxmcp.ingest.application_paths import (
+    COMPATIBILITY_ALIAS_FIELDS,
+    ApplicationPaths,
+    derived_index_path,
+    legacy_source_path,
+)
+from arxmcp.server.corpus_freshness import DEFAULT_FRESHNESS_INTERVAL_SECONDS
+from arxmcp.server.metrics_refresh import DEFAULT_REFRESH_INTERVAL_SECONDS
+from arxmcp.server.ssl_pin import VENDORED_ARXIV_CA_BUNDLE
+
+# ---------------------------------------------------------------------------
+# Module-level constants
+# ---------------------------------------------------------------------------
+
+#: The v1 default bind port, picked once and pinned. The shim (E06_S02)
+#: hard-codes the same default; both must change together if the project
+#: ever moves off 7733.
+DEFAULT_BIND_PORT = 7733
+
+#: Loopback values accepted by ``bind_host``. Per Threat 4, only these
+#: names may be bound;
+#: ``0.0.0.0`` and any public interface are rejected at config parse.
+LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "localhost"})
+
+#: Where every startup error about configuration sends the operator.
+#: ``arxmcp-server --list-config`` prints each field below with its
+#: default and description.
+CONFIG_REFERENCE_HINT = "Run `arxmcp-server --list-config` for every ARXMCP_* setting."
+
+#: Default 256 KB inline result-payload cap. Larger payloads must be returned
+#: via ``resource_link`` (E06_S03 enforcement).
+DEFAULT_RESULT_BYTE_CAP = 256 * 1024
+
+#: Values ``ARXMCP_BM25_PHASE`` accepts; see :attr:`Config.bm25_phase`.
+BM25_PHASE_MODES: tuple[str, ...] = ("auto", "on", "off")
+
+
+# ---------------------------------------------------------------------------
+# Config — the single Settings class
+# ---------------------------------------------------------------------------
+
+
+class Config(BaseSettings):
+    """Process-wide config.
+
+    Instantiated once at server startup (``Config()`` reads env vars).
+    Pass the resulting object into the lifespan; do NOT re-instantiate
+    inside request handlers (that would re-read env on every call,
+    and field validators would re-fire).
+
+    All field defaults are the v1 production values; tests override
+    via constructor kwargs or ``monkeypatch.setenv("ARXMCP_…")``
+    BEFORE calling ``Config()``.
+    """
+
+    model_config = SettingsConfigDict(
+        env_prefix="ARXMCP_",
+        env_file=None,  # ARXMCP_* env vars only — no .env-file fallback.
+        extra="forbid",  # unknown ARXMCP_* vars are configuration errors.
+    )
+
+    _application_paths: ApplicationPaths = PrivateAttr()
+    _supplied_path_fields: frozenset[str] = PrivateAttr(
+        default_factory=frozenset
+    )
+    _explicit_lancedb_conflict: bool = PrivateAttr(default=False)
+
+    # --- Network ---------------------------------------------------------
+
+    bind_host: str = Field(
+        default="127.0.0.1",
+        description=(
+            "Address to bind. Loopback only (127.0.0.1, ::1, localhost) unless "
+            "ARXMCP_UNSAFE_NETWORK_BIND is set."
+        ),
+    )
+    bind_port: int = Field(
+        default=DEFAULT_BIND_PORT,
+        description="TCP port to bind.",
+    )
+
+    # --- Storage ---------------------------------------------------------
+
+    #: Repo-relative or absolute path to the LanceDB dataset root.
+    #: Defaults match :data:`arxmcp.ingest.store.DEFAULT_LANCEDB_PATH` (the
+    #: writer-side default), so a single-machine dev setup needs zero
+    #: config to point reader-side at the same dataset the ingest
+    #: pipeline wrote.
+    #:
+    #: **notebook-retrieval-m1 (fork C):** when :attr:`notebook` is set
+    #: (``ARXMCP_NOTEBOOK=<slug>``), the :meth:`derive_notebook_lancedb_path`
+    #: model-validator OVERRIDES this field with the per-notebook dataset
+    #: path ``var/arxmcp/notebooks/<slug>/lancedb`` before
+    #: ``Resources.startup`` reads it. Setting both ``ARXMCP_NOTEBOOK``
+    #: and ``ARXMCP_LANCEDB_PATH`` explicitly is rejected as ambiguous.
+    lancedb_path: Path = Field(
+        default=legacy_source_path("lancedb"),
+        description=(
+            "LanceDB dataset the server serves. Derived from ARXMCP_NOTEBOOK when that "
+            "is set; setting both is rejected."
+        ),
+    )
+
+    #: notebook-retrieval-m1 (fork C) — when set to a notebook slug
+    #: (via ``ARXMCP_NOTEBOOK``), the server serves THAT notebook's
+    #: corpus: :meth:`derive_notebook_lancedb_path` rewrites
+    #: :attr:`lancedb_path` to ``var/arxmcp/notebooks/<slug>/lancedb``.
+    #: This is the v1 single-notebook-per-process mode. Default
+    #: ``None`` preserves the shared-corpus behavior byte-for-byte
+    #: (the server attempts ``var/arxmcp/index/lancedb`` exactly as
+    #: it does today — including its ``CorpusNotIngestedError`` when
+    #: that corpus is empty). The eventual per-call multi-notebook
+    #: mode (``filters.notebook=<slug>``, fork A) layers on top and
+    #: reuses the same
+    #: :func:`arxmcp.ingest.notebooks.notebook_lancedb_path` helper.
+    notebook: str | None = Field(
+        default=None,
+        description=(
+            "Notebook slug to serve as this process's corpus instead of the shared "
+            "corpus."
+        ),
+    )
+
+    #: Repo-relative or absolute path to the Kùzu citation-graph DB
+    #: directory. Default matches :data:`arxmcp.server.graph_queries.DEFAULT_KUZUDB_PATH`
+    #: and the Makefile bootstrap target — ``kuzu/`` not ``kuzudb/``
+    #: (the canonical path; see CLAUDE.md §8 gotcha #4). The
+    #: ``cite_neighbors`` handler reads this via :func:`get_resources`
+    #: rather than accepting an agent-supplied path — the E09_S03 F2
+    #: path-validation contract requires the graph path to be
+    #: config-derived, never sourced from agent JSON arguments.
+    kuzu_path: Path = Field(
+        default=legacy_source_path("kuzu"),
+        description="Kuzu citation-graph directory that cite_neighbors reads.",
+    )
+
+    #: SQLite file path for the Tier-1 retrieval cache (E08_S03).
+    #: Sibling-of-sibling to ``lancedb_path`` so a single ``var/``
+    #: tree holds both the corpus index and the cache. Parent
+    #: directory is created at ``Resources.startup()`` time.
+    cache_db_path: Path = Field(
+        default=legacy_source_path("retrieval_cache_db"),
+        description=(
+            "SQLite file for the retrieval cache. A cache that cannot open is skipped, "
+            "not fatal."
+        ),
+    )
+
+    #: BM25 index root, holding one ``v<N>`` directory per corpus version.
+    #: Unless ``ARXMCP_BM25_INDEX_ROOT`` is set, :meth:`derive_dataset_index_paths`
+    #: places it in ``derived/bm25`` inside the dataset being served, where
+    #: a version number cannot collide with another dataset's.
+    bm25_index_root: Path = Field(
+        default=legacy_source_path("bm25"),
+        description=(
+            "BM25 index root, one v<N> directory per corpus version. Defaults to "
+            "derived/bm25 inside the served dataset."
+        ),
+    )
+
+    #: SQLite file path for the theorem-names FTS5 index (E10_S02).
+    #: Sibling to the LanceDB indices under ``var/arxmcp/index/``;
+    #: parent directory is created on first indexer run. When the
+    #: file is absent, ``find_lemma_by_name`` falls back to the
+    #: legacy in-memory scan over the chunks table.
+    theorem_names_db_path: Path = Field(
+        default=legacy_source_path("theorem_names_db"),
+        description=(
+            "SQLite theorem-name index for find_lemma_by_name. When absent the tool "
+            "scans the chunks table instead."
+        ),
+    )
+
+    #: SQLite file path for the per-notebook metadata store
+    #: (proof-verify-handler-wiring-m7). SEPARATE file from
+    #: ``cache_db_path`` so a schema-version bump on either side
+    #: does not trigger the OTHER's DROP-AND-RECREATE migration
+    #: (m7 synthesis FM-6). Sibling to ``cache_db_path`` per the
+    #: m7 brief; the per-notebook on-disk assets live elsewhere
+    #: at ``var/arxmcp/notebooks/<slug>/`` and are NOT in this DB.
+    notebooks_db_path: Path = Field(
+        default=legacy_source_path("notebooks_db"),
+        description="SQLite notebook registry behind the /ui/ console.",
+    )
+
+    #: Directory that holds cron-emitted sentinel files
+    #: (drift-detected.flag, eval-quarantine.flag,
+    #: delta-timeout.flag, backup-status.json) plus the
+    #: per-version eval-reports/ subdirectory. Read at scrape
+    #: time by E14_S01's :func:`arxmcp.server.health.refresh_sentinel_metrics`
+    #: to rehydrate cross-process gauges from disk. Letting this
+    #: be configurable lets tests inject a ``tmp_path`` cleanly
+    #: without monkey-patching paths in three modules.
+    ops_dir: Path = Field(
+        default=legacy_source_path("ops"),
+        description=(
+            "Directory of cron sentinel files and eval reports that the Prometheus "
+            "gauges read."
+        ),
+    )
+
+    # --- Models ----------------------------------------------------------
+
+    #: Whether to load the BGE-reranker-v2-m3 at startup. When True
+    #: and the model is unavailable, startup FAILS (per synthesis D6:
+    #: "Trust the operator's choice; refuse to start"). When False
+    #: the reranker is never loaded; ``/readyz`` flips to 200 once
+    #: the embedder + LanceDB are warm.
+    enable_rerank: bool = Field(
+        default=False,
+        description=(
+            "Load BGE-reranker-v2-m3 at startup. Startup fails if it cannot load."
+        ),
+    )
+
+    #: Pinned commit SHA for the BGE-reranker-v2-m3 model (E07_S03).
+    #: The actual loader at :func:`arxmcp.server.resources._load_reranker_or_raise`
+    #: passes ``revision=arxmcp.server.retrieval.rerank.BGE_RERANKER_COMMIT_SHA``
+    #: (the module constant, NOT this Config value) to
+    #: ``transformers.AutoModelForSequenceClassification.from_pretrained``
+    #: — the constant is the canonical pin so an env-var override
+    #: cannot silently swap models. Nothing in the server reads this
+    #: field: overriding it changes no load and fires no warning. It
+    #: records the expected pin next to the other knobs, and its
+    #: default mirrors the constant.
+    rerank_model_sha: str = Field(
+        default="953dc6f6f85a1b2dbfca4c34a2796e7dde08d41e",
+        description=(
+            "Reranker commit SHA recorded for audit. The loader always uses the "
+            "revision pinned in arxmcp.server.retrieval.rerank."
+        ),
+    )
+
+    #: verification-feedback-m2 — gates the managed Lean 4 REPL
+    #: subprocess harness (``src/arxmcp/server/lean_repl.py``). Default OFF, exactly
+    #: mirroring :attr:`enable_rerank`: the server starts cleanly on a
+    #: workstation with no Lean toolchain. When ``true``,
+    #: ``Resources.startup`` spawns one ``LeanRepl`` and a startup
+    #: failure (unresolvable toolchain) is FATAL — ``LeanUnavailableError``
+    #: is raised, the server refuses to start (the ``enable_rerank`` /
+    #: ``RerankerUnavailableError`` precedent: trust the operator).
+    enable_lean: bool = Field(
+        default=False,
+        description=(
+            "Spawn the Lean 4 REPL behind lean_verify. Startup fails if the toolchain "
+            "cannot be resolved."
+        ),
+    )
+
+    #: onboarding-uplift-m4 — opt-in "wizard mode" for fresh-clone
+    #: operators who want to boot the server BEFORE any corpus exists.
+    #: Default ``False`` preserves the historical behaviour: a cold-start
+    #: (no ``corpus-version.json`` marker) is FATAL and the server
+    #: refuses to start (synthesis D1).
+    #:
+    #: When ``True`` AND no corpus marker is present:
+    #: ``Resources.startup`` skips :class:`CorpusNotIngestedError`, sets
+    #: :attr:`Resources.bootstrap_mode_active` = ``True``, and returns a
+    #: stub instance with ``corpus_info=None`` / ``chunks_table=None``.
+    #: Every MCP tool call is short-circuited to a structured
+    #: ``no_notebook_selected`` envelope (via
+    #: :func:`arxmcp.server.tools._build_bootstrap_envelope`) until the first
+    #: successful ingest fires :meth:`Resources.late_bind`.
+    #:
+    #: FM-7: if ``bootstrap_mode=True`` AND the corpus IS already
+    #: ingested, the flag is silently ignored and the server boots
+    #: normally.  A restart with ``ARXMCP_BOOTSTRAP_MODE=1`` after
+    #: ingest succeeds is therefore benign.
+    #:
+    #: The ``make up-wizard`` convenience target sets this env var
+    #: automatically.  Operators wanting the wizard flow set
+    #: ``ARXMCP_BOOTSTRAP_MODE=1`` or run ``make up-wizard``.
+    bootstrap_mode: bool = Field(
+        default=False,
+        description=(
+            "Boot with no corpus present. Tools return a stub envelope until the first "
+            "ingest completes."
+        ),
+    )
+
+    #: verification-feedback-m2 — directory of the built
+    #: ``leanprover-community/repl`` package; the subprocess ``cwd`` for
+    #: ``lake exe repl`` (``lake`` sets ``LEAN_PATH`` for that package).
+    #: ``None`` (the default) is valid only when ``enable_lean=False``;
+    #: with ``enable_lean=True`` an unset value raises
+    #: ``LeanUnavailableError`` at startup. Lean is a *system*
+    #: dependency, not a pip dep — `pyproject.toml` cannot declare it,
+    #: so the operator points this at a pre-built repl directory.
+    lean_repl_dir: Path | None = Field(
+        default=None,
+        description=(
+            "Built leanprover-community/repl directory. Required when "
+            "ARXMCP_ENABLE_LEAN is true."
+        ),
+    )
+
+    #: verification-feedback-m2 — absolute path to the ``lake`` /
+    #: ``lake.exe`` binary used to launch the Lean REPL. An absolute
+    #: path is mandatory: ``asyncio.create_subprocess_exec`` does NOT
+    #: PATH-search a bare name on Windows (spike-2 finding #1). ``None``
+    #: is valid only when ``enable_lean=False``.
+    lake_path: Path | None = Field(
+        default=None,
+        description=(
+            "Absolute path to the lake binary. Required when ARXMCP_ENABLE_LEAN is "
+            "true."
+        ),
+    )
+
+    #: verification-feedback-m3 — hard address-space cap (``RLIMIT_AS``,
+    #: bytes) applied to the Lean REPL subprocess via a POSIX
+    #: ``preexec_fn``. Closes the m2 critique F4 deferral: agent-supplied
+    #: Lean source first reaches ``LeanRepl.query`` in m3, so this is
+    #: where the memory cap lands. Default 4 GiB — generous enough that a
+    #: trivial elaboration succeeds (Lean kernel + oleans easily mmap
+    #: hundreds of MB) but bounded so a runaway ``def f := List.range
+    #: 10_000_000`` cannot OOM-kill the parent process.
+    #:
+    #: **POSIX-only.** Windows has no ``RLIMIT_AS`` / ``resource`` module
+    #: and ``asyncio.create_subprocess_exec`` raises ``ValueError`` if
+    #: ``preexec_fn`` is set — ``LeanRepl.spawn`` therefore silently skips
+    #: the cap on ``sys.platform == "win32"`` and logs a WARN at startup.
+    #: A Job-Object-based equivalent for Windows is not built yet.
+    lean_rlimit_as_bytes: int = Field(
+        default=4 * 1024 * 1024 * 1024,  # 4 GiB
+        description=(
+            "Address-space cap in bytes on the Lean REPL subprocess. Applied on POSIX "
+            "hosts, skipped on Windows."
+        ),
+    )
+
+    #: Per-query wall-clock budget (seconds) for one Lean REPL round-trip,
+    #: the guard against a runaway elaboration: when it fires the REPL is
+    #: killed and respawned and ``lean_verify`` answers ``status="timeout"``.
+    #: The default suits small snippets; a cold ``import Mathlib`` can take
+    #: minutes, so raise this when callers import Mathlib into a fresh
+    #: environment. On Windows and macOS it is also the only memory
+    #: backstop (``lean_rlimit_as_bytes`` is not enforced there). Must be
+    #: finite and positive. The default must equal
+    #: ``arxmcp.server.lean_repl.DEFAULT_QUERY_TIMEOUT_S``. Set via
+    #: ``ARXMCP_LEAN_QUERY_TIMEOUT_S``.
+    lean_query_timeout_s: float = Field(
+        default=30.0,
+        description=(
+            "Seconds one Lean REPL query may run before the REPL is killed and "
+            "respawned. Raise it when a cold `import Mathlib` needs longer."
+        ),
+    )
+
+    # --- Concurrency -----------------------------------------------------
+
+    #: Throughput cap on DISTINCT-query embedding calls per
+    #: synthesis D2 ("two-tier concurrency"). The semaphore bounds
+    #: distinct-query parallelism; the existing
+    #: :func:`arxmcp.server.query_encoder.encode_query` singleflight
+    #: collapses same-query duplication. Both layers apply.
+    max_concurrent_embeddings: int = Field(
+        default=8,
+        description="Concurrent distinct query embeddings.",
+    )
+
+    #: Throughput cap on concurrent reranker forward passes. The
+    #: reranker singleflight (added by ``src/arxmcp/server/resources.py``)
+    #: handles the same-query collapse for the rerank path.
+    max_concurrent_reranks: int = Field(
+        default=4,
+        description="Concurrent reranker forward passes.",
+    )
+
+    # --- Limits ----------------------------------------------------------
+
+    #: Hard cap on inline tool-result body bytes. Enforced as a FastAPI
+    #: middleware in :mod:`arxmcp.server.main`; tools landing in E06_S03 must
+    #: return a ``resource_link`` for any payload that would exceed
+    #: this. The paths ``arxmcp.server.main._is_exempt_path`` names are exempt:
+    #: the health probes, ``/metrics`` (Prometheus output can grow
+    #: large), ``/mcp``, the console's static assets and the notebook
+    #: export stream.
+    result_byte_cap: int = Field(
+        default=DEFAULT_RESULT_BYTE_CAP,
+        description=(
+            "Response body cap in bytes; a larger response gets 413. Health, metrics, "
+            "/mcp and static paths are exempt."
+        ),
+    )
+
+    #: agent-platform-m1 (D4-R07) — lifetime cap on ``search_papers``
+    #: calls per MCP session, enforced by ``SessionCapMiddleware`` via
+    #: :data:`arxmcp.server.session.MAX_SEARCH_PAPERS_CALLS`.
+    #:
+    #: Declared as a Config field rather than read from the environment
+    #: directly so the ``extra="forbid"`` contract stays intact — an
+    #: undeclared ``ARXMCP_*`` var is a startup error via
+    #: ``_scan_unknown_arxmcp_env_vars`` (which derives its allow-list
+    #: from ``Config.model_fields``, so declaring here is sufficient).
+    #:
+    #: Default raised 3 -> 30 for interactive use. See
+    #: :mod:`arxmcp.server.session` for why the legacy E08_S04 value was
+    #: unusable and why these caps are cost control, not a security
+    #: boundary.
+    max_search_papers_calls: int = Field(
+        default=30, ge=1,
+        description=(
+            "search_papers calls allowed per MCP session. Cost control, not a security "
+            "boundary."
+        ),
+    )
+
+    #: agent-platform-m1 (D4-R07) — lifetime cap on ``get_chunk`` calls
+    #: per MCP session. Default raised 4 -> 100; see
+    #: :attr:`max_search_papers_calls` for the declaration rationale.
+    max_get_chunk_calls: int = Field(
+        default=100, ge=1,
+        description="get_chunk units (one per chunk id) allowed per MCP session.",
+    )
+
+    # --- Retrieval tuning ------------------------------------------------
+
+    #: Linear-combination weight α for the equation-similarity fusion
+    #: in ``arxmcp.ingest.mathml_tree.EquationIndex`` (E10_S03).
+    #: ``final_score = α * (1 - normalized_ted) + (1 - α) * cosine``.
+    #: α=0 collapses to pure cosine (dense-only); α=1 collapses to
+    #: pure tree-edit distance. Default 0.5 (equal weights). Operators
+    #: tuning recall vs. structural precision can shift via
+    #: ``ARXMCP_EQ_TED_WEIGHT``.
+    eq_ted_weight: float = Field(
+        default=0.5,
+        description=(
+            "Weight of tree-edit similarity against cosine in find_equation fusion: 0 "
+            "is dense only, 1 is tree only."
+        ),
+    )
+
+    #: retrieval-unlocks-m4 — route a LaTeX ``find_equation`` query onto
+    #: the TED lane by converting it to Presentation MathML with
+    #: latex2mathml, instead of falling back to dense-only over
+    #: ``embedding_stmt``.
+    #:
+    #: **Default ON as of agent-platform-m3 / W1**, flipped from the
+    #: m4-ship default of OFF in the SAME commit that corrected the
+    #: find_equation tool description (the two must move together, or the
+    #: advertised behaviour and the real behaviour disagree). The parity
+    #: gate passes — converted LaTeX queries retrieve their own equation
+    #: rank-1 (50/50 on the sampled corpus, the property serving needs;
+    #: exact tree agreement is only ~18%, macro divergence latex2mathml
+    #: can't resolve, which is why rank-1 not distance is the gate).
+    #: Remains an operator kill-switch: set ``ARXMCP_EQ_LATEX_ROUTE=false``
+    #: to restore the pre-m4 dense-only path for LaTeX if a latex2mathml
+    #: bump degrades the parity result (the regression guard,
+    #: ``tests/eval/test_equations_parity.py``, is eval-marked and skips
+    #: in CI, so the exact pin + this switch are the live protections).
+    eq_latex_route: bool = Field(
+        default=True,
+        description=(
+            "Convert LaTeX find_equation queries to MathML and search the tree-edit "
+            "lane. False uses dense-only search."
+        ),
+    )
+
+    #: Whether the server loads the BM25 phase. ``auto`` loads it only
+    #: when a served tool runs a hybrid retrieval mode; none does today
+    #: (``search_papers`` is dense-only and says so in ``retrieval_mode``),
+    #: so ``auto`` resolves to off and the server skips both the artifact
+    #: load and the full chunk_id scan its integrity cross-check needs.
+    #: ``on`` loads it at startup and on every corpus rebind, which is
+    #: what the hybrid eval harness in ``arxmcp.ops.retrieval_eval`` requests.
+    #: Read the resolved answer from :attr:`bm25_phase_enabled`.
+    bm25_phase: str = Field(
+        default="auto",
+        description=(
+            "Load the BM25 phase: on, off, or auto. auto loads it only when a "
+            "served tool runs hybrid retrieval, which none does, so it is off."
+        ),
+    )
+
+    # --- Observability ---------------------------------------------------
+
+    log_level: str = Field(
+        default="INFO",
+        description="Log level: DEBUG, INFO, WARNING, ERROR.",
+    )
+
+    #: Log output format (corpus-integrity-observability-e2). ``"json"`` emits
+    #: one structured JSON line per record (12-factor; structured JSON logs
+    #: to stdout are the default); ``"text"`` keeps the human-readable
+    #: stdlib format for local dev. The ``RedactionFilter`` runs regardless
+    #: of format. Set via ``ARXMCP_LOG_FORMAT``.
+    log_format: str = Field(
+        default="json",
+        description="Log format: json or text.",
+    )
+
+    #: Tolerance for the startup corpus-count reconciliation invariant
+    #: (corpus-integrity-observability-m2). At ``Resources.startup`` the
+    #: server compares the live ``chunks_table.count_rows()`` against the
+    #: marker's ``chunk_count``; a divergence beyond this fraction logs a
+    #: WARN and flips ``/readyz`` to ``degraded`` (WARN-and-serve —
+    #: retrieval is unaffected). Default 0.05 (5%). A 1-row absolute floor
+    #: is applied on top so tiny corpora do not alarm on a single-row
+    #: delta. Set via ``ARXMCP_CORPUS_CHUNK_COUNT_TOLERANCE``.
+    corpus_chunk_count_tolerance: float = Field(
+        default=0.05,
+        description=(
+            "Fraction by which the live chunk count may differ from the corpus marker "
+            "before it is logged and reported as degraded."
+        ),
+    )
+
+    #: Minimum seconds between two REQUEST-PATH corpus-freshness probes
+    #: (issue #207). Every MCP tool dispatch asks the served process
+    #: whether ``corpus-version.json`` still matches the version it is
+    #: bound to; this throttles that ``stat``+read so a 10 req/s
+    #: workload does not pay it per call. On a detected bump the process
+    #: re-binds the corpus (new chunks table, BM25 artifact, retrieval
+    #: cache) and drops the memoized per-notebook tables.
+    #:
+    #: ``> 0`` throttles (default 2s — the worst-case staleness window
+    #: for an ingest run OUTSIDE this process). ``0`` probes on every
+    #: tool call. ``< 0`` disables the request-path probe entirely; the
+    #: in-process push path (the ``/ui/`` Ingest button →
+    #: ``Resources.on_ingest_complete``) still invalidates, so
+    #: disabling only forfeits detection of out-of-band ingest.
+    #: Set via ``ARXMCP_CORPUS_FRESHNESS_INTERVAL_SECONDS``.
+    corpus_freshness_interval_seconds: float = Field(
+        default=DEFAULT_FRESHNESS_INTERVAL_SECONDS,
+        description=(
+            "Minimum seconds between corpus-version checks on the request path. 0 "
+            "checks on every call; negative disables the check."
+        ),
+    )
+
+    #: Seconds between background refreshes of the FILESYSTEM-backed
+    #: Prometheus gauges — the cron sentinels and the disk-free reading
+    #: that drives the failure-mode-7 ingest pause (issue #208).
+    #:
+    #: This work used to run inside the ``/metrics`` scrape handler, which
+    #: put blocking disk I/O on the event loop and made a read-only ``GET``
+    #: the control plane for pausing ingestion — and meant that on a stock
+    #: install, where the compose stack ships no Prometheus, the mitigation
+    #: never ran at all. It now runs on this schedule regardless of whether
+    #: anything scrapes.
+    #:
+    #: ``> 0`` sets the interval. ``<= 0`` DISABLES the background task —
+    #: the gauges then keep their startup values and failure-mode 7 is not
+    #: mitigated automatically, so only set that in tests or when an
+    #: external supervisor owns the pause decision.
+    #: Set via ``ARXMCP_METRICS_REFRESH_INTERVAL_SECONDS``.
+    metrics_refresh_interval_seconds: float = Field(
+        default=DEFAULT_REFRESH_INTERVAL_SECONDS,
+        description=(
+            "Seconds between refreshes of the filesystem-backed gauges, which also "
+            "drive the disk-free ingest pause. 0 or less disables them."
+        ),
+    )
+
+    #: Root directory for runtime state — corpus, indices, caches,
+    #: ops sentinels. The disk-full scrape hook (E14_S05 D4) calls
+    #: ``shutil.disk_usage(data_dir)`` so the gauge reflects the
+    #: filesystem actually serving the corpus and indices.
+    #:
+    #: Default ``var/arxmcp`` matches the project's existing
+    #: directory convention (CLAUDE.md §5). Production deployments
+    #: under ``/var/lib/arxmcp`` or ``/opt/arxmcp/var`` should set
+    #: ``ARXMCP_DATA_DIR`` accordingly.
+    data_dir: Path = Field(
+        default=legacy_source_path("root"),
+        description="Runtime state root. The disk-free gauge measures this filesystem.",
+    )
+
+    #: Query-embedder provider (E14_S05 D6). ``"local"`` uses the
+    #: in-process BGE-M3 weights. ``"voyage"`` reserves the hosted
+    #: path; the v1 implementation is a stub that raises and falls
+    #: back to local — actual Voyage HTTP integration is a separate
+    #: ticket. The fallback wrapper in
+    #: :func:`arxmcp.server.query_encoder.encode_query` tags results with
+    #: ``degraded=true`` on the fallback path.
+    query_embed_provider: str = Field(
+        default="local",
+        description=(
+            "Query embedder: local (in-process BGE-M3) or voyage (a stub that falls "
+            "back to local)."
+        ),
+    )
+
+    #: API key for the optional hosted-embedder provider (Voyage).
+    #: Wrapped in :class:`pydantic.SecretStr` so a stray
+    #: ``logger.info("config=%s", config)`` cannot leak the key —
+    #: ``SecretStr.__repr__`` returns ``SecretStr('**********')``.
+    #: Callers that need the actual value must call
+    #: ``.get_secret_value()`` explicitly. F5 rectification from
+    #: the E14_S05 adversary critique.
+    voyage_api_key: SecretStr | None = Field(
+        default=None,
+        description="API key for the voyage provider. Never logged.",
+    )
+
+    #: OTLP/gRPC endpoint for OpenTelemetry trace export (E14_S02).
+    #: When unset (``None``), tracing is COMPLETELY DISABLED at the
+    #: OTel SDK layer: :func:`arxmcp.server.observability.tracing.setup_tracing`
+    #: returns without calling ``trace.set_tracer_provider(...)``, so
+    #: every ``tracer.start_as_current_span(...)`` invocation takes
+    #: the ``ProxyTracer`` → ``NoOpTracer`` fast path with zero
+    #: allocation. When set, the SDK exports via ``OTLPSpanExporter``
+    #: (gRPC) with ``insecure=True``; the ``http://`` scheme is
+    #: decorative — the gRPC client uses it only to decide
+    #: ``insecure_channel`` vs ``secure_channel``. Default port 4317
+    #: matches Phoenix's OTLP intake.
+    #:
+    #: **Security: loopback-only at config parse time.** Spans carry
+    #: ``mcp.session_id``. Forwarding to an external SaaS collector would
+    #: leak session IDs. The :meth:`validate_otel_endpoint_loopback`
+    #: validator rejects non-loopback hostnames at instantiation
+    #: time — same precedent as :meth:`reject_non_loopback_bind` for
+    #: ``bind_host``. The escape hatch
+    #: (:data:`otel_allow_remote`) is documented separately and
+    #: requires an explicit operator opt-in. F1 from the E14_S02
+    #: adversary critique.
+    otel_endpoint: str | None = Field(
+        default=None,
+        description=(
+            "OTLP/gRPC trace endpoint. Unset disables tracing. Loopback only unless "
+            "ARXMCP_OTEL_ALLOW_REMOTE is set."
+        ),
+    )
+
+    #: Operator-only escape hatch — set to ``True`` to allow
+    #: ``otel_endpoint`` to point at a non-loopback host. Requires
+    #: that the operator has independently audited the export path
+    #: for `mcp.session_id` leakage (e.g. via a custom span
+    #: processor that redacts the attribute). Default ``False`` =
+    #: loopback-only.
+    otel_allow_remote: bool = Field(
+        default=False,
+        description=(
+            "Allow a non-loopback ARXMCP_OTEL_ENDPOINT. Exported spans carry MCP "
+            "session ids."
+        ),
+    )
+
+    #: E13_S05 (Threat 5) — additional Origin values accepted beyond
+    #: the hardcoded loopback floor (``LOOPBACK_ORIGIN_HOSTS`` in
+    #: :mod:`arxmcp.server.middleware`). Empty list (default) preserves the
+    #: existing E06_S05 behavior: only loopback Origin values pass.
+    #: Non-empty list EXTENDS the floor — the listed origins are
+    #: accepted in addition to the loopback set. The loopback floor
+    #: is a security baseline that cannot be bypassed via this var.
+    #:
+    #: Parsed from ``ARXMCP_ALLOWED_ORIGINS`` as a JSON list (per
+    #: pydantic-settings convention for ``list[str]`` fields), e.g.
+    #: ``ARXMCP_ALLOWED_ORIGINS='["http://my-tool.localhost:8080"]'``.
+    allowed_origins: list[str] = Field(
+        default_factory=list,
+        description="Origin values accepted on top of loopback, as a JSON list.",
+    )
+
+    #: Threat 5 (DNS rebinding) — additional ``Host`` header values accepted
+    #: beyond the loopback floor (``LOOPBACK_HOST_HEADER_HOSTS`` in
+    #: :mod:`arxmcp.server.middleware`). Empty list (default) preserves loopback-only
+    #: behavior. Container/k8s deployments set this to the pod IP / Service DNS
+    #: name so in-cluster probes + Prometheus scrapes (which reach the server by
+    #: pod IP, not loopback) are accepted. The loopback floor is a baseline that
+    #: cannot be bypassed via this var. Parsed from ``ARXMCP_ALLOWED_HOSTS`` as a
+    #: JSON list, e.g. ``ARXMCP_ALLOWED_HOSTS='["10.42.0.20"]'`` (typically fed
+    #: the pod IP via the k8s downward API).
+    allowed_hosts: list[str] = Field(
+        default_factory=list,
+        description="Host header values accepted on top of loopback, as a JSON list.",
+    )
+
+    #: E13_S05 (Threat 5) — escape hatch for non-loopback bind.
+    #: Default ``False`` = ``ARXMCP_BIND_HOST=0.0.0.0`` is rejected
+    #: at config parse time (the historical behavior preserved).
+    #: ``True`` = the bind-host validator permits non-loopback
+    #: values AND a WARN log fires at startup. The escape hatch is
+    #: for container deployments only.
+    unsafe_network_bind: bool = Field(
+        default=False,
+        description=(
+            "Permit a non-loopback ARXMCP_BIND_HOST, for containers only. Logs a "
+            "warning at startup."
+        ),
+    )
+
+    #: E13_S07 (Threat 7) — opt-in CA pinning flag for arxiv.org +
+    #: ar5iv.labs.arxiv.org. Default ``False``: ``urllib.request``
+    #: uses the system trust store (safe-by-default; TLS verification
+    #: cannot be disabled by any ``ARXMCP_*`` env var).
+    #:
+    #: When ``True`` (E13_S07c wiring), the two arxiv-rooted fetch
+    #: sites — ``src/arxmcp/ingest/ar5iv_fetch.py::try_cache`` and
+    #: ``src/arxmcp/ingest/arxiv_fetch.py::fetch_eprint`` — use an
+    #: ``ssl.SSLContext`` built from a pinned CA bundle instead of
+    #: the system trust store. The bundle defaults to the vendored
+    #: ISRG Root X1 PEM at ``src/arxmcp/server/ca/arxiv-ca-bundle.pem``
+    #: (arxiv.org and ar5iv chain to Let's Encrypt; pinning the root
+    #: survives the 60-90-day intermediate rotation cadence). An
+    #: operator-supplied alternative path is accepted via
+    #: :attr:`arxiv_ca_bundle_path`.
+    #:
+    #: **Fail-closed contract.** When this flag is ``True`` but the
+    #: resolved bundle path does not exist, the
+    #: :meth:`validate_arxiv_ca_bundle` model-validator raises
+    #: ``ValueError`` at Config-load time — the server does NOT
+    #: silently fall back to the system trust store, which would
+    #: defeat the entire purpose of the pin.
+    #:
+    #: Scope: arxiv.org + ar5iv.labs.arxiv.org ONLY. The pin does
+    #: NOT apply to OpenAlex / INSPIRE / OAI-PMH fetches — those
+    #: have separate hosts and separate CA chains, outside Threat 7
+    #: scope.
+    #:
+    #: Refresh the bundle with ``make refresh-arxiv-ca``.
+    pin_arxiv_ca: bool = Field(
+        default=False,
+        description=(
+            "Verify arxiv.org and ar5iv fetches against a pinned CA bundle instead of "
+            "the system trust store."
+        ),
+    )
+
+    #: E13_S07c — operator override for the pinned CA bundle path.
+    #: Default ``None`` means "use the vendored bundle at
+    #: ``src/arxmcp/server/ca/arxiv-ca-bundle.pem``". A non-None value is taken
+    #: verbatim (no path traversal, no envvar expansion); the
+    #: validator below checks the resolved file exists.
+    #:
+    #: Declared as a Config field (rather than read from the
+    #: environment directly) so the ``extra="forbid"`` contract
+    #: stays intact — undeclared ``ARXMCP_*`` env vars are caught at
+    #: startup by ``_scan_unknown_arxmcp_env_vars`` in
+    #: ``src/arxmcp/server/main.py``. Default-None semantics: only consulted
+    #: when ``pin_arxiv_ca=True``; never affects the safe-by-default
+    #: flag-off posture.
+    arxiv_ca_bundle_path: Path | None = Field(
+        default=None,
+        description=(
+            "CA bundle used when ARXMCP_PIN_ARXIV_CA is set. Defaults to the vendored "
+            "bundle."
+        ),
+    )
+
+    # --- Validators ------------------------------------------------------
+
+    @property
+    def application_paths(self) -> ApplicationPaths:
+        """The canonical runtime paths resolved once during config parsing."""
+        return self._application_paths
+
+    @model_validator(mode="after")
+    def resolve_application_paths(self) -> Config:
+        """Validate retained aliases and bind installed defaults to one root."""
+        config_fields = {
+            "lancedb": "lancedb_path", "kuzu": "kuzu_path",
+            "retrieval_cache_db": "cache_db_path", "bm25": "bm25_index_root",
+            "theorem_names_db": "theorem_names_db_path",
+            "notebooks_db": "notebooks_db_path", "ops": "ops_dir",
+        }
+        supplied_fields = frozenset(self.model_fields_set)
+        self._supplied_path_fields = supplied_fields
+        default_lancedb = type(self).model_fields["lancedb_path"].default
+        self._explicit_lancedb_conflict = (
+            "lancedb_path" in supplied_fields
+            and self.lancedb_path != default_lancedb
+        )
+        aliases = {}
+        for env_name, path_field in COMPATIBILITY_ALIAS_FIELDS:
+            config_field = config_fields[path_field]
+            value = getattr(self, config_field)
+            if config_field not in supplied_fields or value is None:
+                continue
+            # Preserve the existing notebook contract: explicitly repeating
+            # the legacy LanceDB default is a no-op, not a competing alias.
+            if config_field == "lancedb_path" and not self._explicit_lancedb_conflict:
+                continue
+            aliases[env_name] = value
+        paths = ApplicationPaths.resolve(
+            root=self.data_dir if "data_dir" in supplied_fields else None,
+            aliases=aliases,
+        )
+        self._application_paths = paths
+        self.data_dir = paths.root
+        rebind_all = paths.mode != "source" or "data_dir" in supplied_fields
+        for path_field, config_field in config_fields.items():
+            if rebind_all or config_field in supplied_fields:
+                setattr(self, config_field, getattr(paths, path_field))
+        return self
+
+    @model_validator(mode="after")
+    def derive_notebook_lancedb_path(self) -> Config:
+        """notebook-retrieval-m1 (fork C) — when ``ARXMCP_NOTEBOOK=<slug>``
+        is set, rewrite :attr:`lancedb_path` to the per-notebook dataset
+        ``var/arxmcp/notebooks/<slug>/lancedb`` BEFORE ``Resources.startup``
+        reads it (the substitution must precede ``read_corpus_version`` —
+        see the notebook-retrieval-m1 synthesis).
+
+        Safety + clarity:
+
+        * The slug is validated (regex + symlink rejection + containment)
+          by :func:`arxmcp.ingest.notebooks.notebook_lancedb_path`, which
+          raises ``NotebookError`` (re-wrapped as ``ValueError`` →
+          pydantic ``ValidationError``) for any path-traversal attempt
+          (Threat 1).
+        * Setting BOTH ``ARXMCP_NOTEBOOK`` and an explicit
+          ``ARXMCP_LANCEDB_PATH`` *that differs from the field default*
+          is rejected as ambiguous — the operator must pick one
+          substrate. Setting ``ARXMCP_LANCEDB_PATH`` to its own default
+          value is a no-op and does NOT conflict (F4 rectification).
+        * If the notebook corpus has not been ingested (no
+          ``corpus-version.json`` marker on disk — the SAME marker
+          ``Resources.startup`` reads), fail fast at config-load with a
+          remediation message naming the ingest command, rather than
+          surfacing a deeper ``CorpusNotIngestedError`` from
+          ``Resources.startup`` (AC5 — clean typed error, not a 500;
+          F3 rectification).
+        * The Tier-1 retrieval cache is redirected to a per-notebook
+          sibling (``var/arxmcp/notebooks/<slug>/cache/retrieval.db``)
+          unless ``ARXMCP_CACHE_DB_PATH`` is set explicitly, so two
+          notebooks relaunched within the cache TTL cannot serve each
+          other's chunks (F1 rectification).
+
+        No-op when ``notebook`` is ``None`` (the default shared-corpus
+        posture; AC4 — env-unset behavior is byte-identical to today).
+        """
+        if self.notebook is None:
+            return self
+        # Ambiguity guard (F4 rectification): reject notebook + explicit
+        # lancedb_path ONLY when the explicit value DIFFERS from the field
+        # default. Setting ARXMCP_LANCEDB_PATH to its own default value
+        # alongside ARXMCP_NOTEBOOK is not a real conflict — a common
+        # foot-gun for operators who carry a baseline ARXMCP_LANCEDB_PATH
+        # in a shell profile. A value-equals-default override is a no-op,
+        # so the notebook derivation proceeds unambiguously.
+        if self._explicit_lancedb_conflict:
+            raise ValueError(
+                "set either ARXMCP_NOTEBOOK or ARXMCP_LANCEDB_PATH, not "
+                f"both (got notebook={self.notebook!r} and an explicit "
+                f"lancedb_path={self.lancedb_path!s}). ARXMCP_NOTEBOOK "
+                "derives the lancedb path from the notebook slug."
+            )
+        # Defer the import: arxmcp.ingest.notebooks is the shared seam
+        # (also called by the future fork-A per-request path). Loading
+        # it lazily keeps it off the module-load path for the common
+        # (notebook-unset) case.
+        from arxmcp.ingest.notebooks import (  # noqa: PLC0415
+            NotebookError,
+            notebook_lancedb_path,
+        )
+        try:
+            canonical_base = (
+                self._application_paths.notebooks
+                if self._application_paths.mode != "source"
+                or "data_dir" in self._supplied_path_fields
+                else None
+            )
+            derived = notebook_lancedb_path(self.notebook, base=canonical_base)
+        except NotebookError as exc:
+            raise ValueError(
+                f"invalid ARXMCP_NOTEBOOK={self.notebook!r}: {exc}"
+            ) from exc
+        # F3 rectification: prove the corpus is actually INGESTED, not
+        # merely that the lancedb directory exists. ``Resources.startup``
+        # reads ``<lancedb_path>/corpus-version.json`` (src/arxmcp/server/resources.py
+        # line 308); a dir-present / marker-absent partial ingest passes an
+        # ``is_dir()`` check then dies later with ``CorpusNotIngestedError``
+        # — the exact "deeper error, not a clean config error" that AC5 was
+        # written to prevent. Check the SAME marker the startup path checks,
+        # so the config gate and the startup gate share one contract.
+        if not (derived / "corpus-version.json").is_file():
+            raise ValueError(
+                f"ARXMCP_NOTEBOOK={self.notebook!r}: no ingested corpus "
+                f"at {derived!s}. Ingest it first: "
+                f"`uv run python src/arxmcp/tools/notebook_ingest.py {self.notebook}`."
+            )
+        self.lancedb_path = derived
+        # F1 rectification (HIGH): redirect the Tier-1 retrieval cache to a
+        # per-notebook sibling unless ARXMCP_CACHE_DB_PATH was set
+        # explicitly. Without this, two notebooks relaunched within the
+        # cache TTL share the default ``cache_db_path``; the Tier-1 key is
+        # (query, filters, k, corpus_version, level) — NO notebook slug —
+        # and corpus_version is per-dataset MVCC (not globally unique), so a
+        # relaunch from notebook A to notebook B can serve A's chunks for a
+        # B query. Structural isolation here mirrors the lancedb isolation
+        # and avoids the slug-in-key refactor deferred to m2.
+        if "cache_db_path" not in self._supplied_path_fields:
+            self.cache_db_path = derived.parent / "cache" / "retrieval.db"
+        self._application_paths = replace(
+            self._application_paths,
+            lancedb=self.lancedb_path,
+            retrieval_cache_db=self.cache_db_path,
+        )
+        return self
+
+    @model_validator(mode="after")
+    def derive_dataset_index_paths(self) -> Config:
+        """Place the BM25 and theorem-name indexes inside the dataset served.
+
+        Runs after notebook routing has settled :attr:`lancedb_path`, so a
+        notebook-routed server reads its own notebook's indexes, and they
+        move with the dataset when cutover or rollback renames it. An
+        explicit ``ARXMCP_BM25_INDEX_ROOT`` or
+        ``ARXMCP_THEOREM_NAMES_DB_PATH`` still wins.
+        """
+        if "bm25_index_root" not in self._supplied_path_fields:
+            self.bm25_index_root = derived_index_path(self.lancedb_path, "bm25")
+        if "theorem_names_db_path" not in self._supplied_path_fields:
+            self.theorem_names_db_path = derived_index_path(
+                self.lancedb_path, "theorem_names.db"
+            )
+        self._application_paths = replace(
+            self._application_paths,
+            bm25=self.bm25_index_root,
+            theorem_names_db=self.theorem_names_db_path,
+        )
+        return self
+
+    @model_validator(mode="after")
+    def reject_non_loopback_bind(self) -> Config:
+        """Closes the brief's "binding to ``0.0.0.0`` is rejected at
+        config parse time" AC. Threat 4 from the security note +
+        Threat 5 from E13_S05.
+
+        E13_S05 D1 — converted from ``@field_validator("bind_host")``
+        to ``@model_validator(mode="after")`` so both ``bind_host``
+        and ``unsafe_network_bind`` are visible. The default-deny
+        posture is preserved: ``bind_host`` must be in
+        :data:`LOOPBACK_HOSTS` unless ``unsafe_network_bind=True``
+        is explicitly set (typically only in container deployments
+        where the host-side port mapping pins to 127.0.0.1).
+        """
+        if self.bind_host not in LOOPBACK_HOSTS and not self.unsafe_network_bind:
+            raise ValueError(
+                f"ARXMCP_BIND_HOST must be a loopback address "
+                f"({sorted(LOOPBACK_HOSTS)}); got {self.bind_host!r}. "
+                f"The MCP server binds only to localhost (Threat 4/5 — see "
+                f".claude/notes/08-security-observability-ops.md). "
+                f"Container deployments should expose the port via host "
+                f"port-mapping (``ports: \"127.0.0.1:7733:7733\"``) rather "
+                f"than binding to 0.0.0.0. If the container truly must "
+                f"bind 0.0.0.0 INTERNALLY (with the host port-mapping "
+                f"still pinning the host side to 127.0.0.1), set "
+                f"``ARXMCP_UNSAFE_NETWORK_BIND=1`` to override; see "
+                f".claude/docs/security-binding.md for the full warning."
+            )
+        return self
+
+    @model_validator(mode="after")
+    def validate_arxiv_ca_bundle(self) -> Config:
+        """E13_S07c — fail-closed when ``pin_arxiv_ca=True`` but the
+        resolved CA bundle path does not exist.
+
+        Resolution order:
+
+        1. If :attr:`arxiv_ca_bundle_path` is set, take it verbatim.
+        2. Otherwise, fall back to the vendored bundle at
+           :data:`arxmcp.server.ssl_pin.VENDORED_ARXIV_CA_BUNDLE`, shipped
+           as package data.
+
+        Raises ``ValueError`` if the resolved path does not point at
+        a regular file. The exception fires at Config-load time
+        (before uvicorn binds, before any fetch is attempted) so an
+        operator sees the misconfiguration immediately and the
+        server cannot silently fall back to the system trust store —
+        which would defeat the entire point of the pin.
+
+        No-op when :attr:`pin_arxiv_ca` is ``False`` (the
+        safe-by-default flag-off posture).
+        """
+        if not self.pin_arxiv_ca:
+            return self
+        # Resolve the bundle path: operator override, else vendored.
+        if self.arxiv_ca_bundle_path is not None:
+            resolved = self.arxiv_ca_bundle_path
+            source = "ARXMCP_ARXIV_CA_BUNDLE_PATH"
+        else:
+            resolved = VENDORED_ARXIV_CA_BUNDLE
+            source = "vendored bundle"
+        if not resolved.is_file():
+            raise ValueError(
+                f"ARXMCP_PIN_ARXIV_CA=1 but CA bundle not found at "
+                f"{resolved!s} ({source}). Refusing to fall back to "
+                f"the system trust store — that would defeat the pin. "
+                f"Run ``make refresh-arxiv-ca`` to (re)create the "
+                f"vendored bundle, or set ARXMCP_ARXIV_CA_BUNDLE_PATH "
+                f"to a valid PEM file, or unset ARXMCP_PIN_ARXIV_CA "
+                f"to use the system trust store. See "
+                f".claude/docs/security-threat-7-audit.md (Threat 7 / "
+                f"E13_S07c)."
+            )
+        # E13_S07c F4 rectification — defense-in-depth: the path
+        # exists, but is it a parseable PEM bundle? Without this
+        # check, ``arxiv_ca_bundle_path=/etc/passwd`` would pass
+        # config-load and fail only at first fetch with an
+        # ``ssl.SSLError``. Run the same ``create_default_context``
+        # call now (its only side effects are file-read + parse;
+        # idempotent). Convert the exception into a ``ValueError``
+        # so pydantic wraps it into a ``ValidationError`` at
+        # config-load time per the surrounding contract.
+        import ssl as _ssl
+        try:
+            _ssl.create_default_context(cafile=str(resolved))
+        except (_ssl.SSLError, OSError) as exc:
+            raise ValueError(
+                f"ARXMCP_PIN_ARXIV_CA=1 but CA bundle at {resolved!s} "
+                f"({source}) is not a parseable PEM file: "
+                f"{exc.__class__.__name__}: {exc}. Refusing to fall "
+                f"back to the system trust store. Run "
+                f"``make refresh-arxiv-ca`` to regenerate the "
+                f"vendored bundle, or supply a valid PEM via "
+                f"ARXMCP_ARXIV_CA_BUNDLE_PATH."
+            ) from exc
+        return self
+
+    @field_validator("bind_port")
+    @classmethod
+    def validate_port_range(cls, v: int) -> int:
+        """Reject privileged (<1024) and out-of-range ports at config
+        parse so a misconfigured ``ARXMCP_BIND_PORT`` fails fast
+        rather than producing a confusing ``PermissionError`` from
+        uvicorn at bind time."""
+        if not 1024 <= v <= 65535:
+            raise ValueError(
+                f"ARXMCP_BIND_PORT must be in [1024, 65535]; got {v}. "
+                f"Privileged ports require root and the server runs "
+                f"as a non-privileged user."
+            )
+        return v
+
+    @field_validator("max_concurrent_embeddings", "max_concurrent_reranks")
+    @classmethod
+    def validate_positive_concurrency(cls, v: int) -> int:
+        """Concurrency knobs must be positive. ``0`` would deadlock
+        every request waiting on the semaphore; negative values are
+        nonsensical and a likely typo."""
+        if v < 1:
+            raise ValueError(
+                f"concurrency knob must be >= 1; got {v}"
+            )
+        return v
+
+    @field_validator("eq_ted_weight")
+    @classmethod
+    def validate_eq_ted_weight(cls, v: float) -> float:
+        """Equation fusion α must live in [0, 1]. Values outside the
+        unit interval would produce final scores that no longer track
+        either cosine or TED meaningfully."""
+        if not 0.0 <= v <= 1.0:
+            raise ValueError(
+                f"ARXMCP_EQ_TED_WEIGHT must be in [0.0, 1.0]; got {v}. "
+                f"0.0 = pure cosine (no TED), 1.0 = pure TED (no "
+                f"cosine), 0.5 = equal weights (default)."
+            )
+        return v
+
+    @field_validator("log_format")
+    @classmethod
+    def validate_log_format(cls, v: str) -> str:
+        """Log format must be ``"json"`` (default, 12-factor) or ``"text"``
+        (human-readable dev output). Normalized to lower-case."""
+        normalized = v.strip().lower()
+        if normalized not in {"json", "text"}:
+            raise ValueError(
+                f"ARXMCP_LOG_FORMAT must be 'json' or 'text'; got {v!r}."
+            )
+        return normalized
+
+    @field_validator("bm25_phase")
+    @classmethod
+    def validate_bm25_phase(cls, v: str) -> str:
+        """``on``, ``off`` or ``auto``, normalized to lower-case."""
+        normalized = v.strip().lower()
+        if normalized not in BM25_PHASE_MODES:
+            raise ValueError(
+                f"ARXMCP_BM25_PHASE must be one of {list(BM25_PHASE_MODES)}; "
+                f"got {v!r}."
+            )
+        return normalized
+
+    @property
+    def bm25_phase_enabled(self) -> bool:
+        """Whether this process loads the BM25 phase.
+
+        ``auto`` would turn it on for a served hybrid retrieval mode. No
+        served tool has one, so only an explicit ``on`` enables it.
+        """
+        return self.bm25_phase == "on"
+
+    @field_validator("corpus_chunk_count_tolerance")
+    @classmethod
+    def validate_corpus_chunk_count_tolerance(cls, v: float) -> float:
+        """The reconciliation tolerance is a fraction in [0, 1].
+        0.0 = exact match required (any delta beyond the 1-row floor
+        degrades /readyz); 1.0 = effectively disabled (only a >100%
+        delta degrades). Default 0.05 = 5%."""
+        if not 0.0 <= v <= 1.0:
+            raise ValueError(
+                f"ARXMCP_CORPUS_CHUNK_COUNT_TOLERANCE must be in "
+                f"[0.0, 1.0]; got {v}."
+            )
+        return v
+
+    @field_validator("corpus_freshness_interval_seconds")
+    @classmethod
+    def validate_corpus_freshness_interval(cls, v: float) -> float:
+        """Reject a non-finite freshness interval (#207).
+
+        ``nan`` is the dangerous value: every ``>=`` comparison against
+        it is ``False``, so
+        :meth:`arxmcp.server.corpus_freshness.FreshnessGate.is_due` would
+        return ``False`` forever after the first probe and the
+        request-path seam would go silently dead — the exact
+        declared-but-not-implemented failure mode #207 exists to
+        remove. ``inf`` is rejected for the same reason (a gate that is
+        never due again). Operators wanting the seam off should set a
+        NEGATIVE value, which is explicit and documented.
+        """
+        import math  # noqa: PLC0415
+
+        if not math.isfinite(v):
+            raise ValueError(
+                f"ARXMCP_CORPUS_FRESHNESS_INTERVAL_SECONDS must be finite; "
+                f"got {v!r}. Use a negative value to disable the "
+                f"request-path freshness probe."
+            )
+        return v
+
+    @field_validator("lean_query_timeout_s")
+    @classmethod
+    def validate_lean_query_timeout(cls, v: float) -> float:
+        """The Lean per-query timeout must be finite and positive.
+
+        ``0`` or a negative value would time out every query, and ``nan``
+        makes ``asyncio.wait_for`` misbehave; ``inf`` would remove the
+        runaway-elaboration guard entirely.
+        """
+        import math  # noqa: PLC0415
+
+        if not math.isfinite(v) or v <= 0:
+            raise ValueError(
+                f"ARXMCP_LEAN_QUERY_TIMEOUT_S must be a finite number of "
+                f"seconds > 0; got {v!r}."
+            )
+        return v
+
+    @field_validator("result_byte_cap")
+    @classmethod
+    def validate_byte_cap(cls, v: int) -> int:
+        """The result cap must be positive. A 0 cap would refuse every
+        non-empty response; a negative cap is nonsensical."""
+        if v < 1:
+            raise ValueError(
+                f"result_byte_cap must be >= 1; got {v}"
+            )
+        return v
+
+    @field_validator("query_embed_provider")
+    @classmethod
+    def validate_query_embed_provider(cls, v: str) -> str:
+        """Reject unknown provider names at parse time. The E14_S05
+        D6 contract: only ``local`` is implemented end-to-end;
+        ``voyage`` is reserved (stub that falls back to local).
+        Adding a new provider requires both this allow-list update
+        and a registration in ``arxmcp.server.query_encoder``."""
+        allowed = {"local", "voyage"}
+        if v not in allowed:
+            raise ValueError(
+                f"ARXMCP_QUERY_EMBED_PROVIDER must be one of "
+                f"{sorted(allowed)}; got {v!r}"
+            )
+        return v
+
+    @model_validator(mode="after")
+    def validate_otel_endpoint_loopback(self) -> Config:
+        """Reject non-loopback ``otel_endpoint`` values at config parse
+        time unless :data:`otel_allow_remote` is explicitly set.
+
+        Closes F1 from the E14_S02 adversary critique and the brief's
+        named Risk note (*"OTel spans containing mcp.session_id must
+        not be forwarded to a remote endpoint by default"*). Mirrors
+        the :meth:`reject_non_loopback_bind` precedent on ``bind_host`` —
+        push the policy to the config layer so an environment-driven
+        misconfiguration fails at startup, not silently in production.
+
+        Accepted endpoints (when ``otel_allow_remote=False``):
+
+        * ``None`` — tracing disabled (the default).
+        * Hostnames in :data:`LOOPBACK_HOSTS` (``127.0.0.1``, ``::1``,
+          ``localhost``).
+        * Any ``http://`` or ``https://`` URL where the hostname is
+          loopback.
+
+        Rejected (raises ``ValueError`` → pydantic-settings
+        ``ValidationError``): public IPs, private RFC-1918 ranges,
+        link-local metadata-service IPs (``169.254.x.x``), DNS
+        hostnames, userinfo (``user:pass@host``), missing host.
+
+        The ``otel_allow_remote=True`` escape hatch is for operators
+        who have independently audited their span pipeline for
+        ``mcp.session_id`` leakage (e.g. by registering a span
+        processor that redacts the attribute before export).
+        """
+        if self.otel_endpoint is None:
+            return self
+        if self.otel_allow_remote:
+            return self
+
+        # Defer urlparse import to avoid module-load cost when the
+        # endpoint is None (the common case).
+        from urllib.parse import urlparse  # noqa: PLC0415
+
+        try:
+            parsed = urlparse(self.otel_endpoint)
+        except (ValueError, TypeError) as exc:
+            raise ValueError(
+                f"ARXMCP_OTEL_ENDPOINT must be a valid URL; got "
+                f"{self.otel_endpoint!r}: {exc}"
+            ) from exc
+
+        if parsed.scheme not in ("http", "https"):
+            raise ValueError(
+                f"ARXMCP_OTEL_ENDPOINT must use http:// or https:// "
+                f"scheme; got {self.otel_endpoint!r}"
+            )
+        if parsed.username or parsed.password:
+            raise ValueError(
+                f"ARXMCP_OTEL_ENDPOINT must not include userinfo; got "
+                f"{self.otel_endpoint!r}"
+            )
+        host = parsed.hostname
+        if host is None or host == "":
+            raise ValueError(
+                f"ARXMCP_OTEL_ENDPOINT must include a hostname; got "
+                f"{self.otel_endpoint!r}"
+            )
+        if host not in LOOPBACK_HOSTS:
+            raise ValueError(
+                f"ARXMCP_OTEL_ENDPOINT host must be a loopback "
+                f"address ({sorted(LOOPBACK_HOSTS)}); got {host!r} "
+                f"in {self.otel_endpoint!r}. Spans carry "
+                f"mcp.session_id (see "
+                f".claude/notes/08-security-observability-ops.md "
+                f"§Tracing) — forwarding to an external collector "
+                f"leaks session IDs. To override after auditing the "
+                f"export path, set ARXMCP_OTEL_ALLOW_REMOTE=1."
+            )
+        return self
+
+
+__all__ = [
+    "DEFAULT_BIND_PORT",
+    "DEFAULT_RESULT_BYTE_CAP",
+    "LOOPBACK_HOSTS",
+    "Config",
+]

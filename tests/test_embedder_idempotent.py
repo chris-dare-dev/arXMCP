@@ -38,9 +38,9 @@ from unittest.mock import patch
 import numpy as np
 import pytest
 
-import ingest.embedder as embedder_mod
-from ingest.chunk import CHUNKER_VERSION, reuse_identity
-from ingest.embedder import (
+import arxmcp.ingest.embedder as embedder_mod
+from arxmcp.ingest.chunk import CHUNKER_VERSION, reuse_identity
+from arxmcp.ingest.embedder import (
     EMBED_INPUT_POLICY_VERSION,
     EMBEDDER_VERSION,
     EMBEDDING_DIM,
@@ -186,12 +186,12 @@ def _patched_embed_paper(
         fake_tokenizer, fake_model = _fake_model_factory()
 
     with (
-        patch("ingest.embedder.CHUNKS_DIR", chunks_dir),
-        patch("ingest.embedder.EMBEDDINGS_DIR", embeddings_dir),
-        patch("ingest.embedder.EMBED_STATS_PATH", stats_path),
-        patch("ingest.embedder.EMBED_LOG_PATH", log_path),
-        patch("ingest.embedder._get_tokenizer", return_value=fake_tokenizer),
-        patch("ingest.embedder._get_model", return_value=fake_model),
+        patch("arxmcp.ingest.embedder.CHUNKS_DIR", chunks_dir),
+        patch("arxmcp.ingest.embedder.EMBEDDINGS_DIR", embeddings_dir),
+        patch("arxmcp.ingest.embedder.EMBED_STATS_PATH", stats_path),
+        patch("arxmcp.ingest.embedder.EMBED_LOG_PATH", log_path),
+        patch("arxmcp.ingest.embedder._get_tokenizer", return_value=fake_tokenizer),
+        patch("arxmcp.ingest.embedder._get_model", return_value=fake_model),
     ):
         stats = embed_paper(paper_id)
     return stats, embeddings_dir, stats_path, fake_model
@@ -207,12 +207,12 @@ def _patched_embed_corpus(
     if fake_tokenizer is None or fake_model is None:
         fake_tokenizer, fake_model = _fake_model_factory()
     with (
-        patch("ingest.embedder.CHUNKS_DIR", chunks_dir),
-        patch("ingest.embedder.EMBEDDINGS_DIR", embeddings_dir),
-        patch("ingest.embedder.EMBED_STATS_PATH", stats_path),
-        patch("ingest.embedder.EMBED_LOG_PATH", log_path),
-        patch("ingest.embedder._get_tokenizer", return_value=fake_tokenizer),
-        patch("ingest.embedder._get_model", return_value=fake_model),
+        patch("arxmcp.ingest.embedder.CHUNKS_DIR", chunks_dir),
+        patch("arxmcp.ingest.embedder.EMBEDDINGS_DIR", embeddings_dir),
+        patch("arxmcp.ingest.embedder.EMBED_STATS_PATH", stats_path),
+        patch("arxmcp.ingest.embedder.EMBED_LOG_PATH", log_path),
+        patch("arxmcp.ingest.embedder._get_tokenizer", return_value=fake_tokenizer),
+        patch("arxmcp.ingest.embedder._get_model", return_value=fake_model),
     ):
         results = embed_corpus(corpus_path=str(chunks_dir))
     return results, embeddings_dir, stats_path, fake_model
@@ -303,7 +303,7 @@ class TestZeroWritesOnRerun:
         _patched_embed_corpus(tmp_path)
 
         # Second pass — should be all skips.
-        with caplog.at_level("INFO", logger="ingest.embedder"):
+        with caplog.at_level("INFO", logger="arxmcp.ingest.embedder"):
             results, _, stats_path, _ = _patched_embed_corpus(tmp_path)
         # All papers report skipped, none processed.
         assert all(r.chunks_processed == 0 for r in results)
@@ -692,7 +692,7 @@ class TestPaperUpToDateHelper:
         return {"chunk_id": cid, "kind": kind, "reuse_identity": _ident(kind, body)}
 
     def test_returns_false_when_sidecar_missing(self, tmp_path):
-        with patch("ingest.embedder.EMBEDDINGS_DIR", tmp_path):
+        with patch("arxmcp.ingest.embedder.EMBEDDINGS_DIR", tmp_path):
             assert not embedder_mod._paper_is_up_to_date(
                 "2307.00173", {self.A: _ident("stmt", "Body A")}
             )
@@ -703,7 +703,7 @@ class TestPaperUpToDateHelper:
             [self._entry(self.A, "stmt", "Body A")],
             chunker_version="v0.9",
         )
-        with patch("ingest.embedder.EMBEDDINGS_DIR", tmp_path):
+        with patch("arxmcp.ingest.embedder.EMBEDDINGS_DIR", tmp_path):
             assert not embedder_mod._paper_is_up_to_date(
                 "2307.00173", {self.A: _ident("stmt", "Body A")}
             )
@@ -711,7 +711,7 @@ class TestPaperUpToDateHelper:
     def test_returns_false_when_chunk_missing_from_sidecar(self, tmp_path):
         # Sidecar covers chunk A only; the paper now has {A, B}.
         _write_sidecar(tmp_path / "2307.00173", [self._entry(self.A, "stmt", "Body A")])
-        with patch("ingest.embedder.EMBEDDINGS_DIR", tmp_path):
+        with patch("arxmcp.ingest.embedder.EMBEDDINGS_DIR", tmp_path):
             assert not embedder_mod._paper_is_up_to_date(
                 "2307.00173",
                 {self.A: _ident("stmt", "Body A"), self.B: _ident("stmt", "Body B")},
@@ -719,7 +719,7 @@ class TestPaperUpToDateHelper:
 
     def test_returns_true_only_when_ids_and_identities_match(self, tmp_path):
         _write_sidecar(tmp_path / "2307.00173", [self._entry(self.A, "stmt", "Body A")])
-        with patch("ingest.embedder.EMBEDDINGS_DIR", tmp_path):
+        with patch("arxmcp.ingest.embedder.EMBEDDINGS_DIR", tmp_path):
             assert embedder_mod._paper_is_up_to_date(
                 "2307.00173", {self.A: _ident("stmt", "Body A")}
             )
@@ -738,7 +738,7 @@ class TestPaperUpToDateHelper:
         _write_sidecar(
             tmp_path / "2307.00173", [{"chunk_id": self.A, "kind": "stmt"}]
         )
-        with patch("ingest.embedder.EMBEDDINGS_DIR", tmp_path):
+        with patch("arxmcp.ingest.embedder.EMBEDDINGS_DIR", tmp_path):
             assert not embedder_mod._paper_is_up_to_date(
                 "2307.00173", {self.A: _ident("stmt", "Body A")}
             )
@@ -752,7 +752,7 @@ class TestPaperUpToDateHelper:
             [self._entry(self.A, "stmt", "Body A")],
             npz=False,
         )
-        with patch("ingest.embedder.EMBEDDINGS_DIR", tmp_path):
+        with patch("arxmcp.ingest.embedder.EMBEDDINGS_DIR", tmp_path):
             assert not embedder_mod._paper_is_up_to_date(
                 "2307.00173", {self.A: _ident("stmt", "Body A")}
             )
@@ -761,7 +761,7 @@ class TestPaperUpToDateHelper:
         # An entry that is a dict missing chunk_id must force
         # a re-embed.
         _write_sidecar(tmp_path / "2307.00173", [{"kind": "stmt"}])
-        with patch("ingest.embedder.EMBEDDINGS_DIR", tmp_path):
+        with patch("arxmcp.ingest.embedder.EMBEDDINGS_DIR", tmp_path):
             assert not embedder_mod._paper_is_up_to_date(
                 "2307.00173", {self.A: _ident("stmt", "Body A")}
             )
@@ -777,7 +777,7 @@ class TestPaperUpToDateHelper:
                 self._entry(self.C, "stmt", "Body C"),
             ],
         )
-        with patch("ingest.embedder.EMBEDDINGS_DIR", tmp_path):
+        with patch("arxmcp.ingest.embedder.EMBEDDINGS_DIR", tmp_path):
             assert not embedder_mod._paper_is_up_to_date(
                 "2307.00173",
                 {self.A: _ident("stmt", "Body A"), self.B: _ident("proof", "Body B")},
@@ -1038,10 +1038,10 @@ class TestDuplicateChunkIdRejected:
         stats_path = tmp_path / "ops" / "embed-stats.jsonl"
         log_path = tmp_path / "ops" / "embed.log"
         with (
-            patch("ingest.embedder.CHUNKS_DIR", chunks_dir),
-            patch("ingest.embedder.EMBEDDINGS_DIR", embeddings_dir),
-            patch("ingest.embedder.EMBED_STATS_PATH", stats_path),
-            patch("ingest.embedder.EMBED_LOG_PATH", log_path),
+            patch("arxmcp.ingest.embedder.CHUNKS_DIR", chunks_dir),
+            patch("arxmcp.ingest.embedder.EMBEDDINGS_DIR", embeddings_dir),
+            patch("arxmcp.ingest.embedder.EMBED_STATS_PATH", stats_path),
+            patch("arxmcp.ingest.embedder.EMBED_LOG_PATH", log_path),
         ):
             stats = embed_paper(paper_id)
         assert stats.status == "fail"
@@ -1086,7 +1086,7 @@ class TestMultiProcessConcurrency:
         sidecar_path = out_dir / EMBEDDINGS_MANIFEST_NAME
 
         # The writer script runs in a fresh Python interpreter; it
-        # imports from ingest.embedder (the project's own package on
+        # imports from arxmcp.ingest.embedder (the project's own package on
         # the path) and races against a sibling instance for 5
         # iterations of (NPZ + sidecar) writes. ``os.replace`` is
         # POSIX-atomic; both writers should produce a clean final
@@ -1097,7 +1097,7 @@ class TestMultiProcessConcurrency:
             from pathlib import Path
             sys.path.insert(0, {str(Path(__file__).parent.parent)!r})
             import numpy as np
-            from ingest.embedder import (
+            from arxmcp.ingest.embedder import (
                 EMBEDDING_DIM,
                 _write_embeddings_manifest,
                 _write_embeddings_npz,

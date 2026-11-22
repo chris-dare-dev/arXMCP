@@ -1,7 +1,7 @@
 """E13_S03 — Threat-3 (LaTeXML sandbox) hostile-input validation.
 
 Exercises five hostile `.tex` fixtures against the LaTeXML subprocess
-invocation in :func:`ingest.arxiv_fetch.parse_with_latexml`. For each
+invocation in :func:`arxmcp.ingest.arxiv_fetch.parse_with_latexml`. For each
 fixture the test asserts:
 
 1. **Containment.** The subprocess terminates (no orphan processes, no
@@ -34,7 +34,7 @@ These caveats are documented in the fixture file headers and in
 ``.claude/docs/security-threat-3-audit.md``.
 
 **Why the test timeout is short (10 s, not 300 s).** The production
-timeout in :data:`ingest.arxiv_fetch.LATEXML_TIMEOUT_SECONDS` is 300 s
+timeout in :data:`arxmcp.ingest.arxiv_fetch.LATEXML_TIMEOUT_SECONDS` is 300 s
 — well above the worst-case parsing latency for real arXiv content.
 For unit tests, a 10 s ceiling exercises the same containment code
 path without making the test suite slow. The contract being tested is
@@ -42,7 +42,7 @@ path without making the test suite slow. The contract being tested is
 matters only operationally.
 
 **Sandbox-exec wiring.** The macOS `sandbox-exec` profile at
-``infra/latexml/sandbox.sb`` is NOT wired into ``parse_with_latexml``
+``deploy/latexml/sandbox.sb`` is NOT wired into ``parse_with_latexml``
 in production code at v1 (see synthesis D3). These tests therefore
 exercise the Python-level process-group kill discipline, which is
 the cross-platform defense E13_S03 ships TODAY. A separate test
@@ -75,7 +75,7 @@ FIXTURES_DIR = Path(__file__).parent / "fixtures" / "latexml"
 CANARY_PATH = Path("/tmp/arxmcp_pwned_e13s03.txt")
 
 #: Short timeout for unit-test runs. Production
-#: :data:`ingest.arxiv_fetch.LATEXML_TIMEOUT_SECONDS` is 300 s; the
+#: :data:`arxmcp.ingest.arxiv_fetch.LATEXML_TIMEOUT_SECONDS` is 300 s; the
 #: same containment code path is exercised with this shorter cap.
 TEST_TIMEOUT_SECONDS = 10.0
 
@@ -118,13 +118,13 @@ def _run_fixture(
     (Python timeout fired and SIGKILL'd the group), or
     ``"runtime_error"`` (latexmlc missing or other shape failure).
 
-    Uses the production :func:`ingest.arxiv_fetch.parse_with_latexml`
+    Uses the production :func:`arxmcp.ingest.arxiv_fetch.parse_with_latexml`
     so the test exercises the actual process-group kill discipline
     landed by this milestone, not a parallel reimplementation.
     """
     # Lazy import — these tests should be collectible even when
     # ``tools/`` is missing from the path (older Pythons).
-    from ingest.arxiv_fetch import (  # noqa: PLC0415
+    from arxmcp.ingest.arxiv_fetch import (  # noqa: PLC0415
         LatexmlProcessError,
         parse_with_latexml,
     )
@@ -177,7 +177,7 @@ class TestRunFixtureClassification:
     """Always-on guards for typed child-exit classification."""
 
     def test_nonzero_child_exit_is_terminated(self, tmp_path, monkeypatch):
-        from ingest import arxiv_fetch  # noqa: PLC0415
+        from arxmcp.ingest import arxiv_fetch  # noqa: PLC0415
 
         def _failed_child(**_kwargs):
             raise arxiv_fetch.LatexmlProcessError("fixture", -6, "")
@@ -190,7 +190,7 @@ class TestRunFixtureClassification:
         assert status == "terminated"
 
     def test_setup_runtime_error_stays_visible(self, tmp_path, monkeypatch):
-        from ingest import arxiv_fetch  # noqa: PLC0415
+        from arxmcp.ingest import arxiv_fetch  # noqa: PLC0415
 
         def _setup_failure(**_kwargs):
             raise RuntimeError("latexmlc not on PATH")
@@ -211,7 +211,7 @@ class TestLatexmlSandboxContainment:
     """End-to-end containment tests for the 5 hostile fixtures.
 
     Each test runs the corresponding fixture through the production
-    :func:`ingest.arxiv_fetch.parse_with_latexml` and asserts the
+    :func:`arxmcp.ingest.arxiv_fetch.parse_with_latexml` and asserts the
     containment contract holds: subprocess terminates, no canary
     file appears, elapsed time is within the test timeout.
 
@@ -380,7 +380,7 @@ class TestLatexmlSandboxContainment:
 
 class TestSandboxProfile:
     """Static validation of the macOS sandbox-exec profile shipped at
-    ``infra/latexml/sandbox.sb``. The profile is a DOCUMENTATION
+    ``deploy/latexml/sandbox.sb``. The profile is a DOCUMENTATION
     ARTIFACT + test fixture at v1 — it is NOT wired into
     ``parse_with_latexml`` production code (synthesis D3). When
     production hardening lands in E11, the wiring should reference
@@ -392,12 +392,12 @@ class TestSandboxProfile:
 
     SANDBOX_PROFILE = (
         Path(__file__).parent.parent.parent
-        / "infra" / "latexml" / "sandbox.sb"
+        / "deploy" / "latexml" / "sandbox.sb"
     )
 
     def test_profile_file_exists(self):
         assert self.SANDBOX_PROFILE.exists(), (
-            "infra/latexml/sandbox.sb is missing — E13_S03 deliverable"
+            "deploy/latexml/sandbox.sb is missing — E13_S03 deliverable"
         )
 
     def test_profile_denies_default(self):
@@ -481,7 +481,7 @@ class TestSandboxProfile:
 
 class TestDockerLatexmlConfig:
     """Static validation of the standalone Docker config for the
-    LaTeXML service at ``infra/latexml/docker-compose.latexml.yml``.
+    LaTeXML service at ``deploy/latexml/docker-compose.latexml.yml``.
 
     This file is a DOCUMENTATION ARTIFACT (synthesis D2) — when E14
     lands the main docker-compose, the settings here should be
@@ -492,12 +492,12 @@ class TestDockerLatexmlConfig:
 
     DOCKER_CONFIG = (
         Path(__file__).parent.parent.parent
-        / "infra" / "latexml" / "docker-compose.latexml.yml"
+        / "deploy" / "latexml" / "docker-compose.latexml.yml"
     )
 
     def test_config_file_exists(self):
         assert self.DOCKER_CONFIG.exists(), (
-            "infra/latexml/docker-compose.latexml.yml is missing — "
+            "deploy/latexml/docker-compose.latexml.yml is missing — "
             "E13_S03 deliverable for AC3 reframe"
         )
 
@@ -561,12 +561,12 @@ class TestDockerLatexmlConfig:
         text = self.DOCKER_CONFIG.read_text()
         # The pre-rect default was `./latexml-output` which would
         # resolve relative to the compose file's dir
-        # (`infra/latexml/`) and pollute the repo.
+        # (`deploy/latexml/`) and pollute the repo.
         bad_default = ":-./latexml-output"
         assert bad_default not in text, (
             f"Docker config must NOT default the bind-mount source "
             f"to {bad_default!r} — this resolves to "
-            f"infra/latexml/latexml-output/ and pollutes the repo "
+            f"deploy/latexml/latexml-output/ and pollutes the repo "
             f"tree (IS4 from E13_S03 infra-safety critique). Use a "
             f"path under var/arxmcp/ instead."
         )
@@ -627,7 +627,7 @@ class TestProcessGroupKill:
     def test_parse_with_latexml_uses_process_group_kill(self):
         import ast  # noqa: PLC0415
 
-        from ingest import arxiv_fetch  # noqa: PLC0415
+        from arxmcp.ingest import arxiv_fetch  # noqa: PLC0415
 
         source = Path(arxiv_fetch.__file__).read_text()
         tree = ast.parse(source)
@@ -660,7 +660,7 @@ class TestProcessGroupKill:
         """E13_S03b F4 rectification — synthesis D6 required
         ``start_new_session=True`` parity between
         ``parse_with_latexml`` (already had it via E13_S03) and
-        ``ops/drift_check.py::render_fixture``. The initial
+        ``src/arxmcp/ops/drift_check.py::render_fixture``. The initial
         E13_S03b implementation missed it; F4 added the kwarg.
 
         This AST guard pins the contract — a future refactor that
@@ -672,7 +672,7 @@ class TestProcessGroupKill:
         """
         import ast  # noqa: PLC0415
 
-        from ops import drift_check  # noqa: PLC0415
+        from arxmcp.ops import drift_check  # noqa: PLC0415
 
         source = Path(drift_check.__file__).read_text(encoding="utf-8")
         tree = ast.parse(source)
@@ -685,7 +685,7 @@ class TestProcessGroupKill:
             None,
         )
         assert func is not None, (
-            "render_fixture function not found in ops.drift_check"
+            "render_fixture function not found in arxmcp.ops.drift_check"
         )
         func_source = ast.unparse(func)
         assert "start_new_session=True" in func_source, (
@@ -706,7 +706,7 @@ class TestProcessGroupKill:
         actually exercise this branch on a given machine; this guard
         anchors the killpg path independently.
         """
-        from ingest import arxiv_fetch as af  # noqa: PLC0415
+        from arxmcp.ingest import arxiv_fetch as af  # noqa: PLC0415
 
         monkeypatch.setattr("shutil.which", lambda name: "/usr/bin/latexmlc")
 
@@ -762,7 +762,7 @@ class TestProcessGroupKill:
         still re-raise the ORIGINAL TimeoutExpired so callers see
         the parse-failure signal instead of deadlocking.
         """
-        from ingest import arxiv_fetch as af  # noqa: PLC0415
+        from arxmcp.ingest import arxiv_fetch as af  # noqa: PLC0415
 
         monkeypatch.setattr("shutil.which", lambda name: "/usr/bin/latexmlc")
 
@@ -828,7 +828,7 @@ class TestProcessGroupKill:
 class TestSandboxWiring:
     """E13_S03b — closes Threat 3 Phase 2 gap G3.
 
-    Wires the existing ``infra/latexml/sandbox.sb`` (macOS) and
+    Wires the existing ``deploy/latexml/sandbox.sb`` (macOS) and
     bubblewrap (Linux) into ``parse_with_latexml`` by prepending
     wrapper argv to the existing ``cmd`` list. The sandbox profile
     and Docker config were shipped by E13_S03; E13_S03b is wiring-
@@ -855,7 +855,7 @@ class TestSandboxWiring:
         paths are checked and asserts both: a future refactor that
         drops either check fails this test.
         """
-        from ingest import arxiv_fetch as af  # noqa: PLC0415
+        from arxmcp.ingest import arxiv_fetch as af  # noqa: PLC0415
 
         monkeypatch.setattr(af.sys, "platform", "darwin")
         checked_paths: list[str] = []
@@ -898,7 +898,7 @@ class TestSandboxWiring:
         signal is the module-import-time INFO log. The wiring
         decision itself must return None cleanly.
         """
-        from ingest import arxiv_fetch as af  # noqa: PLC0415
+        from arxmcp.ingest import arxiv_fetch as af  # noqa: PLC0415
 
         monkeypatch.setattr(af.sys, "platform", "darwin")
         # Path("/usr/bin/sandbox-exec").is_file() → False
@@ -918,7 +918,7 @@ class TestSandboxWiring:
 
     def test_detect_sandbox_layer_linux_with_bwrap(self, monkeypatch):
         """On Linux with bwrap on PATH, returns ``"bwrap"``."""
-        from ingest import arxiv_fetch as af  # noqa: PLC0415
+        from arxmcp.ingest import arxiv_fetch as af  # noqa: PLC0415
 
         monkeypatch.setattr(af.sys, "platform", "linux")
         monkeypatch.setattr(
@@ -938,7 +938,7 @@ class TestSandboxWiring:
         module-import-time INFO log is the operator-visible signal
         that the sandbox is not active.
         """
-        from ingest import arxiv_fetch as af  # noqa: PLC0415
+        from arxmcp.ingest import arxiv_fetch as af  # noqa: PLC0415
 
         monkeypatch.setattr(af.sys, "platform", "linux")
         monkeypatch.setattr(af.shutil, "which", lambda name: None)
@@ -957,7 +957,7 @@ class TestSandboxWiring:
         original cmd. The original cmd remains the suffix —
         unmodified — so a future refactor that drops a latexmlc
         arg gets caught."""
-        from ingest import arxiv_fetch as af  # noqa: PLC0415
+        from arxmcp.ingest import arxiv_fetch as af  # noqa: PLC0415
 
         monkeypatch.setattr(af, "_SANDBOX_LAYER", "sandbox-exec")
         source_dir = tmp_path / "src"
@@ -1011,7 +1011,7 @@ class TestSandboxWiring:
         ``--proc /proc`` is documented-broken; LaTeXML's Perl
         helpers also need ``/dev/null`` / ``/dev/urandom``.
         """
-        from ingest import arxiv_fetch as af  # noqa: PLC0415
+        from arxmcp.ingest import arxiv_fetch as af  # noqa: PLC0415
 
         monkeypatch.setattr(af, "_SANDBOX_LAYER", "bwrap")
         source_dir = tmp_path / "src"
@@ -1104,7 +1104,7 @@ class TestSandboxWiring:
         asserts the produced argv has neither ``--ro-bind /lib`` nor
         ``--ro-bind /lib64`` pairs.
         """
-        from ingest import arxiv_fetch as af  # noqa: PLC0415
+        from arxmcp.ingest import arxiv_fetch as af  # noqa: PLC0415
 
         monkeypatch.setattr(af, "_SANDBOX_LAYER", "bwrap")
         original_exists = Path.exists
@@ -1150,7 +1150,7 @@ class TestSandboxWiring:
         must NOT silently inject a partial sandbox or do anything
         that hides the degraded state from the operator.
         """
-        from ingest import arxiv_fetch as af  # noqa: PLC0415
+        from arxmcp.ingest import arxiv_fetch as af  # noqa: PLC0415
 
         monkeypatch.setattr(af, "_SANDBOX_LAYER", None)
         original = ["latexmlc", "--timeout=300", "main.tex"]
@@ -1175,7 +1175,7 @@ class TestSandboxWiring:
         """The helper must NOT mutate the input cmd list — callers
         rely on being able to reuse / log the original argv. The
         sandbox layers all PREPEND to a new list."""
-        from ingest import arxiv_fetch as af  # noqa: PLC0415
+        from arxmcp.ingest import arxiv_fetch as af  # noqa: PLC0415
 
         for layer in ("sandbox-exec", "bwrap"):
             monkeypatch.setattr(af, "_SANDBOX_LAYER", layer)
@@ -1201,7 +1201,7 @@ class TestSandboxWiring:
         (containment tests skip when latexmlc absent, so wiring
         bugs can go undetected without this mock-based test).
         """
-        from ingest import arxiv_fetch as af  # noqa: PLC0415
+        from arxmcp.ingest import arxiv_fetch as af  # noqa: PLC0415
 
         monkeypatch.setattr(af, "_SANDBOX_LAYER", "bwrap")
         monkeypatch.setattr(

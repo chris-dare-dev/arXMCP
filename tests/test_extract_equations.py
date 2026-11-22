@@ -20,11 +20,11 @@ from pathlib import Path
 
 import pytest
 
-from ingest.extract_equations import (
+from arxmcp.ingest.extract_equations import (
     extract_equation_atoms_from_html,
     extract_equations_for_paper,
 )
-from ingest.index_equations import open_or_create_equations_table
+from arxmcp.ingest.index_equations import open_or_create_equations_table
 
 FIXTURES = Path(__file__).parent / "fixtures" / "extract_equations"
 
@@ -245,7 +245,7 @@ class TestExtractEquationsForPaper:
         trees rooted at ``math`` and the structural similarity is
         recoverable.
         """
-        from ingest.mathml_tree import (
+        from arxmcp.ingest.mathml_tree import (
             normalized_ted,
             parse_mathml_to_tree,
         )
@@ -302,7 +302,7 @@ class TestExtractEquationsForPaper:
                 return getattr(self._wrapped, name)
 
         with _patch(
-            "ingest.extract_equations.open_or_create_equations_table",
+            "arxmcp.ingest.extract_equations.open_or_create_equations_table",
             return_value=_BadDelete(real_table),
         ), pytest.raises(PermissionError, match="simulated"):
             extract_equations_for_paper(
@@ -328,7 +328,7 @@ class TestExtractEquationsForPaper:
 
 class TestParentChunk:
     def _chunk(self, chunk_id, body, *, has_stmt=True):
-        from ingest.extract_equations import _ChunkText
+        from arxmcp.ingest.extract_equations import _ChunkText
 
         return _ChunkText(chunk_id, body, has_stmt)
 
@@ -383,12 +383,12 @@ def _ingest_fixture_paper(tmp_path, paper_id):
 
     import numpy as np
 
-    from ingest.ar5iv_fetch import Ar5ivResult
-    from ingest.bulk_ingest import run_bulk_ingest
-    from ingest.chunk import EMBEDDING_DIM, route
-    from ingest.chunker import chunk_paper
-    from ingest.embedder import EmbedStats
-    from ingest.schema import EmbedRecord
+    from arxmcp.ingest.ar5iv_fetch import Ar5ivResult
+    from arxmcp.ingest.bulk_ingest import run_bulk_ingest
+    from arxmcp.ingest.chunk import EMBEDDING_DIM, route
+    from arxmcp.ingest.chunker import chunk_paper
+    from arxmcp.ingest.embedder import EmbedStats
+    from arxmcp.ingest.schema import EmbedRecord
 
     parsed_dir = tmp_path / "parsed"
     (parsed_dir / paper_id).mkdir(parents=True)
@@ -427,10 +427,10 @@ def _ingest_fixture_paper(tmp_path, paper_id):
             ("load_embed_record", {"side_effect": _record}),
             ("build_derived_indexes", {}),
         ]:
-            stack.enter_context(patch(f"ingest.bulk_ingest.{target}", **kwargs))
-        stack.enter_context(patch("ingest.chunker.CHUNKS_DIR", tmp_path / "chunks"))
+            stack.enter_context(patch(f"arxmcp.ingest.bulk_ingest.{target}", **kwargs))
+        stack.enter_context(patch("arxmcp.ingest.chunker.CHUNKS_DIR", tmp_path / "chunks"))
         stack.enter_context(
-            patch("ingest.chunker._resolve_preamble_doc", return_value=None)
+            patch("arxmcp.ingest.chunker._resolve_preamble_doc", return_value=None)
         )
         summary = run_bulk_ingest(
             [paper_id],
@@ -448,8 +448,8 @@ def test_an_ingested_paper_answers_find_equation_by_tree(tmp_path, monkeypatch):
     import lancedb
     import numpy as np
 
-    import server.handlers.equation as eq_handler_mod
-    import server.tools as server_tools
+    import arxmcp.server.handlers.equation as eq_handler_mod
+    import arxmcp.server.tools as server_tools
     from tests.test_equation_index import _install_resources, _run
 
     paper_id = "2401.00007"

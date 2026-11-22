@@ -1,0 +1,48 @@
+[Unit]
+# The long-running MCP server. The backup, cutover, restore and drift
+# procedures stop and start this unit by name, so it ships with the
+# others even though the server can also run from `make up`.
+Description=arXMCP MCP server (loopback Streamable HTTP on 127.0.0.1:7733)
+Documentation=https://github.com/chris-dare-dev/arXMCP/blob/433ba41ba8710be74d6f99c627dce7d3b5383fca/docs/ops/cutover-runbook.md
+After=network.target
+
+[Service]
+Type=simple
+# Operator MUST substitute these placeholders before enabling:
+#   - Replace `/opt/arxmcp` everywhere below (WorkingDirectory,
+#     ExecStart, ReadWritePaths) with the arXMCP checkout path; the
+#     checkout's `.venv` must exist (`uv sync --locked`).
+#   - Replace `arxmcp` in User/Group with the system user that
+#     owns the repo + var/arxmcp tree.
+# Any ARXMCP_* setting goes in an `Environment=` line or a drop-in
+# (`systemctl edit arxmcp-server`). The server refuses to start on an
+# ARXMCP_* name it does not recognise.
+WorkingDirectory=/opt/arxmcp
+User=arxmcp
+Group=arxmcp
+ExecStart=/opt/arxmcp/.venv/bin/python -m arxmcp.server.main
+
+# Restart after a crash, not after a clean stop: cutover and restore
+# stop the unit on purpose and must find it stopped.
+Restart=on-failure
+RestartSec=10
+
+# The lifespan drains in-flight requests for up to 30 s on SIGTERM.
+TimeoutStopSec=60
+
+# journalctl -u arxmcp-server is the canonical log.
+StandardOutput=journal
+StandardError=journal
+
+# Containment. The server writes only under var/. The BGE-M3 weights
+# load from the service user's Hugging Face cache, so home stays
+# readable; add a ReadWritePaths= line if HF_HOME or the Lean REPL
+# directory must be writable.
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/opt/arxmcp/var
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

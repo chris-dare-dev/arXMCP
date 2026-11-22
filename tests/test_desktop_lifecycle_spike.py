@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-SPIKE = ROOT / "tools" / "desktop_lifecycle_spike"
+SPIKE = ROOT / "src" / "arxmcp" / "tools" / "desktop_lifecycle_spike"
 
 
 def _load_harness():

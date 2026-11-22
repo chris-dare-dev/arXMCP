@@ -16,8 +16,8 @@ from typing import Any
 import lancedb
 import pytest
 
-from server.handlers.paper import handle_get_paper
-from server.tools import reset_resources_for_tests, set_resources
+from arxmcp.server.handlers.paper import handle_get_paper
+from arxmcp.server.tools import reset_resources_for_tests, set_resources
 from tests._graph_helpers import build_synthetic_lancedb
 
 _PAPER = "2401.00001"

@@ -11,10 +11,10 @@ import pyarrow as pa
 import pytest
 from mcp.server.fastmcp import FastMCP
 
-from ingest.schema import CHUNKS_SCHEMA_V1
-from server.handlers.chunk import handle_get_chunk
-from server.mcp_resources import CHUNK_TEMPLATE_URI, register_resources
-from server.tools import reset_resources_for_tests, set_resources
+from arxmcp.ingest.schema import CHUNKS_SCHEMA_V1
+from arxmcp.server.handlers.chunk import handle_get_chunk
+from arxmcp.server.mcp_resources import CHUNK_TEMPLATE_URI, register_resources
+from arxmcp.server.tools import reset_resources_for_tests, set_resources
 
 CHUNK_ID = "arxiv:2401.00001:0123456789abcdef"
 LONG_BODY = "Let X be a smooth projective variety. " * 500  # ~19 KB

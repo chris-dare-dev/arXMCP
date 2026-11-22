@@ -8,13 +8,13 @@ Closes the seven acceptance criteria of the milestone:
 3. Loading with a valid 40-char SHA succeeds (no spurious raise).
 4. Both loaders reject ``.bin`` weights — covered by the reranker's
    ``use_safetensors=True`` + the new
-   :func:`server.model_loader.assert_no_bin_in_snapshot` defensive
+   :func:`arxmcp.server.model_loader.assert_no_bin_in_snapshot` defensive
    check. The embedder ships ``.bin``-only at the currently-pinned
    SHA; the audit doc documents the gap and a future SHA-bump
    milestone will enable the same enforcement there.
 5. ``trust_remote_code=False`` is the default; ``ARXMCP_TRUST_REMOTE_CODE=1``
    enables it and logs a ``WARNING``.
-6. ``tools/sbom.sh`` produces valid CycloneDX JSON (smoke-checked
+6. ``src/arxmcp/tools/sbom.sh`` produces valid CycloneDX JSON (smoke-checked
    here as a presence test; full pipeline run is the operator's
    ``make sbom``).
 7. Critical-CVE handling: ``grype --fail-on critical`` semantics
@@ -33,16 +33,16 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-import ingest.embedder as embedder_mod
-from ingest.embedder import BGE_M3_COMMIT_SHA
-from server.model_loader import (
+import arxmcp.ingest.embedder as embedder_mod
+from arxmcp.ingest.embedder import BGE_M3_COMMIT_SHA
+from arxmcp.server.model_loader import (
     _SHA_RE,
     ModelPinningError,
     assert_no_bin_in_snapshot,
     resolve_trust_remote_code,
     validate_model_revision,
 )
-from server.retrieval.rerank import BGE_RERANKER_COMMIT_SHA
+from arxmcp.server.retrieval.rerank import BGE_RERANKER_COMMIT_SHA
 
 # ===========================================================================
 # validate_model_revision
@@ -364,7 +364,7 @@ class TestRerankerLoaderGuard:
         import threading
         from unittest.mock import MagicMock
 
-        import server.resources as resources_mod
+        import arxmcp.server.resources as resources_mod
 
         main_thread_id = threading.get_ident()
         call_thread_ids: list[int] = []
@@ -376,10 +376,10 @@ class TestRerankerLoaderGuard:
             # Mirror the real default (env not set → False).
             return False
 
-        # Patch the symbol in ``server.model_loader`` since
+        # Patch the symbol in ``arxmcp.server.model_loader`` since
         # ``_load_reranker_or_raise`` imports it locally each call.
         monkeypatch.setattr(
-            "server.model_loader.resolve_trust_remote_code", spy
+            "arxmcp.server.model_loader.resolve_trust_remote_code", spy
         )
 
         # Mock the transformers loaders so no network is hit.
@@ -396,7 +396,7 @@ class TestRerankerLoaderGuard:
         )
         # Skip the post-load cache walk (no real cache to walk).
         monkeypatch.setattr(
-            "server.model_loader.assert_no_bin_in_snapshot",
+            "arxmcp.server.model_loader.assert_no_bin_in_snapshot",
             lambda *a, **kw: None,
         )
 
@@ -427,20 +427,20 @@ class TestRerankerLoaderGuard:
 
 
 # ===========================================================================
-# tools/sbom.sh presence + flag parsing smoke (AC6)
+# src/arxmcp/tools/sbom.sh presence + flag parsing smoke (AC6)
 # ===========================================================================
 
 
 class TestSbomScriptPresence:
-    """The brief mandates ``tools/sbom.sh`` produces valid CycloneDX
+    """The brief mandates ``src/arxmcp/tools/sbom.sh`` produces valid CycloneDX
     JSON. We do not run grype here (network DB fetch); we just
     confirm the script exists, is executable-shaped (bash shebang),
     advertises the right flags, and has a usable help screen.
     """
 
     def test_script_exists_and_has_bash_shebang(self):
-        path = Path(__file__).resolve().parents[2] / "tools" / "sbom.sh"
-        assert path.is_file(), f"tools/sbom.sh missing at {path}"
+        path = Path(__file__).resolve().parents[2] / "src" / "arxmcp" / "tools" / "sbom.sh"
+        assert path.is_file(), f"src/arxmcp/tools/sbom.sh missing at {path}"
         first_line = path.read_text(encoding="utf-8").splitlines()[0]
         assert first_line.startswith("#!"), (
             f"expected shebang; got: {first_line!r}"
@@ -452,7 +452,7 @@ class TestSbomScriptPresence:
         ``--no-scan``. If the script ever drops those, the docs
         decay. This test binds the contract.
         """
-        path = Path(__file__).resolve().parents[2] / "tools" / "sbom.sh"
+        path = Path(__file__).resolve().parents[2] / "src" / "arxmcp" / "tools" / "sbom.sh"
         body = path.read_text(encoding="utf-8")
         assert "--skip-image" in body
         assert "--no-scan" in body

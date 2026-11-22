@@ -30,9 +30,9 @@ from unittest.mock import Mock
 
 import pytest
 
-from ingest.corpus import DegradedState
-from server.config import Config
-from server.resources import Resources, compute_chunk_count_divergence
+from arxmcp.ingest.corpus import DegradedState
+from arxmcp.server.config import Config
+from arxmcp.server.resources import Resources, compute_chunk_count_divergence
 
 # corpus-integrity-completion-m3 rect F3: `_seed_corpus` and
 # `_patch_model` moved to tests/_corpus_helpers.py so both this
@@ -148,7 +148,7 @@ class TestStartupReconciliation:
         _overwrite_marker_chunk_count(lancedb_path, 1000)
         cfg = Config(lancedb_path=lancedb_path)
 
-        with caplog.at_level(logging.WARNING, logger="server.resources"):
+        with caplog.at_level(logging.WARNING, logger="arxmcp.server.resources"):
             resources = asyncio.run(Resources.startup(cfg))
         try:
             assert resources.degraded is not None
@@ -185,7 +185,7 @@ class TestStartupReconciliation:
         N-1 fallback already set ``degraded``, the reconciliation must SKIP —
         a count divergence must NOT downgrade the more-severe corruption
         alert. Fails if the ``degraded is not None`` guard is removed."""
-        import server.resources as res_mod  # noqa: PLC0415
+        import arxmcp.server.resources as res_mod  # noqa: PLC0415
 
         _patch_model(monkeypatch)
         lancedb_path = tmp_path / "lancedb"
@@ -207,7 +207,7 @@ class TestStartupReconciliation:
         )
         cfg = Config(lancedb_path=lancedb_path)
 
-        with caplog.at_level(logging.INFO, logger="server.resources"):
+        with caplog.at_level(logging.INFO, logger="arxmcp.server.resources"):
             resources = asyncio.run(Resources.startup(cfg))
         try:
             # The pre-existing corruption reason WINS — not clobbered.
@@ -232,7 +232,7 @@ class TestStartupReconciliation:
         server (WARN-and-serve). The server starts warm with
         startup_chunk_count = -1, degraded is None, and the FM-2 WARN fires.
         Fails if the try/except around count_rows() is removed."""
-        import server.resources as res_mod  # noqa: PLC0415
+        import arxmcp.server.resources as res_mod  # noqa: PLC0415
 
         _patch_model(monkeypatch)
         lancedb_path = tmp_path / "lancedb"
@@ -263,7 +263,7 @@ class TestStartupReconciliation:
         )
         cfg = Config(lancedb_path=lancedb_path)
 
-        with caplog.at_level(logging.WARNING, logger="server.resources"):
+        with caplog.at_level(logging.WARNING, logger="arxmcp.server.resources"):
             resources = asyncio.run(Resources.startup(cfg))
         try:
             assert resources.warm is True  # served, not aborted
@@ -296,7 +296,7 @@ class TestReadyzDegradedReasons:
         ],
     )
     def test_readyz_status_by_reason(self, reason, ready):
-        from server.health import readyz  # noqa: PLC0415
+        from arxmcp.server.health import readyz  # noqa: PLC0415
 
         resources = SimpleNamespace(
             warm=True,
@@ -332,7 +332,7 @@ class TestChunkCountGauges:
     def test_gauges_set_from_cache_not_recomputed_per_scrape(self):
         """AC-3: the two gauges read the cached startup count + marker
         count; a /metrics scrape NEVER calls count_rows()."""
-        from server import health as health_mod  # noqa: PLC0415
+        from arxmcp.server import health as health_mod  # noqa: PLC0415
 
         resources = _fake_scrape_resources(
             corpus_info=SimpleNamespace(version=1, chunk_count=2),
@@ -349,7 +349,7 @@ class TestChunkCountGauges:
     def test_gauges_expose_the_divergence_delta(self):
         """When the marker lies, the two gauges differ — the operator can
         compute abs(actual - marker) and alert on it."""
-        from server import health as health_mod  # noqa: PLC0415
+        from arxmcp.server import health as health_mod  # noqa: PLC0415
 
         resources = _fake_scrape_resources(
             corpus_info=SimpleNamespace(version=1, chunk_count=1000),
@@ -362,7 +362,7 @@ class TestChunkCountGauges:
     def test_count_unavailable_sentinel_surfaces_as_minus_one(self):
         """FM-2: count_rows() failed at startup ⇒ startup_chunk_count = -1
         ⇒ the actual gauge reports -1.0 so operators see the count-miss."""
-        from server import health as health_mod  # noqa: PLC0415
+        from arxmcp.server import health as health_mod  # noqa: PLC0415
 
         resources = _fake_scrape_resources(
             corpus_info=SimpleNamespace(version=1, chunk_count=50),
@@ -379,8 +379,8 @@ class TestChunkCountGauges:
 
 class TestDegradedModeEnumeration:
     def test_chunk_count_diverged_zeroed_on_happy_path(self):
-        from server import health as health_mod  # noqa: PLC0415
-        from server.observability.metrics import (  # noqa: PLC0415
+        from arxmcp.server import health as health_mod  # noqa: PLC0415
+        from arxmcp.server.observability.metrics import (  # noqa: PLC0415
             DEGRADED_MODE_ACTIVE,
         )
 
@@ -477,7 +477,7 @@ class TestComputeUnindexedRows:
         return SimpleNamespace(list_indices=list_indices, index_stats=index_stats)
 
     def test_all_clean_returns_zero(self):
-        from server.resources import compute_unindexed_rows
+        from arxmcp.server.resources import compute_unindexed_rows
 
         value, breakdown = compute_unindexed_rows(
             self._table([("embedding_stmt_idx", 0), ("embedding_proof_idx", 0)])
@@ -486,7 +486,7 @@ class TestComputeUnindexedRows:
         assert breakdown == ["embedding_stmt_idx=0", "embedding_proof_idx=0"]
 
     def test_unindexed_rows_summed(self):
-        from server.resources import compute_unindexed_rows
+        from arxmcp.server.resources import compute_unindexed_rows
 
         value, _ = compute_unindexed_rows(
             self._table([("embedding_stmt_idx", 7), ("embedding_proof_idx", 3)])
@@ -496,14 +496,14 @@ class TestComputeUnindexedRows:
     def test_no_index_returns_minus_one_not_zero(self):
         """D2: a never-indexed corpus brute-forces EVERY row — reporting 0
         would be a dangerous false-clean. Empty list_indices() → -1."""
-        from server.resources import compute_unindexed_rows
+        from arxmcp.server.resources import compute_unindexed_rows
 
         value, breakdown = compute_unindexed_rows(self._table([]))
         assert value == -1
         assert breakdown == []
 
     def test_all_stats_none_returns_minus_one(self):
-        from server.resources import compute_unindexed_rows
+        from arxmcp.server.resources import compute_unindexed_rows
 
         value, _ = compute_unindexed_rows(
             self._table([("a", None), ("b", None)])
@@ -511,7 +511,7 @@ class TestComputeUnindexedRows:
         assert value == -1  # no resolvable index
 
     def test_none_stat_is_skipped_not_counted(self):
-        from server.resources import compute_unindexed_rows
+        from arxmcp.server.resources import compute_unindexed_rows
 
         value, breakdown = compute_unindexed_rows(
             self._table([("a", None), ("b", 3)])
@@ -522,7 +522,7 @@ class TestComputeUnindexedRows:
     def test_scalar_index_is_not_counted(self):
         """F1: list_indices() also returns the scalar paper_id BTree. It must NOT
         be counted as an ANN index — only the vector index contributes."""
-        from server.resources import compute_unindexed_rows
+        from arxmcp.server.resources import compute_unindexed_rows
 
         value, breakdown = compute_unindexed_rows(
             self._table(
@@ -541,7 +541,7 @@ class TestComputeUnindexedRows:
         must report -1 (no resolvable ANN index), NOT a false-clean 0. Counting
         the scalar paper_id BTree would defeat the D2 sentinel. Fails on the
         pre-fix unfiltered code (which returned 0)."""
-        from server.resources import compute_unindexed_rows
+        from arxmcp.server.resources import compute_unindexed_rows
 
         value, breakdown = compute_unindexed_rows(
             self._table([("paper_id_idx", 0, "BTREE")])
@@ -556,7 +556,7 @@ class TestUnindexedRowsStartup:
 
     def test_unindexed_rows_warns_and_caches(self, tmp_path, monkeypatch, caplog):
         """AC-1: unindexed rows → WARN + the count cached on Resources."""
-        import server.resources as res_mod  # noqa: PLC0415
+        import arxmcp.server.resources as res_mod  # noqa: PLC0415
 
         _patch_model(monkeypatch)
         lancedb_path = tmp_path / "lancedb"
@@ -580,7 +580,7 @@ class TestUnindexedRowsStartup:
 
         monkeypatch.setattr(res_mod, "open_chunks_table_with_fallback", fake_open)
         cfg = Config(lancedb_path=lancedb_path)
-        with caplog.at_level(logging.WARNING, logger="server.resources"):
+        with caplog.at_level(logging.WARNING, logger="arxmcp.server.resources"):
             resources = asyncio.run(Resources.startup(cfg))
         try:
             assert resources.startup_unindexed_rows == 7
@@ -593,7 +593,7 @@ class TestUnindexedRowsStartup:
 
     def test_fully_indexed_no_warn(self, tmp_path, monkeypatch, caplog):
         """AC-2: ≥1 index all-clean → 0, no unindexed WARN."""
-        import server.resources as res_mod  # noqa: PLC0415
+        import arxmcp.server.resources as res_mod  # noqa: PLC0415
 
         _patch_model(monkeypatch)
         lancedb_path = tmp_path / "lancedb"
@@ -612,7 +612,7 @@ class TestUnindexedRowsStartup:
 
         monkeypatch.setattr(res_mod, "open_chunks_table_with_fallback", fake_open)
         cfg = Config(lancedb_path=lancedb_path)
-        with caplog.at_level(logging.WARNING, logger="server.resources"):
+        with caplog.at_level(logging.WARNING, logger="arxmcp.server.resources"):
             resources = asyncio.run(Resources.startup(cfg))
         try:
             assert resources.startup_unindexed_rows == 0
@@ -625,7 +625,7 @@ class TestUnindexedRowsStartup:
     def test_index_api_raises_is_nonfatal(self, tmp_path, monkeypatch, caplog):
         """FM-1/FM-2: list_indices() raising must NOT abort startup — cached
         -1, WARN, server warm, /readyz reachable."""
-        import server.resources as res_mod  # noqa: PLC0415
+        import arxmcp.server.resources as res_mod  # noqa: PLC0415
 
         _patch_model(monkeypatch)
         lancedb_path = tmp_path / "lancedb"
@@ -645,7 +645,7 @@ class TestUnindexedRowsStartup:
 
         monkeypatch.setattr(res_mod, "open_chunks_table_with_fallback", fake_open)
         cfg = Config(lancedb_path=lancedb_path)
-        with caplog.at_level(logging.WARNING, logger="server.resources"):
+        with caplog.at_level(logging.WARNING, logger="arxmcp.server.resources"):
             resources = asyncio.run(Resources.startup(cfg))
         try:
             assert resources.warm is True  # served, not aborted
@@ -666,7 +666,7 @@ class TestUnindexedRowsStartup:
         skipped) reaches the DISTINCT `elif < 0` WARN ("no resolvable ANN index
         found / coverage UNKNOWN"), separate from the API-raises branch. Pins -1
         + that WARN end-to-end; fails if the elif branch is removed."""
-        import server.resources as res_mod  # noqa: PLC0415
+        import arxmcp.server.resources as res_mod  # noqa: PLC0415
 
         _patch_model(monkeypatch)
         lancedb_path = tmp_path / "lancedb"
@@ -684,7 +684,7 @@ class TestUnindexedRowsStartup:
 
         monkeypatch.setattr(res_mod, "open_chunks_table_with_fallback", fake_open)
         cfg = Config(lancedb_path=lancedb_path)
-        with caplog.at_level(logging.WARNING, logger="server.resources"):
+        with caplog.at_level(logging.WARNING, logger="arxmcp.server.resources"):
             resources = asyncio.run(Resources.startup(cfg))
         try:
             assert resources.warm is True
@@ -705,7 +705,7 @@ class TestUnindexedRowsGauge:
     API per scrape (the 'computed once at startup' contract)."""
 
     def test_gauge_set_from_cache_not_recomputed_per_scrape(self):
-        from server import health as health_mod  # noqa: PLC0415
+        from arxmcp.server import health as health_mod  # noqa: PLC0415
 
         resources = _fake_scrape_resources(startup_unindexed_rows=7)
         # chunks_table carries list_indices/index_stats Mocks so we can assert
@@ -719,7 +719,7 @@ class TestUnindexedRowsGauge:
         assert health_mod.CORPUS_UNINDEXED_ROWS._value.get() == 7.0
 
     def test_minus_one_sentinel_surfaces_on_gauge(self):
-        from server import health as health_mod  # noqa: PLC0415
+        from arxmcp.server import health as health_mod  # noqa: PLC0415
 
         resources = _fake_scrape_resources(startup_unindexed_rows=-1)
         health_mod.refresh_metrics_from_singleton_state(resources)

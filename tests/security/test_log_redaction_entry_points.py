@@ -41,7 +41,7 @@ def probe():
         lg.handle(record)
         seen[name or "root"] = hasattr(record, "query")
     root = logging.getLogger()
-    from server.observability.log_filter import RedactionFilter
+    from arxmcp.server.observability.log_filter import RedactionFilter
     filters = [
         sum(isinstance(f, RedactionFilter) for f in h.filters)
         for lg in [root, *(
@@ -64,7 +64,7 @@ def probe():
 _UVICORN_APP_FORM = _PROBE + """
 import uvicorn
 
-config = uvicorn.Config("server.main:app")
+config = uvicorn.Config("arxmcp.server.main:app")
 config.load()
 print("RESULT " + json.dumps(probe()))
 """
@@ -72,7 +72,7 @@ print("RESULT " + json.dumps(probe()))
 _CLI_FORM = _PROBE + """
 import uvicorn
 
-import server.cli as cli
+import arxmcp.server.cli as cli
 
 def fake_run(app, **kwargs):
     config = uvicorn.Config(app, **kwargs)
@@ -84,11 +84,11 @@ raise SystemExit(cli.main())
 """
 
 _CONFIGURED_BEFORE_IMPORT = _PROBE + """
-from server.observability.logging_setup import configure
+from arxmcp.server.observability.logging_setup import configure
 
 logging.basicConfig(level="INFO")
 configure("WARNING", "text")
-import server.main  # noqa: F401
+import arxmcp.server.main  # noqa: F401
 print("RESULT " + json.dumps(probe()))
 """
 
@@ -123,7 +123,7 @@ _ALL_REDACTED = {
 
 
 def test_uvicorn_app_form_redacts_on_every_logger() -> None:
-    """``uvicorn server.main:app``: uvicorn's default logging config, then
+    """``uvicorn arxmcp.server.main:app``: uvicorn's default logging config, then
     the import of the module-level app, and nothing else."""
     result, output = _run(_UVICORN_APP_FORM)
     assert result["query_survived"] == _ALL_REDACTED

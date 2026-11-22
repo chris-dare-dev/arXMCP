@@ -15,21 +15,21 @@ from pathlib import Path
 import lancedb
 import pytest
 
-import ingest.store as store_mod
-from ingest import bulk_ingest
-from ingest.write_lock import (
+import arxmcp.ingest.store as store_mod
+from arxmcp.ingest import bulk_ingest
+from arxmcp.ingest.write_lock import (
     WRITE_LOCKED_EXIT_CODE,
     DatasetWriteLockedError,
     dataset_write_lock,
 )
-from ops import prune_versions as prune_mod
+from arxmcp.ops import prune_versions as prune_mod
 from tests._corpus_helpers import seed_corpus_multi_paper
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 _HOLDER = """
 import sys
-from ingest.write_lock import dataset_write_lock
+from arxmcp.ingest.write_lock import dataset_write_lock
 with dataset_write_lock(sys.argv[1]):
     print("held", flush=True)
     sys.stdin.read()
@@ -58,14 +58,14 @@ def hold_in_other_process() -> Iterator[Callable[[Path], subprocess.Popen]]:
 
 
 def _writers(tmp_path: Path) -> dict[str, Callable[[Path], object]]:
-    from ingest.derived_indexes import build_derived_indexes
-    from ingest.embed_equations import embed_pending_equations
-    from ingest.extract_equations import extract_equations_for_paper
-    from ingest.index_definitions import index_definitions_for_corpus
-    from ingest.index_equations import index_equation_trees
-    from ingest.index_theorem_names import build_theorem_names_index
-    from ingest.oai_delta import run_delta
-    from ingest.re_embed import run_re_embed
+    from arxmcp.ingest.derived_indexes import build_derived_indexes
+    from arxmcp.ingest.embed_equations import embed_pending_equations
+    from arxmcp.ingest.extract_equations import extract_equations_for_paper
+    from arxmcp.ingest.index_definitions import index_definitions_for_corpus
+    from arxmcp.ingest.index_equations import index_equation_trees
+    from arxmcp.ingest.index_theorem_names import build_theorem_names_index
+    from arxmcp.ingest.oai_delta import run_delta
+    from arxmcp.ingest.re_embed import run_re_embed
 
     def no_fetch(*_args, **_kwargs):
         raise AssertionError("a refused run must not harvest")

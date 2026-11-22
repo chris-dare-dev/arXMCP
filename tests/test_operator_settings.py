@@ -1,4 +1,4 @@
-"""Tests for ``server.operator_settings`` (``onboarding-uplift-m2``).
+"""Tests for ``arxmcp.server.operator_settings`` (``onboarding-uplift-m2``).
 
 Covers the m2 acceptance criteria for the new SQLite-backed key-value
 store:
@@ -29,7 +29,7 @@ from pathlib import Path
 
 import pytest
 
-from server.operator_settings import (
+from arxmcp.server.operator_settings import (
     DEFAULT_DB_PATH,
     SCHEMA_VERSION,
     OperatorSettingsStore,
@@ -55,7 +55,7 @@ class TestSyncRoundTrip:
         """A CLI may call ``get_setting`` before any ``make init`` has
         ever populated the store; an absent file must NOT be a
         ``FileNotFoundError`` (would crash the priority-chain in
-        ``ingest/notebooks.py::resolve_contact_email``)."""
+        ``src/arxmcp/ingest/notebooks.py::resolve_contact_email``)."""
         db = tmp_path / "absent.db"
         assert get_setting("contact_email", db_path=db) is None
         # And the call DID NOT create the file as a side effect.
@@ -223,7 +223,7 @@ class TestSchemaSentinel:
         """Both stores open the SAME ``notebooks.db`` file and neither
         crashes nor corrupts the other's data — the cardinal
         independence guarantee from m2 synthesis §3 D1."""
-        from server.notebooks_store import NotebooksStore
+        from arxmcp.server.notebooks_store import NotebooksStore
 
         db = tmp_path / "notebooks.db"
 
@@ -257,7 +257,7 @@ class TestSchemaSentinel:
             # live constant so a future schema bump (e.g. v4→v5 in
             # notebook-paper-discovery-m1) doesn't break this cross-store
             # coupling test.
-            from server.notebooks_store import (
+            from arxmcp.server.notebooks_store import (
                 SCHEMA_VERSION as NOTEBOOKS_SCHEMA_VERSION,
             )
             assert user_version == NOTEBOOKS_SCHEMA_VERSION

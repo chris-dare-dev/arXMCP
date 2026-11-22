@@ -36,8 +36,8 @@ from typing import Any
 
 import pytest
 
-from server.observability.log_filter import REDACTED_FIELDS, RedactionFilter
-from server.observability.logging_setup import (
+from arxmcp.server.observability.log_filter import REDACTED_FIELDS, RedactionFilter
+from arxmcp.server.observability.logging_setup import (
     JsonFormatter,
     _reset_debug_warning_for_tests,
     configure,
@@ -231,7 +231,7 @@ class TestRedactedFieldsContract:
 
     def test_redacted_fields_literal_membership(self):
         # If you intend to add a field, update both the constant in
-        # ``server/observability/log_filter.py`` AND this assertion
+        # ``src/arxmcp/server/observability/log_filter.py`` AND this assertion
         # in the same commit. The audit doc lists the rationale for
         # each member.
         assert frozenset({
@@ -427,7 +427,7 @@ class TestConfigure:
     def test_configure_debug_warn_is_one_shot(self, caplog):
         """Repeated DEBUG configure() emits the WARN only once per
         process. Matches the warn-once pattern in
-        ``server.observability.sanitize``."""
+        ``arxmcp.server.observability.sanitize``."""
         # First call: should warn.
         with caplog.at_level(
             logging.WARNING, logger="arxmcp.security.logging"

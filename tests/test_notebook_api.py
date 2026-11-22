@@ -27,13 +27,13 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from ingest import notebooks as _notebook_common
-from server.notebooks_store import SCHEMA_VERSION, NotebooksStore
-from server.routes import notebooks as notebooks_module
-from server.routes.notebooks import (
+from arxmcp.ingest import notebooks as _notebook_common
+from arxmcp.server.notebooks_store import SCHEMA_VERSION, NotebooksStore
+from arxmcp.server.routes import notebooks as notebooks_module
+from arxmcp.server.routes.notebooks import (
     _arxiv_url_to_paper_id,
 )
-from server.routes.notebooks import (
+from arxmcp.server.routes.notebooks import (
     router as notebooks_router,
 )
 
@@ -152,7 +152,7 @@ class TestNotebookCrud:
         assert nb_dir.is_dir(), (
             "DELETE /ui/api/notebooks/<slug> must be metadata-only — "
             "the on-disk directory MUST survive (m7 brief deletion "
-            "semantics; on-disk wipe is tools/notebook_purge.py's job)"
+            "semantics; on-disk wipe is src/arxmcp/tools/notebook_purge.py's job)"
         )
 
     def test_delete_nonexistent_returns_404(
@@ -417,7 +417,7 @@ class TestArxivUrlNormalizer:
         that ALTERS this behavior (e.g. preserves the newline in
         the path component) would surface here, prompting an
         explicit ``str.strip()`` in the normalizer."""
-        from ingest.identifiers import is_valid_paper_id
+        from arxmcp.ingest.identifiers import is_valid_paper_id
 
         result = _arxiv_url_to_paper_id(
             "https://arxiv.org/abs/2604.26204\n"

@@ -1,7 +1,7 @@
 {
   "_provenance": {
     "generated": "2026-08-09",
-    "generator": "HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 .venv/bin/python tools/desktop_model_probe.py < <inputs> (inputs = this file's 'inputs' block)",
+    "generator": "HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 .venv/bin/python src/arxmcp/tools/desktop_model_probe.py < <inputs> (inputs = this file's 'inputs' block)",
     "platform": "Darwin arm64",
     "run_to_run_max_abs_delta": 0.0,
     "runs_measured": 4,

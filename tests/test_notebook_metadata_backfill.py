@@ -1,4 +1,4 @@
-"""Tests for ``tools.notebook_metadata_backfill`` (paper-metadata-m1).
+"""Tests for ``arxmcp.tools.notebook_metadata_backfill`` (paper-metadata-m1).
 
 t-backfill-driver acceptance: politeness contract (3 s spacing,
 optional contact information on requests),
@@ -20,14 +20,14 @@ from pathlib import Path
 
 import pytest
 
-from ingest import arxiv_api as _arxiv_api
-from ingest.arxiv_fetch import DEFAULT_503_BACKOFF_SECONDS, POLITENESS_SLEEP_SECONDS
-from ingest.notebooks import NotebookError
-from server.paper_metadata_store import (
+from arxmcp.ingest import arxiv_api as _arxiv_api
+from arxmcp.ingest.arxiv_fetch import DEFAULT_503_BACKOFF_SECONDS, POLITENESS_SLEEP_SECONDS
+from arxmcp.ingest.notebooks import NotebookError
+from arxmcp.server.paper_metadata_store import (
     PAPER_METADATA_DB_FILENAME,
     PaperMetadataStore,
 )
-from tools import notebook_metadata_backfill
+from arxmcp.tools import notebook_metadata_backfill
 
 SLUG = "bridgeland-stability"
 
@@ -472,5 +472,5 @@ class TestMembershipSource:
         # No import path reaches the junction table: the driver must
         # not touch NotebooksStore / notebooks.db at all.
         assert "NotebooksStore" not in source
-        assert "server.notebooks_store" not in source
+        assert "arxmcp.server.notebooks_store" not in source
         assert "read_paper_ids_from_papers_txt" in source

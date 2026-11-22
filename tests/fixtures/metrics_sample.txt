@@ -84,12 +84,12 @@ arxmcp_session_cap_fail_open_total 0.0
 # HELP arxmcp_session_cap_fail_open_created Total number of `tools/call` requests forwarded without the per-session and hourly cap checks because the check failed. Any non-zero value means the caps are not being enforced.
 # TYPE arxmcp_session_cap_fail_open_created gauge
 arxmcp_session_cap_fail_open_created 1.785537614618891e+09
-# HELP arxmcp_latexml_drift_detected_total Total number of fixture diffs that detected LaTeXML output drift since the cron process started. Each increment is one fixture whose freshly-rendered MathML differed from the checked-in expected baseline. Operators should re-run the extractor + indexer (see docs/ops/latexml-drift-runbook.md) and regenerate fixtures via `python -m ops.drift_check --update-fixtures` after confirming the LaTeXML upgrade is intentional.
+# HELP arxmcp_latexml_drift_detected_total Total number of fixture diffs that detected LaTeXML output drift since the cron process started. Each increment is one fixture whose freshly-rendered MathML differed from the checked-in expected baseline. Operators should re-run the extractor + indexer (see docs/ops/latexml-drift-runbook.md) and regenerate fixtures via `python -m arxmcp.ops.drift_check --update-fixtures` after confirming the LaTeXML upgrade is intentional.
 # TYPE arxmcp_latexml_drift_detected_total counter
 # HELP arxmcp_latexml_drift_fixtures Number of LaTeXML fixtures currently in drift state, rehydrated from var/arxmcp/ops/drift-detected.flag at scrape time. 0 means no drift; >0 means the operator should run the recovery procedure documented in docs/ops/latexml-drift-runbook.md.
 # TYPE arxmcp_latexml_drift_fixtures gauge
 arxmcp_latexml_drift_fixtures 0.0
-# HELP arxmcp_eval_ndcg5 Latest watchdog nDCG@5 measurement per staging corpus version. Rehydrated at /metrics scrape time from var/arxmcp/ops/eval-reports/corpus_v<N>-*.json by the scrape hook in server.health.refresh_sentinel_metrics. Capped at the 5 most-recent corpus versions to bound label cardinality.
+# HELP arxmcp_eval_ndcg5 Latest watchdog nDCG@5 measurement per staging corpus version. Rehydrated at /metrics scrape time from var/arxmcp/ops/eval-reports/corpus_v<N>-*.json by the scrape hook in arxmcp.server.health.refresh_sentinel_metrics. Capped at the 5 most-recent corpus versions to bound label cardinality.
 # TYPE arxmcp_eval_ndcg5 gauge
 # HELP arxmcp_eval_quarantine_active 1.0 when var/arxmcp/ops/eval-quarantine.flag is present (watchdog has detected a regression and refuses cutover); 0.0 when absent. Rehydrated at /metrics scrape time.
 # TYPE arxmcp_eval_quarantine_active gauge
@@ -119,7 +119,7 @@ arxmcp_lean_repl_env_snapshots 0.0
 arxmcp_lean_repl_age_seconds 0.0
 # HELP arxmcp_api_spend_usd_total Cumulative API spend in USD across hosted-model paths. Labels: provider (voyage/anthropic), model (specific name), agent_role (the calling agent's role from Arxmcp-Agent-Role header, or 'unknown'). Increment lives at the call site that completes the hosted-model API call.
 # TYPE arxmcp_api_spend_usd_total counter
-# HELP arxmcp_request_total Total tool handler invocations, partitioned by tool name and terminal status (ok / error). One increment per call; the wrapping logic in server.tools.register_all guarantees ok-or-error is always recorded via try/finally.
+# HELP arxmcp_request_total Total tool handler invocations, partitioned by tool name and terminal status (ok / error). One increment per call; the wrapping logic in arxmcp.server.tools.register_all guarantees ok-or-error is always recorded via try/finally.
 # TYPE arxmcp_request_total counter
 arxmcp_request_total{status="ok",tool="search_papers"} 100.0
 arxmcp_request_total{status="error",tool="search_papers"} 2.0
@@ -135,7 +135,7 @@ arxmcp_request_total{status="ok",tool="get_paper"} 100.0
 arxmcp_request_total{status="error",tool="get_paper"} 2.0
 arxmcp_request_total{status="ok",tool="cite_neighbors"} 100.0
 arxmcp_request_total{status="error",tool="cite_neighbors"} 2.0
-# HELP arxmcp_request_created Total tool handler invocations, partitioned by tool name and terminal status (ok / error). One increment per call; the wrapping logic in server.tools.register_all guarantees ok-or-error is always recorded via try/finally.
+# HELP arxmcp_request_created Total tool handler invocations, partitioned by tool name and terminal status (ok / error). One increment per call; the wrapping logic in arxmcp.server.tools.register_all guarantees ok-or-error is always recorded via try/finally.
 # TYPE arxmcp_request_created gauge
 arxmcp_request_created{status="ok",tool="search_papers"} 1.7855376147225559e+09
 arxmcp_request_created{status="error",tool="search_papers"} 1.7855376147235558e+09
@@ -151,7 +151,7 @@ arxmcp_request_created{status="ok",tool="get_paper"} 1.7855376147235558e+09
 arxmcp_request_created{status="error",tool="get_paper"} 1.7855376147245557e+09
 arxmcp_request_created{status="ok",tool="cite_neighbors"} 1.7855376147245557e+09
 arxmcp_request_created{status="error",tool="cite_neighbors"} 1.7855376147245557e+09
-# HELP arxmcp_request_latency_seconds Tool handler wall-clock latency in seconds, recorded for both ok and error outcomes. Latency timer starts before the handler runs and stops in the try/finally of server.tools._tracked_handler.
+# HELP arxmcp_request_latency_seconds Tool handler wall-clock latency in seconds, recorded for both ok and error outcomes. Latency timer starts before the handler runs and stops in the try/finally of arxmcp.server.tools._tracked_handler.
 # TYPE arxmcp_request_latency_seconds histogram
 arxmcp_request_latency_seconds_bucket{le="0.001",tool="search_papers"} 0.0
 arxmcp_request_latency_seconds_bucket{le="0.005",tool="search_papers"} 1.0
@@ -251,7 +251,7 @@ arxmcp_request_latency_seconds_bucket{le="5.0",tool="cite_neighbors"} 9.0
 arxmcp_request_latency_seconds_bucket{le="+Inf",tool="cite_neighbors"} 9.0
 arxmcp_request_latency_seconds_count{tool="cite_neighbors"} 9.0
 arxmcp_request_latency_seconds_sum{tool="cite_neighbors"} 7.69
-# HELP arxmcp_request_latency_seconds_created Tool handler wall-clock latency in seconds, recorded for both ok and error outcomes. Latency timer starts before the handler runs and stops in the try/finally of server.tools._tracked_handler.
+# HELP arxmcp_request_latency_seconds_created Tool handler wall-clock latency in seconds, recorded for both ok and error outcomes. Latency timer starts before the handler runs and stops in the try/finally of arxmcp.server.tools._tracked_handler.
 # TYPE arxmcp_request_latency_seconds_created gauge
 arxmcp_request_latency_seconds_created{tool="search_papers"} 1.7855376147235558e+09
 arxmcp_request_latency_seconds_created{tool="get_chunk"} 1.7855376147235558e+09

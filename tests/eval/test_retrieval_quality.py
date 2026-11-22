@@ -44,12 +44,12 @@ skip-on-cold-start protocol keeps cycle time fast.
 
 **See also.**
 
-- ``ops/eval_metrics.py`` — pure ``ndcg_at_k`` / ``recall_at_k`` /
+- ``src/arxmcp/ops/eval_metrics.py`` — pure ``ndcg_at_k`` / ``recall_at_k`` /
   ``assert_threshold`` (unit-tested in ``tests/eval/test_metrics.py``).
-- ``server/query_encoder.py`` — async ``encode_query`` (E03_S03).
-- ``ingest/corpus.py`` — ``open_chunks_table`` + ``read_corpus_version``
+- ``src/arxmcp/server/query_encoder.py`` — async ``encode_query`` (E03_S03).
+- ``src/arxmcp/ingest/corpus.py`` — ``open_chunks_table`` + ``read_corpus_version``
   (E04_S02 + E04_S03).
-- ``tools/validate_eval_fixtures.py`` — fixture validator (E05_S01).
+- ``src/arxmcp/tools/validate_eval_fixtures.py`` — fixture validator (E05_S01).
 """
 
 from __future__ import annotations
@@ -64,14 +64,14 @@ from pathlib import Path
 
 import pytest
 
-from ingest.schema import EMBEDDING_COLUMN_NAMES
-from ops.eval_metrics import (
+from arxmcp.ingest.schema import EMBEDDING_COLUMN_NAMES
+from arxmcp.ops.eval_metrics import (
     _mean,
     assert_threshold,
     ndcg_at_k,
     recall_at_k,
 )
-from ops.retrieval_eval import (
+from arxmcp.ops.retrieval_eval import (
     FINAL_TOP_K,
     NDCG_K,
     run_hybrid_against_corpus,
@@ -97,7 +97,7 @@ EVAL_OPS_DIR = REPO_ROOT / "var" / "arxmcp" / "ops" / "eval"
 PER_COLUMN_TOP_K = 10
 
 #: The two embedding columns to search. Imported from
-#: :data:`ingest.schema.EMBEDDING_COLUMN_NAMES` per F3 of the E05_S02
+#: :data:`arxmcp.ingest.schema.EMBEDDING_COLUMN_NAMES` per F3 of the E05_S02
 #: critique — the column-name strings live in exactly one place
 #: (single-source-of-truth: a future schema rename touches one constant).
 EMBEDDING_COLUMNS = EMBEDDING_COLUMN_NAMES
@@ -127,7 +127,7 @@ def test_retrieval_quality(
     The body is split into helpers:
     - :func:`_run_queries_against_corpus` runs the dense-only ANN loop
       (the original E05_S02 path; default).
-    - :func:`ops.retrieval_eval.run_hybrid_against_corpus` runs the FULL 3-phase
+    - :func:`arxmcp.ops.retrieval_eval.run_hybrid_against_corpus` runs the FULL 3-phase
       pipeline (BM25 → ANN+RRF → optional Rerank) when ``--hybrid``
       is passed (E07_S04). Records per-phase latency for the
       ``LATENCY_P95_MAX_SECONDS`` AC.
@@ -148,8 +148,8 @@ def test_retrieval_quality(
     # Import deferred so a fully-cold dev box (no LanceDB installed)
     # does not import-error here. Skipping is the right signal.
     try:
-        from ingest.corpus import open_chunks_table, read_corpus_version
-        from server.query_encoder import encode_query
+        from arxmcp.ingest.corpus import open_chunks_table, read_corpus_version
+        from arxmcp.server.query_encoder import encode_query
     except ImportError as exc:
         pytest.skip(
             f"server-side deps not importable ({exc}); "
@@ -245,7 +245,7 @@ def _run_queries_against_corpus(
     Closes F2 from the E05_S02 critique: encode every query inside a
     SINGLE event loop rather than calling ``asyncio.run`` per query.
     The previous one-loop-per-query pattern leaked stale ``Future``
-    objects into ``server.query_encoder._inflight`` (the singleflight
+    objects into ``arxmcp.server.query_encoder._inflight`` (the singleflight
     cache) — when a second query had identical canonical text, the
     FAST PATH would await a Future bound to a closed loop and raise
     ``RuntimeError``. Single-loop-per-test eliminates the stale-Future
@@ -270,7 +270,7 @@ def _run_queries_against_corpus(
             except (KeyError, TypeError) as exc:
                 pytest.fail(
                     f"queries[{query_idx}] is malformed ({exc!r}); run "
-                    f"`python tools/validate_eval_fixtures.py` to "
+                    f"`python src/arxmcp/tools/validate_eval_fixtures.py` to "
                     f"diagnose. The eval harness trusts the fixture's "
                     f"shape and the validator is the safety net."
                 )
@@ -339,7 +339,7 @@ def score_and_write(
     function with synthetic ``per_query_rows`` to confirm: (a) the
     JSONL + aggregate files land at the expected paths with the
     expected schema, and (b) ``ndcg5_mean < ndcg_min`` raises
-    :class:`ops.eval_metrics.ThresholdNotMetError`.
+    :class:`arxmcp.ops.eval_metrics.ThresholdNotMetError`.
 
     The aggregate file is the drift-detection baseline that E11_S04's
     watchdog will compare against on a schedule.
@@ -465,8 +465,8 @@ def _atomic_write_text(out_path: Path, payload: str) -> None:
     """Atomically write UTF-8 ``payload`` to ``out_path``.
 
     PID + UUID-suffix tmp + ``os.replace`` + ``try/finally`` cleanup.
-    Mirrors ``ingest.preamble._write_preamble_json`` and
-    ``ingest.bm25_indexer._atomic_write_text``. The aggregate file
+    Mirrors ``arxmcp.ingest.preamble._write_preamble_json`` and
+    ``arxmcp.ingest.bm25_indexer._atomic_write_text``. The aggregate file
     is one row per ``corpus_version``; a partial write breaks
     E11_S04's drift-detection baseline.
     """

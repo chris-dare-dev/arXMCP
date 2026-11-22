@@ -14,11 +14,13 @@ operator console at `/ui/` manages notebooks. No SPA, no Node build chain.
 Retrieval and pre-loading are where the effort goes: the Lean kernel, not an
 LLM, is the critic.
 
-Layout: `server/` (MCP server, handlers, retrieval, console), `ingest/` (corpus
-pipeline), `shim/` (stdio ↔ HTTP bridge), `ops/` (backup, cutover, drift),
-`tools/` (developer and ingest utilities), `apps/desktop/` (Tauri supervisor
-and PyInstaller packaging), `infra/` and `docker/` (deployment), `tests/`.
-`var/` is the gitignored data tree.
+Layout: `src/arxmcp/` is the one Python package, holding `server/` (MCP
+server, handlers, retrieval, console), `ingest/` (corpus pipeline), `shim/`
+(stdio ↔ HTTP bridge), `ops/` (backup, cutover, drift) and `tools/` (developer
+and ingest utilities). `src/desktop/` is the Tauri supervisor and PyInstaller
+packaging, `deploy/` the container, compose and k8s files, and `tests/` the
+suite. `var/` is the gitignored data tree. The import-linter contract in
+`pyproject.toml` enforces which box may import which.
 
 ## Hard constraints
 
@@ -30,7 +32,7 @@ and PyInstaller packaging), `infra/` and `docker/` (deployment), `tests/`.
 - **The server never runs agents.** No agent loop, dispatch or per-run agent
   memory server-side. The `anthropic` SDK stays out of `server/` and out of
   the runtime dependencies. The orchestrator loop lives in another repository;
-  `server/orchestrator/` is an SDK-free policy library.
+  `src/arxmcp/server/orchestrator/` is an SDK-free policy library.
 - **Writes enter only through offline ingest CLIs or operator-confirmed
   `/ui/` actions.** MCP tools are read-only over corpus state; `lean_verify`
   computes and never persists corpus-visible state.
@@ -90,9 +92,10 @@ and PyInstaller packaging), `infra/` and `docker/` (deployment), `tests/`.
 
 ## Tests
 
-- `make test` runs `ruff check .` then `pytest`, and must be green before a
-  pull request. Without `make`, run those two steps with the venv's Python
-  (`uv sync --locked`, then `.venv/bin/python -m pytest`).
+- `make test` runs `ruff check .`, the import-linter contract, then `pytest`,
+  and must be green before a pull request. Without `make`, run those steps
+  with the venv's Python (`uv sync --locked`, then `.venv/bin/lint-imports`
+  and `.venv/bin/python -m pytest`).
 - Tests assert behaviour a caller of the product can observe. Never test the
   wording of documentation or agent instructions.
 - `requires_*` markers are opt-in: the hook in `tests/conftest.py` skips them
@@ -112,19 +115,19 @@ every data file is on disk.
   files. Every other file needs a `[tool.setuptools.package-data]` glob;
   `tests/test_wheel_packaging.py` fails on any unmatched data file.
 - A tree added to that include list needs a matching `COPY` in
-  `docker/Dockerfile.server`.
+  `deploy/Dockerfile.server`.
 - Run `make wheel-check` after touching `pyproject.toml`, and
   `make wheel-check-full` before a release.
 
 ## Adding an MCP tool
 
-1. Write the handler in `server/handlers/<tool>.py`.
-2. Add a `ToolMeta` to `ALL_TOOLS` in `server/tools.py` and wire it in
+1. Write the handler in `src/arxmcp/server/handlers/<tool>.py`.
+2. Add a `ToolMeta` to `ALL_TOOLS` in `src/arxmcp/server/tools.py` and wire it in
    `register_all(...)`.
 3. `tools/list` must stay byte-stable for prompt caching: re-pin
    `EXPECTED_TOOL_SCHEMA_SHA256` with `pytest --update-tool-schema-hash`.
 4. Add `tests/test_handlers_<tool>.py`. Snippet-bearing results keep the
-   150-character snippet contract in `server/handlers/search.py`.
+   150-character snippet contract in `src/arxmcp/server/handlers/search.py`.
 
 ## Known deferrals
 
@@ -171,8 +174,8 @@ platform work or treats results from the wrong host as release evidence.
 | Symptom | First file |
 |---|---|
 | Tests segfault on macOS | `tests/conftest.py` |
-| Server refuses to bind | `server/config.py` (`reject_non_loopback`) |
-| `tools/list` hash drift | `tests/test_server_tool_schema.py`, `server/tools.py` |
-| Prompt cache misses between roles | `server/prompts.py`, `server/orchestrator/id_canon.py` |
-| Stale retrieval results | `server/corpus_freshness.py`, then `server/cache.py` |
-| Empty citation neighbours | `server/handlers/citations.py` (`graph_status` first) |
+| Server refuses to bind | `src/arxmcp/server/config.py` (`reject_non_loopback`) |
+| `tools/list` hash drift | `tests/test_server_tool_schema.py`, `src/arxmcp/server/tools.py` |
+| Prompt cache misses between roles | `src/arxmcp/server/prompts.py`, `src/arxmcp/server/orchestrator/id_canon.py` |
+| Stale retrieval results | `src/arxmcp/server/corpus_freshness.py`, then `src/arxmcp/server/cache.py` |
+| Empty citation neighbours | `src/arxmcp/server/handlers/citations.py` (`graph_status` first) |

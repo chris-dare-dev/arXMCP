@@ -7,7 +7,7 @@ Coverage map:
   version field matches write_chunks return                  -> TestWriteOnIngest
   Atomic write (tmp + rename, no leak)                       -> TestAtomicWrite
   read_corpus_version → typed dataclass                      -> TestReadMarker
-  Cache contract comment in ingest/corpus.py docstring       -> TestCacheContract
+  Cache contract comment in src/arxmcp/ingest/corpus.py docstring       -> TestCacheContract
   Two ingest runs → version increments                       -> TestVersionIncrements
 
 Plus regression tests for missing/corrupt marker handling, default
@@ -21,10 +21,10 @@ import json
 
 import pytest
 
-from ingest.chunk import CHUNKER_VERSION
-from ingest.corpus import CorpusVersionInfo, read_corpus_version
-from ingest.embedder import EMBEDDER_VERSION
-from ingest.store import (
+from arxmcp.ingest.chunk import CHUNKER_VERSION
+from arxmcp.ingest.corpus import CorpusVersionInfo, read_corpus_version
+from arxmcp.ingest.embedder import EMBEDDER_VERSION
+from arxmcp.ingest.store import (
     CORPUS_VERSION_MARKER_NAME,
     write_chunks,
     write_corpus_version_marker,
@@ -219,7 +219,7 @@ class TestWriteMarker:
     def test_default_path(self, tmp_path, monkeypatch):
         # Pointing DEFAULT_LANCEDB_PATH at tmp_path tests the
         # ``lancedb_path=None`` branch.
-        import ingest.store as store_mod
+        import arxmcp.ingest.store as store_mod
 
         monkeypatch.setattr(store_mod, "DEFAULT_LANCEDB_PATH", tmp_path)
         write_corpus_version_marker(
@@ -288,7 +288,7 @@ class TestAtomicWrite:
             captured_tmp_paths.append(str(src))
             return original_replace(src, dst)
 
-        monkeypatch.setattr("ingest.store.os.replace", _capturing_replace)
+        monkeypatch.setattr("arxmcp.ingest.store.os.replace", _capturing_replace)
         write_corpus_version_marker(
             tmp_path,
             version=1,
@@ -361,8 +361,8 @@ class TestReadMarker:
 
     def test_default_path_via_monkeypatch(self, tmp_path, monkeypatch):
         # ``lancedb_path=None`` falls back to DEFAULT_LANCEDB_PATH.
-        import ingest.corpus as corpus_mod
-        import ingest.store as store_mod
+        import arxmcp.ingest.corpus as corpus_mod
+        import arxmcp.ingest.store as store_mod
 
         monkeypatch.setattr(store_mod, "DEFAULT_LANCEDB_PATH", tmp_path)
         monkeypatch.setattr(corpus_mod, "DEFAULT_LANCEDB_PATH", tmp_path)
@@ -380,17 +380,17 @@ class TestReadMarker:
 
 
 # ===========================================================================
-# TestCacheContract — ingest/corpus.py module docstring contains the contract
+# TestCacheContract — src/arxmcp/ingest/corpus.py module docstring contains the contract
 # ===========================================================================
 
 
 class TestCacheContract:
     def test_corpus_module_docstring_states_cache_contract(self):
         """Brief AC: 'Cache contract comment is present in
-        ingest/corpus.py'. Whitespace-collapsed substring match so the
+        src/arxmcp/ingest/corpus.py'. Whitespace-collapsed substring match so the
         sentence can wrap across source lines without breaking the test.
         """
-        import ingest.corpus as corpus_mod
+        import arxmcp.ingest.corpus as corpus_mod
 
         doc = corpus_mod.__doc__ or ""
         doc_collapsed = " ".join(doc.split())
@@ -400,7 +400,7 @@ class TestCacheContract:
             "in their keys."
         )
         assert required in doc_collapsed, (
-            "ingest/corpus.py module docstring must contain the cache "
+            "src/arxmcp/ingest/corpus.py module docstring must contain the cache "
             "contract sentence verbatim per E04_S03 deliverables"
         )
 
@@ -417,7 +417,7 @@ class TestThreat1Deferral:
         the rest of the corpus reader/writer surfaces use, so a future
         maintainer reading the function in isolation sees the
         validation contract."""
-        from ingest.store import write_corpus_version_marker
+        from arxmcp.ingest.store import write_corpus_version_marker
 
         doc = write_corpus_version_marker.__doc__ or ""
         doc_collapsed = " ".join(doc.split())
@@ -426,7 +426,7 @@ class TestThreat1Deferral:
 
     def test_reader_docstring_carries_threat1_deferral(self):
         """Closes M2: same discipline for ``read_corpus_version``."""
-        from ingest.corpus import read_corpus_version
+        from arxmcp.ingest.corpus import read_corpus_version
 
         doc = read_corpus_version.__doc__ or ""
         doc_collapsed = " ".join(doc.split())

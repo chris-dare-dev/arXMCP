@@ -1,6 +1,6 @@
 """Corpus-freshness seam (issue #207).
 
-``ingest/corpus.py`` declared cache invalidation on a corpus-version
+``src/arxmcp/ingest/corpus.py`` declared cache invalidation on a corpus-version
 change a MUST and asserted the implementation honored it. It did not:
 ``purge_other_corpus_versions`` had zero callers repo-wide,
 ``Resources.notebook_table`` memoized ``(table, corpus_info)`` with no
@@ -44,16 +44,16 @@ import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 
-from ingest.embedder import EMBEDDING_DIM
-from server.config import Config
-from server.corpus_freshness import (
+from arxmcp.ingest.embedder import EMBEDDING_DIM
+from arxmcp.server.config import Config
+from arxmcp.server.corpus_freshness import (
     DEFAULT_FRESHNESS_INTERVAL_SECONDS,
     FreshnessGate,
     read_marker_off_loop,
 )
-from server.health import reset_metrics_for_tests
-from server.main import create_app
-from server.tools import reset_resources_for_tests
+from arxmcp.server.health import reset_metrics_for_tests
+from arxmcp.server.main import create_app
+from arxmcp.server.tools import reset_resources_for_tests
 from tests._corpus_helpers import patch_bge_m3_model, seed_corpus
 
 
@@ -257,7 +257,7 @@ class TestFreshnessGate:
 
 class TestReadMarkerOffLoop:
     def test_reads_a_valid_marker(self, tmp_path) -> None:
-        from ingest.corpus import read_corpus_version
+        from arxmcp.ingest.corpus import read_corpus_version
 
         seed_corpus(tmp_path / "lancedb", n=2)
         info = _run(
@@ -269,7 +269,7 @@ class TestReadMarkerOffLoop:
         assert info.version >= 1
 
     def test_absent_marker_returns_none(self, tmp_path) -> None:
-        from ingest.corpus import read_corpus_version
+        from arxmcp.ingest.corpus import read_corpus_version
 
         info = _run(
             read_marker_off_loop(tmp_path / "nope", reader=read_corpus_version)
@@ -282,7 +282,7 @@ class TestReadMarkerOffLoop:
         """A half-written marker is the NORMAL state during an ingest's
         atomic-rename window. Raising here would turn a routine race
         into operator-visible tool failures."""
-        from ingest.corpus import read_corpus_version
+        from arxmcp.ingest.corpus import read_corpus_version
 
         lancedb_path = tmp_path / "lancedb"
         lancedb_path.mkdir(parents=True)
@@ -302,8 +302,8 @@ class TestReadMarkerOffLoop:
 
 class TestPurgeIsWired:
     def test_open_with_purge_drops_other_versions(self, tmp_path) -> None:
-        from server.cache import RetrievalCache
-        from server.cache_sqlite import Tier1Store
+        from arxmcp.server.cache import RetrievalCache
+        from arxmcp.server.cache_sqlite import Tier1Store
 
         db = tmp_path / "retrieval.db"
 
@@ -337,8 +337,8 @@ class TestPurgeIsWired:
         """Cold start has no previous in-process version to invalidate,
         so the default must leave the file alone — a restart should not
         silently throw away a warm cross-version cache."""
-        from server.cache import RetrievalCache
-        from server.cache_sqlite import Tier1Store
+        from arxmcp.server.cache import RetrievalCache
+        from arxmcp.server.cache_sqlite import Tier1Store
 
         db = tmp_path / "retrieval.db"
 
@@ -365,18 +365,18 @@ class TestPurgeIsWired:
         """
         import inspect
 
-        import server.cache as cache_mod
-        import server.resources as resources_mod
+        import arxmcp.server.cache as cache_mod
+        import arxmcp.server.resources as resources_mod
 
         cache_src = inspect.getsource(cache_mod)
         assert "purge_other_corpus_versions(" in cache_src, (
-            "server/cache.py must CALL purge_other_corpus_versions — the "
-            "cache-invalidation MUST in ingest/corpus.py depends on it"
+            "src/arxmcp/server/cache.py must CALL purge_other_corpus_versions — the "
+            "cache-invalidation MUST in src/arxmcp/ingest/corpus.py depends on it"
         )
         resources_src = inspect.getsource(resources_mod)
         assert "purge_other_versions=True" in resources_src, (
             "the corpus-rebind path must request the purge; without it the "
-            "call site in server/cache.py is itself unreachable"
+            "call site in src/arxmcp/server/cache.py is itself unreachable"
         )
 
     def test_invalidate_corpus_version_clears_tier2_and_tier3(
@@ -394,7 +394,7 @@ class TestPurgeIsWired:
         here so a future key change on either side does not silently
         remove the guarantee.
         """
-        from server.cache import RetrievalCache
+        from arxmcp.server.cache import RetrievalCache
 
         async def go():
             cache = await RetrievalCache.open(
@@ -463,7 +463,7 @@ class TestNotebookTableFreshness:
     def _make_resources(interval: float = 0.0):
         import asyncio as _asyncio
 
-        from server.resources import Resources, Singleflight
+        from arxmcp.server.resources import Resources, Singleflight
 
         return Resources(
             config=Config(corpus_freshness_interval_seconds=interval),
@@ -479,8 +479,8 @@ class TestNotebookTableFreshness:
         """Fake the path helper, marker reader and table opener; keep the
         REAL ``validate_slug``. ``version_box`` is the on-disk version the
         test mutates to simulate an ingest."""
-        import ingest.notebooks as nc
-        import server.resources as res_mod
+        import arxmcp.ingest.notebooks as nc
+        import arxmcp.server.resources as res_mod
 
         monkeypatch.setattr(
             nc, "notebook_lancedb_path",
@@ -607,7 +607,7 @@ class TestNotebookTableFreshness:
         """m2 FM-6 bounded the table registry; #207 added a parallel gate
         dict that must be bounded in lockstep or it reintroduces the same
         unbounded-growth shape one dict over."""
-        from server.resources import MAX_NOTEBOOK_TABLE_SLOTS
+        from arxmcp.server.resources import MAX_NOTEBOOK_TABLE_SLOTS
 
         res = self._make_resources(interval=0.0)
 
@@ -692,8 +692,8 @@ def deterministic_embedder(monkeypatch):
         v /= np.linalg.norm(v)
         return v
 
-    import server.handlers.search as search_mod
-    import server.query_encoder as qe_mod
+    import arxmcp.server.handlers.search as search_mod
+    import arxmcp.server.query_encoder as qe_mod
 
     monkeypatch.setattr(qe_mod, "encode_query", _fake_encode_query)
     monkeypatch.setattr(search_mod, "encode_query", _fake_encode_query)
@@ -719,7 +719,7 @@ class TestMidSessionIngest:
 
         This exercises the PULL path (a bare ``write_chunks``, as an
         out-of-band ``make ingest`` or a terminal
-        ``tools/notebook_ingest.py`` run would produce — no in-process
+        ``src/arxmcp/tools/notebook_ingest.py`` run would produce — no in-process
         callback fires). ``corpus_freshness_interval_seconds=0`` removes
         the throttle so the test is deterministic rather than timing
         dependent.
@@ -779,7 +779,7 @@ class TestMidSessionIngest:
         forced refresh inside ``on_ingest_complete`` can, which pins the
         push path independently of the pull path.
         """
-        from server.resources import Resources
+        from arxmcp.server.resources import Resources
 
         lancedb_path = tmp_path / "lancedb"
         v1 = seed_corpus(lancedb_path, n=2)
@@ -846,7 +846,7 @@ class TestMidSessionIngest:
         """A rebind is a convergence step, not a request. If it fails,
         the process must keep serving what it has rather than ending up
         half-swapped or unwarm."""
-        from server.resources import Resources
+        from arxmcp.server.resources import Resources
 
         lancedb_path = tmp_path / "lancedb"
         v1 = seed_corpus(lancedb_path, n=2)
@@ -862,7 +862,7 @@ class TestMidSessionIngest:
                 original_table = resources.chunks_table
                 seed_corpus(lancedb_path, n=4)
 
-                import server.resources as res_mod
+                import arxmcp.server.resources as res_mod
 
                 def boom(*a, **kw):
                     raise RuntimeError("simulated LanceDB open failure")
@@ -896,7 +896,7 @@ class TestIngestCallbackWiring:
     def test_lifespan_wires_the_tracker_to_on_ingest_complete(
         self, tmp_path, deterministic_embedder, monkeypatch
     ) -> None:
-        """``server/main.py``'s ``_on_ingest_success`` closure must reach
+        """``src/arxmcp/server/main.py``'s ``_on_ingest_success`` closure must reach
         ``Resources.on_ingest_complete``.
 
         Before #207 it called ``late_bind``, which returns ``False``
@@ -905,7 +905,7 @@ class TestIngestCallbackWiring:
         This pins the wire rather than the behavior behind it, so a
         future refactor that drops the callback fails here.
         """
-        from server.resources import Resources
+        from arxmcp.server.resources import Resources
 
         lancedb_path = tmp_path / "lancedb"
         seed_corpus(lancedb_path, n=2)
@@ -950,7 +950,7 @@ def _bare_resources(tmp_path, cache):
     """
     import asyncio as _asyncio
 
-    from server.resources import Resources, Singleflight
+    from arxmcp.server.resources import Resources, Singleflight
 
     return Resources(
         config=Config(
@@ -1083,7 +1083,7 @@ class TestInvalidationSeamIsWired:
         import inspect
         import re
 
-        import server.resources as resources_mod
+        import arxmcp.server.resources as resources_mod
 
         code = "\n".join(
             line for line in inspect.getsource(resources_mod).splitlines()

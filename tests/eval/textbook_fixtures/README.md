@@ -114,7 +114,7 @@ each formula short (≤50 tokens) and original.
 
 ## Regenerating
 
-If `tools/cdm_eval.py` changes (e.g., interval-15 → interval-12 grid),
+If `src/arxmcp/tools/cdm_eval.py` changes (e.g., interval-15 → interval-12 grid),
 the fixture itself does not need regeneration — the `.tex` and
 `.mathml` files are parser-independent ground truth.
 
@@ -151,5 +151,5 @@ LaTeXML-eligible classes use.
 
 ## Cross-references
 
-- `tools/cdm_eval.py` — CDM impl
+- `src/arxmcp/tools/cdm_eval.py` — CDM impl
 - `tests/eval/test_parser_fidelity.py` — pytest harness

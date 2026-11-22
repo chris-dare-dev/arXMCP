@@ -1,4 +1,4 @@
-"""Tests for tools/validate_notebook_fixtures.py (proof-verify-handler-wiring-m4).
+"""Tests for src/arxmcp/tools/validate_notebook_fixtures.py (proof-verify-handler-wiring-m4).
 
 Coverage matrix:
 
@@ -26,9 +26,9 @@ from pathlib import Path
 
 import pytest
 
-from ingest import notebooks as _notebook_common
-from tools import validate_notebook_fixtures
-from tools.validate_notebook_fixtures import (
+from arxmcp.ingest import notebooks as _notebook_common
+from arxmcp.tools import validate_notebook_fixtures
+from arxmcp.tools.validate_notebook_fixtures import (
     MIN_NOTEBOOK_QUERIES,
     FixtureValidationError,
     main,

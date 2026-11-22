@@ -1,4 +1,4 @@
-"""Unit tests for ingest.chunker (E02_S01).
+"""Unit tests for arxmcp.ingest.chunker (E02_S01).
 
 All tests use hand-crafted HTML fixtures under tests/fixtures/chunker/
 and a patched PARSED_DIR / CHUNKS_DIR so no real corpus files are needed.
@@ -49,8 +49,8 @@ def _fixture_html(paper_id: str) -> str:
 # Import chunker internals for unit-level tests
 # ---------------------------------------------------------------------------
 
-from ingest.chunk import ChunkRecord  # noqa: E402
-from ingest.chunker import (  # noqa: E402
+from arxmcp.ingest.chunk import ChunkRecord  # noqa: E402
+from arxmcp.ingest.chunker import (  # noqa: E402
     PROOF_MAX_TOKENS,
     PROOF_WINDOW_OVERLAP,
     STMT_MAX_TOKENS,
@@ -109,8 +109,8 @@ class TestTwoTheoremGolden:
             (FIXTURE_DIR / self.PAPER_ID / "index.html").read_bytes()
         )
         with (
-            patch("ingest.chunker.PARSED_DIR", parsed_dir),
-            patch("ingest.chunker.CHUNKS_DIR", chunks_dir),
+            patch("arxmcp.ingest.chunker.PARSED_DIR", parsed_dir),
+            patch("arxmcp.ingest.chunker.CHUNKS_DIR", chunks_dir),
         ):
             return chunk_paper(self.PAPER_ID)
 
@@ -256,8 +256,8 @@ class TestMultiKindEnvironments:
             (FIXTURE_DIR / self.PAPER_ID / "index.html").read_bytes()
         )
         with (
-            patch("ingest.chunker.PARSED_DIR", parsed_dir),
-            patch("ingest.chunker.CHUNKS_DIR", chunks_dir),
+            patch("arxmcp.ingest.chunker.PARSED_DIR", parsed_dir),
+            patch("arxmcp.ingest.chunker.CHUNKS_DIR", chunks_dir),
         ):
             return chunk_paper(self.PAPER_ID)
 
@@ -446,8 +446,8 @@ class TestProofWindowSplitting:
         paper_parsed.mkdir(parents=True)
         (paper_parsed / "index.html").write_text(html, encoding="utf-8")
         with (
-            patch("ingest.chunker.PARSED_DIR", parsed_dir),
-            patch("ingest.chunker.CHUNKS_DIR", chunks_dir),
+            patch("arxmcp.ingest.chunker.PARSED_DIR", parsed_dir),
+            patch("arxmcp.ingest.chunker.CHUNKS_DIR", chunks_dir),
         ):
             chunks = chunk_paper(paper_id)
 
@@ -985,8 +985,8 @@ class TestMalformedHTML:
             (FIXTURE_DIR / self.PAPER_ID / "index.html").read_bytes()
         )
         with (
-            patch("ingest.chunker.PARSED_DIR", parsed_dir),
-            patch("ingest.chunker.CHUNKS_DIR", chunks_dir),
+            patch("arxmcp.ingest.chunker.PARSED_DIR", parsed_dir),
+            patch("arxmcp.ingest.chunker.CHUNKS_DIR", chunks_dir),
         ):
             return chunk_paper(self.PAPER_ID)
 
@@ -1089,9 +1089,9 @@ class TestChunkFailureIsolation:
         parsed_dir.mkdir()
         chunks_dir.mkdir()
         with (
-            patch("ingest.chunker.PARSED_DIR", parsed_dir),
-            patch("ingest.chunker.CHUNKS_DIR", chunks_dir),
-            patch("ingest.chunker.CHUNK_LOG_PATH", tmp_path / "chunk.log"),
+            patch("arxmcp.ingest.chunker.PARSED_DIR", parsed_dir),
+            patch("arxmcp.ingest.chunker.CHUNKS_DIR", chunks_dir),
+            patch("arxmcp.ingest.chunker.CHUNK_LOG_PATH", tmp_path / "chunk.log"),
         ):
             result = chunk_paper("9999.99999")
         assert result == []
@@ -1103,9 +1103,9 @@ class TestChunkFailureIsolation:
         parsed_dir.mkdir()
         chunks_dir.mkdir()
         with (
-            patch("ingest.chunker.PARSED_DIR", parsed_dir),
-            patch("ingest.chunker.CHUNKS_DIR", chunks_dir),
-            patch("ingest.chunker.CHUNK_LOG_PATH", log_path),
+            patch("arxmcp.ingest.chunker.PARSED_DIR", parsed_dir),
+            patch("arxmcp.ingest.chunker.CHUNKS_DIR", chunks_dir),
+            patch("arxmcp.ingest.chunker.CHUNK_LOG_PATH", log_path),
         ):
             chunk_paper("9999.99999")
         assert log_path.exists()
@@ -1133,8 +1133,8 @@ class TestStatementTokenBudget:
             (FIXTURE_DIR / paper_id / "index.html").read_bytes()
         )
         with (
-            patch("ingest.chunker.PARSED_DIR", parsed_dir),
-            patch("ingest.chunker.CHUNKS_DIR", chunks_dir),
+            patch("arxmcp.ingest.chunker.PARSED_DIR", parsed_dir),
+            patch("arxmcp.ingest.chunker.CHUNKS_DIR", chunks_dir),
         ):
             chunks = chunk_paper(paper_id)
 
@@ -1207,9 +1207,9 @@ class TestB2BudgetBumpTakesEffect:
         paper_parsed.mkdir(parents=True)
         (paper_parsed / "index.html").write_text(html, encoding="utf-8")
         with (
-            patch("ingest.chunker.PARSED_DIR", parsed_dir),
-            patch("ingest.chunker.CHUNKS_DIR", tmp_path / "chunks"),
-            patch("ingest.chunker._resolve_preamble_doc", return_value=None),
+            patch("arxmcp.ingest.chunker.PARSED_DIR", parsed_dir),
+            patch("arxmcp.ingest.chunker.CHUNKS_DIR", tmp_path / "chunks"),
+            patch("arxmcp.ingest.chunker._resolve_preamble_doc", return_value=None),
         ):
             chunks = chunk_paper(self.PAPER_ID)
 
@@ -1221,7 +1221,7 @@ class TestB2BudgetBumpTakesEffect:
         chunk = stmt_chunks[0]
 
         # AC clause (a): chunker_version is CHUNKER_VERSION ("v1.3").
-        from ingest.chunk import CHUNKER_VERSION
+        from arxmcp.ingest.chunk import CHUNKER_VERSION
         assert chunk.chunker_version == "v1.3"
         assert chunk.chunker_version == CHUNKER_VERSION
 
@@ -1238,7 +1238,7 @@ class TestB2BudgetBumpTakesEffect:
         # chunker's own _compute_chunk_id so the test stays in sync
         # with any future hash-fn changes. (_compute_chunk_id returns
         # the full ``arxiv:<paper_id>:<hex16>`` form, not just the hash.)
-        from ingest.chunker import _compute_chunk_id
+        from arxmcp.ingest.chunker import _compute_chunk_id
         expected_id_full = _compute_chunk_id(self.PAPER_ID, chunk.body_text)
         assert chunk.chunk_id == expected_id_full, (
             f"chunk_id mismatch:\n"
@@ -1343,7 +1343,7 @@ class TestF2PaperIDValidation:
         chunks_dir = tmp_path / "chunks"
         chunks_dir.mkdir()
         with (
-            patch("ingest.chunker.CHUNKS_DIR", chunks_dir),
+            patch("arxmcp.ingest.chunker.CHUNKS_DIR", chunks_dir),
             pytest.raises(InvalidPaperIDError),
         ):
             chunk_paper("../etc/passwd")
@@ -1371,8 +1371,8 @@ class TestF3StaleFileCleanup:
         assert sentinel.exists()
 
         with (
-            patch("ingest.chunker.PARSED_DIR", parsed_dir),
-            patch("ingest.chunker.CHUNKS_DIR", chunks_dir),
+            patch("arxmcp.ingest.chunker.PARSED_DIR", parsed_dir),
+            patch("arxmcp.ingest.chunker.CHUNKS_DIR", chunks_dir),
         ):
             chunks = chunk_paper(paper_id)
 
@@ -1392,9 +1392,9 @@ class TestParsedDirArgument:
             (FIXTURE_DIR / self.PAPER_ID / "index.html").read_bytes()
         )
         with (
-            patch("ingest.chunker.PARSED_DIR", tmp_path / "default-parsed"),
-            patch("ingest.chunker.CHUNKS_DIR", tmp_path / "chunks"),
-            patch("ingest.chunker._resolve_preamble_doc", return_value=None),
+            patch("arxmcp.ingest.chunker.PARSED_DIR", tmp_path / "default-parsed"),
+            patch("arxmcp.ingest.chunker.CHUNKS_DIR", tmp_path / "chunks"),
+            patch("arxmcp.ingest.chunker._resolve_preamble_doc", return_value=None),
         ):
             chunks = chunk_paper(self.PAPER_ID, parsed_dir=parsed_dir)
 
@@ -1408,9 +1408,9 @@ class TestParsedDirArgument:
             (FIXTURE_DIR / self.PAPER_ID / "index.html").read_bytes()
         )
         with (
-            patch("ingest.chunker.PARSED_DIR", parsed_dir),
-            patch("ingest.chunker.CHUNKS_DIR", tmp_path / "chunks"),
-            patch("ingest.chunker._resolve_preamble_doc", return_value=None),
+            patch("arxmcp.ingest.chunker.PARSED_DIR", parsed_dir),
+            patch("arxmcp.ingest.chunker.CHUNKS_DIR", tmp_path / "chunks"),
+            patch("arxmcp.ingest.chunker._resolve_preamble_doc", return_value=None),
         ):
             assert chunk_paper(self.PAPER_ID)
 
@@ -1452,8 +1452,8 @@ class TestF4SectionDocumentOrder:
         paper_parsed.mkdir(parents=True)
         (paper_parsed / "index.html").write_text(html, encoding="utf-8")
         with (
-            patch("ingest.chunker.PARSED_DIR", parsed_dir),
-            patch("ingest.chunker.CHUNKS_DIR", chunks_dir),
+            patch("arxmcp.ingest.chunker.PARSED_DIR", parsed_dir),
+            patch("arxmcp.ingest.chunker.CHUNKS_DIR", chunks_dir),
         ):
             chunks = chunk_paper(paper_id)
 
@@ -1501,8 +1501,8 @@ class TestF5StmtTruncationFlag:
         paper_parsed.mkdir(parents=True)
         (paper_parsed / "index.html").write_text(html, encoding="utf-8")
         with (
-            patch("ingest.chunker.PARSED_DIR", parsed_dir),
-            patch("ingest.chunker.CHUNKS_DIR", chunks_dir),
+            patch("arxmcp.ingest.chunker.PARSED_DIR", parsed_dir),
+            patch("arxmcp.ingest.chunker.CHUNKS_DIR", chunks_dir),
         ):
             chunks = chunk_paper(paper_id)
         stmts = [c for c in chunks if c.kind == "theorem" or c.kind == "stmt"]
@@ -1527,8 +1527,8 @@ class TestF5StmtTruncationFlag:
             (FIXTURE_DIR / paper_id / "index.html").read_bytes()
         )
         with (
-            patch("ingest.chunker.PARSED_DIR", parsed_dir),
-            patch("ingest.chunker.CHUNKS_DIR", chunks_dir),
+            patch("arxmcp.ingest.chunker.PARSED_DIR", parsed_dir),
+            patch("arxmcp.ingest.chunker.CHUNKS_DIR", chunks_dir),
         ):
             chunks = chunk_paper(paper_id)
         for c in chunks:
@@ -1579,10 +1579,10 @@ class TestF7TSVLogSanitization:
             raise OSError("error\twith\ttabs\nand\nnewlines")
 
         with (
-            patch("ingest.chunker.PARSED_DIR", parsed_dir),
-            patch("ingest.chunker.CHUNKS_DIR", chunks_dir),
-            patch("ingest.chunker.CHUNK_LOG_PATH", log_path),
-            patch("ingest.chunker._chunk_paper_impl", side_effect=raise_with_tabs),
+            patch("arxmcp.ingest.chunker.PARSED_DIR", parsed_dir),
+            patch("arxmcp.ingest.chunker.CHUNKS_DIR", chunks_dir),
+            patch("arxmcp.ingest.chunker.CHUNK_LOG_PATH", log_path),
+            patch("arxmcp.ingest.chunker._chunk_paper_impl", side_effect=raise_with_tabs),
         ):
             chunk_paper("2307.00001")
 
@@ -1605,9 +1605,9 @@ class TestF8ProgrammerBugsPropagate:
             raise AttributeError("simulated programmer bug")
 
         with (
-            patch("ingest.chunker.PARSED_DIR", parsed_dir),
-            patch("ingest.chunker.CHUNKS_DIR", chunks_dir),
-            patch("ingest.chunker._chunk_paper_impl", side_effect=raise_attr),
+            patch("arxmcp.ingest.chunker.PARSED_DIR", parsed_dir),
+            patch("arxmcp.ingest.chunker.CHUNKS_DIR", chunks_dir),
+            patch("arxmcp.ingest.chunker._chunk_paper_impl", side_effect=raise_attr),
             pytest.raises(AttributeError),
         ):
             chunk_paper("2307.00001")
@@ -1622,9 +1622,9 @@ class TestF8ProgrammerBugsPropagate:
             raise ValueError("simulated parser failure")
 
         with (
-            patch("ingest.chunker.PARSED_DIR", parsed_dir),
-            patch("ingest.chunker.CHUNKS_DIR", chunks_dir),
-            patch("ingest.chunker._chunk_paper_impl", side_effect=raise_value),
+            patch("arxmcp.ingest.chunker.PARSED_DIR", parsed_dir),
+            patch("arxmcp.ingest.chunker.CHUNKS_DIR", chunks_dir),
+            patch("arxmcp.ingest.chunker._chunk_paper_impl", side_effect=raise_value),
         ):
             result = chunk_paper("2307.00001")
         assert result == []
@@ -1668,8 +1668,8 @@ class TestF13RecursionDepthBound:
         paper_parsed.mkdir(parents=True)
         (paper_parsed / "index.html").write_text(html, encoding="utf-8")
         with (
-            patch("ingest.chunker.PARSED_DIR", parsed_dir),
-            patch("ingest.chunker.CHUNKS_DIR", chunks_dir),
+            patch("arxmcp.ingest.chunker.PARSED_DIR", parsed_dir),
+            patch("arxmcp.ingest.chunker.CHUNKS_DIR", chunks_dir),
         ):
             # Must return without raising RecursionError
             result = chunk_paper(paper_id)
@@ -1767,7 +1767,7 @@ class TestFixtureSuite:
         # produced 10 redundant failure reports for one underlying issue
         # on a CHUNKER_VERSION bump. One assertion now reports the full
         # mismatch list and exits.
-        from ingest.chunk import CHUNKER_VERSION
+        from arxmcp.ingest.chunk import CHUNKER_VERSION
         mismatches = []
         for paper_id in _FIXTURE_SUITE_IDS:
             expected = _load_expected_fixture(paper_id)
@@ -1860,7 +1860,7 @@ class TestFixtureSuite:
         import shutil as _shutil
         from unittest.mock import patch as _patch
 
-        from ingest.chunker import chunk_paper as _chunk_paper
+        from arxmcp.ingest.chunker import chunk_paper as _chunk_paper
 
         fixture = (
             Path(__file__).parent / "fixtures" / "chunker" / paper_id / "index.html"
@@ -1871,9 +1871,9 @@ class TestFixtureSuite:
         paper_parsed.mkdir(parents=True)
         _shutil.copy(fixture, paper_parsed / "index.html")
         with (
-            _patch("ingest.chunker.PARSED_DIR", parsed_dir),
-            _patch("ingest.chunker.CHUNKS_DIR", chunks_dir),
-            _patch("ingest.chunker._resolve_preamble_doc", return_value=None),
+            _patch("arxmcp.ingest.chunker.PARSED_DIR", parsed_dir),
+            _patch("arxmcp.ingest.chunker.CHUNKS_DIR", chunks_dir),
+            _patch("arxmcp.ingest.chunker._resolve_preamble_doc", return_value=None),
         ):
             return _chunk_paper(paper_id)
 
@@ -1919,7 +1919,7 @@ class TestSectionLessFallback:
     def _run(tmp_path: Path, paper_id: str, html: str):
         from unittest.mock import patch as _patch
 
-        from ingest.chunker import chunk_paper as _chunk_paper
+        from arxmcp.ingest.chunker import chunk_paper as _chunk_paper
 
         parsed_dir = tmp_path / "parsed"
         chunks_dir = tmp_path / "chunks"
@@ -1927,9 +1927,9 @@ class TestSectionLessFallback:
         paper_parsed.mkdir(parents=True)
         (paper_parsed / "index.html").write_text(html, encoding="utf-8")
         with (
-            _patch("ingest.chunker.PARSED_DIR", parsed_dir),
-            _patch("ingest.chunker.CHUNKS_DIR", chunks_dir),
-            _patch("ingest.chunker._resolve_preamble_doc", return_value=None),
+            _patch("arxmcp.ingest.chunker.PARSED_DIR", parsed_dir),
+            _patch("arxmcp.ingest.chunker.CHUNKS_DIR", chunks_dir),
+            _patch("arxmcp.ingest.chunker._resolve_preamble_doc", return_value=None),
         ):
             return _chunk_paper(paper_id)
 
@@ -1968,7 +1968,7 @@ class TestSectionLessFallback:
         import shutil as _shutil
         from unittest.mock import patch as _patch
 
-        from ingest.chunker import chunk_paper as _chunk_paper
+        from arxmcp.ingest.chunker import chunk_paper as _chunk_paper
 
         fixture = (
             Path(__file__).parent / "fixtures" / "chunker" / "2307.00001" / "index.html"
@@ -1979,9 +1979,9 @@ class TestSectionLessFallback:
         pp.mkdir(parents=True)
         _shutil.copy(fixture, pp / "index.html")
         with (
-            _patch("ingest.chunker.PARSED_DIR", parsed_dir),
-            _patch("ingest.chunker.CHUNKS_DIR", chunks_dir),
-            _patch("ingest.chunker._resolve_preamble_doc", return_value=None),
+            _patch("arxmcp.ingest.chunker.PARSED_DIR", parsed_dir),
+            _patch("arxmcp.ingest.chunker.CHUNKS_DIR", chunks_dir),
+            _patch("arxmcp.ingest.chunker._resolve_preamble_doc", return_value=None),
         ):
             chunks = _chunk_paper("2307.00001")
         kinds = {c.kind for c in chunks}

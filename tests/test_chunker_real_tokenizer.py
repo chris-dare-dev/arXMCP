@@ -44,6 +44,6 @@ class TestRealCharOffsetWindowing(stand_in_suite.TestF6CharOffsetWindowing):
 def test_runs_on_the_real_tokenizer():
     """Guards the guard: if the stand-in leaked in here, the classes above
     would re-test the stand-in and pin nothing."""
-    from ingest.chunker import _get_tokenizer
+    from arxmcp.ingest.chunker import _get_tokenizer
 
     assert type(_get_tokenizer()).__name__ != "StandInTokenizer"

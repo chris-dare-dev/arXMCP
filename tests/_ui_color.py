@@ -19,7 +19,7 @@ Two jobs:
    validating against the wrong ground.)
 
    ui-uplift-m7 moved the two ``:root`` blocks out of ``app.css`` into
-   ``server/frontend/static/tokens.css``, so ``TOKENS_CSS_PATH`` — not
+   ``src/arxmcp/server/frontend/static/tokens.css``, so ``TOKENS_CSS_PATH`` — not
    ``APP_CSS_PATH`` — is what the parsers read. ``APP_CSS_PATH`` is kept and
    still exported: callers that assert on *rules* (and
    ``test_ui_contrast.py``'s favicon sibling lookup) legitimately want the
@@ -43,7 +43,7 @@ import re
 from pathlib import Path
 
 REPO_ROOT: Path = Path(__file__).resolve().parents[1]
-_STATIC: Path = REPO_ROOT / "server" / "frontend" / "static"
+_STATIC: Path = REPO_ROOT / "src" / "arxmcp" / "server" / "frontend" / "static"
 #: The RULE sheet. Holds no custom property since ui-uplift-m7.
 APP_CSS_PATH: Path = _STATIC / "app.css"
 #: The TOKEN sheet — the only file with ``:root`` blocks. ``load_tokens`` /

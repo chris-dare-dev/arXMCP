@@ -21,11 +21,11 @@ import numpy as np
 import pyarrow as pa
 import pytest
 
-from ingest.chunk import ChunkRecord
-from ingest.embedder import EMBEDDING_DIM
-from ingest.schema import CHUNKS_TABLE_NAME
-from ingest.textbook_chunker import TEXTBOOK_CHUNKER_VERSION
-from tools import notebook_textbook_ingest as driver
+from arxmcp.ingest.chunk import ChunkRecord
+from arxmcp.ingest.embedder import EMBEDDING_DIM
+from arxmcp.ingest.schema import CHUNKS_TABLE_NAME
+from arxmcp.ingest.textbook_chunker import TEXTBOOK_CHUNKER_VERSION
+from arxmcp.tools import notebook_textbook_ingest as driver
 
 _SLUG = "sv-book"
 
@@ -96,7 +96,7 @@ class TestBuildEmbedRecord:
         assert rec.embedding_proof.shape == (1, EMBEDDING_DIM)
 
     def test_embedder_version_stamped(self) -> None:
-        from ingest.embedder import EMBEDDER_VERSION
+        from arxmcp.ingest.embedder import EMBEDDER_VERSION
 
         rec = driver._build_embed_record(
             [_textbook_chunk(suffix="c" * 16)], encoder=_synthetic_encoder(),
@@ -206,7 +206,7 @@ class TestIngestTextbookPaper:
     def test_write_targets_notebook_path_not_global_corpus(self, wired) -> None:
         """m12 FM-3: write_chunks MUST receive the per-notebook lancedb path,
         never the global DEFAULT_LANCEDB_PATH (corpus pollution)."""
-        from ingest.store import DEFAULT_LANCEDB_PATH
+        from arxmcp.ingest.store import DEFAULT_LANCEDB_PATH
 
         driver.ingest_textbook_paper(
             _SLUG, f"textbook:{_SLUG}", encoder=_synthetic_encoder(seed=3),
@@ -255,7 +255,7 @@ class TestIngestTextbookPaper:
         chunker's rows; another paper in the notebook is untouched."""
         import dataclasses
 
-        from ingest.textbook_markdown_chunker import (
+        from arxmcp.ingest.textbook_markdown_chunker import (
             TEXTBOOK_MD_CHUNKER_VERSION,
             TEXTBOOK_MD_PARSER_USED,
         )
@@ -428,7 +428,7 @@ class _HandlerFakeTable:
 class TestSearchPapersHandlerComposition:
     @pytest.fixture
     def fake_resources(self, monkeypatch):
-        from server.tools import reset_resources_for_tests, set_resources
+        from arxmcp.server.tools import reset_resources_for_tests, set_resources
 
         tb_row = {
             "chunk_id": f"textbook:{_SLUG}:" + "d" * 16,
@@ -459,12 +459,12 @@ class TestSearchPapersHandlerComposition:
                 return (nb_table, SimpleNamespace(version=49))
 
         set_resources(_Res())  # type: ignore[arg-type]
-        monkeypatch.setattr("server.handlers.search.get_cache", lambda: None)
+        monkeypatch.setattr("arxmcp.server.handlers.search.get_cache", lambda: None)
 
         async def _enc(query: str):
             return np.zeros(1024, dtype=np.float32)
 
-        monkeypatch.setattr("server.handlers.search.encode_query", _enc)
+        monkeypatch.setattr("arxmcp.server.handlers.search.encode_query", _enc)
         yield
         reset_resources_for_tests()
 
@@ -476,7 +476,7 @@ class TestSearchPapersHandlerComposition:
         filters={"notebook": slug, "source_kind": "textbook"}, comes back
         tagged source_kind="textbook". Proves notebook routing + source_kind
         filter threading + the envelope tag compose for a textbook chunk."""
-        from server.handlers.search import handle_search_papers
+        from arxmcp.server.handlers.search import handle_search_papers
 
         res = _run(handle_search_papers(
             query="affine scheme",

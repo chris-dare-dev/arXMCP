@@ -15,12 +15,12 @@ raised. Measured: 90 zeroed fragments, ``count_rows()`` still 4279.
 "last paper wins" marker bug under-reported by ~40x, so a good corpus sat at
 ``degraded(chunk_count_diverged)`` on every boot and the one signal that
 would catch a REAL divergence was noise. The writer itself was already fixed
-by ``corpus-integrity-observability-m1`` (``ingest/store.py`` now counts off
+by ``corpus-integrity-observability-m1`` (``src/arxmcp/ingest/store.py`` now counts off
 the committed table); what remained was the remediation advice, which told
 operators to re-run ingest — hours — when ``make reconcile`` does it in
 seconds.
 
-**#430 — a cache file could stop the server.** ``server/cache_sqlite.py``
+**#430 — a cache file could stop the server.** ``src/arxmcp/server/cache_sqlite.py``
 states the contract verbatim: *"a cache failure mode is 'stale read' not
 'data loss'"*, citing the constitution's *"Cache layer crash / OOM → Fall
 through to recompute; log; alert."* Both ``RetrievalCache.open`` call sites
@@ -36,11 +36,11 @@ from pathlib import Path
 import pytest
 
 REPO_ROOT: Path = Path(__file__).resolve().parents[1]
-CORPUS_PY: str = (REPO_ROOT / "ingest" / "corpus.py").read_text(encoding="utf-8")
-RESOURCES_PY: str = (REPO_ROOT / "server" / "resources.py").read_text(encoding="utf-8")
+CORPUS_PY: str = (REPO_ROOT / "src" / "arxmcp" / "ingest" / "corpus.py").read_text(encoding="utf-8")
+RESOURCES_PY: str = (REPO_ROOT / "src/arxmcp/server" / "resources.py").read_text(encoding="utf-8")
 
 
-STORE_PY: str = (REPO_ROOT / "ingest" / "store.py").read_text(encoding="utf-8")
+STORE_PY: str = (REPO_ROOT / "src" / "arxmcp" / "ingest" / "store.py").read_text(encoding="utf-8")
 
 
 def _function_body(func: object) -> str:
@@ -93,10 +93,10 @@ def _enclosing_call(source: str, needle: str) -> str:
 def test_the_table_open_path_reads_a_row() -> None:
     """A manifest that parses is not a corpus that answers."""
     assert "def _smoke_read(" in CORPUS_PY, (
-        "ingest/corpus.py must prove the table is READABLE, not merely "
+        "src/arxmcp/ingest/corpus.py must prove the table is READABLE, not merely "
         "openable (#428)"
     )
-    from ingest.corpus import _smoke_read
+    from arxmcp.ingest.corpus import _smoke_read
 
     body = _function_body(_smoke_read)
     assert ".limit(1)" in body, "the probe must stay bounded to one row"
@@ -114,7 +114,7 @@ def test_the_smoke_read_arms_the_existing_fallback() -> None:
     because nothing in the open path touched the data. The probe has to sit
     INSIDE the try for the corruption handler to see it.
     """
-    from ingest.corpus import open_chunks_table_with_fallback
+    from arxmcp.ingest.corpus import open_chunks_table_with_fallback
 
     source = inspect.getsource(open_chunks_table_with_fallback)
     primary = source.index("tbl = open_chunks_table(lancedb_path, version=version)")
@@ -128,7 +128,7 @@ def test_the_smoke_read_arms_the_existing_fallback() -> None:
 
 def test_the_fallback_target_is_proved_too() -> None:
     """Falling back to a second unreadable version relocates the lie."""
-    from ingest.corpus import open_chunks_table_with_fallback
+    from arxmcp.ingest.corpus import open_chunks_table_with_fallback
 
     source = inspect.getsource(open_chunks_table_with_fallback)
     assert source.count("_smoke_read(") == 2, (
@@ -142,7 +142,7 @@ def test_an_empty_table_is_not_treated_as_corruption() -> None:
     Conflating "no rows" with "cannot read rows" would refuse to start on
     exactly the first-run corpus #426 exists to make bootable.
     """
-    from ingest.corpus import _smoke_read
+    from arxmcp.ingest.corpus import _smoke_read
 
     doc = _smoke_read.__doc__ or ""
     assert "EMPTY table is not a failure" in doc, (
@@ -215,7 +215,7 @@ def test_the_reconcile_remedy_actually_exists() -> None:
     which neither a slug nor --shared can address. Advice that names a
     command which cannot run is no better than advice that costs hours.
     """
-    tool = REPO_ROOT / "tools" / "notebook_reconcile_marker.py"
+    tool = REPO_ROOT / "src" / "arxmcp" / "tools" / "notebook_reconcile_marker.py"
     assert tool.is_file(), "the advice names a tool that must exist"
     text = tool.read_text(encoding="utf-8")
     assert "--lancedb-path" in text, (
@@ -239,7 +239,7 @@ def test_the_divergence_advice_names_the_reachable_form() -> None:
 
 def test_reconcile_selectors_are_mutually_exclusive() -> None:
     """Three ways to name a corpus; exactly one at a time."""
-    from tools.notebook_reconcile_marker import main
+    from arxmcp.tools.notebook_reconcile_marker import main
 
     assert main(["--shared", "--lancedb-path", "/tmp/nope"]) == 1
     assert main([]) == 1
@@ -269,8 +269,8 @@ def test_a_cacheless_server_is_a_supported_state() -> None:
     If any consumer assumed a cache were present, #430's fix would trade a
     boot failure for a later crash.
     """
-    from server.cache import set_cache
-    from server.resources import Resources
+    from arxmcp.server.cache import set_cache
+    from arxmcp.server.resources import Resources
 
     signature = inspect.signature(set_cache)
     annotation = str(signature.parameters["cache"].annotation)
@@ -285,7 +285,7 @@ def test_a_cacheless_server_is_a_supported_state() -> None:
 
 
 def test_the_cache_contract_is_still_documented_where_it_is_implemented() -> None:
-    cache_sqlite = (REPO_ROOT / "server" / "cache_sqlite.py").read_text(
+    cache_sqlite = (REPO_ROOT / "src" / "arxmcp" / "server" / "cache_sqlite.py").read_text(
         encoding="utf-8"
     )
     assert "Fall through to recompute" in cache_sqlite, (
@@ -319,14 +319,14 @@ def test_a_cacheless_boot_says_cacheless_and_not_warm(
     import lancedb
     import pyarrow as pa
 
-    import server.cache as cache_mod
-    import server.query_encoder as qe_mod
-    import server.resources as res_mod
-    from ingest.embedder import EMBEDDER_VERSION
-    from ingest.schema import CHUNKS_SCHEMA_V1
-    from server.config import Config
-    from server.resources import Resources
-    from server.retrieval import BM25Phase
+    import arxmcp.server.cache as cache_mod
+    import arxmcp.server.query_encoder as qe_mod
+    import arxmcp.server.resources as res_mod
+    from arxmcp.ingest.embedder import EMBEDDER_VERSION
+    from arxmcp.ingest.schema import CHUNKS_SCHEMA_V1
+    from arxmcp.server.config import Config
+    from arxmcp.server.resources import Resources
+    from arxmcp.server.retrieval import BM25Phase
 
     rows = [
         {

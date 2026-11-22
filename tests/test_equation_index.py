@@ -34,9 +34,9 @@ import numpy as np
 import pyarrow as pa
 import pytest
 
-import server.handlers.equation as eq_handler_mod
-import server.tools as server_tools
-from ingest.mathml_tree import (
+import arxmcp.server.handlers.equation as eq_handler_mod
+import arxmcp.server.tools as server_tools
+from arxmcp.ingest.mathml_tree import (
     EquationHit,
     EquationIndex,
     fuse_scores,
@@ -47,7 +47,7 @@ from ingest.mathml_tree import (
     tree_size,
     tree_to_json,
 )
-from ingest.schema import (
+from arxmcp.ingest.schema import (
     CHUNKS_SCHEMA_V1,
     EQUATIONS_SCHEMA_V1,
     EQUATIONS_TABLE_NAME,
@@ -145,7 +145,7 @@ def _mock_encode_query(monkeypatch, vector: np.ndarray | None = None) -> None:
         # A unit vector along the first dim; arbitrary, but
         # deterministic. Matches CHUNKS_SCHEMA_V1's embedding_stmt
         # dimensionality (1024).
-        from ingest.embedder import EMBEDDING_DIM
+        from arxmcp.ingest.embedder import EMBEDDING_DIM
 
         vector = np.zeros(EMBEDDING_DIM, dtype=np.float32)
         vector[0] = 1.0
@@ -168,7 +168,7 @@ def _build_chunks_table(tmp_path: Path, chunks: list[dict[str, Any]]) -> Any:
     """
     import lancedb
 
-    from ingest.embedder import EMBEDDING_DIM
+    from arxmcp.ingest.embedder import EMBEDDING_DIM
 
     rows: list[dict[str, Any]] = []
     for ch in chunks:
@@ -692,15 +692,15 @@ class TestHandlerDispatch:
         """
         import re
 
-        from server.handlers import equation as handler_mod
-        from server.tools import FIND_EQUATION
+        from arxmcp.server.handlers import equation as handler_mod
+        from arxmcp.server.tools import FIND_EQUATION
 
         src = Path(handler_mod.__file__).read_text(encoding="utf-8")
         emitted_modes = set(
             re.findall(r'(?:mode|retrieval_mode)\s*=\s*"([a-z_]+)"', src)
         )
         # Also pick up the index's ``last_retrieval_mode`` defaults.
-        from ingest import mathml_tree as eq_mod
+        from arxmcp.ingest import mathml_tree as eq_mod
 
         eq_src = Path(eq_mod.__file__).read_text(encoding="utf-8")
         emitted_modes.update(
@@ -743,7 +743,7 @@ class TestHandlerDispatch:
         envelope reports ``retrieval_mode="ted_fused_eq"``. The
         chunks-proxy path is bypassed.
         """
-        from ingest.embedder import EMBEDDING_DIM
+        from arxmcp.ingest.embedder import EMBEDDING_DIM
 
         # Seed a chunks table with a single irrelevant chunk so the
         # ANN setup is plausible; the dense pass should NEVER touch
@@ -954,7 +954,7 @@ class TestTedWorkBounds:
     def test_oversized_query_tree_returns_empty(self):
         """Guard 1: a query tree past MAX_QUERY_TREE_NODES skips TED
         entirely (→ handler dense fallback), before any candidate TED."""
-        from ingest.mathml_tree import MAX_QUERY_TREE_NODES
+        from arxmcp.ingest.mathml_tree import MAX_QUERY_TREE_NODES
 
         big = _mathml_of_size(MAX_QUERY_TREE_NODES + 100)
         idx = _StubIndex([_small_tree_json() for _ in range(5)])
@@ -964,8 +964,8 @@ class TestTedWorkBounds:
     def test_oversized_query_never_runs_a_single_ted(self, monkeypatch):
         """The guard must fire BEFORE the per-candidate TED loop — proven
         by making normalized_ted explode if ever called."""
-        import ingest.mathml_tree as eqmod
-        from ingest.mathml_tree import MAX_QUERY_TREE_NODES
+        import arxmcp.ingest.mathml_tree as eqmod
+        from arxmcp.ingest.mathml_tree import MAX_QUERY_TREE_NODES
 
         def _boom(*a, **k):
             raise AssertionError("normalized_ted must not run for a capped query")
@@ -978,7 +978,7 @@ class TestTedWorkBounds:
         """Guard 2: a mid-size query whose every pair exceeds
         MAX_TED_PAIR_PRODUCT gets no real TED → any_tree_seen False →
         empty list (honest dense fallback), not a fake ted_fused."""
-        from ingest.mathml_tree import MAX_TED_PAIR_PRODUCT
+        from arxmcp.ingest.mathml_tree import MAX_TED_PAIR_PRODUCT
 
         # query ~= 300 nodes, candidates ~= 300 nodes -> product ~90k >> cap
         big_cand = tree_to_json(parse_mathml_to_tree(_mathml_of_size(150)))
@@ -1004,12 +1004,12 @@ class TestTedWorkBounds:
         """Guard 3: even under the per-pair cap, a flood of candidates
         just under it stops accumulating TED work at the budget, so the
         scan cannot run 200 near-cap pairs."""
-        import ingest.mathml_tree as eqmod
-        from ingest.mathml_tree import (
+        import arxmcp.ingest.mathml_tree as eqmod
+        from arxmcp.ingest.mathml_tree import (
             MAX_TED_PAIR_PRODUCT,
             TED_WORK_BUDGET,
         )
-        from ingest.mathml_tree import normalized_ted as real_ted
+        from arxmcp.ingest.mathml_tree import normalized_ted as real_ted
 
         calls = {"n": 0}
 

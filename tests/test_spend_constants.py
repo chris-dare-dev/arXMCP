@@ -37,8 +37,8 @@ from pathlib import Path
 import pytest
 from prometheus_client import REGISTRY, Counter
 
-from server.observability import spend_constants as sc
-from server.observability.spend_constants import (
+from arxmcp.server.observability import spend_constants as sc
+from arxmcp.server.observability.spend_constants import (
     API_SPEND_USD_TOTAL,
     CLAUDE_HAIKU_4_5_INPUT_USD_PER_M,
     CLAUDE_HAIKU_4_5_OUTPUT_USD_PER_M,
@@ -47,7 +47,7 @@ from server.observability.spend_constants import (
     VOYAGE_3_USD_PER_M_TOKENS,
     record_spend,
 )
-from server.orchestrator.model_selector import MODEL_HAIKU_4_5
+from arxmcp.server.orchestrator.model_selector import MODEL_HAIKU_4_5
 
 REPO_ROOT: Path = Path(__file__).resolve().parents[1]
 
@@ -263,7 +263,7 @@ class TestAgentRoleLabel:
     def test_unset_role_uses_unknown_label(self) -> None:
         """No ContextVar value set → label="unknown" (keeps the label
         space bounded; we never emit None or empty string)."""
-        from server.observability.tracing import current_agent_role
+        from arxmcp.server.observability.tracing import current_agent_role
         token = current_agent_role.set(None)
         try:
             record_spend(
@@ -277,7 +277,7 @@ class TestAgentRoleLabel:
         "role", ["sketcher", "autoformalizer", "tactician", "fixer"],
     )
     def test_valid_role_lands_on_that_label(self, role: str) -> None:
-        from server.observability.tracing import current_agent_role
+        from arxmcp.server.observability.tracing import current_agent_role
         token = current_agent_role.set(role)
         try:
             record_spend(
@@ -293,7 +293,7 @@ class TestAgentRoleLabel:
         """Defensive: even if some future middleware leak put a
         foreign value in the ContextVar, the spend counter must NOT
         explode the Prometheus label space."""
-        from server.observability.tracing import current_agent_role
+        from arxmcp.server.observability.tracing import current_agent_role
         token = current_agent_role.set("attacker-role")  # not in VALID_AGENT_ROLES
         try:
             record_spend(
@@ -312,14 +312,14 @@ class TestAgentRoleLabel:
 
 
 class TestStubHasTodoComment:
-    """The Voyage stub at server/query_encoder.py::_voyage_encode_stub
+    """The Voyage stub at src/arxmcp/server/query_encoder.py::_voyage_encode_stub
     must carry a TODO comment pointing at the spend-tracking wiring
     so the next person to land the real Voyage HTTP client knows
     where to add record_spend(). The comment must reference
     record_spend explicitly so a grep finds it."""
 
     def test_voyage_stub_carries_future_client_todo(self) -> None:
-        text = (REPO_ROOT / "server" / "query_encoder.py").read_text(
+        text = (REPO_ROOT / "src" / "arxmcp" / "server" / "query_encoder.py").read_text(
             encoding="utf-8",
         )
         # The TODO marker block sits just above the raise.
@@ -344,7 +344,7 @@ class TestStubHasTodoComment:
             [
                 "grep", "-rEn",
                 r'record_spend\([^)]*provider\s*=\s*"anthropic"',
-                str(REPO_ROOT / "server"),
+                str(REPO_ROOT / "src" / "arxmcp" / "server"),
             ],
             capture_output=True, text=True, check=False,
         )
@@ -389,9 +389,9 @@ class TestSpendMetricRegisteredAtRuntime:
     server startup. Result: /metrics scrapes would not include the
     series until some future call site referenced the module.
 
-    Fix: server/observability/__init__.py now does a side-effect
+    Fix: src/arxmcp/server/observability/__init__.py now does a side-effect
     import of spend_constants. This test pins the contract: importing
-    server.observability (which happens transitively whenever the
+    arxmcp.server.observability (which happens transitively whenever the
     server uses any metrics module) MUST cause the spend Counter to
     be registered with the default REGISTRY.
     """
@@ -403,7 +403,7 @@ class TestSpendMetricRegisteredAtRuntime:
 
         # Import via the package (not the submodule directly) — this
         # is the production path that surfaced the F2 gap.
-        import server.observability  # noqa: F401
+        import arxmcp.server.observability  # noqa: F401
 
         # The metric is registered when the Counter constructor runs.
         # We can't directly query "is X registered" via the public API,
@@ -424,7 +424,7 @@ class TestSpendMetricRegisteredAtRuntime:
         )
         assert sample is not None, (
             "arxmcp_api_spend_usd_total not registered after "
-            "`import server.observability`. The side-effect import in "
-            "server/observability/__init__.py is the F2 fix; if you "
+            "`import arxmcp.server.observability`. The side-effect import in "
+            "src/arxmcp/server/observability/__init__.py is the F2 fix; if you "
             "removed it, /metrics will silently lose the spend series."
         )

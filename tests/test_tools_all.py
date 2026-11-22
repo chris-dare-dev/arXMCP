@@ -6,7 +6,7 @@ Two layers:
    ``tools/list`` returns exactly the 7 expected tools, each
    carries ``_meta: {"tool_schema_version": 1}``, each inputSchema
    passes JSON Schema Draft-07 conformance, and the registration
-   order matches :data:`server.tools.ALL_TOOLS`.
+   order matches :data:`arxmcp.server.tools.ALL_TOOLS`.
 
 2. **End-to-end smoke tests** (synthesized 5-chunk LanceDB +
    mocked BGE-M3, mirroring E06_S01's pattern). Each tool is
@@ -32,14 +32,14 @@ import pytest
 from fastapi.testclient import TestClient
 from jsonschema import Draft7Validator
 
-from ingest.chunk import CHUNKER_VERSION, ChunkRecord
-from ingest.embedder import EMBEDDER_VERSION, EMBEDDING_DIM
-from ingest.schema import EmbedRecord
-from ingest.store import write_chunks
-from server.config import Config
-from server.health import reset_metrics_for_tests
-from server.main import create_app
-from server.tools import (
+from arxmcp.ingest.chunk import CHUNKER_VERSION, ChunkRecord
+from arxmcp.ingest.embedder import EMBEDDER_VERSION, EMBEDDING_DIM
+from arxmcp.ingest.schema import EmbedRecord
+from arxmcp.ingest.store import write_chunks
+from arxmcp.server.config import Config
+from arxmcp.server.health import reset_metrics_for_tests
+from arxmcp.server.main import create_app
+from arxmcp.server.tools import (
     ALL_TOOLS,
     TOOL_SCHEMA_VERSION,
     reset_resources_for_tests,
@@ -97,7 +97,7 @@ def mocked_bge_m3(monkeypatch):
     """Replace the BGE-M3 model + tokenizer with no-ops, AND make
     encode_query return a deterministic vector so search_papers
     returns reproducible top-k. Mirrors E06_S01's fixture."""
-    import server.query_encoder as qe_mod
+    import arxmcp.server.query_encoder as qe_mod
 
     monkeypatch.setattr(qe_mod, "_get_model", lambda: object())
     monkeypatch.setattr(qe_mod, "_get_tokenizer", lambda: object())
@@ -109,10 +109,10 @@ def mocked_bge_m3(monkeypatch):
         return v
 
     monkeypatch.setattr(qe_mod, "encode_query", _fake_encode_query)
-    # Also patch the import in server.handlers.search and equation
+    # Also patch the import in arxmcp.server.handlers.search and equation
     # (they bind it at import time).
-    import server.handlers.equation as eq_mod
-    import server.handlers.search as search_mod
+    import arxmcp.server.handlers.equation as eq_mod
+    import arxmcp.server.handlers.search as search_mod
 
     monkeypatch.setattr(search_mod, "encode_query", _fake_encode_query)
     monkeypatch.setattr(eq_mod, "encode_query", _fake_encode_query)
@@ -138,7 +138,7 @@ def _seed_paper_metadata(db_path: Path) -> None:
     """Hydrate a paper_metadata.db with one row for paper 2401.00001
     (paper-metadata-m2). 2401.00002 deliberately has NO row so the
     per-paper fallback path is testable with the store present."""
-    from server.paper_metadata_store import (
+    from arxmcp.server.paper_metadata_store import (
         PaperMetadataRecord,
         PaperMetadataStore,
     )
@@ -195,7 +195,7 @@ class TestToolsList:
     (``lean_verify``)."""
 
     def test_all_tools_registered(self, tmp_path, mocked_bge_m3):
-        from server.tools import ALL_TOOLS
+        from arxmcp.server.tools import ALL_TOOLS
 
         lancedb_path = tmp_path / "lancedb"
         _seed_corpus(lancedb_path)
@@ -432,7 +432,7 @@ class TestToolsSmoke:
         assert sc["definitions"] == []
         assert sc["next_cursor"] is None
         assert sc["total"] == 0
-        # index_status is "absent" until ingest.index_definitions runs.
+        # index_status is "absent" until arxmcp.ingest.index_definitions runs.
         assert sc["index_status"] in ("absent", "ok")
 
     def test_find_lemma_by_name_smoke(self, warm_app):
@@ -655,14 +655,14 @@ class TestSearchSchemaContract:
 class TestDefinitionsParser:
     """F2 close (carried forward across E10_S01): the brace-balanced
     parser handles multi-newcommand lines correctly. After E10_S01
-    the parser lives in ``ingest.index_definitions`` (the indexer is
+    the parser lives in ``arxmcp.ingest.index_definitions`` (the indexer is
     the new owner of macro-line parsing); the regression assertions
     are preserved here so a future regression in the parser surfaces
     even if the indexer's own tests are skipped.
     """
 
     def test_parse_two_macros_on_one_line(self):
-        from ingest.index_definitions import parse_macro_line
+        from arxmcp.ingest.index_definitions import parse_macro_line
 
         line = r"\newcommand{\R}{\mathbb{R}}\newcommand{\C}{\mathbb{C}}"
         records = parse_macro_line(line)
@@ -673,7 +673,7 @@ class TestDefinitionsParser:
         assert expansions == {"\\mathbb{R}", "\\mathbb{C}"}
 
     def test_parse_with_internal_braces(self):
-        from ingest.index_definitions import parse_macro_line
+        from arxmcp.ingest.index_definitions import parse_macro_line
 
         line = r"\newcommand{\Z}{\mathbb{Z}^{n}}"
         records = parse_macro_line(line)
@@ -682,7 +682,7 @@ class TestDefinitionsParser:
         assert records[0]["expansion"] == "\\mathbb{Z}^{n}"
 
     def test_parse_handles_renewcommand(self):
-        from ingest.index_definitions import parse_macro_line
+        from arxmcp.ingest.index_definitions import parse_macro_line
 
         line = r"\renewcommand{\foo}{bar}"
         records = parse_macro_line(line)
@@ -697,8 +697,8 @@ class TestByteCapEnforcement:
 
     def test_enforce_byte_cap_truncates_nested_body(self):
 
-        from server.config import Config
-        from server.tools import enforce_byte_cap, set_resources
+        from arxmcp.server.config import Config
+        from arxmcp.server.tools import enforce_byte_cap, set_resources
 
         # Synthesize a Resources with a tiny cap.
         cfg = Config(result_byte_cap=200)
@@ -738,8 +738,8 @@ class TestByteCapEnforcement:
         assert len(big_body) > 100  # sanity
 
     def test_enforce_byte_cap_under_cap_passthrough(self):
-        from server.config import Config
-        from server.tools import enforce_byte_cap, set_resources
+        from arxmcp.server.config import Config
+        from arxmcp.server.tools import enforce_byte_cap, set_resources
 
         cfg = Config(result_byte_cap=10000)
 

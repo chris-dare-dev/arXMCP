@@ -25,9 +25,9 @@ from unittest.mock import patch
 
 import pytest
 
-import ingest.preamble as preamble_mod
-from ingest.chunker import InvalidPaperIDError
-from ingest.preamble import (
+import arxmcp.ingest.preamble as preamble_mod
+from arxmcp.ingest.chunker import InvalidPaperIDError
+from arxmcp.ingest.preamble import (
     PER_PAPER_FAILURE_EXCEPTIONS,
     _extract_macros,
     _normalise,
@@ -36,7 +36,7 @@ from ingest.preamble import (
     extract_preamble,
     load_preamble,
 )
-from ingest.preamble_types import PreambleDoc
+from arxmcp.ingest.preamble_types import PreambleDoc
 from tests._symlink_support import requires_symlink
 
 FIXTURE_TEX = Path(__file__).parent / "fixtures" / "preamble" / "sample.tex"
@@ -57,7 +57,7 @@ def _stage_paper(tmp_path: Path, paper_id: str, tex_source: str) -> Path:
     paper_dir.mkdir(parents=True)
     # newline="" disables the platform newline translation that write_text
     # applies by default (LF->CRLF on Windows). The extractor hashes the
-    # raw bytes of this file (ingest/preamble.py source_hash), so a CRLF
+    # raw bytes of this file (src/arxmcp/ingest/preamble.py source_hash), so a CRLF
     # rewrite here would break the byte-stable source_hash contract.
     (paper_dir / f"{paper_id}.tex").write_text(
         tex_source, encoding="utf-8", newline="",
@@ -71,9 +71,9 @@ def _patched_extract(tmp_path: Path, paper_id: str):
     preamble_dir = tmp_path / "preamble"
     log_path = tmp_path / "ops" / "preamble.log"
     with (
-        patch("ingest.preamble.RAW_DIR", raw_dir),
-        patch("ingest.preamble.PREAMBLE_DIR", preamble_dir),
-        patch("ingest.preamble.PREAMBLE_LOG_PATH", log_path),
+        patch("arxmcp.ingest.preamble.RAW_DIR", raw_dir),
+        patch("arxmcp.ingest.preamble.PREAMBLE_DIR", preamble_dir),
+        patch("arxmcp.ingest.preamble.PREAMBLE_LOG_PATH", log_path),
     ):
         return extract_preamble(paper_id)
 
@@ -425,8 +425,8 @@ class TestIdempotency:
 class TestPaperIDValidation:
     def test_invalid_id_rejected(self, tmp_path):
         with (
-            patch("ingest.preamble.RAW_DIR", tmp_path / "raw"),
-            patch("ingest.preamble.PREAMBLE_DIR", tmp_path / "preamble"),
+            patch("arxmcp.ingest.preamble.RAW_DIR", tmp_path / "raw"),
+            patch("arxmcp.ingest.preamble.PREAMBLE_DIR", tmp_path / "preamble"),
             pytest.raises(InvalidPaperIDError),
         ):
             extract_preamble("../etc/passwd")
@@ -434,8 +434,8 @@ class TestPaperIDValidation:
     def test_invalid_id_creates_no_files(self, tmp_path):
         out_dir = tmp_path / "preamble"
         with (
-            patch("ingest.preamble.RAW_DIR", tmp_path / "raw"),
-            patch("ingest.preamble.PREAMBLE_DIR", out_dir),
+            patch("arxmcp.ingest.preamble.RAW_DIR", tmp_path / "raw"),
+            patch("arxmcp.ingest.preamble.PREAMBLE_DIR", out_dir),
             pytest.raises(InvalidPaperIDError),
         ):
             extract_preamble("foo\nbar")
@@ -452,9 +452,9 @@ class TestMissingSource:
     def test_missing_raw_dir_raises_filenotfound(self, tmp_path):
         log_path = tmp_path / "ops" / "preamble.log"
         with (
-            patch("ingest.preamble.RAW_DIR", tmp_path / "raw"),
-            patch("ingest.preamble.PREAMBLE_DIR", tmp_path / "preamble"),
-            patch("ingest.preamble.PREAMBLE_LOG_PATH", log_path),
+            patch("arxmcp.ingest.preamble.RAW_DIR", tmp_path / "raw"),
+            patch("arxmcp.ingest.preamble.PREAMBLE_DIR", tmp_path / "preamble"),
+            patch("arxmcp.ingest.preamble.PREAMBLE_LOG_PATH", log_path),
             pytest.raises(FileNotFoundError),
         ):
             extract_preamble("9999.99999")
@@ -470,7 +470,7 @@ class TestMissingSource:
 class TestLoadPreamble:
     def test_returns_none_when_missing(self, tmp_path):
         with (
-            patch("ingest.preamble.PREAMBLE_DIR", tmp_path / "preamble"),
+            patch("arxmcp.ingest.preamble.PREAMBLE_DIR", tmp_path / "preamble"),
         ):
             assert load_preamble("9999.99999") is None
 
@@ -478,7 +478,7 @@ class TestLoadPreamble:
         paper_id = "2307.00001"
         _stage_paper(tmp_path, paper_id, FIXTURE_TEX.read_text(encoding="utf-8"))
         doc1 = _patched_extract(tmp_path, paper_id)
-        with patch("ingest.preamble.PREAMBLE_DIR", tmp_path / "preamble"):
+        with patch("arxmcp.ingest.preamble.PREAMBLE_DIR", tmp_path / "preamble"):
             doc2 = load_preamble(paper_id)
         assert doc2 is not None
         assert doc2.preamble_text == doc1.preamble_text
@@ -492,14 +492,14 @@ class TestLoadPreamble:
 
 
 class TestChunkerIntegration:
-    """Verify that ingest/chunker.py populates ChunkRecord.preamble_ref
+    """Verify that src/arxmcp/ingest/chunker.py populates ChunkRecord.preamble_ref
     from extract_preamble's output."""
 
     PAPER_ID = "2307.00001"
 
     def test_chunker_populates_preamble_ref(self, tmp_path):
         # Stage the chunker fixture
-        from ingest.chunker import chunk_paper as chunk_paper_fn
+        from arxmcp.ingest.chunker import chunk_paper as chunk_paper_fn
 
         chunker_fixture = (
             Path(__file__).parent / "fixtures" / "chunker" / self.PAPER_ID / "index.html"
@@ -521,10 +521,10 @@ class TestChunkerIntegration:
         )
 
         with (
-            patch("ingest.chunker.PARSED_DIR", parsed_dir),
-            patch("ingest.chunker.CHUNKS_DIR", chunks_dir),
-            patch("ingest.preamble.RAW_DIR", raw_dir),
-            patch("ingest.preamble.PREAMBLE_DIR", preamble_dir),
+            patch("arxmcp.ingest.chunker.PARSED_DIR", parsed_dir),
+            patch("arxmcp.ingest.chunker.CHUNKS_DIR", chunks_dir),
+            patch("arxmcp.ingest.preamble.RAW_DIR", raw_dir),
+            patch("arxmcp.ingest.preamble.PREAMBLE_DIR", preamble_dir),
         ):
             chunks = chunk_paper_fn(self.PAPER_ID)
 
@@ -541,7 +541,7 @@ class TestChunkerIntegration:
     def test_chunker_tolerates_missing_preamble(self, tmp_path):
         # When raw/<paper_id>/ doesn't exist, the chunker logs WARN and
         # falls back to preamble_ref=None. Chunks must still be emitted.
-        from ingest.chunker import chunk_paper as chunk_paper_fn
+        from arxmcp.ingest.chunker import chunk_paper as chunk_paper_fn
 
         chunker_fixture = (
             Path(__file__).parent / "fixtures" / "chunker" / self.PAPER_ID / "index.html"
@@ -557,10 +557,10 @@ class TestChunkerIntegration:
         raw_dir.mkdir()  # exists but no per-paper subdir
 
         with (
-            patch("ingest.chunker.PARSED_DIR", parsed_dir),
-            patch("ingest.chunker.CHUNKS_DIR", chunks_dir),
-            patch("ingest.preamble.RAW_DIR", raw_dir),
-            patch("ingest.preamble.PREAMBLE_DIR", preamble_dir),
+            patch("arxmcp.ingest.chunker.PARSED_DIR", parsed_dir),
+            patch("arxmcp.ingest.chunker.CHUNKS_DIR", chunks_dir),
+            patch("arxmcp.ingest.preamble.RAW_DIR", raw_dir),
+            patch("arxmcp.ingest.preamble.PREAMBLE_DIR", preamble_dir),
         ):
             chunks = chunk_paper_fn(self.PAPER_ID)
 
@@ -590,9 +590,9 @@ class TestF1SymlinkConfinement:
         bad_symlink = paper_dir / f"{paper_id}.tex"
         bad_symlink.symlink_to(outside_target)
         with (
-            patch("ingest.preamble.RAW_DIR", raw_dir),
-            patch("ingest.preamble.PREAMBLE_DIR", tmp_path / "preamble"),
-            patch("ingest.preamble.PREAMBLE_LOG_PATH", tmp_path / "preamble.log"),
+            patch("arxmcp.ingest.preamble.RAW_DIR", raw_dir),
+            patch("arxmcp.ingest.preamble.PREAMBLE_DIR", tmp_path / "preamble"),
+            patch("arxmcp.ingest.preamble.PREAMBLE_LOG_PATH", tmp_path / "preamble.log"),
             pytest.raises(ValueError, match="Threat 1"),
         ):
             extract_preamble(paper_id)
@@ -608,7 +608,7 @@ class TestF2CacheCorruption:
     """F2 (HIGH): _read_existing_preamble must reject malformed cache."""
 
     def test_macros_as_string_returns_none(self, tmp_path):
-        from ingest.preamble import _read_existing_preamble
+        from arxmcp.ingest.preamble import _read_existing_preamble
         bad = tmp_path / "preamble.json"
         bad.write_text(
             json.dumps({
@@ -626,7 +626,7 @@ class TestF2CacheCorruption:
         assert _read_existing_preamble(bad) is None
 
     def test_macros_with_non_string_entries_returns_none(self, tmp_path):
-        from ingest.preamble import _read_existing_preamble
+        from arxmcp.ingest.preamble import _read_existing_preamble
         bad = tmp_path / "preamble.json"
         bad.write_text(
             json.dumps({
@@ -675,7 +675,7 @@ class TestF3ChunkerImportFailureSurfaces:
         # failures), masking corpus-wide preamble_ref=None bugs.
         from pathlib import Path
         chunker_src = (
-            Path(__file__).parent.parent / "ingest" / "chunker.py"
+            Path(__file__).parent.parent / "src" / "arxmcp" / "ingest" / "chunker.py"
         ).read_text(encoding="utf-8")
         # Find the function body
         marker = "def _resolve_preamble_doc"
@@ -699,8 +699,8 @@ class TestF4F5AtomicWriteCleanup:
     F5 (MEDIUM): tmp file does not leak when os.replace fails."""
 
     def test_tmp_suffix_is_unique_per_call(self, tmp_path, monkeypatch):
-        from ingest.preamble import _write_preamble_json
-        from ingest.preamble_types import PreambleDoc
+        from arxmcp.ingest.preamble import _write_preamble_json
+        from arxmcp.ingest.preamble_types import PreambleDoc
         seen: list[Path] = []
 
         real_replace = os.replace
@@ -709,7 +709,7 @@ class TestF4F5AtomicWriteCleanup:
             seen.append(Path(src))
             real_replace(src, dst)
 
-        monkeypatch.setattr("ingest.preamble.os.replace", capture_replace)
+        monkeypatch.setattr("arxmcp.ingest.preamble.os.replace", capture_replace)
         doc = PreambleDoc(
             paper_id="2307.00001",
             source_hash="a" * 64,
@@ -725,13 +725,13 @@ class TestF4F5AtomicWriteCleanup:
         assert seen[0] != seen[1]
 
     def test_tmp_cleaned_up_when_replace_fails(self, tmp_path, monkeypatch):
-        from ingest.preamble import _write_preamble_json
-        from ingest.preamble_types import PreambleDoc
+        from arxmcp.ingest.preamble import _write_preamble_json
+        from arxmcp.ingest.preamble_types import PreambleDoc
 
         def boom(src, dst):
             raise OSError("simulated rename failure")
 
-        monkeypatch.setattr("ingest.preamble.os.replace", boom)
+        monkeypatch.setattr("arxmcp.ingest.preamble.os.replace", boom)
         doc = PreambleDoc(
             paper_id="2307.00001",
             source_hash="a" * 64,
@@ -777,9 +777,9 @@ class TestF7StrictUTF8Decode:
         (paper_dir / f"{paper_id}.tex").write_bytes(b"\\newcommand{\\R}{\xe9}")
         log_path = tmp_path / "preamble.log"
         with (
-            patch("ingest.preamble.RAW_DIR", raw_dir),
-            patch("ingest.preamble.PREAMBLE_DIR", tmp_path / "preamble"),
-            patch("ingest.preamble.PREAMBLE_LOG_PATH", log_path),
+            patch("arxmcp.ingest.preamble.RAW_DIR", raw_dir),
+            patch("arxmcp.ingest.preamble.PREAMBLE_DIR", tmp_path / "preamble"),
+            patch("arxmcp.ingest.preamble.PREAMBLE_LOG_PATH", log_path),
             pytest.raises(ValueError),
         ):
             extract_preamble(paper_id)
@@ -810,7 +810,7 @@ class TestF9BraceScannerEscapedBackslash:
         # The text is literally: { a \\ { b } c }
         # \\ is an escaped backslash (skip 2 chars), then { increments depth,
         # } decrements, } at end closes. The full body must be returned.
-        from ingest.preamble import _scan_balanced_body
+        from arxmcp.ingest.preamble import _scan_balanced_body
         text = r"{a\\{b}c}"
         end = _scan_balanced_body(text, 1)
         assert end == len(text)
@@ -821,7 +821,7 @@ class TestF10TopLevelTexPreferred:
     paper's own .tex when both exist."""
 
     def test_top_level_tex_preferred_over_samples(self, tmp_path):
-        from ingest.preamble import _select_root_tex
+        from arxmcp.ingest.preamble import _select_root_tex
         paper_id = "2307.00001"
         raw_dir = tmp_path / "raw"
         paper_dir = raw_dir / paper_id
@@ -847,7 +847,7 @@ class TestF10TopLevelTexPreferred:
         )
 
     def test_falls_back_to_recursive_if_no_top_level(self, tmp_path):
-        from ingest.preamble import _select_root_tex
+        from arxmcp.ingest.preamble import _select_root_tex
         paper_id = "2307.00001"
         raw_dir = tmp_path / "raw"
         paper_dir = raw_dir / paper_id

@@ -1,5 +1,5 @@
 """corpus-integrity-observability-e3 — writer tests for
-:func:`ingest.ingest_summary.write_ingest_summary`.
+:func:`arxmcp.ingest.ingest_summary.write_ingest_summary`.
 
 Coverage:
 - happy path: file written with v1 schema, all fields present
@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from ingest.ingest_summary import write_ingest_summary
+from arxmcp.ingest.ingest_summary import write_ingest_summary
 
 
 class TestWriteIngestSummary:

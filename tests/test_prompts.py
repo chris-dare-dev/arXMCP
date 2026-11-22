@@ -5,7 +5,7 @@ Coverage map (acceptance criteria → test class):
   AC                                                       Test class
   ──────────────────────────────────────────────────────────────────
   Each role prefix ≤ 50 tokens                             TestPrefixTokenCap
-  server/prompts.py contains exactly 4 role-prefixes       TestPrefixCompleteness
+  src/arxmcp/server/prompts.py contains exactly 4 role-prefixes       TestPrefixCompleteness
   pytest tests/test_prompts.py passes                      the suite itself
   prompts.md states "BP3 is dropped..."                    TestDocBP3DropSentence
   4-agent fan-out: BP1 byte-identical across all 4 roles   TestBP1ByteIdentityAcrossFanout
@@ -46,13 +46,13 @@ from types import MappingProxyType
 
 import pytest
 
-from server.prompts import (
+from arxmcp.server.prompts import (
     EXTENDED_CACHE_TTL_HEADER_NAME,
     EXTENDED_CACHE_TTL_HEADER_VALUE,
     ROLE_PREFIXES,
     SYSTEM_PROMPT,
 )
-from server.router import RouteTag
+from arxmcp.server.router import RouteTag
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -66,7 +66,7 @@ MAX_PREFIX_CHARS: int = 200
 
 #: Path to the prompts module (used by the AST literal-only test).
 PROMPTS_MODULE_PATH: Path = (
-    Path(__file__).resolve().parent.parent / "server" / "prompts.py"
+    Path(__file__).resolve().parent.parent / "src" / "arxmcp" / "server" / "prompts.py"
 )
 
 
@@ -123,7 +123,7 @@ class TestPrefixTokenCap:
 
 
 class TestPrefixCompleteness:
-    """Brief AC #2: ``server/prompts.py`` contains exactly 4
+    """Brief AC #2: ``src/arxmcp/server/prompts.py`` contains exactly 4
     role-prefix constants, one per ``RouteTag``."""
 
     def test_role_prefixes_has_exactly_four_entries(self):
@@ -228,7 +228,7 @@ class _LiteralOnlyVisitor(ast.NodeVisitor):
 
 class TestFrozenConstantsDiscipline:
     """Synthesis D4 / D5: ROLE_PREFIXES values are bare string
-    literals. AST-parses ``server/prompts.py`` and rejects f-strings,
+    literals. AST-parses ``src/arxmcp/server/prompts.py`` and rejects f-strings,
     .format() calls, BinOp concatenation, and variable references
     in any value of the ROLE_PREFIXES dict literal."""
 
@@ -256,7 +256,7 @@ class TestFrozenConstantsDiscipline:
                 role_prefixes_value = node.value
 
         assert role_prefixes_value is not None, (
-            "ROLE_PREFIXES assignment not found in server/prompts.py"
+            "ROLE_PREFIXES assignment not found in src/arxmcp/server/prompts.py"
         )
 
         # Unwrap MappingProxyType(...) call to get the inner Dict.
@@ -395,10 +395,10 @@ def _live_tools_payload() -> list[dict]:
     two-element stub list here. That made the BP1 byte-identity test
     tautological — ``_build_fanout_request`` discarded ``tag`` for the
     system+tools region by construction. The critic verified
-    ``import server.tools`` runs in ~25 ms with NO ``lancedb`` import
+    ``import arxmcp.server.tools`` runs in ~25 ms with NO ``lancedb`` import
     transitively, debunking the original "heavy import" rationale.
 
-    We now serialize the live ``server.tools.ALL_TOOLS`` registry
+    We now serialize the live ``arxmcp.server.tools.ALL_TOOLS`` registry
     (frozen ``ToolMeta`` dataclasses with ``name`` + ``description``)
     into the same wire shape ``ALL_TOOLS`` would take in a real
     ``messages.create`` ``tools=[...]`` kwarg. The byte surface is the
@@ -407,7 +407,7 @@ def _live_tools_payload() -> list[dict]:
     invariant broke (which is what AC #5 cares about) OR (b) someone
     edited a tool description (which E06_S06 also catches and routes
     through the schema-version bump procedure)."""
-    from server.tools import ALL_TOOLS
+    from arxmcp.server.tools import ALL_TOOLS
 
     return [{"name": t.name, "description": t.description} for t in ALL_TOOLS]
 
@@ -536,7 +536,7 @@ class TestBP1ByteIdentityAcrossFanout:
         ONE hash; this test pins WHAT that hash is. A drift here means
         EITHER ``SYSTEM_PROMPT`` changed (E08_S04 will land the real
         body and intentionally drift this constant) OR
-        ``server.tools.ALL_TOOLS`` changed (E06_S06's
+        ``arxmcp.server.tools.ALL_TOOLS`` changed (E06_S06's
         ``EXPECTED_TOOL_SCHEMA_SHA256`` would also fire). Without this
         pin a uniform-but-changed BP1 invalidates the cross-role cache
         identically across all four roles and the structural test
@@ -656,7 +656,7 @@ class TestBP1ByteIdentityAcrossFanout:
 
 class TestBetaHeaderConstants:
     """The Anthropic 1-hour-TTL beta header values are pinned in
-    server/prompts.py for the orchestrator (E08_S04) to import. Pin
+    src/arxmcp/server/prompts.py for the orchestrator (E08_S04) to import. Pin
     the canonical names here too so a future drift triggers a test
     failure not a subtle cache miss."""
 
@@ -677,7 +677,7 @@ class TestBetaHeaderConstants:
 
 class TestClosedAtFourInvariant:
     """The ``if set(ROLE_PREFIXES) != set(RouteTag): raise
-    RuntimeError(...)`` at server/prompts.py import time enforces
+    RuntimeError(...)`` at src/arxmcp/server/prompts.py import time enforces
     that adding a fifth RouteTag value without extending
     ROLE_PREFIXES fails the import. F4 fix from the E08_S02 critique:
     the check used to be a bare ``assert`` which Python compiles to a
@@ -693,7 +693,7 @@ class TestClosedAtFourInvariant:
 
     def test_closed_at_four_check_survives_dash_O(self):
         """F4 regression guard: spawn ``python -O -c "import
-        server.prompts"`` and verify it succeeds. If the import-time
+        arxmcp.server.prompts"`` and verify it succeeds. If the import-time
         check were a bare ``assert``, ``-O`` would compile it away —
         but the check would still need to fire if a contributor adds
         a fifth ``RouteTag`` without extending ``ROLE_PREFIXES``.
@@ -709,12 +709,12 @@ class TestClosedAtFourInvariant:
         import sys
 
         result = subprocess.run(
-            [sys.executable, "-O", "-c", "import server.prompts"],
+            [sys.executable, "-O", "-c", "import arxmcp.server.prompts"],
             capture_output=True, text=True, timeout=30,
             cwd=str(PROMPTS_MODULE_PATH.parent.parent),
         )
         assert result.returncode == 0, (
-            f"`python -O -c 'import server.prompts'` failed: "
+            f"`python -O -c 'import arxmcp.server.prompts'` failed: "
             f"stdout={result.stdout!r} stderr={result.stderr!r}"
         )
 
@@ -730,7 +730,7 @@ class TestClosedAtFourInvariant:
         # form must NOT reappear.
         assert "assert set(ROLE_PREFIXES.keys()) == set(RouteTag)" not in source, (
             "Found `assert set(ROLE_PREFIXES.keys()) == set(RouteTag)` in "
-            "server/prompts.py — this is the pre-F4 form that compiles "
+            "src/arxmcp/server/prompts.py — this is the pre-F4 form that compiles "
             "to a no-op under `python -O`. Use `if … raise RuntimeError(…)` "
             "instead. See F4 in the E08_S02 critique."
         )

@@ -1,4 +1,4 @@
-"""Unit tests for `tools.fetch_seed` and `tools.curate_seed` — offline parts.
+"""Unit tests for `arxmcp.tools.fetch_seed` and `arxmcp.tools.curate_seed` — offline parts.
 
 The 50-paper fetch loop and the API call are gated on Phase 4 user
 authorization; everything testable without network or LaTeXML lives here.
@@ -8,13 +8,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from tools.curate_seed import (
+from arxmcp.tools.curate_seed import (
     Candidate,
     build_query_url,
     filter_candidates,
     parse_atom_feed,
 )
-from tools.fetch_seed import Outcome, read_seed_list, write_log
+from arxmcp.tools.fetch_seed import Outcome, read_seed_list, write_log
 
 
 class TestSeedListReader:

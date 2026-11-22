@@ -1,0 +1,159 @@
+{% extends "base.html" %}
+
+{% block title %}Notebooks · arXMCP{% endblock %}
+
+{% block content %}
+{# ui-uplift-m8 (UPL-2): `class="card"` is gone from all nine blocks, and the
+   ELEMENT was decided per site rather than kept by reflex. An unnamed
+   <section> exposes no region landmark — it is semantically a <div> — so
+   neither choice moves the accessibility tree today; what it records is
+   authorial intent, and the <h2> outline (which is what a screen-reader user
+   actually navigates by) is untouched either way. The rule kept: <section>
+   for a self-contained CONTENT region a reader would want to reach; <div>
+   where the box only wrapped a single job form, which its own <form> already
+   delimits. Deliberately NOT done: adding aria-labelledby to promote these to
+   real landmarks — nine regions on one page is the over-population the
+   guidance warns reduces landmarks' usefulness. #}
+{# DIV — a single create form. #}
+<div>
+  <h2>Create notebook</h2>
+  <p class="hint">
+    Slug pattern: lowercase letters, digits, hyphens — 3–31 chars,
+    must start with a letter (matches <code>ingest/notebooks.SLUG_RE</code>).
+  </p>
+  {# ui-attractive-polish-m5 (UPL-12 v1): in-place htmx swap replaces
+     the legacy location.reload() flow. The server returns a <tr>
+     fragment when HX-Request:true; hx-target/hx-swap append it to
+     the #notebooks-tbody. The success hook ALSO (a) removes the
+     #notebooks-empty placeholder row if present (so the table shows
+     only real rows after the first create from empty state), (b)
+     calls this.reset() to clear the form for a follow-up create
+     (mirrors the m4-F3 carryover pattern on the add-paper form). #}
+  <form
+    hx-post="/ui/api/notebooks"
+    hx-ext="json-enc"
+    hx-disabled-elt="find button"
+    hx-target="#notebooks-tbody"
+    hx-swap="beforeend"
+    data-on-success="remove:#notebooks-empty reset recount:#notebooks-count"
+    data-error-target="create-error"
+  >
+    <label>
+      Slug
+      {# #481: `title` is what the browser shows on a pattern mismatch —
+         without it the message is the generic "Please match the requested
+         format." maxlength was 64 against a 31-char server rule, so the
+         field accepted 33 characters the server always rejects. #}
+      <input type="text" name="slug" required minlength="3" maxlength="31"
+             title="Lowercase letters, digits and hyphens; start with a letter; 3–31 characters."
+             {# #452: the hyphen MUST be backslash-escaped. HTML compiles
+                `pattern` with the `v` (unicodeSets) flag, where a bare `-` is
+                "Invalid character in character class" — and a pattern that
+                does not compile is IGNORED, so validation silently does
+                nothing. Measured: both `[a-z0-9-]` and `[-a-z0-9]` fail; only
+                `[a-z0-9\-]` compiles. #}
+             pattern="[a-z][a-z0-9\-]{2,30}" placeholder="bridgeland-stability">
+    </label>
+    <label>
+      Display name (optional)
+      <input type="text" name="display_name" maxlength="256"
+             placeholder="Bridgeland stability conditions">
+    </label>
+    {# notebook-paper-discovery-m1: topic metadata that the m2-m4 arXiv
+       discovery channels read. discovery_category is a fixed enum
+       (server-validated against {math.AG, math.NT, math-ph, hep-th});
+       the empty option means "not specified". description is free text
+       rendered autoescaped server-side — do NOT add `| safe` anywhere
+       these values are shown. #}
+    <label>
+      Discovery category (optional)
+      <select name="discovery_category">
+        <option value="">Not specified</option>
+        <option value="math.AG">math.AG — Algebraic Geometry</option>
+        <option value="math.NT">math.NT — Number Theory</option>
+        <option value="math-ph">math-ph — Mathematical Physics</option>
+        <option value="hep-th">hep-th — High Energy Physics (Theory)</option>
+      </select>
+    </label>
+    <label>
+      Topic / keywords (optional)
+      <textarea name="description" maxlength="512" rows="2"
+                placeholder="Bridgeland stability conditions on K3 surfaces"></textarea>
+    </label>
+    <button type="submit">Create</button>
+    {# ui-uplift-m13 (UPL-13, critique M1) — DELIBERATELY NOT migrated.
+       The detail page's six error blocks became <output> (implicit
+       role=status), so this is the only .error left carrying an explicit
+       aria-live. That is scope, not oversight: ui-uplift-m12 set v0 to the
+       detail page and the index half belongs to m11/m19, which own this
+       page's copy and empty states. It is not broken — the element is
+       never swapped, only its textContent is set — but it does still sit
+       behind `.error:empty`, so it inherits m13's zero-footprint fix and
+       is registered in the a11y tree at first paint like the other six.
+       Migrate it with the rest of the index, not alone. #}
+    <pre id="create-error" class="error" aria-live="polite"></pre>
+  </form>
+</div>
+
+{# SECTION — the page's focal content region: the notebook inventory. #}
+<section>
+  {# #450: the count is recomputed from the tbody by ui.js after a
+     successful create (data-on-success="recount:..."). Wrapped in a
+     span so the number can be replaced without touching the label. #}
+  <h2>Existing notebooks (<span id="notebooks-count">{{ notebooks|length }}</span>)</h2>
+  {# ui-attractive-polish-m5 (UPL-12 v1): the table+tbody are now
+     ALWAYS rendered (no {% if not notebooks %} wrap) so the htmx
+     hx-target="#notebooks-tbody" swap target is always present —
+     including the first create from an empty state. The empty-state
+     message moves INSIDE the tbody as a 4-column-spanning placeholder
+     row (id="notebooks-empty"); the create form's success hook
+     removes it after the first successful append.
+     m1 UPL-3: aria-live="polite" on the tbody so screen readers
+     announce the swap-in.
+     ui-attractive-polish-m2 (UPL-19 v0): .table-wrap (overflow-x:auto)
+     wraps the table so narrow viewports get horizontal scroll inside
+     the card instead of clipping the Open/Remove buttons. #}
+  <div class="table-wrap">
+    <table class="notebooks">
+      <thead>
+        <tr><th>Slug</th><th>Display name</th><th>Created</th><th></th></tr>
+      </thead>
+      <tbody id="notebooks-tbody" aria-live="polite">
+        {% if not notebooks %}
+        <tr id="notebooks-empty"><td colspan="4" class="empty">No notebooks yet. Create one above.</td></tr>
+        {% endif %}
+        {% for nb in notebooks %}
+        <tr data-slug="{{ nb.slug }}">
+          <td><code>{{ nb.slug }}</code></td>
+          <td>{{ nb.display_name or "—" }}</td>
+          <td><time>{{ nb.created_at }}</time></td>
+          <td>
+            <a href="/ui/notebooks/{{ nb.slug }}" class="button">Open</a>
+            {# ui-attractive-polish-m5 (UPL-12 v1): in-place row removal
+               via hx-target="closest tr" hx-swap="outerHTML swap:200ms".
+               The 200ms swap-delay window gates the row-fade keyframe
+               in app.css (gated by prefers-reduced-motion: no-preference);
+               after the window htmx replaces the <tr> with the empty
+               200 response body, effectively removing it. The legacy
+               hx-on::after-request="location.reload()" is replaced.
+               NOTE: this button IS inside a <tr> (the htmx "closest tr"
+               CSS-selector ascent works); the delete-notebook button in
+               notebook_detail.html is NOT inside a <tr> and stays on
+               its existing window.location.href='/ui/' navigation. #}
+            <button type="button"
+                    hx-delete="/ui/api/notebooks/{{ nb.slug }}"
+                    hx-disabled-elt="this"
+                    hx-target="closest tr"
+                    hx-swap="outerHTML swap:200ms"
+                    hx-confirm="Remove notebook '{{ nb.slug }}' from the UI? On-disk data at var/arxmcp/notebooks/{{ nb.slug }}/ is NOT deleted — run src/arxmcp/tools/notebook_purge.py to wipe the disk."
+                    class="danger">
+              Remove
+            </button>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

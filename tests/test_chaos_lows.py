@@ -16,25 +16,25 @@ from pathlib import Path
 from tests._source_blocks import python_block, rust_fn
 
 REPO_ROOT: Path = Path(__file__).resolve().parents[1]
-SUP: Path = REPO_ROOT / "apps" / "desktop" / "crates" / "supervisor" / "src"
+SUP: Path = REPO_ROOT / "src" / "desktop" / "crates" / "supervisor" / "src"
 MAIN_RS: str = (SUP / "main.rs").read_text(encoding="utf-8")
 LIFECYCLE_RS: str = (SUP / "lifecycle.rs").read_text(encoding="utf-8")
 
 
-MAIN_PY: str = (REPO_ROOT / "server" / "main.py").read_text(encoding="utf-8")
-CLI_PY: str = (REPO_ROOT / "server" / "cli.py").read_text(encoding="utf-8")
-SESSION_PY: str = (REPO_ROOT / "server" / "session.py").read_text(encoding="utf-8")
-CORPUS_PY: str = (REPO_ROOT / "ingest" / "corpus.py").read_text(encoding="utf-8")
-MIDDLEWARE_PY: str = (REPO_ROOT / "server" / "middleware.py").read_text(encoding="utf-8")
+MAIN_PY: str = (REPO_ROOT / "src" / "arxmcp" / "server" / "main.py").read_text(encoding="utf-8")
+CLI_PY: str = (REPO_ROOT / "src" / "arxmcp" / "server" / "cli.py").read_text(encoding="utf-8")
+SESSION_PY: str = (REPO_ROOT / "src/arxmcp/server" / "session.py").read_text(encoding="utf-8")
+CORPUS_PY: str = (REPO_ROOT / "src" / "arxmcp" / "ingest" / "corpus.py").read_text(encoding="utf-8")
+MIDDLEWARE_PY: str = (REPO_ROOT / "src/arxmcp/server" / "middleware.py").read_text(encoding="utf-8")
 NOTEBOOKS_PY: str = (
-    REPO_ROOT / "server" / "routes" / "notebooks.py"
+    REPO_ROOT / "src" / "arxmcp" / "server" / "routes" / "notebooks.py"
 ).read_text(encoding="utf-8")
-UI_PY: str = (REPO_ROOT / "server" / "routes" / "ui.py").read_text(encoding="utf-8")
+UI_PY: str = (REPO_ROOT / "src/arxmcp/server" / "routes" / "ui.py").read_text(encoding="utf-8")
 INDEX: str = (
-    REPO_ROOT / "server" / "frontend" / "templates" / "index.html"
+    REPO_ROOT / "src" / "arxmcp" / "server" / "frontend" / "templates" / "index.html"
 ).read_text(encoding="utf-8")
 DETAIL: str = (
-    REPO_ROOT / "server" / "frontend" / "templates" / "notebook_detail.html"
+    REPO_ROOT / "src" / "arxmcp" / "server" / "frontend" / "templates" / "notebook_detail.html"
 ).read_text(encoding="utf-8")
 
 
@@ -108,7 +108,7 @@ def test_a_config_failure_is_reported_exactly_once() -> None:
     """#475 round 2. The root-cause fix was right; the output was not.
 
     Both handlers are legitimately outermost on their own path, and on the
-    console script BOTH run — importing `server.main` executes `create_app()`
+    console script BOTH run — importing `arxmcp.server.main` executes `create_app()`
     at module scope, which is exactly what the root-cause fix moved inside
     the try. Each emitted twice (a logger record and a bare stderr write), so
     an operator saw the same message four times.
@@ -128,15 +128,15 @@ def test_a_config_failure_is_reported_exactly_once() -> None:
 
 
 def test_the_config_guard_actually_covers_the_import() -> None:
-    """The real defect: `from server.main import ...` executes create_app() at
+    """The real defect: `from arxmcp.server.main import ...` executes create_app() at
     module scope, so a bad bind host raised during the IMPORT — before the
     guarded Config() was reached. The guard looked correct and covered
     nothing."""
     main_fn = CLI_PY[CLI_PY.index("def main(argv") :]
     guard = main_fn.index("try:")
-    imported = main_fn.index("from server.main import _scan_unknown_arxmcp_env_vars")
+    imported = main_fn.index("from arxmcp.server.main import _scan_unknown_arxmcp_env_vars")
     assert guard < imported, (
-        "the server.main import must sit INSIDE the try (#475)"
+        "the arxmcp.server.main import must sit INSIDE the try (#475)"
     )
 
 
@@ -161,7 +161,7 @@ def test_lancedb_errors_drop_the_vendored_build_path() -> None:
 
 def test_the_trimmer_passes_unrecognised_shapes_through() -> None:
     """A mangled error is worse than a noisy one."""
-    from ingest.corpus import _trim_vendored_paths
+    from arxmcp.ingest.corpus import _trim_vendored_paths
 
     assert _trim_vendored_paths("plain error") == "plain error"
     assert _trim_vendored_paths(

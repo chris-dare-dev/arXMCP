@@ -34,8 +34,8 @@ from unittest.mock import patch
 import numpy as np
 import pytest
 
-import server.query_encoder as qe_mod
-from server.query_encoder import (
+import arxmcp.server.query_encoder as qe_mod
+from arxmcp.server.query_encoder import (
     BGE_M3_COMMIT_SHA,
     DEDUP_WINDOW_S,
     EMBEDDING_DIM,
@@ -160,11 +160,11 @@ class TestModuleContract:
 
 class TestSingleSourceOfTruth:
     def test_bge_m3_commit_sha_imported_from_embedder(self):
-        # The constant exposed by server.query_encoder must be the SAME
-        # object as the one defined in ingest.embedder. Object identity
+        # The constant exposed by arxmcp.server.query_encoder must be the SAME
+        # object as the one defined in arxmcp.ingest.embedder. Object identity
         # (``is``) catches a future regression where someone redefines
         # the literal here.
-        from ingest.embedder import BGE_M3_COMMIT_SHA as embedder_sha
+        from arxmcp.ingest.embedder import BGE_M3_COMMIT_SHA as embedder_sha
 
         assert BGE_M3_COMMIT_SHA is embedder_sha
 
@@ -179,7 +179,7 @@ class TestSingleSourceOfTruth:
         # Match ANY 40-hex string assigned with quotes in source.
         sha_pattern = re.compile(r'"' + BGE_M3_COMMIT_SHA + r'"')
         hits: list[Path] = []
-        for src_dir in ("ingest", "server"):
+        for src_dir in ("src/arxmcp/ingest", "src/arxmcp/server"):
             for py_file in (repo_root / src_dir).rglob("*.py"):
                 text = py_file.read_text(encoding="utf-8")
                 if sha_pattern.search(text):
@@ -203,8 +203,8 @@ class TestSingleflight:
 
         async def _run() -> list[np.ndarray]:
             with (
-                patch("server.query_encoder._get_tokenizer", return_value=tok),
-                patch("server.query_encoder._get_model", return_value=model),
+                patch("arxmcp.server.query_encoder._get_tokenizer", return_value=tok),
+                patch("arxmcp.server.query_encoder._get_model", return_value=model),
             ):
                 # gather 10 concurrent calls.
                 return await asyncio.gather(
@@ -231,8 +231,8 @@ class TestSingleflight:
 
         async def _run():
             with (
-                patch("server.query_encoder._get_tokenizer", return_value=tok),
-                patch("server.query_encoder._get_model", return_value=model),
+                patch("arxmcp.server.query_encoder._get_tokenizer", return_value=tok),
+                patch("arxmcp.server.query_encoder._get_model", return_value=model),
             ):
                 a, b = await asyncio.gather(
                     encode_query("same"), encode_query("same")
@@ -253,8 +253,8 @@ class TestSingleflight:
 
         async def _run():
             with (
-                patch("server.query_encoder._get_tokenizer", return_value=tok),
-                patch("server.query_encoder._get_model", return_value=model),
+                patch("arxmcp.server.query_encoder._get_tokenizer", return_value=tok),
+                patch("arxmcp.server.query_encoder._get_model", return_value=model),
             ):
                 return await encode_query("foo")
 
@@ -270,8 +270,8 @@ class TestSingleflight:
 
         async def _run():
             with (
-                patch("server.query_encoder._get_tokenizer", return_value=tok),
-                patch("server.query_encoder._get_model", return_value=model),
+                patch("arxmcp.server.query_encoder._get_tokenizer", return_value=tok),
+                patch("arxmcp.server.query_encoder._get_model", return_value=model),
             ):
                 return await encode_query("normalized?")
 
@@ -286,8 +286,8 @@ class TestSingleflight:
 
         async def _run():
             with (
-                patch("server.query_encoder._get_tokenizer", return_value=tok),
-                patch("server.query_encoder._get_model", return_value=model),
+                patch("arxmcp.server.query_encoder._get_tokenizer", return_value=tok),
+                patch("arxmcp.server.query_encoder._get_model", return_value=model),
             ):
                 return await asyncio.gather(
                     encode_query("query A"),
@@ -369,7 +369,7 @@ class TestEvictionWindow:
 
         async def _run():
             with patch(
-                "server.query_encoder._encode_query_sync",
+                "arxmcp.server.query_encoder._encode_query_sync",
                 side_effect=_slow_encode,
             ):
                 # Two callers, second issued ~10ms after first.
@@ -420,7 +420,7 @@ class TestEvictionWindow:
 
             with (
                 patch(
-                    "server.query_encoder._encode_query_sync",
+                    "arxmcp.server.query_encoder._encode_query_sync",
                     side_effect=_fast_encode,
                 ),
                 patch.object(loop, "call_later", side_effect=_capturing_call_later),
@@ -459,7 +459,7 @@ class TestEvictionWindow:
 
         async def _run():
             with patch(
-                "server.query_encoder._encode_query_sync",
+                "arxmcp.server.query_encoder._encode_query_sync",
                 side_effect=_fast_encode,
             ):
                 await encode_query("q")
@@ -484,7 +484,7 @@ class TestErrorPath:
 
         async def _run():
             with patch(
-                "server.query_encoder._encode_query_sync",
+                "arxmcp.server.query_encoder._encode_query_sync",
                 side_effect=_raising_encode,
             ), pytest.raises(RuntimeError, match="simulated"):
                 await encode_query("q")
@@ -506,7 +506,7 @@ class TestErrorPath:
 
         async def _run():
             with patch(
-                "server.query_encoder._encode_query_sync",
+                "arxmcp.server.query_encoder._encode_query_sync",
                 side_effect=_flaky_encode,
             ):
                 with pytest.raises(RuntimeError):
@@ -530,7 +530,7 @@ class TestErrorPath:
 
         async def _run():
             with patch(
-                "server.query_encoder._encode_query_sync",
+                "arxmcp.server.query_encoder._encode_query_sync",
                 side_effect=_raising_encode,
             ):
                 t1 = asyncio.create_task(encode_query("q"))
@@ -557,10 +557,10 @@ class TestErrorPath:
 class TestThreat6:
     def test_encoder_uses_embedder_lazy_loaders(self):
         """The encoder must import _get_model / _get_tokenizer from
-        ingest.embedder rather than redefining them, so Threat 6
+        arxmcp.ingest.embedder rather than redefining them, so Threat 6
         revision-pinning enforcement (regression-tested in
         test_embedder.py) automatically covers the query path too."""
-        import ingest.embedder as embedder_mod
+        import arxmcp.ingest.embedder as embedder_mod
 
         assert qe_mod._get_model is embedder_mod._get_model
         assert qe_mod._get_tokenizer is embedder_mod._get_tokenizer
@@ -612,7 +612,7 @@ class TestCancellationInvariant:
             let_encode_finish._loop_signaled = False
 
             with patch(
-                "server.query_encoder._encode_query_sync",
+                "arxmcp.server.query_encoder._encode_query_sync",
                 side_effect=_slow_encode,
             ):
                 # Caller 1 starts the slow encode.
@@ -680,7 +680,7 @@ class TestExecutorLifecycle:
 
 class TestDedupCountGetter:
     def test_getter_returns_current_value(self):
-        from server.query_encoder import get_singleflight_dedup_count
+        from arxmcp.server.query_encoder import get_singleflight_dedup_count
 
         # Reset by autouse fixture leaves it at 0.
         assert get_singleflight_dedup_count() == 0
@@ -698,7 +698,7 @@ class TestDedupCountGetter:
         # exception escapes either side.
         import threading
 
-        from server.query_encoder import get_singleflight_dedup_count
+        from arxmcp.server.query_encoder import get_singleflight_dedup_count
 
         stop = threading.Event()
 
@@ -745,8 +745,8 @@ class TestTrueConcurrencyStress:
 
         async def _run():
             with (
-                patch("server.query_encoder._get_tokenizer", return_value=tok),
-                patch("server.query_encoder._get_model", return_value=model),
+                patch("arxmcp.server.query_encoder._get_tokenizer", return_value=tok),
+                patch("arxmcp.server.query_encoder._get_model", return_value=model),
                 patch.object(qe_mod, "_inflight", _CountingDict()),
             ):
                 return await asyncio.gather(

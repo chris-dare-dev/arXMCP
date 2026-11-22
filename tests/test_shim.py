@@ -32,10 +32,10 @@ from types import SimpleNamespace
 
 import pytest
 
-from shim import arxmcp_shim
+from arxmcp.shim import arxmcp_shim
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-SHIM_PATH = REPO_ROOT / "shim" / "arxmcp_shim.py"
+SHIM_PATH = REPO_ROOT / "src" / "arxmcp" / "shim" / "arxmcp_shim.py"
 
 
 # ===========================================================================

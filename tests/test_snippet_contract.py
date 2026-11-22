@@ -25,15 +25,15 @@ import pytest
 from fastapi.testclient import TestClient
 from jsonschema import Draft7Validator
 
-from ingest.embedder import EMBEDDING_DIM
-from server.config import Config
-from server.health import reset_metrics_for_tests
-from server.main import create_app
-from server.tools import reset_resources_for_tests
+from arxmcp.ingest.embedder import EMBEDDING_DIM
+from arxmcp.server.config import Config
+from arxmcp.server.health import reset_metrics_for_tests
+from arxmcp.server.main import create_app
+from arxmcp.server.tools import reset_resources_for_tests
 from tests.test_tools_all import _call_tool, _seed_corpus
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-SCHEMA_PATH = REPO_ROOT / "server" / "schemas" / "search_papers_result.json"
+SCHEMA_PATH = REPO_ROOT / "src" / "arxmcp" / "server" / "schemas" / "search_papers_result.json"
 
 
 # ===========================================================================
@@ -47,9 +47,9 @@ SCHEMA_PATH = REPO_ROOT / "server" / "schemas" / "search_papers_result.json"
 def _mocked_bge(monkeypatch):
     """Replace the BGE-M3 model + tokenizer + encode_query at all
     bind sites. Mirrors ``tests/test_tools_all.py::mocked_bge_m3``."""
-    import server.handlers.equation as eq_mod
-    import server.handlers.search as search_mod
-    import server.query_encoder as qe_mod
+    import arxmcp.server.handlers.equation as eq_mod
+    import arxmcp.server.handlers.search as search_mod
+    import arxmcp.server.query_encoder as qe_mod
 
     monkeypatch.setattr(qe_mod, "_get_model", lambda: object())
     monkeypatch.setattr(qe_mod, "_get_tokenizer", lambda: object())
@@ -118,7 +118,7 @@ class TestSnippetShape:
             )
 
     def test_chunk_id_present_and_well_formed(self, warm_app):
-        from ingest.identifiers import is_valid_chunk_id
+        from arxmcp.ingest.identifiers import is_valid_chunk_id
 
         body = _search(warm_app)
         rows = body["result"]["structuredContent"]["results"]
@@ -155,7 +155,7 @@ class TestSnippetShape:
             extra = set(row.keys()) - allowed
             assert not extra, (
                 f"row has undocumented fields {sorted(extra)}: {row}. "
-                f"Bump tool_schema_version + update server/schemas/"
+                f"Bump tool_schema_version + update src/arxmcp/server/schemas/"
                 f"search_papers_result.json before adding fields."
             )
 
@@ -191,7 +191,7 @@ class TestSnippetSource:
             assert row["snippet"].endswith("</retrieved_chunk>")
 
     def test_snippet_constant_pinned_to_150(self):
-        from server.handlers.search import SNIPPET_MAX_CHARS
+        from arxmcp.server.handlers.search import SNIPPET_MAX_CHARS
 
         assert SNIPPET_MAX_CHARS == 150
 
@@ -296,20 +296,20 @@ class TestSchemaConformance:
 
 class TestRegexSourceOfTruth:
     """F1 close: the schema's chunk_id pattern must equal
-    ``ingest.identifiers.CHUNK_ID_PATTERN`` byte-for-byte. E06_S03
+    ``arxmcp.ingest.identifiers.CHUNK_ID_PATTERN`` byte-for-byte. E06_S03
     F11 collapsed the regex to a single source of truth; this test
     ensures the JSON Schema file does not silently re-introduce the
     drift surface.
     """
 
     def test_schema_chunk_id_pattern_matches_canonical(self):
-        from ingest.identifiers import CHUNK_ID_PATTERN
+        from arxmcp.ingest.identifiers import CHUNK_ID_PATTERN
 
         schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
         pat = schema["properties"]["results"]["items"]["properties"]["chunk_id"]["pattern"]
         assert pat == f"^{CHUNK_ID_PATTERN}$", (
             f"schema chunk_id pattern drifted from "
-            f"ingest.identifiers.CHUNK_ID_PATTERN; see E06_S03 F11. "
+            f"arxmcp.ingest.identifiers.CHUNK_ID_PATTERN; see E06_S03 F11. "
             f"schema={pat!r}, expected=^{CHUNK_ID_PATTERN}$"
         )
 
@@ -328,10 +328,10 @@ class TestNoLLMInSnippetPath:
 
         for mod in ("anthropic", "openai", "cohere"):
             sys.modules.pop(mod, None)
-        importlib.import_module("server.handlers.search")
+        importlib.import_module("arxmcp.server.handlers.search")
         for mod in ("anthropic", "openai", "cohere"):
             assert mod not in sys.modules, (
-                f"server.handlers.search imported {mod!r} — AC #2 "
+                f"arxmcp.server.handlers.search imported {mod!r} — AC #2 "
                 f"forbids LLM calls in the snippet path"
             )
 
@@ -349,7 +349,7 @@ class TestEdgeCaseShapes:
         contract applies to the *content* inside the delimiter; the
         delimiter overhead is independent.
         """
-        from server.handlers.search import SNIPPET_MAX_CHARS, _snippet
+        from arxmcp.server.handlers.search import SNIPPET_MAX_CHARS, _snippet
 
         # length == cap → content unchanged, wrapped in delimiters
         body_at = "a" * SNIPPET_MAX_CHARS
@@ -371,7 +371,7 @@ class TestEdgeCaseShapes:
         assert inner_over == body_over[:SNIPPET_MAX_CHARS]
 
     def test_snippet_function_handles_none_and_empty(self):
-        from server.handlers.search import _snippet
+        from arxmcp.server.handlers.search import _snippet
 
         assert _snippet(None) == ""
         assert _snippet("") == ""
@@ -382,7 +382,7 @@ class TestEdgeCaseShapes:
         bound depends on the L2 distance being non-negative
         (BGE-M3 unit vectors guarantee this; defensive check only).
         """
-        from server.handlers.search import _distance_to_score
+        from arxmcp.server.handlers.search import _distance_to_score
 
         # Identical vectors: dist=0 → score=1.0
         assert _distance_to_score(0.0) == 1.0
@@ -398,7 +398,7 @@ class TestEdgeCaseShapes:
     def test_format_label_handles_all_none(self):
         """Empty string when both theorem_name and theorem_label
         are None — schema declares label as required."""
-        from server.handlers.search import _format_label
+        from arxmcp.server.handlers.search import _format_label
 
         assert _format_label(None, None) == ""
         assert _format_label("Riemann-Roch", None) == "Riemann-Roch"
@@ -420,7 +420,7 @@ class TestSnippetCapConsistency:
     """
 
     def test_schema_max_length_accommodates_content_cap_and_wrap(self):
-        from server.handlers.search import SNIPPET_MAX_CHARS
+        from arxmcp.server.handlers.search import SNIPPET_MAX_CHARS
 
         schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
         snippet_schema = schema["properties"]["results"]["items"]["properties"]["snippet"]
@@ -459,7 +459,7 @@ class TestSnippetCapConsistency:
         """
         import jsonschema
 
-        from server.handlers.search import _snippet
+        from arxmcp.server.handlers.search import _snippet
 
         schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
         snippet_schema = schema["properties"]["results"]["items"]["properties"]["snippet"]
@@ -479,20 +479,20 @@ class TestSnippetCapConsistency:
 
 class TestSchemaVersionPin:
     """F7 close: schema's ``version`` field must equal
-    ``server.tools.TOOL_SCHEMA_VERSION``. A bump in one without
+    ``arxmcp.server.tools.TOOL_SCHEMA_VERSION``. A bump in one without
     the other is a contract drift."""
 
     def test_schema_version_matches_tool_schema_version(self):
-        from server.tools import TOOL_SCHEMA_VERSION
+        from arxmcp.server.tools import TOOL_SCHEMA_VERSION
 
         schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
         assert "version" in schema, (
             "schema must carry a top-level ``version`` field equal "
-            "to server.tools.TOOL_SCHEMA_VERSION"
+            "to arxmcp.server.tools.TOOL_SCHEMA_VERSION"
         )
         assert schema["version"] == TOOL_SCHEMA_VERSION, (
             f"schema version {schema['version']} != "
-            f"server.tools.TOOL_SCHEMA_VERSION {TOOL_SCHEMA_VERSION}"
+            f"arxmcp.server.tools.TOOL_SCHEMA_VERSION {TOOL_SCHEMA_VERSION}"
         )
 
     def test_schema_has_id_for_canonical_url(self):

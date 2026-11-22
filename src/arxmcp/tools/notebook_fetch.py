@@ -1,0 +1,244 @@
+"""Fetch ar5iv HTML for any paper_id in a notebook missing from corpus/parsed.
+
+Walks ``var/arxmcp/notebooks/<slug>/papers.txt``, validates each line,
+and for every paper_id missing from ``var/arxmcp/corpus/parsed/<id>/index.html``
+delegates to :func:`arxmcp.ingest.ar5iv_fetch.try_cache`. Delegation inherits
+the existing security machinery: 100 MB cap, 5 s timeout, 429/503
+handling, ``<math`` body-presence check. See the synthesis "Disagreement
+1" resolution for why we delegate rather than re-implement HTTP.
+
+notebook-preamble-recovery-m1: after each ar5iv hit, also pulls raw
+``.tex`` source via :func:`arxmcp.ingest.notebooks.fetch_raw_tex_if_missing`
+(which wraps :func:`arxmcp.ingest.arxiv_fetch.fetch_eprint`). This populates
+``var/arxmcp/corpus/raw/<paper_id>/`` so :func:`arxmcp.ingest.preamble.extract_preamble`
+can run successfully on the ar5iv path — without it, every ar5iv-only
+paper has ``preamble_ref=null`` and ``get_definitions`` returns empty.
+
+An email address is optional User-Agent contact information. Fetches identify
+the application without it and continue to honor arXiv's request pacing.
+
+Honors the 3-second-per-IP politeness contract (see
+``src/arxmcp/ingest/ar5iv_fetch.py`` module docstring and
+``src/arxmcp/ingest/arxiv_fetch.py:29``) by sleeping between non-first fetches.
+The raw-tex fetch adds its OWN 3-second sleep before each call — the
+ar5iv and ``export.arxiv.org`` budgets are separate.
+
+Summary line at end:
+
+    fetched=N from_cache=M missing=K rate_limited=R malformed=J \
+      raw_tex_recovered=P raw_tex_missing=M2
+
+The four ar5iv miss categories are distinct — operators must NOT drop
+``rate_limited`` IDs from their papers.txt (re-run after backoff).
+See FM-4 in the synthesis. ``raw_tex_missing`` covers all non-OK raw-
+tex outcomes (404 withdrawn, 503 rate-limited, tarball errors); see
+``preamble.log`` for per-paper reasons.
+
+Usage:
+
+    uv run python src/arxmcp/tools/notebook_fetch.py <slug>
+
+Exit codes:
+    0 — every paper_id either cached, fetched, or rate-limited
+        (rate-limited is recoverable; not a hard failure)
+    1 — slug validation failed OR malformed papers.txt entries
+        OR irrecoverable ``missing`` (ar5iv 404, no_math, etc.)
+"""
+
+from __future__ import annotations
+
+import argparse
+import logging
+import sys
+import time
+
+from arxmcp.ingest.ar5iv_fetch import (
+    DEFAULT_AR5IV_CACHE_DIR,
+    DEFAULT_PARSED_DIR,
+    try_cache,
+)
+from arxmcp.ingest.identifiers import is_valid_arxiv_paper_id
+from arxmcp.ingest.notebooks import (
+    CORPUS_RAW_DIR,
+    NotebookError,
+    fetch_raw_tex_if_missing,
+    notebook_dir,
+    read_paper_ids_from_papers_txt,
+    validate_slug,
+)
+from arxmcp.server.ssl_pin import arxiv_ssl_context_from_env
+
+logger = logging.getLogger("notebook_fetch")
+
+POLITENESS_SLEEP_SECONDS: float = 3.0
+
+
+def run(slug: str, *, sleep_seconds: float = POLITENESS_SLEEP_SECONDS) -> int:
+    """Fetch ar5iv HTML + raw .tex for every missing paper in the notebook.
+
+    ``sleep_seconds`` is exposed for tests (set to 0.0 to skip the
+    politeness sleep). Production callers should leave it at the
+    default 3.0 s.
+
+    A contact email is optional. When present in operator settings or the
+    environment, the fetcher includes it in the User-Agent.
+    """
+    validate_slug(slug)
+    nb_dir = notebook_dir(slug)
+    papers_txt = nb_dir / "papers.txt"
+    raw_lines = read_paper_ids_from_papers_txt(papers_txt)
+
+    # Pre-validate every line. Malformed entries are surfaced as
+    # ``malformed=J`` per FM-5 — not silently dropped into ``missing``.
+    valid_ids: list[str] = []
+    malformed: list[str] = []
+    for line in raw_lines:
+        if is_valid_arxiv_paper_id(line):
+            valid_ids.append(line)
+        else:
+            malformed.append(line)
+
+    fetched: list[str] = []
+    from_cache: list[str] = []
+    missing: list[tuple[str, str]] = []  # (paper_id, reason)
+    rate_limited: list[str] = []  # ar5iv 429 / 503 / timeout
+    # notebook-preamble-recovery-m1 — raw-tex counters
+    raw_tex_recovered: list[str] = []
+    raw_tex_missing: list[str] = []
+
+    # F4 fix: dropped the bare >1024-byte size heuristic. It admitted
+    # corrupt local files (manually dropped invalid HTML, half-written
+    # files from a crashed pre-m6 run) as cache hits. Always call
+    # try_cache; it does the correct dual-file existence + content
+    # validation. The sleep is suppressed when try_cache reports a
+    # local-cache hit (no network round-trip).
+    for paper_id in valid_ids:
+        result = try_cache(
+            paper_id,
+            cache_dir=DEFAULT_AR5IV_CACHE_DIR,
+            parsed_dir=DEFAULT_PARSED_DIR,
+            ssl_context=arxiv_ssl_context_from_env(),
+        )
+        if result.hit:
+            # Categorize: was this a local-cache hit (no fetch) or a
+            # genuine fetch? try_cache returns reason="ok_local_cache"
+            # when both files were already present; "ok" means a real
+            # network fetch happened. Reflect that in our summary —
+            # AND skip the politeness sleep on local-cache hits.
+            if result.reason == "ok_local_cache":
+                from_cache.append(paper_id)
+            else:
+                fetched.append(paper_id)
+                # Sleep AFTER the network fetch so the next iteration
+                # (if any) waits the full politeness interval.
+                time.sleep(sleep_seconds)
+            # notebook-preamble-recovery-m1: after each ar5iv hit, also
+            # pull raw .tex so extract_preamble can run on the ar5iv
+            # path. Sleep BEFORE the fetch (separate politeness budget
+            # for export.arxiv.org); skip the sleep if the raw dir is
+            # already populated (idempotent helper short-circuits at
+            # zero network egress).
+            paper_raw_dir = CORPUS_RAW_DIR / paper_id
+            already_present = (
+                paper_raw_dir.is_dir()
+                and any(paper_raw_dir.glob("*.tex"))
+            )
+            if not already_present:
+                time.sleep(sleep_seconds)
+            try:
+                recovered = fetch_raw_tex_if_missing(paper_id, CORPUS_RAW_DIR)
+            except ValueError as exc:
+                # Old-style ids (e.g. ``math/0212237``) are out of scope
+                # for ``fetch_eprint``'s new-style-only ``validate_paper_id``.
+                # The ar5iv HTML hit already succeeded; raw-tex preamble
+                # recovery is best-effort, so degrade to raw_tex_missing
+                # rather than aborting the whole batch with a traceback.
+                #
+                # oldstyle-id-ingest-fix-m1 F1: emit a breadcrumb so this
+                # degrade is NOT silent — every other miss path in
+                # ``fetch_raw_tex_if_missing`` logs a categorized reason
+                # (``src/arxmcp/ingest/notebooks.py``), and an operator scanning logs
+                # must be able to distinguish an out-of-scope old-style id
+                # from a genuine deeper ``ValueError`` bug masked here.
+                logger.info(
+                    "[%s] raw_tex: out of scope for fetch_eprint "
+                    "(old-style id); degrading to raw_tex_missing (%s)",
+                    paper_id,
+                    exc,
+                )
+                recovered = False
+            if recovered:
+                raw_tex_recovered.append(paper_id)
+            else:
+                raw_tex_missing.append(paper_id)
+            continue
+        # Miss. Sleep AFTER (it counted as an attempted fetch — server
+        # saw the request). The reason strings match src/arxmcp/ingest/ar5iv_fetch.py
+        # exactly (verified at src/arxmcp/ingest/ar5iv_fetch.py:154, 241, 250).
+        if result.reason in {"http_429", "http_503", "timeout_or_network"}:
+            rate_limited.append(paper_id)
+        else:
+            missing.append((paper_id, result.reason))
+        time.sleep(sleep_seconds)
+
+    # Summary line — the AC-required format.
+    print(
+        f"fetched={len(fetched)} "
+        f"from_cache={len(from_cache)} "
+        f"missing={len(missing)} "
+        f"rate_limited={len(rate_limited)} "
+        f"malformed={len(malformed)} "
+        f"raw_tex_recovered={len(raw_tex_recovered)} "
+        f"raw_tex_missing={len(raw_tex_missing)}"
+    )
+
+    if malformed:
+        print("\nmalformed lines in papers.txt (not arXiv IDs):", file=sys.stderr)
+        for line in malformed:
+            print(f"  {line!r}", file=sys.stderr)
+    if rate_limited:
+        print(
+            "\nrate-limited IDs — DO NOT drop these from papers.txt; "
+            "re-run after a backoff (≥ 60 s):",
+            file=sys.stderr,
+        )
+        for pid in rate_limited:
+            print(f"  {pid}", file=sys.stderr)
+    if missing:
+        print(
+            "\nmissing IDs — ar5iv lacks these; drop manually OR provide "
+            "local HTML at var/arxmcp/corpus/parsed/<paper_id>/index.html:",
+            file=sys.stderr,
+        )
+        for pid, reason in missing:
+            print(f"  {pid}  reason={reason}", file=sys.stderr)
+
+    # Exit non-zero if there's anything the operator needs to act on
+    # beyond a retry. Rate-limited is recoverable (exit 0); malformed
+    # and missing are not.
+    return 1 if (malformed or missing) else 0
+
+
+def _build_arg_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description=__doc__.splitlines()[0],
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument(
+        "slug",
+        help="Notebook slug (must match ^[a-z][a-z0-9-]{2,30}$).",
+    )
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = _build_arg_parser().parse_args(argv)
+    try:
+        return run(args.slug)
+    except NotebookError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":  # pragma: no cover
+    sys.exit(main())

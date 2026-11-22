@@ -1,4 +1,4 @@
-"""E14_S04 — tests for ``tools/daily_metrics_report.py``.
+"""E14_S04 — tests for ``src/arxmcp/tools/daily_metrics_report.py``.
 
 Coverage:
 
@@ -21,7 +21,7 @@ from unittest.mock import patch
 
 import pytest
 
-from tools.daily_metrics_report import (
+from arxmcp.tools.daily_metrics_report import (
     CACHE_TIERS,
     TOOLS,
     _request_counts,
@@ -302,9 +302,9 @@ class TestCorpusIntegritySection:
 
 class TestRegenFixture:
     """F4 rectification — the fixture regeneration script
-    (`tools/regen_metrics_fixture.py`) must produce the SAME bytes
+    (`src/arxmcp/tools/regen_metrics_fixture.py`) must produce the SAME bytes
     as the checked-in fixture. If a metric family is renamed or
-    added in `server/metrics.py` or `server/observability/metrics.py`
+    added in `src/arxmcp/server/metrics.py` or `src/arxmcp/server/observability/metrics.py`
     without the regen script being updated, this test fails."""
 
     @staticmethod
@@ -348,7 +348,7 @@ class TestRegenFixture:
         result = subprocess.run(
             [
                 sys.executable, "-c",
-                "from tools.regen_metrics_fixture import render_fixture_bytes;"
+                "from arxmcp.tools.regen_metrics_fixture import render_fixture_bytes;"
                 " import sys; sys.stdout.buffer.write(render_fixture_bytes())",
             ],
             capture_output=True,
@@ -377,9 +377,9 @@ class TestRegenFixture:
             )
             pytest.fail(
                 "tests/fixtures/metrics_sample.txt is out of sync "
-                "with tools/regen_metrics_fixture.py (deterministic "
+                "with src/arxmcp/tools/regen_metrics_fixture.py (deterministic "
                 "lines only). Regenerate with: "
-                "`uv run python -m tools.regen_metrics_fixture`. "
+                "`uv run python -m arxmcp.tools.regen_metrics_fixture`. "
                 f"First diff lines:\n{chr(10).join(diff[:30])}"
             )
 
@@ -389,7 +389,7 @@ class TestMaybeEmail:
         # Clear every env var we read.
         for k in ("MAIL_TO", "MAIL_FROM", "SMTP_HOST"):
             monkeypatch.delenv(k, raising=False)
-        with caplog.at_level(logging.INFO, logger="tools.daily_metrics_report"):
+        with caplog.at_level(logging.INFO, logger="arxmcp.tools.daily_metrics_report"):
             maybe_email("subject", "body")
         # INFO log fires with the missing-var list, but no SMTP call.
         assert any(
@@ -427,7 +427,7 @@ class TestMaybeEmail:
             instance.send_message.side_effect = smtplib.SMTPRecipientsRefused(
                 {"ops@example.com": (550, b"User unknown")}
             )
-            with caplog.at_level(logging.ERROR, logger="tools.daily_metrics_report"):
+            with caplog.at_level(logging.ERROR, logger="arxmcp.tools.daily_metrics_report"):
                 # Must return normally; no raise.
                 maybe_email("subject", "body")
         assert any(
@@ -445,7 +445,7 @@ class TestMaybeEmail:
         monkeypatch.setenv("SMTP_HOST", "smtp.example.com")
         with patch("smtplib.SMTP") as smtp_cls:
             smtp_cls.side_effect = OSError("connection refused")
-            with caplog.at_level(logging.ERROR, logger="tools.daily_metrics_report"):
+            with caplog.at_level(logging.ERROR, logger="arxmcp.tools.daily_metrics_report"):
                 maybe_email("subject", "body")
         assert any(
             "email delivery failed" in r.message
@@ -460,7 +460,7 @@ class TestMaybeEmail:
 
 class TestIngestionThroughputSection:
     """Tests for the ``## Ingestion throughput`` section that replaces
-    the TODO stub in ``tools/daily_metrics_report.py``."""
+    the TODO stub in ``src/arxmcp/tools/daily_metrics_report.py``."""
 
     _NOW = datetime.datetime(2026, 5, 29, 12, 0, 0, tzinfo=datetime.UTC)
 

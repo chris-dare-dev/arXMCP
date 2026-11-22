@@ -23,7 +23,7 @@ from pathlib import Path
 
 import pytest
 
-from ops.watchdog_eval import (
+from arxmcp.ops.watchdog_eval import (
     DEFAULT_REGRESSION_THRESHOLD_PCT,
     MIN_QUERIES_FOR_REGRESSION_CHECK,
     _clear_quarantine_flag,
@@ -32,7 +32,7 @@ from ops.watchdog_eval import (
     find_prior_report,
     run_watchdog,
 )
-from server.metrics import EVAL_NDCG5_GAUGE, reset_eval_metrics_for_tests
+from arxmcp.server.metrics import EVAL_NDCG5_GAUGE, reset_eval_metrics_for_tests
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -588,12 +588,12 @@ class TestCli:
     def test_clear_quarantine_flag_returns_zero_when_absent(
         self, tmp_path, monkeypatch
     ):
-        from ops.watchdog_eval import _cli
+        from arxmcp.ops.watchdog_eval import _cli
 
         # Redirect the default sentinel path to a tmp location so
         # the test doesn't touch the real var/ tree.
         monkeypatch.setattr(
-            "ops.watchdog_eval.DEFAULT_QUARANTINE_FLAG_PATH",
+            "arxmcp.ops.watchdog_eval.DEFAULT_QUARANTINE_FLAG_PATH",
             tmp_path / "missing.flag",
         )
         rc = _cli(["--clear-quarantine"])
@@ -609,7 +609,7 @@ class TestMakefileWatchdogTarget:
     def test_watchdog_target_present(self):
         text = (REPO_ROOT / "Makefile").read_text(encoding="utf-8")
         assert "\nwatchdog:\n" in text
-        assert "ops.watchdog_eval" in text
+        assert "arxmcp.ops.watchdog_eval" in text
 
     def test_watchdog_carries_args_note(self):
         """Closes E11_S03 IS1 pattern — every new Makefile target
@@ -626,7 +626,7 @@ class TestMakefileWatchdogTarget:
 
 
 class TestShellWrapper:
-    wrapper = REPO_ROOT / "ops" / "cron" / "arxmcp-watchdog.sh"
+    wrapper = REPO_ROOT / "src" / "arxmcp" / "ops" / "cron" / "arxmcp-watchdog.sh"
 
     def test_wrapper_exists_and_executable(self):
         assert self.wrapper.is_file()
@@ -824,7 +824,7 @@ class TestCliQuarantineFlagPath:
     """Closes adversary F8: --quarantine-flag-path CLI override."""
 
     def test_clear_quarantine_with_explicit_path(self, tmp_path):
-        from ops.watchdog_eval import _cli
+        from arxmcp.ops.watchdog_eval import _cli
 
         flag = tmp_path / "custom.flag"
         flag.write_text(json.dumps({"corpus_version": 99}))
@@ -842,14 +842,14 @@ class TestShellWrapperFlockGuard:
     flock(1) by default."""
 
     def test_watchdog_wrapper_guards_flock(self):
-        text = (REPO_ROOT / "ops" / "cron" / "arxmcp-watchdog.sh").read_text(
+        text = (REPO_ROOT / "src" / "arxmcp" / "ops" / "cron" / "arxmcp-watchdog.sh").read_text(
             encoding="utf-8"
         )
         assert "command -v flock" in text
 
     def test_delta_wrapper_guards_flock(self):
         """Same guard added to E11_S02's pre-existing wrapper."""
-        text = (REPO_ROOT / "ops" / "cron" / "arxmcp-delta.sh").read_text(
+        text = (REPO_ROOT / "src" / "arxmcp" / "ops" / "cron" / "arxmcp-delta.sh").read_text(
             encoding="utf-8"
         )
         assert "command -v flock" in text
@@ -865,9 +865,9 @@ def test_the_watchdog_harness_imports_without_the_test_tree() -> None:
         "import sys\n"
         "sys.modules['tests'] = None\n"
         "sys.modules['pytest'] = None\n"
-        "import ops.watchdog_eval\n"
-        "from ops.retrieval_eval import run_hybrid_against_corpus\n"
-        "from ops.eval_metrics import ndcg_at_k\n"
+        "import arxmcp.ops.watchdog_eval\n"
+        "from arxmcp.ops.retrieval_eval import run_hybrid_against_corpus\n"
+        "from arxmcp.ops.eval_metrics import ndcg_at_k\n"
         "print('ok')\n"
     )
     result = subprocess.run(

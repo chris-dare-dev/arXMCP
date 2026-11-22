@@ -1,4 +1,4 @@
-"""E14_S04 — tests for ``tools/parser_failures_report.py``."""
+"""E14_S04 — tests for ``src/arxmcp/tools/parser_failures_report.py``."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ import json
 
 import pytest
 
-from tools.parser_failures_report import (
+from arxmcp.tools.parser_failures_report import (
     FailureRecord,
     collect_records,
     filter_by_week,

@@ -1,6 +1,6 @@
 """notebook-surface-expansion-m7 — restore CLI + m6→m7 export→restore round-trip.
 
-Covers ``tools/notebook_restore.py``:
+Covers ``src/arxmcp/tools/notebook_restore.py``:
 
 - **Happy-path round-trip** — seed source via the m6 fixture, GET the export tar,
   restore_bundle() into a FRESH (separate) base + db, verify the notebook +
@@ -31,11 +31,11 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from ingest import notebooks as _notebook_common
-from server.notebooks_store import NotebooksStore
-from server.routes import notebooks as notebooks_module
-from server.routes.notebooks import router as notebooks_router
-from tools.notebook_restore import (
+from arxmcp.ingest import notebooks as _notebook_common
+from arxmcp.server.notebooks_store import NotebooksStore
+from arxmcp.server.routes import notebooks as notebooks_module
+from arxmcp.server.routes.notebooks import router as notebooks_router
+from arxmcp.tools.notebook_restore import (
     _RESTORE_SUPPORTED_FORMATS,
     NotebookError,
     main,
@@ -459,7 +459,7 @@ class TestForceSemantics:
         nb, _ = _read_target_rows(tgt_db, _GOOD_SLUG)
         assert nb is not None
         # m7-rect F2: --force MUST emit a stderr WARN before the DELETE
-        # (precedent: tools/notebook_purge.py — "--force does NOT silence
+        # (precedent: src/arxmcp/tools/notebook_purge.py — "--force does NOT silence
         # the warning"). The line names the slug + paper count.
         err = capsys.readouterr().err
         assert "WARN" in err

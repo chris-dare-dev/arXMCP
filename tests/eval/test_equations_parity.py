@@ -56,7 +56,7 @@ from pathlib import Path
 
 import pytest
 
-from ingest.mathml_tree import normalized_ted, parse_mathml_to_tree
+from arxmcp.ingest.mathml_tree import normalized_ted, parse_mathml_to_tree
 
 pytestmark = pytest.mark.eval
 

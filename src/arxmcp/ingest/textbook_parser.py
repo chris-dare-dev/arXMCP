@@ -1,0 +1,663 @@
+"""Sandboxed MinerU subprocess driver (textbook-ingest-m5).
+
+Implements the layer-2 PDF defense: a subprocess sandbox profile for
+MinerU 3.x's pipeline backend, invoked via CLI form.
+
+Layer-1 (upload-side pre-flight) is in ``src/arxmcp/server/routes/notebooks.py``
+(m4); layer-3 (per-notebook LanceDB blast-radius) was validated by
+spike-3 (``tests/test_textbook_notebook_isolation.py``).
+
+The driver is **purely local**: no network egress, no MCP-surface
+change. Consumed in m6 (LaTeXML re-render + upload-route wiring).
+
+Cross-references
+----------------
+- ``src/arxmcp/tools/cdm_eval.py::_run_subprocess_with_pgkill`` — closest peer
+- ``src/arxmcp/server/lean_repl.py::spawn`` — RLIMIT_AS precedent (also has the
+  macOS gap this driver explicitly addresses)
+"""
+
+from __future__ import annotations
+
+import contextlib
+import dataclasses
+import logging
+import os
+import shutil
+import signal
+import subprocess
+import sys
+import threading
+import time
+from pathlib import Path
+
+logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Sandbox constants — load-bearing
+# ---------------------------------------------------------------------------
+
+#: Virtual-memory ceiling for the MinerU subprocess. 4 GB is ~2x the
+#: nominal working set on a 500-page textbook (measured offline in B1);
+#: leaves room for transformer attention spikes without admitting
+#: decompression-bomb scenarios. Linux-only — see _RLIMIT_AS_PLATFORM.
+_MINERU_RLIMIT_AS_BYTES: int = 4 * 1024 * 1024 * 1024  # 4 GB
+
+#: Environment variables this module reads. The server's startup scan
+#: imports these names, because the console's PDF upload runs this parse
+#: inside the server process.
+MINERU_BIN_ENV: str = "ARXMCP_MINERU_BIN"
+MINERU_TIMEOUT_ENV: str = "ARXMCP_MINERU_TIMEOUT_S"
+
+#: Default wall-clock cap. 30 min covers Bourbaki-grade textbooks on
+#: M2-class hardware (~1-3 pages/sec). Configurable via
+#: ARXMCP_MINERU_TIMEOUT_S env var at module load (60–3600 inclusive).
+_DEFAULT_TIMEOUT_S: int = 30 * 60
+
+#: Bounds on the configurable timeout (inclusive).
+_TIMEOUT_MIN_S: int = 60
+_TIMEOUT_MAX_S: int = 3600
+
+#: Tail-truncation budget for captured stdout/stderr. 8 KB is enough
+#: for failure-relevant diagnostics; the full stream would be multi-MB
+#: from MinerU's per-page progress logging.
+_OUTPUT_TAIL_BYTES: int = 8 * 1024
+
+#: Whitelist of environment variables passed through to the MinerU
+#: subprocess. TMPDIR is explicitly OVERRIDDEN to output_dir (not
+#: inherited) per research-synthesis §D4 — prevents cross-notebook
+#: TMPDIR contamination. HOME stays so MinerU can find its
+#: ~/.cache/mineru/ ONNX weights.
+_ENV_WHITELIST_POSIX: frozenset[str] = frozenset({
+    "PATH", "HOME", "LANG", "LC_ALL",
+})
+
+#: Windows-essential OS variables. Without ``SystemRoot`` a Windows
+#: subprocess cannot initialize the socket provider — torch/onnxruntime
+#: import fails with ``OSError: [WinError 10106]`` (verified live on this
+#: workstation). ``USERPROFILE``/``LOCALAPPDATA``/``APPDATA`` are where
+#: MinerU's ``mineru.json`` config + HF model cache live; ``TEMP``/``TMP``
+#: are Windows scratch (Python honors ``TMPDIR``, but some native libs read
+#: ``TEMP``). NONE of these are secrets or network-egress enablers, so they
+#: do not weaken the scrub's intent (proxies + AWS/GCP/Azure/HF credentials
+#: are still stripped). Empty on POSIX so non-Windows behavior is unchanged.
+#:
+#: ``COMSPEC`` (F3) is the SOLE tolerated shell-path var (the ``cmd.exe``
+#: path). It is admitted only because every subprocess in this module is
+#: ``shell=False`` (fixed argv), so it cannot be turned into a shell-exec
+#: vector here; it stays for native libs that probe it. Do NOT add other
+#: shell-adjacent vars (e.g. ``PROMPT``, ``PSModulePath``) without the same
+#: shell=False justification.
+_ENV_WHITELIST_WINDOWS: frozenset[str] = frozenset({
+    "SystemRoot", "SYSTEMROOT", "USERPROFILE", "LOCALAPPDATA", "APPDATA",
+    "TEMP", "TMP", "windir", "SystemDrive", "PATHEXT",
+    "NUMBER_OF_PROCESSORS", "PROCESSOR_ARCHITECTURE", "COMSPEC",
+})
+
+#: Effective whitelist = POSIX base + (Windows-essential set on win32 only).
+_ENV_WHITELIST: frozenset[str] = _ENV_WHITELIST_POSIX | (
+    _ENV_WHITELIST_WINDOWS if sys.platform == "win32" else frozenset()
+)
+
+#: Grace period when draining PIPE buffers after a process-group kill.
+#: Prevents the second-communicate deadlock trap documented in
+#: cdm_eval.py::_run_subprocess_with_pgkill.
+_DRAIN_TIMEOUT_S: int = 5
+
+#: Coarsest mtime resolution a scratch directory might sit on (FAT: 2 s).
+_MTIME_GRANULARITY_S: float = 2.0
+
+#: Platform on which RLIMIT_AS is enforceable. Verified live test on
+#: Darwin 25.4.0 / Apple M4 Max: setrlimit(RLIMIT_AS, (4GB, 4GB)) raises
+#: ValueError because the macOS kernel keeps the hard limit at
+#: RLIM_INFINITY and refuses lowering. See CLAUDE.md §8 landmine.
+_RLIMIT_AS_PLATFORM: str = "linux"
+
+
+# ---------------------------------------------------------------------------
+# Module-load configuration parse
+# ---------------------------------------------------------------------------
+
+
+def _parse_timeout_from_env() -> int:
+    """Resolve the wall-clock timeout from ``ARXMCP_MINERU_TIMEOUT_S``.
+
+    Validates at module-load time per AC: reject non-integer or
+    out-of-[_TIMEOUT_MIN_S, _TIMEOUT_MAX_S] with an explicit
+    RuntimeError, NOT a silent clamp. Empty / unset uses the default.
+    """
+    raw = os.environ.get(MINERU_TIMEOUT_ENV, "").strip()
+    if not raw:
+        return _DEFAULT_TIMEOUT_S
+    try:
+        value = int(raw)
+    except ValueError as exc:
+        raise RuntimeError(
+            f"ARXMCP_MINERU_TIMEOUT_S={raw!r} is not a valid integer; "
+            f"set to a value in [{_TIMEOUT_MIN_S}, {_TIMEOUT_MAX_S}] "
+            f"seconds or leave unset to use the default "
+            f"({_DEFAULT_TIMEOUT_S}s)."
+        ) from exc
+    if value < _TIMEOUT_MIN_S or value > _TIMEOUT_MAX_S:
+        raise RuntimeError(
+            f"ARXMCP_MINERU_TIMEOUT_S={value} is out of range "
+            f"[{_TIMEOUT_MIN_S}, {_TIMEOUT_MAX_S}]. Refusing to silently "
+            f"clamp; set a value in range or leave unset."
+        )
+    return value
+
+
+#: Resolved at import time so config errors surface at server-startup,
+#: not at first PDF upload.
+_CONFIGURED_TIMEOUT_S: int = _parse_timeout_from_env()
+
+
+# ---------------------------------------------------------------------------
+# Platform-specific RLIMIT setup
+# ---------------------------------------------------------------------------
+
+if sys.platform == _RLIMIT_AS_PLATFORM:
+    import resource as _resource
+
+    def _set_mineru_rlimits() -> None:
+        """preexec_fn for subprocess.Popen. Caps virtual memory.
+
+        Linux-only. Runs in the child between fork() and exec() so
+        the limit is inherited by every descendant MinerU spawns.
+        """
+        _resource.setrlimit(
+            _resource.RLIMIT_AS,
+            (_MINERU_RLIMIT_AS_BYTES, _MINERU_RLIMIT_AS_BYTES),
+        )
+else:
+    _resource = None  # type: ignore[assignment]
+    _set_mineru_rlimits = None  # type: ignore[assignment]
+    logger.warning(
+        "textbook_parser: RLIMIT_AS cap not enforceable on platform "
+        "%r; the %ds wall timeout is the only memory backstop. "
+        "Verified macOS gap — see CLAUDE.md §8.",
+        sys.platform, _CONFIGURED_TIMEOUT_S,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Binary resolution
+# ---------------------------------------------------------------------------
+
+
+def _mineru_bin_from_operator_settings() -> str | None:
+    """Read the persisted ``mineru_bin`` path, or ``None`` if unavailable.
+
+    Local import + broad degrade (ingest-robustness-m1 AC3): ``ingest`` must
+    not hard-depend on the ``server`` package at import time, and a missing
+    ``notebooks.db`` (or ANY read error) must fall through to the next
+    resolution tier rather than raise — a parse on a box that never ran
+    ``make init`` still resolves via ``shutil.which`` below.
+    """
+    try:
+        from arxmcp.server.operator_settings import get_mineru_bin  # noqa: PLC0415
+
+        value = get_mineru_bin()
+    except Exception:  # noqa: BLE001 — degrade to the next tier on any failure
+        return None
+    return (value or "").strip() or None
+
+
+def _resolve_mineru_binary(explicit: str | None = None) -> str:
+    """Return absolute path to the ``mineru`` CLI binary.
+
+    Resolution order (ingest-robustness-m1 AC3 — extends the original
+    env→which→raise chain with a persisted operator-settings tier so an
+    operator no longer needs an ``ARXMCP_MINERU_BIN`` export on every shell):
+
+    1. ``explicit`` argument (absolute path; verified to exist).
+    2. ``ARXMCP_MINERU_BIN`` env var (absolute path; verified to exist).
+    3. persisted ``mineru_bin`` operator setting (``make init MINERU_BIN=…``;
+       verified to exist).
+    4. ``shutil.which("mineru")`` — typically empty unless mineru was
+       pip-installed into the project venv (B1 used a separate venv).
+    5. RuntimeError with a clear install message.
+
+    Raised at call time, not module load — module imports must work
+    without MinerU installed (unit tests mock the subprocess).
+    """
+    if explicit:
+        if not Path(explicit).is_file():
+            raise RuntimeError(
+                f"mineru binary path {explicit!r} (explicit override) does "
+                f"not point to a file."
+            )
+        return explicit
+    env_path = os.environ.get(MINERU_BIN_ENV, "").strip()
+    if env_path:
+        if not Path(env_path).is_file():
+            raise RuntimeError(
+                f"ARXMCP_MINERU_BIN={env_path!r} is set but the path "
+                f"does not point to a file. Set to the absolute path "
+                f"of the mineru binary (e.g. ~/venvs/mineru/bin/mineru)."
+            )
+        return env_path
+    settings_path = _mineru_bin_from_operator_settings()
+    if settings_path:
+        if not Path(settings_path).is_file():
+            raise RuntimeError(
+                f"persisted mineru_bin={settings_path!r} (operator_settings) "
+                f"does not point to a file. Re-run `make init "
+                f"MINERU_BIN=<abs path>` to update it."
+            )
+        return settings_path
+    which_path = shutil.which("mineru")
+    if which_path:
+        return which_path
+    raise RuntimeError(
+        "mineru binary not found. Install MinerU (typically into a "
+        "dedicated venv: `uv venv ~/venvs/mineru && uv pip install "
+        "--python ~/venvs/mineru/bin/python 'mineru[pipeline,mlx]'`) and "
+        "either persist it via `make init MINERU_BIN=<abs path>` or set "
+        "ARXMCP_MINERU_BIN to its absolute path, e.g. "
+        "`export ARXMCP_MINERU_BIN=~/venvs/mineru/bin/mineru`."
+    )
+
+
+# ---------------------------------------------------------------------------
+# Env scrubbing
+# ---------------------------------------------------------------------------
+
+
+def _scrub_subprocess_env(output_dir: Path) -> dict[str, str]:
+    """Return a minimal env for the MinerU subprocess.
+
+    Whitelist passes through PATH, HOME, LANG, LC_ALL from the parent
+    process (plus the Windows-essential OS set on win32 — see
+    ``_ENV_WHITELIST_WINDOWS``). TMPDIR is OVERRIDDEN to ``str(output_dir)``
+    rather than inherited — research-synthesis §D4 (FM-8) — preventing
+    scratch files from landing in another notebook's tree.
+
+    On Windows, ``TEMP``/``TMP`` are ALSO overridden to ``output_dir``.
+    Python's ``tempfile`` honors ``TMPDIR`` first, but native libraries
+    (torch, onnxruntime, Perl) read ``TEMP``/``TMP`` directly via the OS,
+    not ``TMPDIR`` — so without this the whitelisted real host temp dir
+    would re-open the cross-notebook scratch contamination the TMPDIR
+    override exists to prevent.
+
+    Strips proxies, AWS / GCP / Azure / HuggingFace credentials,
+    anything that could enable network egress or credential leak.
+    """
+    env: dict[str, str] = {}
+    for key in _ENV_WHITELIST:
+        if key in os.environ:
+            env[key] = os.environ[key]
+    # Always override TMPDIR to the per-invocation output_dir.
+    env["TMPDIR"] = str(output_dir)
+    # On Windows, native libs read TEMP/TMP (not TMPDIR); override both so
+    # the per-invocation scratch-isolation contract holds there too. Gated
+    # on win32 so the POSIX env dict stays byte-identical (no new keys).
+    if sys.platform == "win32":
+        env["TEMP"] = str(output_dir)
+        env["TMP"] = str(output_dir)
+    return env
+
+
+# ---------------------------------------------------------------------------
+# Result type
+# ---------------------------------------------------------------------------
+
+
+@dataclasses.dataclass(frozen=True)
+class MinerUResult:
+    """Frozen result of a sandboxed MinerU invocation.
+
+    ``markdown_path`` resolves to an existing file under ``output_dir``
+    after the subprocess exits 0; the LaTeXML re-render works from it.
+    ``content_list_path`` is MinerU's page-metadata sidecar when one sits
+    beside the markdown, else ``None``. Nothing downstream needs it, so
+    its absence never fails a parse.
+
+    ``stdout`` and ``stderr`` are tail-truncated to the last 8 KB
+    (_OUTPUT_TAIL_BYTES); the full streams are NOT retained.
+    """
+    output_dir: Path
+    markdown_path: Path
+    content_list_path: Path | None
+    stdout: str
+    stderr: str
+    wall_clock_s: float
+
+
+# ---------------------------------------------------------------------------
+# Public driver
+# ---------------------------------------------------------------------------
+
+
+def _tail(s: str, n: int = _OUTPUT_TAIL_BYTES) -> str:
+    """Return the last n bytes (UTF-8) of s, decoded back to str."""
+    if not s:
+        return s
+    encoded = s.encode("utf-8", errors="replace")
+    if len(encoded) <= n:
+        return s
+    return encoded[-n:].decode("utf-8", errors="replace")
+
+
+def _locate_outputs(
+    output_dir: Path,
+    pdf_stem: str,
+    *,
+    written_after: float | None = None,
+) -> tuple[Path, Path | None]:
+    """Find the markdown MinerU produced, and its content_list.json if any.
+
+    MinerU 3.2.0 with ``-b pipeline -m auto`` produces:
+        output_dir/<pdf_stem>/auto/<pdf_stem>.md
+        output_dir/<pdf_stem>/auto/<pdf_stem>_content_list.json
+
+    The markdown is the only output the pipeline consumes, so only its
+    absence is fatal. The sidecar is returned when it shares the
+    markdown's parent directory, never from a different parse
+    subdirectory; otherwise it is ``None`` and a warning is logged.
+
+    Selection order: the documented path; then the first markdown, in
+    sorted order, that has a paired sidecar; then, among unpaired
+    markdown, the documented path, a file named after the PDF, or the
+    only candidate. More than one unpaired candidate with nothing to
+    choose between them raises rather than guessing.
+
+    ``written_after`` is a wall-clock time: files modified before it are
+    ignored. The scratch directory is reused for every parse of the same
+    paper, so without it a run that exits 0 but writes nothing would
+    hand back the previous run's output as its own.
+    """
+
+    def fresh(*paths: Path) -> bool:
+        return written_after is None or all(
+            path.stat().st_mtime >= written_after for path in paths
+        )
+
+    def paired(md: Path) -> Path | None:
+        cl = md.with_name(f"{md.stem}_content_list.json")
+        return cl if cl.is_file() and fresh(cl) else None
+
+    direct_md = output_dir / pdf_stem / "auto" / f"{pdf_stem}.md"
+    if direct_md.is_file() and fresh(direct_md):
+        direct_cl = paired(direct_md)
+        if direct_cl is not None:
+            return direct_md, direct_cl
+
+    all_md = sorted(output_dir.rglob("*.md"))
+    md_candidates = [md for md in all_md if fresh(md)]
+    if not md_candidates:
+        if all_md:
+            raise RuntimeError(
+                f"MinerU exited 0 but wrote no new markdown under "
+                f"{output_dir!s}; the {len(all_md)} .md file(s) there are "
+                f"left over from an earlier parse and were not used."
+            )
+        listing = sorted(p.relative_to(output_dir) for p in output_dir.rglob("*"))
+        raise RuntimeError(
+            f"MinerU exited 0 but no .md file found under "
+            f"{output_dir!s}. Directory contents: {listing!r}. The "
+            f"MinerU output-tree convention may have changed."
+        )
+    for md in md_candidates:
+        cl = paired(md)
+        if cl is not None:
+            return md, cl
+
+    if direct_md in md_candidates:
+        chosen = [direct_md]
+    else:
+        chosen = [md for md in md_candidates if md.stem == pdf_stem] or md_candidates
+    if len(chosen) != 1:
+        raise RuntimeError(
+            f"MinerU exited 0 and produced {len(chosen)} markdown "
+            f"candidates ({[str(p.relative_to(output_dir)) for p in chosen]!r}) "
+            f"with no _content_list.json beside any of them to tell "
+            f"which belongs to this parse."
+        )
+    logger.warning(
+        "textbook_parser: no _content_list.json beside %s; continuing "
+        "without it (nothing downstream reads it)",
+        chosen[0].relative_to(output_dir),
+    )
+    return chosen[0], None
+
+
+# ---------------------------------------------------------------------------
+# Live-process registry (issue #500)
+# ---------------------------------------------------------------------------
+#
+# ``run_mineru_sandboxed`` is sync and is called through
+# ``asyncio.to_thread`` by ``arxmcp.server.parse_tracker``. Cancelling that task
+# raises ``CancelledError`` in the awaiting coroutine but does NOT stop the
+# thread: it stays blocked in ``proc.communicate()`` until MinerU exits on its
+# own wall timeout, which can be many minutes. So daemon shutdown left MinerU
+# running, and the supervisor could not reach it either -- ``start_new_session``
+# puts it in its own process group, outside anything ``killpg`` on the child's
+# group can touch (issues #467, #499).
+#
+# The spawner is the only place that holds the handle with no race at all, so
+# the handle is registered here and daemon shutdown asks for it by name.
+_LIVE_LOCK = threading.Lock()
+_LIVE_MINERU: set[subprocess.Popen] = set()
+
+
+def _signal_process_group(proc: subprocess.Popen, *, force: bool) -> None:
+    """Stop ``proc``'s whole process group, falling back to the process.
+
+    Takes an INTENT (``force``), never a signal number. That is the whole
+    point of the signature: ``signal.SIGKILL`` does not exist on Windows, and
+    a caller passing it as an argument raises ``AttributeError`` at the CALL
+    SITE, before this function is entered and before any platform check here
+    can help. Naming the constant only inside the POSIX branch is what makes
+    the Windows path reachable at all.
+
+    ``os.killpg``/``getpgid`` are POSIX-only and ``start_new_session`` is a
+    no-op on Windows; ``AttributeError`` there is NOT an ``OSError``, so the
+    platform is checked explicitly rather than suppressed.
+
+    On Windows ``force`` does not change what happens: ``Popen.terminate`` and
+    ``Popen.kill`` are both ``TerminateProcess`` there, so the graceful phase
+    of a SIGTERM-then-SIGKILL escalation is not graceful. Stated rather than
+    hidden -- a caller that needs a real grace period on Windows does not get
+    one from this helper.
+
+    Also on Windows this reaches only the direct child -- MinerU's grandchild
+    FastAPI service may survive, an accepted gap (CLAUDE.md gotcha #10).
+    """
+    with contextlib.suppress(ProcessLookupError, OSError):
+        if hasattr(os, "getpgid"):
+            # POSIX only. `signal.SIGKILL` is resolved INSIDE this branch on
+            # purpose; hoisting it to a default argument or a module constant
+            # puts it back on the Windows path.
+            os.killpg(os.getpgid(proc.pid), signal.SIGKILL if force else signal.SIGTERM)
+        elif force:
+            proc.kill()
+        else:
+            proc.terminate()
+
+
+def terminate_live_mineru(*, grace_s: float = 2.0) -> int:
+    """Terminate every MinerU subprocess this process currently has running.
+
+    Issue #500. Called from ``ParseTaskTracker.shutdown``. Returns how many
+    were signalled, so the caller can log a real number instead of a guess.
+
+    SIGTERM first, then SIGKILL after ``grace_s``: MinerU has a sandbox output
+    directory open, and it may simply never have been asked to stop -- nothing
+    signals it on the shutdown path today. The whole GROUP is signalled, so
+    MinerU's own children go with it, which is the same discipline the
+    wall-timeout path already uses.
+
+    Safe to call when nothing is running: returns 0 and signals nothing.
+    """
+    with _LIVE_LOCK:
+        procs = list(_LIVE_MINERU)
+    if not procs:
+        return 0
+    for proc in procs:
+        _signal_process_group(proc, force=False)
+    deadline = time.monotonic() + grace_s
+    while time.monotonic() < deadline:
+        if all(proc.poll() is not None for proc in procs):
+            break
+        time.sleep(0.05)
+    survivors = [proc for proc in procs if proc.poll() is None]
+    for proc in survivors:
+        _signal_process_group(proc, force=True)
+    logger.warning(
+        "textbook_parser: shutdown terminated %d live mineru process(es); "
+        "%d needed SIGKILL",
+        len(procs), len(survivors),
+    )
+    return len(procs)
+
+
+def run_mineru_sandboxed(
+    pdf_path: Path,
+    output_dir: Path,
+    *,
+    timeout_s: int | None = None,
+) -> MinerUResult:
+    """Run MinerU 3.2.0 on a PDF with the textbook-ingest e2 sandbox.
+
+    Three defense layers active inside this function:
+    - RLIMIT_AS 4 GB cap via preexec_fn (Linux only — see _resource).
+    - Wall timeout + process-group kill on expiry.
+    - Scrubbed env (no proxies, no credentials, TMPDIR confined).
+
+    Not covered: the grandchild FastAPI server MinerU 3.x starts. It is
+    loopback-only, an accepted gap.
+
+    Parameters
+    ----------
+    pdf_path
+        PDF on disk. Caller is responsible for the layer-1 pre-flight
+        gate (src/arxmcp/server/routes/notebooks.py::_run_pdf_preflight).
+    output_dir
+        Per-invocation tmpdir (typically under
+        var/arxmcp/notebooks/<slug>/parsed/<paper_id>/). The subprocess
+        cwd is set here and TMPDIR is overridden to match.
+    timeout_s
+        Override the module-configured timeout. Must be in
+        [_TIMEOUT_MIN_S, _TIMEOUT_MAX_S]; out-of-range raises
+        RuntimeError. None = use module-load value
+        (_CONFIGURED_TIMEOUT_S).
+
+    Raises
+    ------
+    RuntimeError
+        - Binary missing (clearer message than FileNotFoundError).
+        - Out-of-range timeout.
+        - Subprocess exits nonzero (with stderr tail in message).
+        - Output tree missing markdown, or ambiguous without a sidecar (FM-4).
+    subprocess.TimeoutExpired
+        Wall timeout fired and process-group was killed.
+    """
+    if not pdf_path.is_file():
+        raise RuntimeError(f"pdf_path is not a file: {pdf_path!s}")
+    if not output_dir.is_dir():
+        raise RuntimeError(f"output_dir is not a directory: {output_dir!s}")
+
+    effective_timeout = _CONFIGURED_TIMEOUT_S if timeout_s is None else int(timeout_s)
+    if effective_timeout < _TIMEOUT_MIN_S or effective_timeout > _TIMEOUT_MAX_S:
+        raise RuntimeError(
+            f"timeout_s={effective_timeout} is out of range "
+            f"[{_TIMEOUT_MIN_S}, {_TIMEOUT_MAX_S}]."
+        )
+
+    mineru_bin = _resolve_mineru_binary()
+    sandbox_env = _scrub_subprocess_env(output_dir)
+    cmd: list[str] = [
+        mineru_bin,
+        "-p", str(pdf_path),
+        "-o", str(output_dir),
+        "-b", "pipeline",
+        "-m", "auto",
+    ]
+
+    spawn_kwargs: dict[str, object] = {}
+    if _set_mineru_rlimits is not None:
+        spawn_kwargs["preexec_fn"] = _set_mineru_rlimits
+
+    logger.info(
+        "textbook_parser: invoking mineru pid-soon (bin=%s, pdf=%s, "
+        "output_dir=%s, timeout=%ds, rlimit_as=%s)",
+        mineru_bin, pdf_path.name, output_dir, effective_timeout,
+        "linux-4GB" if "preexec_fn" in spawn_kwargs else "disabled",
+    )
+
+    started = time.monotonic()
+    # Wall clock, for comparing against output mtimes; less a margin for
+    # filesystems that store mtimes coarsely (FAT keeps 2 s).
+    written_after = time.time() - _MTIME_GRANULARITY_S
+    proc = subprocess.Popen(
+        cmd,
+        cwd=str(output_dir),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        start_new_session=True,
+        env=sandbox_env,
+        **spawn_kwargs,  # type: ignore[arg-type]
+    )
+    # #500: visible to `terminate_live_mineru` for as long as it runs.
+    with _LIVE_LOCK:
+        _LIVE_MINERU.add(proc)
+    try:
+        stdout, stderr = proc.communicate(timeout=effective_timeout)
+    except subprocess.TimeoutExpired:
+        # Kill the process group; MinerU 3.x's grandchild FastAPI
+        # service may survive. Drain
+        # the PIPEs to avoid deadlock during cleanup. Capture the
+        # drain output and surface in the WARN log — closes m5 F5
+        # (timeout-path observability gap).
+        # #500: one implementation of "signal the group", shared with the
+        # shutdown path so the two cannot drift.
+        _signal_process_group(proc, force=True)
+        drained_stderr: str = ""
+        with contextlib.suppress(subprocess.TimeoutExpired):
+            drained = proc.communicate(timeout=_DRAIN_TIMEOUT_S)
+            drained_stderr = drained[1] or ""
+        logger.warning(
+            "textbook_parser: mineru exceeded %ds wall timeout for "
+            "%s; killed pgid=%s; drain stderr tail: %s",
+            effective_timeout, pdf_path.name, proc.pid,
+            _tail(drained_stderr, 1024),
+        )
+        raise
+    finally:
+        # #500: the registry only needs to hold it while it could still be
+        # running. Once `communicate` has returned or raised, the process is
+        # finished or has just been killed above, so this is the last moment
+        # it is interesting to a shutdown sweep.
+        with _LIVE_LOCK:
+            _LIVE_MINERU.discard(proc)
+
+    wall_clock_s = time.monotonic() - started
+
+    if proc.returncode != 0:
+        raise RuntimeError(
+            f"mineru exited {proc.returncode} on {pdf_path.name}: "
+            f"{_tail(stderr or '', 500)}"
+        )
+
+    markdown_path, content_list_path = _locate_outputs(
+        output_dir, pdf_path.stem, written_after=written_after,
+    )
+
+    logger.info(
+        "textbook_parser: mineru ok (pdf=%s, wall=%.2fs, "
+        "md=%s)",
+        pdf_path.name, wall_clock_s,
+        markdown_path.relative_to(output_dir),
+    )
+
+    return MinerUResult(
+        output_dir=output_dir,
+        markdown_path=markdown_path,
+        content_list_path=content_list_path,
+        stdout=_tail(stdout or ""),
+        stderr=_tail(stderr or ""),
+        wall_clock_s=wall_clock_s,
+    )

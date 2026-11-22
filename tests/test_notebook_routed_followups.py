@@ -20,7 +20,7 @@ import numpy as np
 import pyarrow as pa
 import pytest
 
-from ingest.schema import CHUNKS_SCHEMA_V1
+from arxmcp.ingest.schema import CHUNKS_SCHEMA_V1
 
 _SHARED_VERSION = 101
 _NOTEBOOK_VERSION = 369
@@ -61,8 +61,8 @@ def _table(path: Path, rows: list[dict[str, Any]]) -> Any:
 def two_corpora(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     from types import SimpleNamespace
 
-    from server.resources import CorpusNotIngestedError
-    from server.tools import reset_resources_for_tests, set_resources
+    from arxmcp.server.resources import CorpusNotIngestedError
+    from arxmcp.server.tools import reset_resources_for_tests, set_resources
 
     shared = _table(
         tmp_path / "shared", [_row(_SHARED_CHUNK, "2401.00001", "shared body")]
@@ -100,18 +100,18 @@ def two_corpora(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
             return notebook, SimpleNamespace(version=_NOTEBOOK_VERSION)
 
     set_resources(_Resources())  # type: ignore[arg-type]
-    monkeypatch.setattr("server.handlers.search.get_cache", lambda: None)
+    monkeypatch.setattr("arxmcp.server.handlers.search.get_cache", lambda: None)
 
     async def _encode(_query: str) -> np.ndarray:
         return np.full(1024, 0.1, dtype=np.float32)
 
-    monkeypatch.setattr("server.handlers.search.encode_query", _encode)
+    monkeypatch.setattr("arxmcp.server.handlers.search.encode_query", _encode)
     yield {"shared": shared, "notebook": notebook}
     reset_resources_for_tests()
 
 
 def _notebook_search_hit() -> dict[str, Any]:
-    from server.handlers.search import handle_search_papers
+    from arxmcp.server.handlers.search import handle_search_papers
 
     res = asyncio.run(
         handle_search_papers(query="stability", filters={"notebook": _NOTEBOOK}, k=5)
@@ -123,7 +123,7 @@ def _notebook_search_hit() -> dict[str, Any]:
 
 
 def test_get_chunk_finds_a_notebook_search_hit(two_corpora) -> None:
-    from server.handlers.chunk import handle_get_chunk
+    from arxmcp.server.handlers.chunk import handle_get_chunk
 
     hit = _notebook_search_hit()
     out = asyncio.run(handle_get_chunk(chunk_id=hit["chunk_id"], notebook=_NOTEBOOK))
@@ -134,7 +134,7 @@ def test_get_chunk_finds_a_notebook_search_hit(two_corpora) -> None:
 
 
 def test_get_chunk_batch_reads_the_notebook(two_corpora) -> None:
-    from server.handlers.chunk import handle_get_chunk
+    from arxmcp.server.handlers.chunk import handle_get_chunk
 
     out = asyncio.run(
         handle_get_chunk(chunk_id=[_NB_CHUNK, _SHARED_CHUNK], notebook=_NOTEBOOK)
@@ -144,7 +144,7 @@ def test_get_chunk_batch_reads_the_notebook(two_corpora) -> None:
 
 
 def test_get_chunk_without_notebook_reads_the_shared_corpus(two_corpora) -> None:
-    from server.handlers.chunk import handle_get_chunk
+    from arxmcp.server.handlers.chunk import handle_get_chunk
 
     miss = asyncio.run(handle_get_chunk(chunk_id=_NB_CHUNK))
     assert miss["found"] is False
@@ -155,7 +155,7 @@ def test_get_chunk_without_notebook_reads_the_shared_corpus(two_corpora) -> None
 
 
 def test_get_paper_finds_a_notebook_search_hit(two_corpora) -> None:
-    from server.handlers.paper import handle_get_paper
+    from arxmcp.server.handlers.paper import handle_get_paper
 
     hit = _notebook_search_hit()
     out = asyncio.run(handle_get_paper(paper_id=hit["paper_id"], notebook=_NOTEBOOK))
@@ -172,8 +172,8 @@ def test_cite_neighbors_resolves_chunks_in_the_notebook(
     two_corpora, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The graph is shared; chunk ids are resolved in the caller's corpus."""
-    from server.handlers import citations
-    from server.handlers.citations import handle_cite_neighbors
+    from arxmcp.server.handlers import citations
+    from arxmcp.server.handlers.citations import handle_cite_neighbors
 
     seen: list[Any] = []
 
@@ -203,7 +203,7 @@ def test_bad_notebooks_are_clean_tool_errors(
     """Never a silent answer from the shared corpus."""
     import importlib
 
-    handle = getattr(importlib.import_module(f"server.handlers.{module}"), handler)
+    handle = getattr(importlib.import_module(f"arxmcp.server.handlers.{module}"), handler)
     with pytest.raises(ValueError, match="not a valid notebook slug"):
         asyncio.run(handle(**kwargs, notebook="../etc"))
     with pytest.raises(ValueError, match="not-a-real-nb"):

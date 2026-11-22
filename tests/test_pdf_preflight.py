@@ -27,17 +27,17 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from ingest import notebooks as _notebook_common
-from server.notebooks_store import NotebooksStore
-from server.routes import notebooks as notebooks_module
-from server.routes.notebooks import (
+from arxmcp.ingest import notebooks as _notebook_common
+from arxmcp.server.notebooks_store import NotebooksStore
+from arxmcp.server.routes import notebooks as notebooks_module
+from arxmcp.server.routes.notebooks import (
     _ARXIV_UPLOAD_MAX_BYTES,
     _PDF_INFLATE_STEP,
     _PDF_MAX_PAGE_COUNT,
     _pdf_inflate_budget,
     _pdf_inflated_bytes,
 )
-from server.routes.notebooks import (
+from arxmcp.server.routes.notebooks import (
     router as notebooks_router,
 )
 
@@ -499,10 +499,10 @@ class TestNoForkPolicy:
         """
         from pathlib import Path
         repo_root = Path(__file__).parent.parent
-        pdfid_path = repo_root / "ingest" / "security" / "pdfid.py"
+        pdfid_path = repo_root / "src" / "arxmcp" / "ingest" / "security" / "pdfid.py"
         line_count = len(pdfid_path.read_text().splitlines())
         assert 30 <= line_count <= 200, (
-            f"ingest/security/pdfid.py is {line_count} LOC — outside "
+            f"src/arxmcp/ingest/security/pdfid.py is {line_count} LOC — outside "
             f"the [30, 200] band. Below 30 may indicate a missing "
             f"feature; above 200 may indicate a vendored upstream "
             f"copy (no-fork policy violation)."
@@ -515,7 +515,7 @@ class TestNoForkPolicy:
         """
         from pathlib import Path
         repo_root = Path(__file__).parent.parent
-        src = (repo_root / "ingest" / "security" / "pdfid.py").read_text()
+        src = (repo_root / "src" / "arxmcp" / "ingest" / "security" / "pdfid.py").read_text()
         # Source-text fingerprints from the upstream tool.
         forbidden = (
             "PDFiD",        # the upstream class name
@@ -524,18 +524,18 @@ class TestNoForkPolicy:
         )
         for needle in forbidden:
             assert needle not in src, (
-                f"ingest/security/pdfid.py contains {needle!r} — looks "
+                f"src/arxmcp/ingest/security/pdfid.py contains {needle!r} — looks "
                 f"like a copy of upstream source (no-fork policy "
                 f"violation)"
             )
 
     def test_security_readme_documents_vendoring(self) -> None:
-        """The ingest/security/README.md must document the no-fork
+        """The src/arxmcp/ingest/security/README.md must document the no-fork
         discipline and credit the upstream algorithm.
         """
         from pathlib import Path
         repo_root = Path(__file__).parent.parent
-        readme = (repo_root / "ingest" / "security" / "README.md").read_text()
+        readme = (repo_root / "src" / "arxmcp" / "ingest" / "security" / "README.md").read_text()
         # Must mention the no-fork policy AND the upstream credit.
         assert "no-fork" in readme.lower()
         assert "Didier Stevens" in readme
@@ -624,7 +624,7 @@ class TestPdfBodyPolyglot:
 
 class TestMiddlewareEnvelope:
     """m4 rect F4 regression guard. The AC #5 row "250 MB textbook
-    → 413" is enforced by ``server/main.py::prefix_caps`` and is
+    → 413" is enforced by ``src/arxmcp/server/main.py::prefix_caps`` and is
     NOT tested by ``TestUploadCapPerKind`` (which uses 10 MB+1 KB
     body sizes). This test exercises the middleware envelope
     rejection directly.
@@ -643,7 +643,7 @@ class TestMiddlewareEnvelope:
         the textbook upload ceiling without triggering any other
         test failure.
         """
-        from server.main import create_app
+        from arxmcp.server.main import create_app
 
         # Inspect the middleware stack — find RequestBodySizeLimitMiddleware
         # and assert its prefix_caps. create_app is the production-
@@ -699,7 +699,7 @@ class TestUploadPathContentLengthGuards:
     ) -> Iterator[TestClient]:
         import asyncio
 
-        from server.middleware import RequestBodySizeLimitMiddleware
+        from arxmcp.server.middleware import RequestBodySizeLimitMiddleware
 
         db_path = tmp_path / "notebooks.db"
         loop = asyncio.new_event_loop()
@@ -707,7 +707,7 @@ class TestUploadPathContentLengthGuards:
             store = loop.run_until_complete(NotebooksStore.open(db_path))
             app = FastAPI()
             app.state.notebooks_store = store
-            # Mirror the production prefix carve-out (server/main.py).
+            # Mirror the production prefix carve-out (src/arxmcp/server/main.py).
             app.add_middleware(
                 RequestBodySizeLimitMiddleware,
                 prefix_caps={"/ui/api/notebooks": 200 * 1024 * 1024},
@@ -795,7 +795,7 @@ class TestSecurityDocSymbolContract:
         real symbol's presence and the wrong symbol's absence."""
         assert hasattr(notebooks_module, "_pdf_declared_page_count"), (
             "security-pdf-sandbox.md documents _pdf_declared_page_count; "
-            "it must exist in server.routes.notebooks"
+            "it must exist in arxmcp.server.routes.notebooks"
         )
         assert not hasattr(notebooks_module, "_pdf_page_count"), (
             "the doc no longer documents a _pdf_page_count PyMuPDF probe; "
@@ -806,7 +806,7 @@ class TestSecurityDocSymbolContract:
         """F2: the threat-table JS row enumerates 7 active-content
         tokens; pin DANGEROUS_PDF_NAMES to exactly that set so adding a
         token forces a doc update."""
-        from ingest.security.pdfid import DANGEROUS_PDF_NAMES
+        from arxmcp.ingest.security.pdfid import DANGEROUS_PDF_NAMES
 
         expected = frozenset({
             "/JS", "/JavaScript", "/OpenAction", "/AA",
@@ -916,7 +916,7 @@ class TestPageCountRegexLimitations:
         # Documented limitation: this is currently accepted. m5's
         # MinerU wall-clock timeout is the runtime backstop. If a
         # future tightening of the regex starts rejecting this case,
-        # update the docstring at server/routes/notebooks.py
+        # update the docstring at src/arxmcp/server/routes/notebooks.py
         # _PDF_COUNT_RE accordingly.
         assert r.status_code == 201, (
             "unexpected rejection — if this test starts failing, "

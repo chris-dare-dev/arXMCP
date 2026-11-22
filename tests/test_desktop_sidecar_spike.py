@@ -2,8 +2,8 @@ from pathlib import Path
 
 import pytest
 
-import tools.desktop_sidecar_spike as spike
-from tools.desktop_sidecar_spike import (
+import arxmcp.tools.desktop_sidecar_spike as spike
+from arxmcp.tools.desktop_sidecar_spike import (
     launch_environment,
     tree_manifest,
     tree_statistics,

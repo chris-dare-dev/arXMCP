@@ -57,9 +57,9 @@ import pytest
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
-from server.config import LOOPBACK_HOSTS, Config
-from server.main import create_app
-from server.middleware import (
+from arxmcp.server.config import LOOPBACK_HOSTS, Config
+from arxmcp.server.main import create_app
+from arxmcp.server.middleware import (
     OriginValidationMiddleware,
     SecFetchSiteMiddleware,
 )
@@ -106,7 +106,7 @@ def _build_test_client(
         monkeypatch.delenv("ARXMCP_ALLOWED_HOSTS", raising=False)
     monkeypatch.delenv("ARXMCP_UNSAFE_NETWORK_BIND", raising=False)
     # `ARXMCP_CONTACT_EMAIL` is not a Config field — it's used by
-    # `ingest/arxiv_fetch.py`. The server-side env-var scanner
+    # `src/arxmcp/ingest/arxiv_fetch.py`. The server-side env-var scanner
     # rejects it as unknown if set during create_app(). Strip it.
     monkeypatch.delenv("ARXMCP_CONTACT_EMAIL", raising=False)
     cfg = Config()
@@ -249,7 +249,7 @@ class TestAllowedOriginsHttpPath:
     extension. The previous test class only asserted the constructor
     state (frozenset normalization); these tests drive an actual
     request through ``OriginValidationMiddleware`` to prove the
-    runtime short-circuit at ``server/middleware.py:367-374`` works.
+    runtime short-circuit at ``src/arxmcp/server/middleware.py:367-374`` works.
 
     F5 rectification: uses the factored ``_build_test_client``
     helper so the env-var setup is reusable.
@@ -390,7 +390,7 @@ class TestUnsafeNetworkBindEscapeHatch:
     def test_unsafe_bind_emits_warn_log_at_startup(self, caplog, monkeypatch):
         """F2 rectification (E13_S05 adversary critique).
 
-        The startup WARN log at ``server/main.py:548-559`` is the
+        The startup WARN log at ``src/arxmcp/server/main.py:548-559`` is the
         operator-visibility mechanism for the
         ``ARXMCP_UNSAFE_NETWORK_BIND=1`` escape hatch. The audit
         doc claims grep-on-log alerting is the contract; this test
@@ -409,13 +409,13 @@ class TestUnsafeNetworkBindEscapeHatch:
         monkeypatch.delenv("ARXMCP_CONTACT_EMAIL", raising=False)
         cfg = Config()
 
-        # Reproduce the warn-emission block from server.main exactly
+        # Reproduce the warn-emission block from arxmcp.server.main exactly
         # so this test pins the *content* of the log line rather
         # than the *location* — a future refactor that moves the
         # warn to a different module would still need to preserve
         # the substrings asserted below.
-        logger = logging.getLogger("server.main")
-        with caplog.at_level(logging.WARNING, logger="server.main"):
+        logger = logging.getLogger("arxmcp.server.main")
+        with caplog.at_level(logging.WARNING, logger="arxmcp.server.main"):
             if cfg.unsafe_network_bind:
                 logger.warning(
                     "ARXMCP_UNSAFE_NETWORK_BIND=1 is set; server binding "
@@ -439,17 +439,17 @@ class TestUnsafeNetworkBindEscapeHatch:
         ``unsafe_network_bind``. A refactor that drops the warn entirely
         fires this test.
 
-        The block lived in ``server/main.py``'s ``if __name__ ==
+        The block lived in ``src/arxmcp/server/main.py``'s ``if __name__ ==
         "__main__":`` body until issue #206 added the ``arxmcp-server``
-        console script; it now lives in ``server/cli.py::main``, which
-        ``server/main.py`` delegates to. This guard caught that move, which
+        console script; it now lives in ``src/arxmcp/server/cli.py::main``, which
+        ``src/arxmcp/server/main.py`` delegates to. This guard caught that move, which
         is exactly what it is for — so it follows the code rather than
         being deleted, and :meth:`test_main_module_delegates_to_cli` below
         pins the delegation so the two entry points cannot diverge and
         leave one of them silently un-warned.
         """
 
-        source = Path(__file__).parent.parent.parent / "server" / "cli.py"
+        source = Path(__file__).parent.parent.parent / "src" / "arxmcp" / "server" / "cli.py"
         text = source.read_text(encoding="utf-8")
         # All three substrings must appear to prove the warn block is intact.
         assert "ARXMCP_UNSAFE_NETWORK_BIND=1" in text
@@ -457,21 +457,21 @@ class TestUnsafeNetworkBindEscapeHatch:
         assert "security-binding.md" in text
 
     def test_main_module_delegates_to_cli(self):
-        """``python -m server.main`` must reach the same startup path.
+        """``python -m arxmcp.server.main`` must reach the same startup path.
 
         The warn block above protects operators only if EVERY documented
         way of starting the server executes it. There are three —
-        ``arxmcp-server``, ``python -m server.main`` and ``make up`` (which
+        ``arxmcp-server``, ``python -m arxmcp.server.main`` and ``make up`` (which
         shells out to the second) — and they must be one code path, not a
-        copy. This asserts ``server/main.py``'s ``__main__`` block
+        copy. This asserts ``src/arxmcp/server/main.py``'s ``__main__`` block
         delegates rather than carrying its own duplicate.
         """
 
-        source = Path(__file__).parent.parent.parent / "server" / "main.py"
+        source = Path(__file__).parent.parent.parent / "src" / "arxmcp" / "server" / "main.py"
         text = source.read_text(encoding="utf-8")
-        assert "from server.cli import main" in text, (
-            "server/main.py's __main__ block no longer delegates to "
-            "server.cli; `python -m server.main` may be running a divergent "
+        assert "from arxmcp.server.cli import main" in text, (
+            "src/arxmcp/server/main.py's __main__ block no longer delegates to "
+            "arxmcp.server.cli; `python -m arxmcp.server.main` may be running a divergent "
             "startup sequence that skips the Threat-5 / Threat-7 warnings."
         )
 

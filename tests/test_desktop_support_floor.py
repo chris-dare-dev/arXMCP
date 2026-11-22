@@ -6,7 +6,7 @@ macOS 14 can run the closure. Three places declare that floor and must agree:
 `tauri.conf.json`'s `bundle.macOS.minimumSystemVersion`, the
 `MACOSX_DEPLOYMENT_TARGET` the build exports (Makefile desktop targets and
 `desktop_package.py`'s tauri build environment), and the
-`apps/desktop/README.md` "Supported boundary" section.
+`src/desktop/README.md` "Supported boundary" section.
 
 Declarations agreeing with each other is not the same as the ARTIFACT agreeing
 with them, so the built binaries are read too: `minos` off `LC_BUILD_VERSION`
@@ -37,10 +37,10 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 FLOOR = "14.0"
-TAURI_CONF = REPO_ROOT / "apps" / "desktop" / "crates" / "supervisor" / "tauri.conf.json"
+TAURI_CONF = REPO_ROOT / "src" / "desktop" / "crates" / "supervisor" / "tauri.conf.json"
 MAKEFILE = REPO_ROOT / "Makefile"
-DESKTOP_PACKAGE = REPO_ROOT / "apps" / "desktop" / "pyinstaller" / "desktop_package.py"
-DESKTOP_README = REPO_ROOT / "apps" / "desktop" / "README.md"
+DESKTOP_PACKAGE = REPO_ROOT / "src" / "desktop" / "pyinstaller" / "desktop_package.py"
+DESKTOP_README = REPO_ROOT / "src" / "desktop" / "README.md"
 
 #: "macOS 14", "macOS 14.x", "macos14" — the version the claim would be about.
 _MACOS_14 = r"mac\s?os\s*x?\s*14(?:\.\d+)?"
@@ -141,7 +141,7 @@ def _shipped_docs() -> list[Path]:
     from the on-disk tree precisely so a new file is covered by default.
     """
     docs = [p for p in REPO_ROOT.glob("*.md") if p.name not in _AGENT_DOCS]
-    docs.extend(p for p in (REPO_ROOT / "apps").rglob("*.md") if p.name not in _AGENT_DOCS)
+    docs.extend(p for p in (REPO_ROOT / "src/desktop").rglob("*.md") if p.name not in _AGENT_DOCS)
     return sorted({p for p in docs if p.is_file()})
 
 
@@ -152,8 +152,8 @@ def _shipped_event_sources() -> list[Path]:
     Rust shell and the Python child adapter, so a compatibility claim emitted
     at runtime is scanned by the same patterns as one written in prose.
     """
-    sources = list((REPO_ROOT / "apps" / "desktop" / "crates").rglob("*.rs"))
-    child = REPO_ROOT / "server" / "desktop_child.py"
+    sources = list((REPO_ROOT / "src" / "desktop" / "crates").rglob("*.rs"))
+    child = REPO_ROOT / "src" / "arxmcp" / "server" / "desktop_child.py"
     if child.is_file():
         sources.append(child)
     return sorted(p for p in sources if p.is_file())
@@ -358,7 +358,7 @@ class TestNoUnearnedClaimInShippedDocs:
         assert offenders == {}, (
             f"macOS 14 compatibility claims with no recorded macOS 14 test run: "
             f"{offenders}. A claim may land only together with the run evidence and a "
-            f"revision of this gate (apps/desktop/README.md, 'Supported boundary')."
+            f"revision of this gate (src/desktop/README.md, 'Supported boundary')."
         )
 
     def test_shipped_events_carry_no_unearned_macos14_claim(self):

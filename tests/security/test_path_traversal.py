@@ -23,7 +23,7 @@ raised before any resource lookup. This is the load-bearing
 security signal — the SDK-wrap behavior is a separate concern
 covered by the existing per-handler test suite.
 
-**Tool surface (synthesis D1; per ``server/tools.py::ALL_TOOLS``):**
+**Tool surface (synthesis D1; per ``src/arxmcp/server/tools.py::ALL_TOOLS``):**
 
 - ``search_papers`` — no scalar identifier arg. ``filters.paper_id``
   is now validated (proof-verify-handler-wiring-m1); its path-traversal
@@ -46,11 +46,11 @@ import asyncio
 
 import pytest
 
-from server.handlers.chunk import handle_get_chunk
-from server.handlers.citations import handle_cite_neighbors
-from server.handlers.definitions import handle_get_definitions
-from server.handlers.lemma import handle_find_lemma_by_name
-from server.handlers.paper import handle_get_paper
+from arxmcp.server.handlers.chunk import handle_get_chunk
+from arxmcp.server.handlers.citations import handle_cite_neighbors
+from arxmcp.server.handlers.definitions import handle_get_definitions
+from arxmcp.server.handlers.lemma import handle_find_lemma_by_name
+from arxmcp.server.handlers.paper import handle_get_paper
 
 # ---------------------------------------------------------------------------
 # Adversarial input bank (synthesis D9)
@@ -173,7 +173,7 @@ class TestChunkIdShapedAttacks:
 
     ``is_valid_chunk_id`` validates the FULL pattern including
     the embedded paper_id (see CHUNK_ID_RE in
-    ``ingest/identifiers.py``). These cases prove that ANY
+    ``src/arxmcp/ingest/identifiers.py``). These cases prove that ANY
     malformed chunk_id — whether the bad bytes live in the inner
     paper_id or the outer suffix — is rejected. The test does
     NOT prove branch-specific coverage (the regex is a single
@@ -222,7 +222,7 @@ class TestPositiveCases:
 
     def test_valid_paper_id_passes_validator(self):
         """A well-formed paper_id passes ``is_valid_paper_id``.
-        The canonical regex (per ``ingest/identifiers.py``)
+        The canonical regex (per ``src/arxmcp/ingest/identifiers.py``)
         accepts:
         - new-style: ``YYMM.NNNNN[vN]``
         - old-style: ``<archive>/NNNNNNN[vN]`` where ``<archive>``
@@ -232,7 +232,7 @@ class TestPositiveCases:
           misleading comment in ``identifiers.py`` (verified by
           ``tests/test_identifiers.py``).
         """
-        from ingest.identifiers import is_valid_paper_id  # noqa: PLC0415
+        from arxmcp.ingest.identifiers import is_valid_paper_id  # noqa: PLC0415
 
         assert is_valid_paper_id("2401.00001") is True
         assert is_valid_paper_id("2401.00001v3") is True
@@ -241,7 +241,7 @@ class TestPositiveCases:
         assert is_valid_paper_id("cond-mat/0612345v2") is True
 
     def test_valid_chunk_id_passes_validator(self):
-        from ingest.identifiers import is_valid_chunk_id  # noqa: PLC0415
+        from arxmcp.ingest.identifiers import is_valid_chunk_id  # noqa: PLC0415
 
         assert (
             is_valid_chunk_id("arxiv:2401.00001:0123456789abcdef") is True
@@ -262,7 +262,7 @@ class TestValidatorFiresBeforeResources:
     refactor dropped the validator but raised a different
     ``ValueError`` later in the function (e.g. from a LanceDB
     filter error after the resource lookup succeeded). This
-    stronger guard monkeypatches ``server.tools.get_resources``
+    stronger guard monkeypatches ``arxmcp.server.tools.get_resources``
     to raise a sentinel exception; if the validator fires FIRST,
     we see ``ValueError`` (the validator's). If the validator is
     silently bypassed, we see the sentinel.
@@ -274,7 +274,7 @@ class TestValidatorFiresBeforeResources:
     def test_get_paper_validator_fires_before_resources(
         self, bad_input, monkeypatch
     ):
-        from server import tools as tools_mod  # noqa: PLC0415
+        from arxmcp.server import tools as tools_mod  # noqa: PLC0415
 
         monkeypatch.setattr(
             tools_mod, "get_resources",
@@ -292,7 +292,7 @@ class TestValidatorFiresBeforeResources:
     def test_get_chunk_validator_fires_before_resources(
         self, bad_input, monkeypatch
     ):
-        from server import tools as tools_mod  # noqa: PLC0415
+        from arxmcp.server import tools as tools_mod  # noqa: PLC0415
 
         monkeypatch.setattr(
             tools_mod, "get_resources",
@@ -310,7 +310,7 @@ class TestValidatorFiresBeforeResources:
         get_resources (wired in verification-feedback-m1), so the
         chunk_id validator must fire before any resource access.
         Monkeypatch get_resources to throw and assert ValueError wins."""
-        from server import tools as tools_mod  # noqa: PLC0415
+        from arxmcp.server import tools as tools_mod  # noqa: PLC0415
 
         monkeypatch.setattr(
             tools_mod, "get_resources",
@@ -404,7 +404,7 @@ class TestSdkBoundary:
 
 class TestPaperIdFromChunkIdRejection:
     """F4 rectification — ``paper_id_from_chunk_id`` is the
-    helper that server/graph_queries.py uses to extract a
+    helper that src/arxmcp/server/graph_queries.py uses to extract a
     paper_id from a chunk_id. It will be the load-bearing
     validator when E09 wiring lands on cite_neighbors. Pin its
     rejection of the same adversarial inputs here so the
@@ -413,7 +413,7 @@ class TestPaperIdFromChunkIdRejection:
 
     @pytest.mark.parametrize("bad_input", ADVERSARIAL_INPUTS)
     def test_rejects_paper_id_shaped_attacks(self, bad_input):
-        from ingest.identifiers import paper_id_from_chunk_id  # noqa: PLC0415
+        from arxmcp.ingest.identifiers import paper_id_from_chunk_id  # noqa: PLC0415
 
         with pytest.raises(ValueError):
             paper_id_from_chunk_id(bad_input)
@@ -436,13 +436,13 @@ class TestPaperIdFromChunkIdRejection:
         ],
     )
     def test_rejects_chunk_id_shaped_attacks(self, bad_input):
-        from ingest.identifiers import paper_id_from_chunk_id  # noqa: PLC0415
+        from arxmcp.ingest.identifiers import paper_id_from_chunk_id  # noqa: PLC0415
 
         with pytest.raises(ValueError):
             paper_id_from_chunk_id(bad_input)
 
     def test_accepts_well_formed_chunk_id(self):
-        from ingest.identifiers import paper_id_from_chunk_id  # noqa: PLC0415
+        from arxmcp.ingest.identifiers import paper_id_from_chunk_id  # noqa: PLC0415
 
         assert (
             paper_id_from_chunk_id("arxiv:2401.00001:0123456789abcdef")

@@ -2,7 +2,7 @@
 
 ``python -O`` strips assertions, so an ``assert`` guarding an invariant
 disappears in exactly the deployment that opted into less checking. The live
-case: ``server/main.py``'s response-size-cap middleware held an
+case: ``src/arxmcp/server/main.py``'s response-size-cap middleware held an
 ``http.response.start`` event and flushed it on the first body event behind
 ``assert start_event is not None``. Under ``-O`` that guard vanished and
 ``await send(None)`` went straight to the ASGI server — a confusing failure
@@ -36,15 +36,14 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
-#: The trees that ship in the wheel — kept in step with
-#: ``[tool.setuptools.packages.find].include`` in ``pyproject.toml``.
-#: ``frontend`` is listed there too but holds no Python.
+#: The boxes that ship in the wheel, under the one ``arxmcp`` package that
+#: ``[tool.setuptools.packages.find]`` in ``pyproject.toml`` declares.
 SHIPPED_TREES: tuple[str, ...] = (
-    "server",
-    "ingest",
-    "tools",
-    "shim",
-    "ops",
+    "src/arxmcp/server",
+    "src/arxmcp/ingest",
+    "src/arxmcp/tools",
+    "src/arxmcp/shim",
+    "src/arxmcp/ops",
 )
 
 
@@ -87,7 +86,7 @@ class TestNoAssertInShippedPackages:
             f"expected the shipped trees to hold a substantial number of "
             f"modules; found {len(files)} — SHIPPED_TREES is probably stale"
         )
-        found = {p.relative_to(REPO_ROOT).parts[0] for p in files}
+        found = {"/".join(p.relative_to(REPO_ROOT).parts[:3]) for p in files}
         assert found == set(SHIPPED_TREES), (
             f"SHIPPED_TREES names {sorted(SHIPPED_TREES)} but only "
             f"{sorted(found)} produced files"
@@ -111,10 +110,10 @@ class TestNoAssertInShippedPackages:
         """Pin the specific site the issue named, so a revert is loud.
 
         The line number moved (253 -> 262 -> here) when 004c814 lifted the
-        startup sequence into server/cli.py, so this anchors on the code
+        startup sequence into src/arxmcp/server/cli.py, so this anchors on the code
         rather than a line.
         """
-        text = (REPO_ROOT / "server" / "main.py").read_text(encoding="utf-8")
+        text = (REPO_ROOT / "src" / "arxmcp" / "server" / "main.py").read_text(encoding="utf-8")
         assert "assert start_event is not None" not in text
         assert "if start_event is None:" in text
         assert "violated the response protocol" in text

@@ -1,4 +1,4 @@
-"""Tests for ``tools.notebook_chunks_backfill`` (source-truth-m2).
+"""Tests for ``arxmcp.tools.notebook_chunks_backfill`` (source-truth-m2).
 
 Mirrors ``tests/test_notebook_documents_backfill.py`` in shape: an offline
 build of a real per-notebook chunks table (via the real chunker + synthetic
@@ -35,18 +35,18 @@ import numpy as np
 import pyarrow as pa
 import pytest
 
-from ingest.chunk import ChunkRecord
-from ingest.chunker import chunk_paper
-from ingest.embedder import EMBEDDER_VERSION, EMBEDDING_DIM
-from ingest.preamble_types import PreambleDoc
-from ingest.schema import CHUNKS_SCHEMA_V1, EmbedRecord
-from ingest.store import write_chunks
-from server.documents_store import (
+from arxmcp.ingest.chunk import ChunkRecord
+from arxmcp.ingest.chunker import chunk_paper
+from arxmcp.ingest.embedder import EMBEDDER_VERSION, EMBEDDING_DIM
+from arxmcp.ingest.preamble_types import PreambleDoc
+from arxmcp.ingest.schema import CHUNKS_SCHEMA_V1, EmbedRecord
+from arxmcp.ingest.store import write_chunks
+from arxmcp.server.documents_store import (
     DOCUMENTS_DB_FILENAME,
     DocumentRecord,
     DocumentsStore,
 )
-from tools import notebook_chunks_backfill as backfill
+from arxmcp.tools import notebook_chunks_backfill as backfill
 
 SLUG = "bridgeland-stability"
 
@@ -159,9 +159,9 @@ def _build_table_from_html(
     if resolve_preamble is None:
         resolve_preamble = lambda _pid: None  # noqa: E731
     with (
-        patch("ingest.chunker.PARSED_DIR", parsed_root),
-        patch("ingest.chunker.CHUNKS_DIR", tmp_path / "chunks_out"),
-        patch("ingest.chunker._resolve_preamble_doc", resolve_preamble),
+        patch("arxmcp.ingest.chunker.PARSED_DIR", parsed_root),
+        patch("arxmcp.ingest.chunker.CHUNKS_DIR", tmp_path / "chunks_out"),
+        patch("arxmcp.ingest.chunker._resolve_preamble_doc", resolve_preamble),
     ):
         records = chunk_paper(paper_id)
     assert records, "fixture must produce at least one chunk"
@@ -299,7 +299,7 @@ class TestHelpers:
         assert fb("proof", "x" * 100, count_tokens=lambda _t: 10**9) is False
 
     def test_truncated_fallback_stmt_thresholds(self):
-        from ingest.chunker import STMT_MAX_TOKENS
+        from arxmcp.ingest.chunker import STMT_MAX_TOKENS
 
         fb = backfill._truncated_fallback
         assert fb("stmt", "short", count_tokens=lambda _t: 5) is False
@@ -319,8 +319,8 @@ class TestZeroReEmbed:
             line for line in source.splitlines()
             if line.strip().startswith(("import ", "from "))
         )
-        assert "ingest.store" not in import_block
-        assert "ingest.embedder" not in import_block
+        assert "arxmcp.ingest.store" not in import_block
+        assert "arxmcp.ingest.embedder" not in import_block
         assert "write_chunks" not in source
         # It DOES connect to LanceDB directly (the intended mechanism).
         assert "import lancedb" in import_block
@@ -555,7 +555,7 @@ class TestHardErrors:
     def test_missing_chunks_table_raises(self, tmp_path):
         base = tmp_path / "notebooks"
         (base / SLUG).mkdir(parents=True)  # notebook dir but no lancedb table
-        from ingest.notebooks import NotebookError
+        from arxmcp.ingest.notebooks import NotebookError
 
         with pytest.raises(NotebookError, match="no 'chunks'"):
             backfill.run(SLUG, base=base, corpus_parsed_dir=tmp_path / "parsed")
@@ -563,7 +563,7 @@ class TestHardErrors:
     def test_main_returns_1_on_notebook_error(self, monkeypatch, capsys):
         """``main`` translates a NotebookError (bad slug, no table) into exit 1
         with a message on stderr, never a traceback."""
-        from ingest.notebooks import NotebookError
+        from arxmcp.ingest.notebooks import NotebookError
 
         def _raise(_slug):
             raise NotebookError("boom")
@@ -931,7 +931,7 @@ def test_v2_defaults_match_store():
     """``backfill._V2_COLUMN_DEFAULTS`` re-states, to keep the embedder out
     of the driver's import graph, what the store's migration gives the
     five schema-v2 columns: NULL of the column's type."""
-    from ingest.schema import CHUNKS_TABLE_NAME, PRE_COLUMN_VALUES
+    from arxmcp.ingest.schema import CHUNKS_TABLE_NAME, PRE_COLUMN_VALUES
 
     sql_types = {pa.utf8(): "string", pa.bool_(): "boolean"}
     v2 = backfill._V2_COLUMN_DEFAULTS
@@ -979,9 +979,9 @@ class TestBodyOnlyIdsThroughBackfill:
         parsed = _parsed_root(tmp_path, {PAPER: HTML})
         doc = _nonempty_preamble(PAPER)
         with (
-            patch("ingest.chunker.PARSED_DIR", parsed),
-            patch("ingest.chunker.CHUNKS_DIR", tmp_path / "chunks_out"),
-            patch("ingest.chunker._resolve_preamble_doc", lambda _pid: None),
+            patch("arxmcp.ingest.chunker.PARSED_DIR", parsed),
+            patch("arxmcp.ingest.chunker.CHUNKS_DIR", tmp_path / "chunks_out"),
+            patch("arxmcp.ingest.chunker._resolve_preamble_doc", lambda _pid: None),
         ):
             chunker_ids = [c.chunk_id for c in chunk_paper(PAPER)]
         rr = backfill._rechunk_paper(PAPER, parsed, resolve_preamble=lambda _p: doc)

@@ -20,7 +20,7 @@ from unittest.mock import patch
 
 import pytest
 
-from ingest.bulk_ingest import (
+from arxmcp.ingest.bulk_ingest import (
     PaperOutcome,
     _log_parser_failure,
     _log_progress,
@@ -35,7 +35,7 @@ def derived_builds(monkeypatch) -> list:
     """Record index builds: the outcomes here are mocks with no dataset."""
     calls: list = []
     monkeypatch.setattr(
-        "ingest.bulk_ingest.build_derived_indexes", lambda path: calls.append(path)
+        "arxmcp.ingest.bulk_ingest.build_derived_indexes", lambda path: calls.append(path)
     )
     return calls
 
@@ -46,7 +46,7 @@ def _default_staging_in_tmp(tmp_path, monkeypatch):
     the first write. Most tests here omit ``lancedb_staging_path``, whose
     default is the real ``var/`` staging dataset; point the default into
     ``tmp_path`` so no test reads it."""
-    import ingest.bulk_ingest as bulk
+    import arxmcp.ingest.bulk_ingest as bulk
 
     defaults = dict(bulk.run_bulk_ingest.__kwdefaults__)
     defaults["lancedb_staging_path"] = tmp_path / "default-lancedb-staging"
@@ -119,7 +119,7 @@ class TestLogParserFailure:
 
 class TestLogProgress:
     def test_writes_progress_line(self, tmp_path):
-        from ingest.bulk_ingest import IngestSummary
+        from arxmcp.ingest.bulk_ingest import IngestSummary
 
         path = tmp_path / "ingestion.log"
         summary = IngestSummary(
@@ -170,7 +170,7 @@ class TestRunBulkIngest:
         paper_ids = ["2401.00001", "2401.00002", "2401.00003"]
 
         with patch(
-            "ingest.bulk_ingest.ingest_one_paper",
+            "arxmcp.ingest.bulk_ingest.ingest_one_paper",
             side_effect=[_ok_outcome(p) for p in paper_ids],
         ):
             summary = run_bulk_ingest(
@@ -193,7 +193,7 @@ class TestRunBulkIngest:
     ):
         staging = tmp_path / "staging"
         with patch(
-            "ingest.bulk_ingest.ingest_one_paper",
+            "arxmcp.ingest.bulk_ingest.ingest_one_paper",
             side_effect=[_fail_outcome("2401.00001"), _ok_outcome("2401.00002")],
         ):
             run_bulk_ingest(
@@ -205,7 +205,7 @@ class TestRunBulkIngest:
 
     def test_builds_nothing_when_no_paper_landed(self, tmp_path, derived_builds):
         with patch(
-            "ingest.bulk_ingest.ingest_one_paper",
+            "arxmcp.ingest.bulk_ingest.ingest_one_paper",
             side_effect=[_fail_outcome("2401.00001")],
         ):
             run_bulk_ingest(
@@ -224,7 +224,7 @@ class TestRunBulkIngest:
 
         paper_ids = ["2401.00001", "2401.00002"]
         with patch(
-            "ingest.bulk_ingest.ingest_one_paper",
+            "arxmcp.ingest.bulk_ingest.ingest_one_paper",
             side_effect=[_ok_outcome(p) for p in paper_ids],
         ):
             run_bulk_ingest(
@@ -265,7 +265,7 @@ class TestRunBulkIngest:
             _ok_outcome("2401.00003"),
         ]
         with patch(
-            "ingest.bulk_ingest.ingest_one_paper",
+            "arxmcp.ingest.bulk_ingest.ingest_one_paper",
             side_effect=outcomes,
         ):
             summary = run_bulk_ingest(
@@ -294,7 +294,7 @@ class TestRunBulkIngest:
             call_count += 1
             return _ok_outcome(args[0])
 
-        with patch("ingest.bulk_ingest.ingest_one_paper", side_effect=_mock):
+        with patch("arxmcp.ingest.bulk_ingest.ingest_one_paper", side_effect=_mock):
             summary = run_bulk_ingest(
                 paper_ids,
                 failures_path=failures,
@@ -320,7 +320,7 @@ class TestRunBulkIngest:
             _ok_outcome("2401.00003", parser="ar5iv"),
         ]
         with patch(
-            "ingest.bulk_ingest.ingest_one_paper",
+            "arxmcp.ingest.bulk_ingest.ingest_one_paper",
             side_effect=outcomes,
         ):
             summary = run_bulk_ingest(
@@ -352,7 +352,7 @@ class TestDryRun:
         (cache_dir / "2401.00001.html").write_text("<html/>")
 
         with patch(
-            "ingest.bulk_ingest.ingest_one_paper",
+            "arxmcp.ingest.bulk_ingest.ingest_one_paper",
             side_effect=AssertionError("dry-run must not call this"),
         ):
             summary = run_bulk_ingest(
@@ -383,9 +383,9 @@ class TestIngestOnePaperFailurePath:
         parsed_dir = tmp_path / "parsed"
         # ar5iv stubbed to return a miss.
         with patch(
-            "ingest.bulk_ingest.try_cache",
+            "arxmcp.ingest.bulk_ingest.try_cache",
             return_value=__import__(
-                "ingest.ar5iv_fetch", fromlist=["Ar5ivResult"]
+                "arxmcp.ingest.ar5iv_fetch", fromlist=["Ar5ivResult"]
             ).Ar5ivResult(
                 paper_id="2401.00001",
                 hit=False,
@@ -418,14 +418,14 @@ class TestIngestOnePaperFailurePath:
         assert outcome.retriable is False
 
     def test_a_rate_limited_miss_is_logged_as_retriable(self, tmp_path):
-        from ingest.ar5iv_fetch import Ar5ivResult
+        from arxmcp.ingest.ar5iv_fetch import Ar5ivResult
 
         rate_limited = Ar5ivResult(
             paper_id="2401.00001", hit=False, cache_path=None,
             parsed_path=None, reason="http_429", retriable=True,
         )
         failures = tmp_path / "failures.jsonl"
-        with patch("ingest.bulk_ingest.try_cache", return_value=rate_limited):
+        with patch("arxmcp.ingest.bulk_ingest.try_cache", return_value=rate_limited):
             summary = run_bulk_ingest(
                 ["2401.00001"],
                 lancedb_staging_path=tmp_path / "staging",
@@ -453,7 +453,7 @@ class TestActiveCorpusVersionUntouched:
     """
 
     def test_dry_run_doesnt_touch_active_marker(self, tmp_path):
-        from ingest.store import DEFAULT_LANCEDB_PATH
+        from arxmcp.ingest.store import DEFAULT_LANCEDB_PATH
 
         active_marker = DEFAULT_LANCEDB_PATH / "corpus-version.json"
         before = active_marker.read_bytes() if active_marker.is_file() else None
@@ -479,7 +479,7 @@ class TestParsedDirReachesTheChunker:
     def test_ar5iv_html_in_a_custom_parsed_dir_is_chunked(self, tmp_path):
         from pathlib import Path
 
-        from ingest.embedder import EmbedStats
+        from arxmcp.ingest.embedder import EmbedStats
 
         paper_id = "2307.00001"
         fixture = (
@@ -503,12 +503,12 @@ class TestParsedDirReachesTheChunker:
         parsed_dir = tmp_path / "custom" / "parsed"
         chunks_dir = tmp_path / "chunks"
         with (
-            patch("ingest.ar5iv_fetch.urllib.request.urlopen", return_value=_Response()),
-            patch("ingest.chunker.PARSED_DIR", tmp_path / "default-parsed"),
-            patch("ingest.chunker.CHUNKS_DIR", chunks_dir),
-            patch("ingest.chunker._resolve_preamble_doc", return_value=None),
+            patch("arxmcp.ingest.ar5iv_fetch.urllib.request.urlopen", return_value=_Response()),
+            patch("arxmcp.ingest.chunker.PARSED_DIR", tmp_path / "default-parsed"),
+            patch("arxmcp.ingest.chunker.CHUNKS_DIR", chunks_dir),
+            patch("arxmcp.ingest.chunker._resolve_preamble_doc", return_value=None),
             patch(
-                "ingest.bulk_ingest.embed_paper",
+                "arxmcp.ingest.bulk_ingest.embed_paper",
                 return_value=EmbedStats(
                     paper_id=paper_id, chunks_processed=0, chunks_skipped=0,
                     truncated_count=0, elapsed_s=0.0, status="fail",
@@ -540,7 +540,7 @@ class TestEmbedderFailureSurfaces:
     NOT a silent stale-embed reuse via `load_embed_record`."""
 
     def test_embedder_fail_yields_failure_reason(self, tmp_path):
-        from ingest.embedder import EmbedStats
+        from arxmcp.ingest.embedder import EmbedStats
 
         parsed_dir = tmp_path / "parsed"
         (parsed_dir / "2401.00001").mkdir(parents=True)
@@ -548,9 +548,9 @@ class TestEmbedderFailureSurfaces:
 
         with (
             patch(
-                "ingest.bulk_ingest.try_cache",
+                "arxmcp.ingest.bulk_ingest.try_cache",
                 return_value=__import__(
-                    "ingest.ar5iv_fetch", fromlist=["Ar5ivResult"]
+                    "arxmcp.ingest.ar5iv_fetch", fromlist=["Ar5ivResult"]
                 ).Ar5ivResult(
                     paper_id="2401.00001",
                     hit=True,
@@ -560,11 +560,11 @@ class TestEmbedderFailureSurfaces:
                 ),
             ),
             patch(
-                "ingest.bulk_ingest.chunk_paper",
+                "arxmcp.ingest.bulk_ingest.chunk_paper",
                 return_value=[object()],
             ),
             patch(
-                "ingest.bulk_ingest.embed_paper",
+                "arxmcp.ingest.bulk_ingest.embed_paper",
                 return_value=EmbedStats(
                     paper_id="2401.00001",
                     chunks_processed=0,
@@ -576,9 +576,9 @@ class TestEmbedderFailureSurfaces:
                     error_class="model_init_failed",
                 ),
             ),
-            patch("ingest.bulk_ingest.write_chunks") as write_mock,
+            patch("arxmcp.ingest.bulk_ingest.write_chunks") as write_mock,
         ):
-            from ingest.bulk_ingest import ingest_one_paper
+            from arxmcp.ingest.bulk_ingest import ingest_one_paper
 
             outcome = ingest_one_paper(
                 "2401.00001",
@@ -598,8 +598,8 @@ class TestPerPaperIsolation:
     def _run(self, tmp_path, write_side_effect):
         from contextlib import ExitStack
 
-        from ingest.ar5iv_fetch import Ar5ivResult
-        from ingest.embedder import EmbedStats
+        from arxmcp.ingest.ar5iv_fetch import Ar5ivResult
+        from arxmcp.ingest.embedder import EmbedStats
 
         ids = ["2401.00001", "2401.00002", "2401.00003"]
         parsed_dir = tmp_path / "parsed"
@@ -626,7 +626,7 @@ class TestPerPaperIsolation:
                 ("write_chunks", {"side_effect": write_side_effect}),
                 ("extract_equations_for_paper", {"return_value": 0}),
             ]:
-                stack.enter_context(patch(f"ingest.bulk_ingest.{target}", **kwargs))
+                stack.enter_context(patch(f"arxmcp.ingest.bulk_ingest.{target}", **kwargs))
             return run_bulk_ingest(
                 ids,
                 lancedb_staging_path=tmp_path / "staging",
@@ -657,7 +657,7 @@ class TestPerPaperIsolation:
         )
 
     def test_a_wap_gate_failure_stops_the_run(self, tmp_path):
-        from ingest.store import WapGateError
+        from arxmcp.ingest.store import WapGateError
 
         with pytest.raises(WapGateError):
             self._run(tmp_path, WapGateError("marker disagrees with table"))
@@ -672,11 +672,11 @@ class TestOneIndexBuildPerRun:
         import lancedb
         import numpy as np
 
-        import ingest.store as store_mod
-        from ingest.ar5iv_fetch import Ar5ivResult
-        from ingest.chunk import CHUNKER_VERSION, EMBEDDING_DIM
-        from ingest.embedder import EmbedStats
-        from ingest.schema import EmbedRecord
+        import arxmcp.ingest.store as store_mod
+        from arxmcp.ingest.ar5iv_fetch import Ar5ivResult
+        from arxmcp.ingest.chunk import CHUNKER_VERSION, EMBEDDING_DIM
+        from arxmcp.ingest.embedder import EmbedStats
+        from arxmcp.ingest.schema import EmbedRecord
 
         ids = ["2401.00001", "2401.00002", "2401.00003"]
         parsed_dir = tmp_path / "parsed"
@@ -717,7 +717,7 @@ class TestOneIndexBuildPerRun:
                 ("load_embed_record", {"side_effect": _record}),
                 ("build_derived_indexes", {}),
             ]:
-                stack.enter_context(patch(f"ingest.bulk_ingest.{target}", **kwargs))
+                stack.enter_context(patch(f"arxmcp.ingest.bulk_ingest.{target}", **kwargs))
             summary = run_bulk_ingest(
                 ids,
                 lancedb_staging_path=staging,
@@ -750,7 +750,7 @@ class TestResumeFlagRemoved:
     CLI and the `run_bulk_ingest` signature."""
 
     def test_resume_absent_from_cli(self):
-        from ingest.bulk_ingest import _cli
+        from arxmcp.ingest.bulk_ingest import _cli
 
         with pytest.raises(SystemExit):
             _cli(["--paper-ids-file=/nonexistent", "--resume"])
@@ -767,7 +767,7 @@ class TestParsedDirFlagRemoved:
     (it was honored by try_cache but ignored by the chunker)."""
 
     def test_parsed_dir_absent_from_cli(self):
-        from ingest.bulk_ingest import _cli
+        from arxmcp.ingest.bulk_ingest import _cli
 
         with pytest.raises(SystemExit):
             _cli([
@@ -798,7 +798,7 @@ class TestDryRunDoesNotReportMisleadingAr5ivRate:
     def test_cli_dry_run_summary_omits_ar5iv_rate(
         self, tmp_path, capsys
     ):
-        from ingest.bulk_ingest import _cli
+        from arxmcp.ingest.bulk_ingest import _cli
 
         ids = tmp_path / "ids.txt"
         ids.write_text("2401.00001\n")
@@ -852,7 +852,7 @@ class TestDiagnoseEmptyRender:
         (paper_dir / "index.html").write_text(html, encoding="utf-8")
 
     def test_math_but_no_sections_is_unchunkable(self, tmp_path):
-        from ingest.bulk_ingest import _diagnose_empty_render
+        from arxmcp.ingest.bulk_ingest import _diagnose_empty_render
 
         parsed_dir = tmp_path / "parsed"
         self._write(
@@ -867,7 +867,7 @@ class TestDiagnoseEmptyRender:
         )
 
     def test_structured_render_is_generic_empty(self, tmp_path):
-        from ingest.bulk_ingest import _diagnose_empty_render
+        from arxmcp.ingest.bulk_ingest import _diagnose_empty_render
 
         parsed_dir = tmp_path / "parsed"
         self._write(
@@ -882,7 +882,7 @@ class TestDiagnoseEmptyRender:
         )
 
     def test_missing_file_degrades_to_generic(self, tmp_path):
-        from ingest.bulk_ingest import _diagnose_empty_render
+        from arxmcp.ingest.bulk_ingest import _diagnose_empty_render
 
         assert (
             _diagnose_empty_render("2307.00002", tmp_path / "parsed")
@@ -893,7 +893,7 @@ class TestDiagnoseEmptyRender:
         # M2/L1: ltx_chapter is a structural signal (in the shared
         # STRUCTURE_SIGNAL_CLASSES), so a chapter-only render is NOT mislabeled
         # render_unchunkable_no_sections.
-        from ingest.bulk_ingest import _diagnose_empty_render
+        from arxmcp.ingest.bulk_ingest import _diagnose_empty_render
 
         parsed_dir = tmp_path / "parsed"
         self._write(
@@ -908,11 +908,11 @@ class TestDiagnoseEmptyRender:
         )
 
     def test_ac4_signal_set_is_single_source(self):
-        # M2/L1: both AC4 sites use ingest.chunker.STRUCTURE_SIGNAL_CLASSES so
+        # M2/L1: both AC4 sites use arxmcp.ingest.chunker.STRUCTURE_SIGNAL_CLASSES so
         # the ar5iv no-sections WARN and the bulk diagnostic cannot drift apart.
-        import ingest.ar5iv_fetch as a
-        import ingest.bulk_ingest as b
-        import ingest.chunker as c
+        import arxmcp.ingest.ar5iv_fetch as a
+        import arxmcp.ingest.bulk_ingest as b
+        import arxmcp.ingest.chunker as c
 
         assert a.STRUCTURE_SIGNAL_CLASSES is c.STRUCTURE_SIGNAL_CLASSES
         assert b.STRUCTURE_SIGNAL_CLASSES is c.STRUCTURE_SIGNAL_CLASSES
@@ -924,7 +924,7 @@ class TestDiagnoseEmptyRender:
 
 
 def _row_chunk(paper_id: str, suffix: str, version: str, body: str = "body"):
-    from ingest.chunk import ChunkRecord
+    from arxmcp.ingest.chunk import ChunkRecord
 
     return ChunkRecord(
         chunk_id=f"arxiv:{paper_id}:{suffix}",
@@ -942,9 +942,9 @@ def _row_chunk(paper_id: str, suffix: str, version: str, body: str = "body"):
 def _write(path, chunks):
     import numpy as np
 
-    from ingest.chunk import EMBEDDING_DIM
-    from ingest.schema import EmbedRecord
-    from ingest.store import write_chunks
+    from arxmcp.ingest.chunk import EMBEDDING_DIM
+    from arxmcp.ingest.schema import EmbedRecord
+    from arxmcp.ingest.store import write_chunks
 
     rng = np.random.default_rng(0)
     vectors = rng.standard_normal((len(chunks), EMBEDDING_DIM)).astype(np.float32)
@@ -1000,8 +1000,8 @@ class TestChunkerVersionGuard:
     ):
         # A refusal is not a crash: one "error:" line, no traceback, and
         # exit 3 rather than the failure exit 1.
-        import ingest.bulk_ingest as bulk
-        from ingest.store import STALE_CHUNKER_EXIT_CODE, StaleChunkerRowsError
+        import arxmcp.ingest.bulk_ingest as bulk
+        from arxmcp.ingest.store import STALE_CHUNKER_EXIT_CODE, StaleChunkerRowsError
 
         ids = tmp_path / "ids.txt"
         ids.write_text("2401.00001\n", encoding="utf-8")
@@ -1028,12 +1028,12 @@ class TestChunkerVersionGuard:
         assert _count(path) == 2
 
     def test_refuses_a_target_holding_another_versions_arxiv_rows(self, tmp_path):
-        from ingest.store import StaleChunkerRowsError
+        from arxmcp.ingest.store import StaleChunkerRowsError
 
         path = tmp_path / "lancedb"
         _write(path, [_row_chunk("2401.00001", "a" * 16, "v1.2")])
         with (
-            patch("ingest.bulk_ingest.ingest_one_paper", _never_ingest),
+            patch("arxmcp.ingest.bulk_ingest.ingest_one_paper", _never_ingest),
             pytest.raises(StaleChunkerRowsError, match="make notebook-cutover") as exc,
         ):
             run_bulk_ingest(
@@ -1049,8 +1049,8 @@ class TestChunkerVersionGuard:
     def test_reads_the_rows_not_the_marker(self, tmp_path):
         # A textbook ingest restamps corpus-version.json with this code's
         # chunker version without touching an arXiv row.
-        from ingest.chunk import CHUNKER_VERSION
-        from ingest.store import (
+        from arxmcp.ingest.chunk import CHUNKER_VERSION
+        from arxmcp.ingest.store import (
             StaleChunkerRowsError,
             refuse_stale_chunker_rows,
             write_corpus_version_marker,
@@ -1064,7 +1064,7 @@ class TestChunkerVersionGuard:
 
     @pytest.mark.parametrize("state", ["missing", "empty", "current"])
     def test_allows_a_fresh_empty_or_current_target(self, tmp_path, state):
-        from ingest.chunk import CHUNKER_VERSION, CHUNKS_SCHEMA_V1
+        from arxmcp.ingest.chunk import CHUNKER_VERSION, CHUNKS_SCHEMA_V1
 
         path = tmp_path / "lancedb"
         if state == "empty":
@@ -1074,7 +1074,7 @@ class TestChunkerVersionGuard:
         elif state == "current":
             _write(path, [_row_chunk("2401.00001", "a" * 16, CHUNKER_VERSION)])
         with patch(
-            "ingest.bulk_ingest.ingest_one_paper",
+            "arxmcp.ingest.bulk_ingest.ingest_one_paper",
             side_effect=lambda pid, **kw: _ok_outcome(pid),
         ):
             summary = run_bulk_ingest(
@@ -1087,8 +1087,8 @@ class TestChunkerVersionGuard:
         assert summary.papers_succeeded == 1
 
     def test_textbook_rows_are_not_checked(self, tmp_path):
-        from ingest.chunk import CHUNKER_VERSION
-        from ingest.store import refuse_stale_chunker_rows
+        from arxmcp.ingest.chunk import CHUNKER_VERSION
+        from arxmcp.ingest.store import refuse_stale_chunker_rows
 
         path = tmp_path / "lancedb"
         _minimal_table(
@@ -1099,7 +1099,7 @@ class TestChunkerVersionGuard:
         refuse_stale_chunker_rows(path)  # no raise
 
     def test_a_null_chunker_version_counts_as_stale(self, tmp_path):
-        from ingest.store import StaleChunkerRowsError, refuse_stale_chunker_rows
+        from arxmcp.ingest.store import StaleChunkerRowsError, refuse_stale_chunker_rows
 
         path = tmp_path / "lancedb"
         _minimal_table(path, [("arxiv:2401.00001:" + "e" * 16, None)])

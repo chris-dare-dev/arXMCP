@@ -44,7 +44,7 @@ class TestCacheKeyIsolation:
     def test_canonicalize_retains_notebook_key(self) -> None:
         """``_canonicalize_filters`` must NOT strip ``notebook`` — it has
         to remain so it participates in the cache key."""
-        from server.handlers.search import _canonicalize_filters
+        from arxmcp.server.handlers.search import _canonicalize_filters
 
         out = _canonicalize_filters({"notebook": "alpha-nb", "paper_id": "x"})
         assert out is not None
@@ -52,14 +52,14 @@ class TestCacheKeyIsolation:
 
     def test_canonicalize_none_unchanged(self) -> None:
         """AC4: no filters → None (no spurious notebook key injected)."""
-        from server.handlers.search import _canonicalize_filters
+        from arxmcp.server.handlers.search import _canonicalize_filters
 
         assert _canonicalize_filters(None) is None
 
     def test_distinct_notebooks_distinct_keys(self) -> None:
         """AC3: two notebooks, same query/k/version → DISTINCT key bytes,
         even though ``corpus_version`` (the shared salt) collides."""
-        from server.cache_sqlite import canonical_key_components
+        from arxmcp.server.cache_sqlite import canonical_key_components
 
         ka = canonical_key_components(
             query="Bridgeland stability",
@@ -79,7 +79,7 @@ class TestCacheKeyIsolation:
 
     def test_same_notebook_same_key(self) -> None:
         """Same notebook + same args → identical key (cache HIT path)."""
-        from server.cache_sqlite import canonical_key_components
+        from arxmcp.server.cache_sqlite import canonical_key_components
 
         common = dict(
             query="q", filters={"notebook": "alpha-nb"}, k=10,
@@ -92,7 +92,7 @@ class TestCacheKeyIsolation:
     def test_no_notebook_key_byte_identical_to_today(self) -> None:
         """AC4: the no-notebook key bytes are exactly what they were
         before m2 (m2 does not touch ``canonical_key_components``)."""
-        from server.cache_sqlite import canonical_key_components
+        from arxmcp.server.cache_sqlite import canonical_key_components
 
         # filters=None and filters={} both → "{}" in the key.
         k_none = canonical_key_components(
@@ -115,7 +115,7 @@ class TestEnvelopeOverride:
     def test_override_none_is_byte_identical(self, monkeypatch) -> None:
         """AC4: envelope(payload, override_corpus_version=None) ==
         envelope(payload) — the shared-corpus path is unchanged."""
-        import server.tools as tools_mod
+        import arxmcp.server.tools as tools_mod
 
         monkeypatch.setattr(
             tools_mod, "get_resources",
@@ -128,7 +128,7 @@ class TestEnvelopeOverride:
 
     def test_override_echoes_notebook_version(self, monkeypatch) -> None:
         """AC6: a provided override wins over the process-wide version."""
-        import server.tools as tools_mod
+        import arxmcp.server.tools as tools_mod
 
         monkeypatch.setattr(
             tools_mod, "get_resources",
@@ -151,7 +151,7 @@ class TestArrowRowsSourceKindGuard:
         tables, which were ingested BEFORE m9 added ``source_kind``. The
         column may be ABSENT (not just NULL) — ``_arrow_to_rows`` must
         default to "arxiv" rather than raising on ``arrow.column``."""
-        from server.handlers.search import _arrow_to_rows
+        from arxmcp.server.handlers.search import _arrow_to_rows
 
         # A table WITHOUT a source_kind column (pre-m9 notebook shape).
         arrow = pa.table({
@@ -175,8 +175,8 @@ class TestArrowRowsSourceKindGuard:
 
 class TestNotebookTableRegistry:
     def _make_resources(self):
-        from server.config import Config
-        from server.resources import Resources, Singleflight
+        from arxmcp.server.config import Config
+        from arxmcp.server.resources import Resources, Singleflight
 
         return Resources(
             config=Config(),
@@ -191,8 +191,8 @@ class TestNotebookTableRegistry:
     def patched_open(self, monkeypatch, tmp_path):
         """Patch the path helper + corpus reader + table opener so no
         real lancedb is needed; keep the REAL ``validate_slug``."""
-        import ingest.notebooks as nc
-        import server.resources as res_mod
+        import arxmcp.ingest.notebooks as nc
+        import arxmcp.server.resources as res_mod
 
         monkeypatch.setattr(
             nc, "notebook_lancedb_path",
@@ -221,7 +221,7 @@ class TestNotebookTableRegistry:
     def test_traversal_slug_rejected(self, patched_open) -> None:
         """Threat-1 (m2 FM-4): a path-traversal slug raises NotebookError
         BEFORE any path use (real validate_slug)."""
-        from ingest.notebooks import NotebookError
+        from arxmcp.ingest.notebooks import NotebookError
 
         res = self._make_resources()
         for bad in ("../etc", "a/b", "ABC", "x"):
@@ -231,7 +231,7 @@ class TestNotebookTableRegistry:
     def test_un_ingested_raises_corpus_not_ingested(self, patched_open) -> None:
         """m2 FM-5a: a valid slug with no corpus-version.json raises
         CorpusNotIngestedError (not a silent empty result)."""
-        from server.resources import CorpusNotIngestedError
+        from arxmcp.server.resources import CorpusNotIngestedError
 
         res = self._make_resources()
         with pytest.raises(CorpusNotIngestedError):
@@ -252,7 +252,7 @@ class TestNotebookTableRegistry:
     def test_lru_eviction_bounds_registry(self, patched_open) -> None:
         """m2 FM-6: opening more than MAX_NOTEBOOK_TABLE_SLOTS distinct
         notebooks keeps the registry bounded (evict-oldest)."""
-        from server.resources import MAX_NOTEBOOK_TABLE_SLOTS
+        from arxmcp.server.resources import MAX_NOTEBOOK_TABLE_SLOTS
 
         res = self._make_resources()
 
@@ -353,8 +353,8 @@ class _FakeTable:
 def fake_resources(monkeypatch):
     """Fake Resources with a notebook_table registry returning per-slug
     fake tables. Shared table = 'default' rows; notebooks keyed by slug."""
-    from server.resources import CorpusNotIngestedError
-    from server.tools import reset_resources_for_tests, set_resources
+    from arxmcp.server.resources import CorpusNotIngestedError
+    from arxmcp.server.tools import reset_resources_for_tests, set_resources
 
     shared = _FakeTable([{"chunk_id": "arxiv:shared.0001:z", "paper_id": "shared.0001"}])
     # slug -> (table, corpus_info)
@@ -408,13 +408,13 @@ def fake_resources(monkeypatch):
 
     fake = _FakeResources()
     set_resources(fake)  # type: ignore[arg-type]
-    monkeypatch.setattr("server.handlers.search.get_cache", lambda: None)
+    monkeypatch.setattr("arxmcp.server.handlers.search.get_cache", lambda: None)
 
     async def _fake_encode(query):
         import numpy as np
         return np.zeros(1024, dtype=np.float32)
 
-    monkeypatch.setattr("server.handlers.search.encode_query", _fake_encode)
+    monkeypatch.setattr("arxmcp.server.handlers.search.encode_query", _fake_encode)
     yield fake
     reset_resources_for_tests()
 
@@ -423,7 +423,7 @@ class TestHandlerNotebookRouting:
     def test_routes_to_notebook_table(self, fake_resources) -> None:
         """AC1: filters.notebook routes to that notebook's table — the
         result rows are the NOTEBOOK's, not the shared corpus's."""
-        from server.handlers.search import handle_search_papers
+        from arxmcp.server.handlers.search import handle_search_papers
 
         res = _run(handle_search_papers(
             query="Bridgeland's original definition",
@@ -438,7 +438,7 @@ class TestHandlerNotebookRouting:
     def test_envelope_echoes_notebook_corpus_version(self, fake_resources) -> None:
         """AC6: the envelope corpus_version is the NOTEBOOK's (369), not
         the process-wide shared version (101)."""
-        from server.handlers.search import handle_search_papers
+        from arxmcp.server.handlers.search import handle_search_papers
 
         res = _run(handle_search_papers(
             query="q", filters={"notebook": "bridgeland-stability"}, k=10,
@@ -447,7 +447,7 @@ class TestHandlerNotebookRouting:
 
     def test_no_notebook_uses_shared_and_shared_version(self, fake_resources) -> None:
         """AC4: no filters.notebook → shared table + shared version 101."""
-        from server.handlers.search import handle_search_papers
+        from arxmcp.server.handlers.search import handle_search_papers
 
         res = _run(handle_search_papers(query="q", filters=None, k=10))
         sc = res.structuredContent
@@ -456,7 +456,7 @@ class TestHandlerNotebookRouting:
 
     def test_envelope_shape_and_retrieval_mode(self, fake_resources) -> None:
         """AC2: same dense-only path; envelope shape identical."""
-        from server.handlers.search import handle_search_papers
+        from arxmcp.server.handlers.search import handle_search_papers
 
         res = _run(handle_search_papers(
             query="q", filters={"notebook": "shimura-varieties"}, k=10,
@@ -469,7 +469,7 @@ class TestHandlerNotebookRouting:
     def test_notebook_key_not_in_filter_warnings(self, fake_resources) -> None:
         """``notebook`` is a routing key — must NOT appear in
         filter_warnings (it would read as a spurious 'ignored' warning)."""
-        from server.handlers.search import handle_search_papers
+        from arxmcp.server.handlers.search import handle_search_papers
 
         res = _run(handle_search_papers(
             query="q", filters={"notebook": "bridgeland-stability"}, k=10,
@@ -480,7 +480,7 @@ class TestHandlerNotebookRouting:
     def test_notebook_not_in_filters_applied(self, fake_resources) -> None:
         """``notebook`` is a routing key, not a retrieval filter — it must
         NOT appear in the filters_applied echo."""
-        from server.handlers.search import handle_search_papers
+        from arxmcp.server.handlers.search import handle_search_papers
 
         res = _run(handle_search_papers(
             query="q", filters={"notebook": "bridgeland-stability"}, k=10,
@@ -490,7 +490,7 @@ class TestHandlerNotebookRouting:
 
     def test_traversal_slug_raises_value_error(self, fake_resources) -> None:
         """AC5 / Threat-1: a traversal slug → clean ValueError, not 500."""
-        from server.handlers.search import handle_search_papers
+        from arxmcp.server.handlers.search import handle_search_papers
 
         with pytest.raises(ValueError, match="not a valid notebook slug"):
             _run(handle_search_papers(
@@ -498,7 +498,7 @@ class TestHandlerNotebookRouting:
             ))
 
     def test_non_str_notebook_raises_value_error(self, fake_resources) -> None:
-        from server.handlers.search import handle_search_papers
+        from arxmcp.server.handlers.search import handle_search_papers
 
         with pytest.raises(ValueError, match="must be a str"):
             _run(handle_search_papers(
@@ -508,7 +508,7 @@ class TestHandlerNotebookRouting:
     def test_un_ingested_notebook_raises_value_error(self, fake_resources) -> None:
         """AC5: a valid slug for a non-existent/un-ingested notebook →
         clean ValueError (converted from CorpusNotIngestedError)."""
-        from server.handlers.search import handle_search_papers
+        from arxmcp.server.handlers.search import handle_search_papers
 
         with pytest.raises(ValueError, match="not-a-real-nb"):
             _run(handle_search_papers(
@@ -518,7 +518,7 @@ class TestHandlerNotebookRouting:
     def test_notebook_plus_paper_id_compose(self, fake_resources) -> None:
         """notebook routing composes with a paper_id filter (the filter
         still applies within the routed notebook corpus)."""
-        from server.handlers.search import handle_search_papers
+        from arxmcp.server.handlers.search import handle_search_papers
 
         # Should route to bridgeland AND build a paper_id predicate.
         res = _run(handle_search_papers(
@@ -535,7 +535,7 @@ class TestHandlerNotebookRouting:
         """F1 (HIGH) rectification: a source_kind filter against a pre-m9
         notebook table that LACKS the source_kind column must raise a clean
         ValueError, NOT let LanceError(Schema) propagate as a 500."""
-        from server.handlers.search import handle_search_papers
+        from arxmcp.server.handlers.search import handle_search_papers
 
         with pytest.raises(
             ValueError, match="source_kind.*not supported on notebook"
@@ -549,7 +549,7 @@ class TestHandlerNotebookRouting:
     def test_source_kind_filter_on_migrated_notebook_ok(self, fake_resources) -> None:
         """F1: a notebook table WITH source_kind accepts the filter — the
         gate must not false-positive on migrated/post-m9 notebook tables."""
-        from server.handlers.search import handle_search_papers
+        from arxmcp.server.handlers.search import handle_search_papers
 
         res = _run(handle_search_papers(
             query="q",
@@ -566,11 +566,11 @@ class TestHandlerNotebookRouting:
         corpus_version 369) must NOT serve A's rows to B. Guards
         notebook-in-filters isolation through the real lookup/store path —
         would FAIL if a refactor stripped notebook from canonical_filters."""
-        from server.cache import RetrievalCache
-        from server.handlers.search import handle_search_papers
+        from arxmcp.server.cache import RetrievalCache
+        from arxmcp.server.handlers.search import handle_search_papers
 
         cache = _run(RetrievalCache.open(tmp_path / "c.db", corpus_version=101))
-        monkeypatch.setattr("server.handlers.search.get_cache", lambda: cache)
+        monkeypatch.setattr("arxmcp.server.handlers.search.get_cache", lambda: cache)
         try:
             res_a = _run(handle_search_papers(
                 query="q", filters={"notebook": "collide-a"}, k=10,
@@ -597,7 +597,7 @@ class TestCacheCorpusVersionOverride:
     (notebook) version; ``None`` reduces to the shared version (AC4)."""
 
     def test_override_threads_into_tier1_key(self, tmp_path) -> None:
-        from server.cache import RetrievalCache
+        from arxmcp.server.cache import RetrievalCache
 
         async def go():
             cache = await RetrievalCache.open(tmp_path / "c.db", corpus_version=101)
@@ -631,7 +631,7 @@ class TestCacheCorpusVersionOverride:
         """AC4: ``corpus_version=None`` collapses to the shared version, so a
         store/lookup with None and an explicit-shared lookup hit the SAME
         key (byte-identical to the pre-m2 behavior)."""
-        from server.cache import RetrievalCache
+        from arxmcp.server.cache import RetrievalCache
 
         async def go():
             cache = await RetrievalCache.open(tmp_path / "c2.db", corpus_version=101)

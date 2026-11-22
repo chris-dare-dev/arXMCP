@@ -1,4 +1,4 @@
-"""Interface tests for ``ingest.chunk``.
+"""Interface tests for ``arxmcp.ingest.chunk``.
 
 Everything here goes through the module's interface: the record and its
 row mapping, chunk ids, the route, the embedding input and the reuse
@@ -19,7 +19,7 @@ import lancedb
 import numpy as np
 import pytest
 
-from ingest.chunk import (
+from arxmcp.ingest.chunk import (
     ALLOWED_KINDS,
     CHUNKER_VERSION,
     CHUNKS_SCHEMA_V1,
@@ -41,7 +41,7 @@ from ingest.chunk import (
 )
 
 EMBEDDER = "bge-m3@aaaaaaaa"
-CHUNK_PY = Path(__file__).resolve().parent.parent / "ingest" / "chunk.py"
+CHUNK_PY = Path(__file__).resolve().parent.parent / "src" / "arxmcp" / "ingest" / "chunk.py"
 
 
 def _vector(seed: int) -> np.ndarray:
@@ -99,18 +99,18 @@ class TestImportBoundary:
     def test_callers_see_the_same_objects(self):
         # The modules that used to own these facts re-export them; none
         # keeps its own copy.
-        import ingest.chunker
-        import ingest.embedder
-        import ingest.schema
-        import ingest.store
+        import arxmcp.ingest.chunker
+        import arxmcp.ingest.embedder
+        import arxmcp.ingest.schema
+        import arxmcp.ingest.store
 
-        assert ingest.chunker._compute_chunk_id is _compute_chunk_id
-        assert ingest.chunker.ChunkRecord is ChunkRecord
-        assert ingest.schema.CHUNKS_SCHEMA_V1 is CHUNKS_SCHEMA_V1
-        assert ingest.embedder.EXPECTED_CHUNKER_VERSION is CHUNKER_VERSION
-        assert ingest.embedder.EMBED_INPUT_POLICY_VERSION is EMBED_INPUT_POLICY_VERSION
-        assert ingest.embedder.EMBEDDING_DIM == EMBEDDING_DIM
-        assert ingest.store.ALLOWED_KINDS is ALLOWED_KINDS
+        assert arxmcp.ingest.chunker._compute_chunk_id is _compute_chunk_id
+        assert arxmcp.ingest.chunker.ChunkRecord is ChunkRecord
+        assert arxmcp.ingest.schema.CHUNKS_SCHEMA_V1 is CHUNKS_SCHEMA_V1
+        assert arxmcp.ingest.embedder.EXPECTED_CHUNKER_VERSION is CHUNKER_VERSION
+        assert arxmcp.ingest.embedder.EMBED_INPUT_POLICY_VERSION is EMBED_INPUT_POLICY_VERSION
+        assert arxmcp.ingest.embedder.EMBEDDING_DIM == EMBEDDING_DIM
+        assert arxmcp.ingest.store.ALLOWED_KINDS is ALLOWED_KINDS
 
     def test_chunker_types_is_gone(self):
         assert not (CHUNK_PY.parent / "chunker_types.py").exists()
@@ -362,8 +362,8 @@ class TestRowMapping:
 
 class TestLanceDBRoundTrip:
     def test_records_survive_a_lancedb_table(self, tmp_path):
-        from ingest.schema import EmbedRecord
-        from ingest.store import write_chunks
+        from arxmcp.ingest.schema import EmbedRecord
+        from arxmcp.ingest.store import write_chunks
 
         records = [
             _record(),
@@ -424,8 +424,8 @@ class TestLanceDBRoundTrip:
             )
 
     def test_store_refuses_a_vector_in_the_other_routes_list(self, tmp_path):
-        from ingest.schema import EmbedRecord
-        from ingest.store import write_chunks
+        from arxmcp.ingest.schema import EmbedRecord
+        from arxmcp.ingest.store import write_chunks
 
         proof = _record(kind="proof")
         embeddings = EmbedRecord(

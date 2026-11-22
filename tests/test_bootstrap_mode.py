@@ -41,9 +41,9 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from server.config import Config
-from server.resources import CorpusNotIngestedError, Resources
-from server.tools import (
+from arxmcp.server.config import Config
+from arxmcp.server.resources import CorpusNotIngestedError, Resources
+from arxmcp.server.tools import (
     BOOTSTRAP_CORPUS_VERSION_SENTINEL,
     _build_bootstrap_envelope,
 )
@@ -56,7 +56,7 @@ from server.tools import (
 def _make_corpus_version_info(version: int = 1, chunk_count: int = 10):
     """Return a CorpusVersionInfo-compatible namespace for tests that need
     a marker without writing real LanceDB data."""
-    from ingest.corpus import CorpusVersionInfo
+    from arxmcp.ingest.corpus import CorpusVersionInfo
 
     return CorpusVersionInfo(
         version=version,
@@ -430,7 +430,7 @@ class TestBP1BP2HashesUnchanged:
         a direct regression guard that doesn't require the pinned hash
         constant to be importable.
         """
-        from server.tools import ALL_TOOLS
+        from arxmcp.server.tools import ALL_TOOLS
 
         for tool in ALL_TOOLS:
             assert "bootstrap_mode" not in tool.description, (
@@ -454,8 +454,8 @@ class TestLifespanBootstrapMode:
 
     def test_refresh_metrics_skips_corpus_info_when_none(self, tmp_path):
         """refresh_metrics_from_singleton_state skips corpus gauges in bootstrap mode."""
-        from server.health import refresh_metrics_from_singleton_state
-        from server.resources import Resources
+        from arxmcp.server.health import refresh_metrics_from_singleton_state
+        from arxmcp.server.resources import Resources
 
         cfg = Config(
             lancedb_path=tmp_path / "lancedb",
@@ -482,7 +482,7 @@ class TestReadyzBootstrapMode:
         """/readyz returns 200 with status='bootstrap' when bootstrap_mode_active."""
         from starlette.testclient import TestClient
 
-        from server.health import readyz
+        from arxmcp.server.health import readyz
 
         # Build a stub Resources with bootstrap_mode_active=True.
         cfg = Config(
@@ -518,7 +518,7 @@ class TestStatusBootstrapMode:
 
     def test_status_returns_warn_in_bootstrap_mode(self, tmp_path):
         """compute_health_status returns status='warn' when bootstrap_mode_active."""
-        from server.health import compute_health_status
+        from arxmcp.server.health import compute_health_status
 
         cfg = Config(
             lancedb_path=tmp_path / "lancedb",
@@ -549,7 +549,7 @@ class TestOnSuccessCallback:
         import asyncio
         from unittest.mock import AsyncMock, MagicMock, patch
 
-        from server.ingest_tracker import IngestTaskTracker
+        from arxmcp.server.ingest_tracker import IngestTaskTracker
 
         called_with: list[str] = []
 
@@ -570,7 +570,7 @@ class TestOnSuccessCallback:
         fake_store.mark_run_cancelled_if_running = AsyncMock()
 
         with patch(
-            "server.ingest_tracker.asyncio.create_subprocess_exec",
+            "arxmcp.server.ingest_tracker.asyncio.create_subprocess_exec",
             return_value=fake_proc,
         ):
             asyncio.run(
@@ -589,7 +589,7 @@ class TestOnSuccessCallback:
         import asyncio
         from unittest.mock import AsyncMock, MagicMock, patch
 
-        from server.ingest_tracker import IngestTaskTracker
+        from arxmcp.server.ingest_tracker import IngestTaskTracker
 
         called_with: list[str] = []
 
@@ -609,7 +609,7 @@ class TestOnSuccessCallback:
         fake_store.mark_run_cancelled_if_running = AsyncMock()
 
         with patch(
-            "server.ingest_tracker.asyncio.create_subprocess_exec",
+            "arxmcp.server.ingest_tracker.asyncio.create_subprocess_exec",
             return_value=fake_proc,
         ):
             asyncio.run(
@@ -631,7 +631,7 @@ class TestOnSuccessCallback:
         import logging
         from unittest.mock import AsyncMock, MagicMock, patch
 
-        from server.ingest_tracker import IngestTaskTracker
+        from arxmcp.server.ingest_tracker import IngestTaskTracker
 
         async def _raising_cb(slug: str) -> None:
             raise RuntimeError("late-bind exploded")
@@ -649,9 +649,9 @@ class TestOnSuccessCallback:
         fake_store.mark_run_cancelled_if_running = AsyncMock()
 
         with patch(
-            "server.ingest_tracker.asyncio.create_subprocess_exec",
+            "arxmcp.server.ingest_tracker.asyncio.create_subprocess_exec",
             return_value=fake_proc,
-        ), caplog.at_level(logging.ERROR, logger="server.ingest_tracker"):
+        ), caplog.at_level(logging.ERROR, logger="arxmcp.server.ingest_tracker"):
             # Must not raise.
             asyncio.run(
                 tracker._run_ingest_subprocess(
@@ -671,7 +671,7 @@ class TestOnSuccessCallback:
 
     def test_main_closure_passes_through_to_late_bind(self, tmp_path, monkeypatch):
         """The _on_ingest_success closure in main.py calls resources.late_bind(config)."""
-        from server.config import Config
+        from arxmcp.server.config import Config
 
         cfg = Config(
             lancedb_path=tmp_path / "lancedb",
@@ -690,7 +690,7 @@ class TestOnSuccessCallback:
 
         stub.late_bind = _mock_late_bind  # type: ignore[method-assign]
 
-        # Replicate the closure from server/main.py:526.
+        # Replicate the closure from src/arxmcp/server/main.py:526.
         resources = stub
 
         async def _on_ingest_success(_slug: str) -> None:
@@ -715,7 +715,7 @@ class TestLateBindWithRerank:
         self, tmp_path, monkeypatch
     ):
         """late_bind lazy-loads the reranker when enable_rerank=True + bootstrap mode."""
-        import server.resources as res_mod
+        import arxmcp.server.resources as res_mod
 
         lancedb_path = tmp_path / "lancedb"
         cfg = Config(
@@ -768,8 +768,8 @@ class TestLateBindCacheNotLeaked:
         When RerankPhase.__init__ raises, set_cache never executes, so
         get_cache() stays None.
         """
-        import server.cache as cache_mod
-        from server.retrieval.rerank import RerankPhase
+        import arxmcp.server.cache as cache_mod
+        from arxmcp.server.retrieval.rerank import RerankPhase
 
         lancedb_path = tmp_path / "lancedb"
         cfg = Config(
@@ -828,8 +828,8 @@ class TestBootstrapEnvelopeBind:
 def _patch_startup_heavy_io(monkeypatch, lancedb_path: Path) -> None:
     """Patch the expensive startup steps (BGE-M3, LanceDB, BM25, cache)
     so Resources.startup can run in a fast offline test."""
-    import server.query_encoder as qe_mod
-    import server.resources as res_mod
+    import arxmcp.server.query_encoder as qe_mod
+    import arxmcp.server.resources as res_mod
 
     # BGE-M3 model + tokenizer.
     fake_model = object()
@@ -846,7 +846,7 @@ def _patch_startup_heavy_io(monkeypatch, lancedb_path: Path) -> None:
     )
 
     # BM25Phase.startup — return a fake phase.
-    from server.retrieval import BM25Phase
+    from arxmcp.server.retrieval import BM25Phase
 
     fake_bm25 = MagicMock(spec=BM25Phase)
     fake_bm25.corpus_size = 10
@@ -857,7 +857,7 @@ def _patch_startup_heavy_io(monkeypatch, lancedb_path: Path) -> None:
     monkeypatch.setattr(BM25Phase, "startup", staticmethod(_fake_bm25_startup))
 
     # RetrievalCache.open.
-    from server.cache import RetrievalCache
+    from arxmcp.server.cache import RetrievalCache
 
     fake_cache = MagicMock(spec=RetrievalCache)
 
@@ -867,14 +867,14 @@ def _patch_startup_heavy_io(monkeypatch, lancedb_path: Path) -> None:
     monkeypatch.setattr(RetrievalCache, "open", staticmethod(_fake_cache_open))
 
     # set_cache — no-op.
-    import server.cache as cache_mod
+    import arxmcp.server.cache as cache_mod
 
     monkeypatch.setattr(cache_mod, "set_cache", lambda _c: None)
 
 
 def _patch_late_bind_heavy_io(monkeypatch, lancedb_path: Path) -> None:
     """Patch the expensive steps in Resources.late_bind."""
-    import server.resources as res_mod
+    import arxmcp.server.resources as res_mod
 
     fake_table = _make_fake_table()
     monkeypatch.setattr(
@@ -883,7 +883,7 @@ def _patch_late_bind_heavy_io(monkeypatch, lancedb_path: Path) -> None:
         lambda **_kw: (fake_table, None),
     )
 
-    from server.retrieval import BM25Phase
+    from arxmcp.server.retrieval import BM25Phase
 
     fake_bm25 = MagicMock(spec=BM25Phase)
     fake_bm25.corpus_size = 10
@@ -893,7 +893,7 @@ def _patch_late_bind_heavy_io(monkeypatch, lancedb_path: Path) -> None:
 
     monkeypatch.setattr(BM25Phase, "startup", staticmethod(_fake_bm25_startup))
 
-    from server.cache import RetrievalCache
+    from arxmcp.server.cache import RetrievalCache
 
     fake_cache = MagicMock(spec=RetrievalCache)
 
@@ -902,7 +902,7 @@ def _patch_late_bind_heavy_io(monkeypatch, lancedb_path: Path) -> None:
 
     monkeypatch.setattr(RetrievalCache, "open", staticmethod(_fake_cache_open))
 
-    import server.cache as cache_mod
+    import arxmcp.server.cache as cache_mod
 
     monkeypatch.setattr(cache_mod, "set_cache", lambda _c: None)
 
@@ -914,7 +914,7 @@ def _patch_late_bind_heavy_io_no_cache_stub(
 
     Used by TestLateBindCacheNotLeaked to observe real cache global state.
     """
-    import server.resources as res_mod
+    import arxmcp.server.resources as res_mod
 
     fake_table = _make_fake_table()
     monkeypatch.setattr(
@@ -923,7 +923,7 @@ def _patch_late_bind_heavy_io_no_cache_stub(
         lambda **_kw: (fake_table, None),
     )
 
-    from server.retrieval import BM25Phase
+    from arxmcp.server.retrieval import BM25Phase
 
     fake_bm25 = MagicMock(spec=BM25Phase)
     fake_bm25.corpus_size = 10
@@ -933,7 +933,7 @@ def _patch_late_bind_heavy_io_no_cache_stub(
 
     monkeypatch.setattr(BM25Phase, "startup", staticmethod(_fake_bm25_startup))
 
-    from server.cache import RetrievalCache
+    from arxmcp.server.cache import RetrievalCache
 
     fake_cache = MagicMock(spec=RetrievalCache)
 
@@ -953,7 +953,7 @@ def _make_fake_table():
     """
     import pyarrow as pa
 
-    from ingest.schema import EMBEDDING_DIM
+    from arxmcp.ingest.schema import EMBEDDING_DIM
 
     fake_table = MagicMock()
     fake_table.count_rows.return_value = 10

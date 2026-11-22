@@ -3,7 +3,7 @@
 derived-alg-geo-lean **#185**. Two halves, and the second is not optional once
 the first lands.
 
-`server/schemas/lean_verify_result.json` existed and was **test-only**:
+`src/arxmcp/server/schemas/lean_verify_result.json` existed and was **test-only**:
 `TestLeanVerifyResultSchema` validated the handler's envelopes against it while
 the wire advertised FastMCP's auto-derived
 `{"type": "object", "additionalProperties": true,
@@ -34,7 +34,7 @@ import jsonschema
 import pytest
 from mcp.server.fastmcp import FastMCP
 
-from server.tools import (
+from arxmcp.server.tools import (
     _CORPUS_INDEPENDENT_TOOLS,
     ALL_TOOLS,
     BOOTSTRAP_CORPUS_VERSION_SENTINEL,
@@ -50,7 +50,7 @@ from server.tools import (
 
 SCHEMA_PATH = (
     Path(__file__).resolve().parent.parent
-    / "server" / "schemas" / "lean_verify_result.json"
+    / "src" / "arxmcp" / "server" / "schemas" / "lean_verify_result.json"
 )
 
 
@@ -117,7 +117,7 @@ def test_a_conforming_payload_validates_and_a_bootstrap_one_does_not() -> None:
     now validates against the FILE, which is what keeps the advertised, the
     enforced and the tested schema one thing.
     """
-    from server.tools import _LeanVerifyResult
+    from arxmcp.server.tools import _LeanVerifyResult
 
     validator = jsonschema.Draft7Validator(lean_verify_result_schema())
     stub = _build_bootstrap_envelope("lean_verify")

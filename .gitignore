@@ -32,7 +32,7 @@ Thumbs.db
 /build/
 /dist/
 /apps/desktop/target/
-apps/desktop/crates/supervisor/gen/
+src/desktop/crates/supervisor/gen/
 
 # Filled restic credentials; the .template beside it is committed.
-ops/restic-env.sh
+/src/arxmcp/ops/restic-env.sh

@@ -15,8 +15,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from ingest.notebooks import REPO_ROOT, NotebookError
-from tools import notebook_pdf_parse
+from arxmcp.ingest.notebooks import REPO_ROOT, NotebookError
+from arxmcp.tools import notebook_pdf_parse
 
 FLAT = "2602.24016"  # an arXiv id has no slash/colon, so flat == id
 
@@ -46,13 +46,13 @@ def _render_writes_index():
 def test_happy_path_parses_pdf(tmp_path):
     nb = _setup_nb(tmp_path)
     with (
-        patch("tools.notebook_pdf_parse.notebook_dir", return_value=nb),
+        patch("arxmcp.tools.notebook_pdf_parse.notebook_dir", return_value=nb),
         patch(
-            "tools.notebook_pdf_parse.run_mineru_sandboxed",
+            "arxmcp.tools.notebook_pdf_parse.run_mineru_sandboxed",
             return_value=MagicMock(),
         ) as m_mineru,
         patch(
-            "tools.notebook_pdf_parse.render_mineru_to_html",
+            "arxmcp.tools.notebook_pdf_parse.render_mineru_to_html",
             side_effect=_render_writes_index(),
         ) as m_render,
     ):
@@ -69,9 +69,9 @@ def test_idempotent_skip_when_index_exists(tmp_path):
     idx.parent.mkdir(parents=True)
     idx.write_text("<html/>", encoding="utf-8")
     with (
-        patch("tools.notebook_pdf_parse.notebook_dir", return_value=nb),
-        patch("tools.notebook_pdf_parse.run_mineru_sandboxed") as m_mineru,
-        patch("tools.notebook_pdf_parse.render_mineru_to_html") as m_render,
+        patch("arxmcp.tools.notebook_pdf_parse.notebook_dir", return_value=nb),
+        patch("arxmcp.tools.notebook_pdf_parse.run_mineru_sandboxed") as m_mineru,
+        patch("arxmcp.tools.notebook_pdf_parse.render_mineru_to_html") as m_render,
     ):
         rc = notebook_pdf_parse.run("my-notebook", [FLAT])
     assert rc == 0
@@ -85,13 +85,13 @@ def test_force_reparses_existing(tmp_path):
     idx.parent.mkdir(parents=True)
     idx.write_text("<html/>", encoding="utf-8")
     with (
-        patch("tools.notebook_pdf_parse.notebook_dir", return_value=nb),
+        patch("arxmcp.tools.notebook_pdf_parse.notebook_dir", return_value=nb),
         patch(
-            "tools.notebook_pdf_parse.run_mineru_sandboxed",
+            "arxmcp.tools.notebook_pdf_parse.run_mineru_sandboxed",
             return_value=MagicMock(),
         ) as m_mineru,
         patch(
-            "tools.notebook_pdf_parse.render_mineru_to_html",
+            "arxmcp.tools.notebook_pdf_parse.render_mineru_to_html",
             side_effect=_render_writes_index(),
         ),
     ):
@@ -103,8 +103,8 @@ def test_force_reparses_existing(tmp_path):
 def test_missing_pdf_is_clean_failure(tmp_path):
     nb = _setup_nb(tmp_path, with_pdf=False)
     with (
-        patch("tools.notebook_pdf_parse.notebook_dir", return_value=nb),
-        patch("tools.notebook_pdf_parse.run_mineru_sandboxed") as m_mineru,
+        patch("arxmcp.tools.notebook_pdf_parse.notebook_dir", return_value=nb),
+        patch("arxmcp.tools.notebook_pdf_parse.run_mineru_sandboxed") as m_mineru,
     ):
         rc = notebook_pdf_parse.run("my-notebook", [FLAT])
     assert rc == 1
@@ -114,7 +114,7 @@ def test_missing_pdf_is_clean_failure(tmp_path):
 def test_invalid_paper_id_raises(tmp_path):
     nb = _setup_nb(tmp_path)
     with (
-        patch("tools.notebook_pdf_parse.notebook_dir", return_value=nb),
+        patch("arxmcp.tools.notebook_pdf_parse.notebook_dir", return_value=nb),
         pytest.raises(NotebookError, match="invalid paper_id"),
     ):
         notebook_pdf_parse.run("my-notebook", ["not a valid id!!"])
@@ -138,10 +138,10 @@ def test_timeout_is_clean_per_paper_failure(tmp_path):
         return MagicMock()
 
     with (
-        patch("tools.notebook_pdf_parse.notebook_dir", return_value=nb),
-        patch("tools.notebook_pdf_parse.run_mineru_sandboxed", side_effect=_mineru),
+        patch("arxmcp.tools.notebook_pdf_parse.notebook_dir", return_value=nb),
+        patch("arxmcp.tools.notebook_pdf_parse.run_mineru_sandboxed", side_effect=_mineru),
         patch(
-            "tools.notebook_pdf_parse.render_mineru_to_html",
+            "arxmcp.tools.notebook_pdf_parse.render_mineru_to_html",
             side_effect=_render_writes_index(),
         ),
     ):
@@ -160,7 +160,7 @@ def test_main_no_paper_id_returns_2(capsys):
 # --- exit-code contract -----------------------------------------------------
 # The `run()` tests above assert the PURE function's return value. These assert
 # the value that actually reaches the shell, which is what a pipeline chaining
-# `&& tools/notebook_textbook_ingest.py` gates on. Without them, a regression
+# `&& src/arxmcp/tools/notebook_textbook_ingest.py` gates on. Without them, a regression
 # in main()'s return path or the `SystemExit(main())` entry point would make a
 # failed parse look like success with every `run()` test still green.
 
@@ -169,9 +169,9 @@ def test_main_returns_1_on_failed_parse(tmp_path):
     """A parse error must propagate through main() as exit status 1."""
     nb = _setup_nb(tmp_path)
     with (
-        patch("tools.notebook_pdf_parse.notebook_dir", return_value=nb),
+        patch("arxmcp.tools.notebook_pdf_parse.notebook_dir", return_value=nb),
         patch(
-            "tools.notebook_pdf_parse.run_mineru_sandboxed",
+            "arxmcp.tools.notebook_pdf_parse.run_mineru_sandboxed",
             side_effect=RuntimeError("mineru exploded"),
         ),
     ):
@@ -181,7 +181,7 @@ def test_main_returns_1_on_failed_parse(tmp_path):
 
 def test_main_returns_1_on_missing_pdf(tmp_path):
     nb = _setup_nb(tmp_path, with_pdf=False)
-    with patch("tools.notebook_pdf_parse.notebook_dir", return_value=nb):
+    with patch("arxmcp.tools.notebook_pdf_parse.notebook_dir", return_value=nb):
         rc = notebook_pdf_parse.main(["my-notebook", "--paper-id", FLAT])
     assert rc == 1
 
@@ -197,10 +197,10 @@ def test_main_returns_1_on_partial_batch_failure(tmp_path):
         return MagicMock()
 
     with (
-        patch("tools.notebook_pdf_parse.notebook_dir", return_value=nb),
-        patch("tools.notebook_pdf_parse.run_mineru_sandboxed", side_effect=_mineru),
+        patch("arxmcp.tools.notebook_pdf_parse.notebook_dir", return_value=nb),
+        patch("arxmcp.tools.notebook_pdf_parse.run_mineru_sandboxed", side_effect=_mineru),
         patch(
-            "tools.notebook_pdf_parse.render_mineru_to_html",
+            "arxmcp.tools.notebook_pdf_parse.render_mineru_to_html",
             side_effect=_render_writes_index(),
         ),
     ):
@@ -238,7 +238,7 @@ def test_process_exit_status_is_1_on_failed_parse(tmp_path):
     proc = subprocess.run(
         [
             sys.executable,
-            str(REPO_ROOT / "tools" / "notebook_pdf_parse.py"),
+            str(REPO_ROOT / "src" / "arxmcp" / "tools" / "notebook_pdf_parse.py"),
             "exit-code-nb",
             "--paper-id",
             FLAT,
@@ -283,7 +283,7 @@ def test_in_range_timeout_is_accepted(good):
 
 def test_timeout_bounds_track_the_parser_module():
     """The CLI bound must be the parser's bound, never a restated literal."""
-    from ingest import textbook_parser
+    from arxmcp.ingest import textbook_parser
 
     parser = notebook_pdf_parse._build_arg_parser()
     action = next(a for a in parser._actions if a.dest == "timeout_s")

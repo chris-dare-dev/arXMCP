@@ -25,22 +25,22 @@ from pathlib import Path
 
 import pytest
 
-from ingest import arxiv_api as _arxiv_api
-from ingest import notebooks as _notebook_common
-from ingest.ar5iv_fetch import Ar5ivResult
-from ingest.notebooks import NotebookError, validate_slug
-from server.paper_metadata_store import (
+from arxmcp.ingest import arxiv_api as _arxiv_api
+from arxmcp.ingest import notebooks as _notebook_common
+from arxmcp.ingest.ar5iv_fetch import Ar5ivResult
+from arxmcp.ingest.notebooks import NotebookError, validate_slug
+from arxmcp.server.paper_metadata_store import (
     PAPER_METADATA_DB_FILENAME,
     PaperMetadataStore,
 )
-from tests._symlink_support import requires_symlink
-from tools import (
+from arxmcp.tools import (
     notebook_fetch,
     notebook_ingest,
     notebook_init,
     notebook_metadata_backfill,
     notebook_purge,
 )
+from tests._symlink_support import requires_symlink
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -254,7 +254,7 @@ def test_init_main_returns_1_on_bad_slug(
 def test_init_persists_mineru_bin(notebooks_base: Path, tmp_path: Path) -> None:
     # ingest-robustness-m1 AC3: --mineru-bin persists to operator_settings so
     # the MinerU resolver finds it without an ARXMCP_MINERU_BIN export.
-    from server.operator_settings import get_mineru_bin
+    from arxmcp.server.operator_settings import get_mineru_bin
 
     fake_bin = tmp_path / "mineru"
     fake_bin.write_text("#!/bin/sh\n")
@@ -455,7 +455,7 @@ def test_ingest_fails_when_notebook_dir_missing(notebooks_base: Path) -> None:
 def test_ingest_refuses_a_table_another_chunker_wrote(
     notebooks_base: Path, monkeypatch: pytest.MonkeyPatch, capsys
 ) -> None:
-    """The /ui/ console and `tools/notebook_ingest.py` write
+    """The /ui/ console and `src/arxmcp/tools/notebook_ingest.py` write
     the notebook's ACTIVE lancedb in place. Against a table holding v1.2
     arXiv rows that would double every preamble-bearing chunk, so the run
     is refused (exit 3, distinct from a failure's 1) with the rotation
@@ -463,7 +463,7 @@ def test_ingest_refuses_a_table_another_chunker_wrote(
     import lancedb
     import pyarrow as pa
 
-    import ingest.bulk_ingest as bulk
+    import arxmcp.ingest.bulk_ingest as bulk
 
     nb = _seed_notebook(notebooks_base, "demo", ["2303.07061"], with_lancedb=False)
     lancedb.connect(str(nb / "lancedb")).create_table(
@@ -594,7 +594,10 @@ def test_ingest_succeeds_when_hydration_raises(
     assert notebook_ingest.run("demo") == 0
     captured = capsys.readouterr()
     assert "indexes built for corpus_version=3" in captured.out
-    assert "metadata: failed — run tools/notebook_metadata_backfill.py demo" in (captured.err)
+    assert (
+        "metadata: failed — run src/arxmcp/tools/notebook_metadata_backfill.py demo"
+        in captured.err
+    )
 
 
 def test_ingest_no_metadata_flag_skips_hydration(
@@ -963,9 +966,9 @@ def test_fetch_raw_tex_if_missing_idempotent_when_raw_dir_populated(
         fetch_eprint_calls.append(paper_id)
         raise RuntimeError("must not be called")
 
-    monkeypatch.setattr("ingest.arxiv_fetch.fetch_eprint", _record_eprint)
+    monkeypatch.setattr("arxmcp.ingest.arxiv_fetch.fetch_eprint", _record_eprint)
     # Use the REAL helper, not the autouse no-op:
-    from ingest.notebooks import fetch_raw_tex_if_missing as real_helper
+    from arxmcp.ingest.notebooks import fetch_raw_tex_if_missing as real_helper
     rc = real_helper("2303.07061", raw_dir)
     assert rc is True
     assert fetch_eprint_calls == []
@@ -988,9 +991,9 @@ def test_fetch_raw_tex_if_missing_404_returns_false(
             code=404, msg="Not Found", hdrs={}, fp=None,
         )
 
-    monkeypatch.setattr("ingest.arxiv_fetch.fetch_eprint", _withdrawn)
+    monkeypatch.setattr("arxmcp.ingest.arxiv_fetch.fetch_eprint", _withdrawn)
 
-    from ingest.notebooks import fetch_raw_tex_if_missing as real_helper
+    from arxmcp.ingest.notebooks import fetch_raw_tex_if_missing as real_helper
     with caplog.at_level("WARNING", logger="notebook_common"):
         rc = real_helper("0000.00001", raw_dir)
     assert rc is False
@@ -1013,9 +1016,9 @@ def test_fetch_raw_tex_if_missing_tarball_bomb_logs_error_returns_false(
             "refusing to extract path outside dest: ../../etc/passwd"
         )
 
-    monkeypatch.setattr("ingest.arxiv_fetch.fetch_eprint", _bomb)
+    monkeypatch.setattr("arxmcp.ingest.arxiv_fetch.fetch_eprint", _bomb)
 
-    from ingest.notebooks import fetch_raw_tex_if_missing as real_helper
+    from arxmcp.ingest.notebooks import fetch_raw_tex_if_missing as real_helper
     with caplog.at_level("ERROR", logger="notebook_common"):
         rc = real_helper("0000.00001", raw_dir)
     assert rc is False
@@ -1048,7 +1051,7 @@ def test_notebook_fetch_run_does_not_require_contact_email(
 
 
 # ---------------------------------------------------------------------------
-# tools/recover_preambles.py — back-fill script
+# src/arxmcp/tools/recover_preambles.py — back-fill script
 # ---------------------------------------------------------------------------
 
 
@@ -1058,7 +1061,7 @@ def test_recover_preambles_skips_paper_with_existing_preamble(
 ) -> None:
     """The back-fill must short-circuit on papers whose preamble.json
     already exists — no fetch_eprint call, no extract_preamble call."""
-    from tools import recover_preambles
+    from arxmcp.tools import recover_preambles
 
     parsed_dir = tmp_path / "parsed"
     preamble_dir = tmp_path / "preamble"
@@ -1075,7 +1078,7 @@ def test_recover_preambles_skips_paper_with_existing_preamble(
         raise RuntimeError("fetch must not be called")
 
     monkeypatch.setattr(
-        "ingest.arxiv_fetch.fetch_eprint", _must_not_fetch,
+        "arxmcp.ingest.arxiv_fetch.fetch_eprint", _must_not_fetch,
     )
 
     summary = recover_preambles.run(sleep_seconds=0.0)
@@ -1091,7 +1094,7 @@ def test_recover_preambles_notebook_scope_filter(
 ) -> None:
     """--notebook=<slug> scopes the back-fill to papers in that
     notebook's papers.txt, NOT every paper under corpus/parsed/."""
-    from tools import recover_preambles
+    from arxmcp.tools import recover_preambles
 
     # Three papers in parsed/ but only one in the notebook's papers.txt
     parsed_dir = tmp_path / "parsed"
@@ -1119,7 +1122,7 @@ def test_recover_preambles_notebook_scope_filter(
         (raw / paper_id / "main.tex").write_text(r"\documentclass{article}")
 
     monkeypatch.setattr(
-        "ingest.arxiv_fetch.fetch_eprint", _fake_fetch_eprint,
+        "arxmcp.ingest.arxiv_fetch.fetch_eprint", _fake_fetch_eprint,
     )
     monkeypatch.setattr(
         recover_preambles, "extract_preamble", lambda pid: None,
@@ -1142,7 +1145,7 @@ def test_recover_preambles_503_backoff_retries_then_succeeds(
     sleep + retry up to MAX_503_BACKOFF_SECONDS."""
     import urllib.error
 
-    from tools import recover_preambles
+    from arxmcp.tools import recover_preambles
 
     parsed_dir = tmp_path / "parsed"
     (parsed_dir / "2303.07061").mkdir(parents=True)
@@ -1171,7 +1174,7 @@ def test_recover_preambles_503_backoff_retries_then_succeeds(
         (raw / paper_id / "main.tex").write_text(r"\documentclass{article}")
 
     monkeypatch.setattr(
-        "ingest.arxiv_fetch.fetch_eprint", _flaky_fetch,
+        "arxmcp.ingest.arxiv_fetch.fetch_eprint", _flaky_fetch,
     )
     monkeypatch.setattr(
         recover_preambles, "extract_preamble", lambda pid: None,
@@ -1188,7 +1191,7 @@ def test_recover_preambles_does_not_require_contact_email(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A missing optional contact address must not block local recovery."""
-    from tools import recover_preambles
+    from arxmcp.tools import recover_preambles
 
     monkeypatch.delenv("ARXMCP_CONTACT_EMAIL", raising=False)
     monkeypatch.setattr(recover_preambles, "_discover_candidates", lambda _: [])
@@ -1206,7 +1209,7 @@ def test_recover_preambles_continues_past_tarball_bomb(
     """
     import urllib.error  # noqa: F401  (kept for parity with sibling tests)
 
-    from tools import recover_preambles
+    from arxmcp.tools import recover_preambles
 
     parsed_dir = tmp_path / "parsed"
     for pid in ("0001.00001", "0002.00002", "0003.00003"):
@@ -1233,7 +1236,7 @@ def test_recover_preambles_continues_past_tarball_bomb(
         (raw / paper_id / "main.tex").write_text(r"\documentclass{article}")
 
     monkeypatch.setattr(
-        "ingest.arxiv_fetch.fetch_eprint", _selective_bomb,
+        "arxmcp.ingest.arxiv_fetch.fetch_eprint", _selective_bomb,
     )
     monkeypatch.setattr(
         recover_preambles, "extract_preamble", lambda pid: None,
@@ -1258,7 +1261,7 @@ def test_recover_preambles_continues_past_url_error(
     lands in ``other_fetch_errors``."""
     import urllib.error
 
-    from tools import recover_preambles
+    from arxmcp.tools import recover_preambles
 
     parsed_dir = tmp_path / "parsed"
     for pid in ("0001.00001", "0002.00002"):
@@ -1280,7 +1283,7 @@ def test_recover_preambles_continues_past_url_error(
         (raw / paper_id / "main.tex").write_text(r"\documentclass{article}")
 
     monkeypatch.setattr(
-        "ingest.arxiv_fetch.fetch_eprint", _flaky_dns,
+        "arxmcp.ingest.arxiv_fetch.fetch_eprint", _flaky_dns,
     )
     monkeypatch.setattr(
         recover_preambles, "extract_preamble", lambda pid: None,
@@ -1309,9 +1312,9 @@ def test_fetch_raw_tex_helper_oversize_runtime_error_not_security_event(
             "response too large for 0001.00001: Content-Length 999999999 > cap 104857600"
         )
 
-    monkeypatch.setattr("ingest.arxiv_fetch.fetch_eprint", _oversize)
+    monkeypatch.setattr("arxmcp.ingest.arxiv_fetch.fetch_eprint", _oversize)
 
-    from ingest.notebooks import fetch_raw_tex_if_missing as real_helper
+    from arxmcp.ingest.notebooks import fetch_raw_tex_if_missing as real_helper
     with caplog.at_level("WARNING", logger="notebook_common"):
         rc = real_helper("0001.00001", raw_dir)
     assert rc is False
@@ -1344,9 +1347,9 @@ def test_fetch_raw_tex_helper_idempotent_with_subdir_tex(
     def _must_not_fetch(*args, **kw):
         raise RuntimeError("F7 regression: fetch_eprint should not be called")
 
-    monkeypatch.setattr("ingest.arxiv_fetch.fetch_eprint", _must_not_fetch)
+    monkeypatch.setattr("arxmcp.ingest.arxiv_fetch.fetch_eprint", _must_not_fetch)
 
-    from ingest.notebooks import fetch_raw_tex_if_missing as real_helper
+    from arxmcp.ingest.notebooks import fetch_raw_tex_if_missing as real_helper
     rc = real_helper("0001.00001", raw_dir)
     assert rc is True
 
@@ -1356,14 +1359,14 @@ def test_recover_preambles_real_extract_preamble_end_to_end(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """F3 rect: integration test that exercises the REAL
-    ingest.preamble.extract_preamble against a synthetic .tex file
+    arxmcp.ingest.preamble.extract_preamble against a synthetic .tex file
     written by a mocked fetch_eprint. Anchors AC2's mechanical
     promise that "raw_tex_fetched → preamble.json written" — without
     this, a future refactor of extract_preamble could silently stop
     producing preambles while this milestone's tests all still pass.
     """
-    from ingest import preamble as ingest_preamble
-    from tools import recover_preambles
+    from arxmcp.ingest import preamble as ingest_preamble
+    from arxmcp.tools import recover_preambles
 
     parsed_dir = tmp_path / "parsed"
     (parsed_dir / "0001.00001").mkdir(parents=True)
@@ -1376,8 +1379,8 @@ def test_recover_preambles_real_extract_preamble_end_to_end(
     monkeypatch.setattr(recover_preambles, "CORPUS_PARSED_DIR", parsed_dir)
     monkeypatch.setattr(recover_preambles, "PREAMBLE_OUTPUT_DIR", preamble_dir)
     monkeypatch.setattr(recover_preambles, "CORPUS_RAW_DIR", raw_dir)
-    # CRUCIAL: extract_preamble reads from ingest.preamble.RAW_DIR
-    # and writes to ingest.preamble.PREAMBLE_DIR — patch those so the
+    # CRUCIAL: extract_preamble reads from arxmcp.ingest.preamble.RAW_DIR
+    # and writes to arxmcp.ingest.preamble.PREAMBLE_DIR — patch those so the
     # real implementation runs against tmp_path.
     monkeypatch.setattr(ingest_preamble, "RAW_DIR", raw_dir)
     monkeypatch.setattr(ingest_preamble, "PREAMBLE_DIR", preamble_dir)
@@ -1397,7 +1400,7 @@ def test_recover_preambles_real_extract_preamble_end_to_end(
         )
 
     monkeypatch.setattr(
-        "ingest.arxiv_fetch.fetch_eprint", _write_real_tex,
+        "arxmcp.ingest.arxiv_fetch.fetch_eprint", _write_real_tex,
     )
 
     summary = recover_preambles.run(sleep_seconds=0.0)
@@ -1424,7 +1427,7 @@ def test_recover_preambles_404_classified_as_withdrawn(
     NOT called."""
     import urllib.error
 
-    from tools import recover_preambles
+    from arxmcp.tools import recover_preambles
 
     parsed_dir = tmp_path / "parsed"
     (parsed_dir / "2303.07061").mkdir(parents=True)
@@ -1445,7 +1448,7 @@ def test_recover_preambles_404_classified_as_withdrawn(
         )
 
     monkeypatch.setattr(
-        "ingest.arxiv_fetch.fetch_eprint", _withdrawn,
+        "arxmcp.ingest.arxiv_fetch.fetch_eprint", _withdrawn,
     )
     extract_calls: list[str] = []
 

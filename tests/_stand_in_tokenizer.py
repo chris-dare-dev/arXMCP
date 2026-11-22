@@ -20,7 +20,7 @@ _TOKEN = re.compile(r"\S{1,4}")
 
 
 class StandInTokenizer:
-    """The three calls ``ingest.chunker`` makes on a Hugging Face tokenizer."""
+    """The three calls ``arxmcp.ingest.chunker`` makes on a Hugging Face tokenizer."""
 
     def __init__(self) -> None:
         self._ids: dict[str, int] = {}
