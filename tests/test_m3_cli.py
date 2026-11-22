@@ -15,7 +15,7 @@ import asyncio
 import json
 from pathlib import Path
 
-from arxmcp.server.notebooks_store import NotebooksStore
+from arxmcp.corpus.notebooks_store import NotebooksStore
 
 
 def _seed_marker(

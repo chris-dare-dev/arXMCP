@@ -81,11 +81,10 @@ from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
 from pathlib import Path
 
-from arxmcp.corpus import NotebookError, notebook_dir, validate_slug
+from arxmcp.corpus import DOCUMENTS_DB_FILENAME, NotebookError, notebook_dir, validate_slug
 from arxmcp.ingest import oai_license
 from arxmcp.ingest.arxiv_fetch import POLITENESS_SLEEP_SECONDS, build_user_agent
 from arxmcp.ingest.notebooks import resolve_contact_email
-from arxmcp.server.documents_store import DOCUMENTS_DB_FILENAME
 
 #: ``arXivRaw`` is the only arXiv OAI-PMH format that carries version history.
 #: The plain ``arXiv`` prefix (which ``src/arxmcp/ingest/oai_license.py`` uses, correctly,

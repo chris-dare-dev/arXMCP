@@ -8,7 +8,7 @@ Closes the seven acceptance criteria of the milestone:
 3. Loading with a valid 40-char SHA succeeds (no spurious raise).
 4. Both loaders reject ``.bin`` weights — covered by the reranker's
    ``use_safetensors=True`` + the new
-   :func:`arxmcp.server.model_loader.assert_no_bin_in_snapshot` defensive
+   :func:`arxmcp.corpus.model_loader.assert_no_bin_in_snapshot` defensive
    check. The embedder ships ``.bin``-only at the currently-pinned
    SHA; the audit doc documents the gap and a future SHA-bump
    milestone will enable the same enforcement there.
@@ -33,9 +33,9 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-import arxmcp.ingest.embedder as embedder_mod
-from arxmcp.ingest.embedder import BGE_M3_COMMIT_SHA
-from arxmcp.server.model_loader import (
+import arxmcp.corpus.embedding as embedding_mod
+from arxmcp.corpus.embedding import BGE_M3_COMMIT_SHA
+from arxmcp.corpus.model_loader import (
     _SHA_RE,
     ModelPinningError,
     assert_no_bin_in_snapshot,
@@ -254,7 +254,7 @@ class TestAssertNoBinInSnapshot:
 
 
 class TestEmbedderLoaderGuards:
-    """The embedder's ``_get_model`` and ``_get_tokenizer`` must call
+    """The corpus loaders ``get_embedding_model`` and ``get_embedding_tokenizer`` must call
     the validator before ``from_pretrained`` so a misconfigured pin
     never hits the network.
     """
@@ -268,57 +268,57 @@ class TestEmbedderLoaderGuards:
         constant to ``"main"`` and confirm the load refuses BEFORE
         invoking the transformers loader.
         """
-        embedder_mod._model = None
-        monkeypatch.setattr(embedder_mod, "BGE_M3_COMMIT_SHA", "main")
+        embedding_mod._model = None
+        monkeypatch.setattr(embedding_mod, "BGE_M3_COMMIT_SHA", "main")
         with patch(
             "transformers.AutoModel.from_pretrained"
         ) as load_call, pytest.raises(ModelPinningError):
-            embedder_mod._get_model()
+            embedding_mod.get_embedding_model()
         # The transformers loader must NEVER be called when the
         # validator refuses — proves the guard runs BEFORE the
         # network round trip, not after.
         load_call.assert_not_called()
 
     def test_get_tokenizer_rejects_bad_revision(self, monkeypatch):
-        embedder_mod._tokenizer = None
-        monkeypatch.setattr(embedder_mod, "BGE_M3_COMMIT_SHA", "main")
+        embedding_mod._tokenizer = None
+        monkeypatch.setattr(embedding_mod, "BGE_M3_COMMIT_SHA", "main")
         with patch(
             "transformers.AutoTokenizer.from_pretrained"
         ) as load_call, pytest.raises(ModelPinningError):
-            embedder_mod._get_tokenizer()
+            embedding_mod.get_embedding_tokenizer()
         load_call.assert_not_called()
 
     def test_get_model_explicit_trust_remote_code_false(self, monkeypatch):
         """AC5 — default is False, passed explicitly to from_pretrained."""
-        embedder_mod._model = None
+        embedding_mod._model = None
         monkeypatch.delenv("ARXMCP_TRUST_REMOTE_CODE", raising=False)
         fake_model = MagicMock()
         fake_model.eval.return_value = fake_model
         with patch(
             "transformers.AutoModel.from_pretrained", return_value=fake_model
         ) as load_call:
-            embedder_mod._get_model()
+            embedding_mod.get_embedding_model()
         load_call.assert_called_once()
         kwargs = load_call.call_args.kwargs
         assert kwargs.get("trust_remote_code") is False
-        embedder_mod._model = None
+        embedding_mod._model = None
 
     def test_get_model_trust_remote_code_env_opt_in(self, monkeypatch):
         """AC5 — ``ARXMCP_TRUST_REMOTE_CODE=1`` passes
         ``trust_remote_code=True`` to from_pretrained.
         """
-        embedder_mod._model = None
+        embedding_mod._model = None
         monkeypatch.setenv("ARXMCP_TRUST_REMOTE_CODE", "1")
         fake_model = MagicMock()
         fake_model.eval.return_value = fake_model
         with patch(
             "transformers.AutoModel.from_pretrained", return_value=fake_model
         ) as load_call:
-            embedder_mod._get_model()
+            embedding_mod.get_embedding_model()
         load_call.assert_called_once()
         kwargs = load_call.call_args.kwargs
         assert kwargs.get("trust_remote_code") is True
-        embedder_mod._model = None
+        embedding_mod._model = None
 
 
 # ===========================================================================
@@ -376,10 +376,10 @@ class TestRerankerLoaderGuard:
             # Mirror the real default (env not set → False).
             return False
 
-        # Patch the symbol in ``arxmcp.server.model_loader`` since
-        # ``_load_reranker_or_raise`` imports it locally each call.
+        # Patch the symbol on ``arxmcp.corpus`` since
+        # ``_load_reranker_or_raise`` imports it from there each call.
         monkeypatch.setattr(
-            "arxmcp.server.model_loader.resolve_trust_remote_code", spy
+            "arxmcp.corpus.resolve_trust_remote_code", spy
         )
 
         # Mock the transformers loaders so no network is hit.
@@ -396,7 +396,7 @@ class TestRerankerLoaderGuard:
         )
         # Skip the post-load cache walk (no real cache to walk).
         monkeypatch.setattr(
-            "arxmcp.server.model_loader.assert_no_bin_in_snapshot",
+            "arxmcp.corpus.assert_no_bin_in_snapshot",
             lambda *a, **kw: None,
         )
 

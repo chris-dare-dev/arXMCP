@@ -1,6 +1,6 @@
 """source-truth-m3 — the ``arxmcp://corpus-manifest`` MCP resource.
 
-Covers :mod:`arxmcp.server.corpus_manifest` (the pure builder + content hash +
+Covers :mod:`arxmcp.corpus.corpus_manifest` (the pure builder + content hash +
 rollup) and its registration in :mod:`arxmcp.server.mcp_resources`. Mirrors the
 discipline of ``tests/test_mcp_resources.py``.
 
@@ -32,40 +32,38 @@ import pytest
 from mcp.server.fastmcp import FastMCP
 
 from arxmcp.corpus import notebooks as _notebook_common
-from arxmcp.corpus.notebooks import (
-    CORPUS_PARSED_DIR,
-    CORPUS_RAW_DIR,
-    notebook_dir,
-)
-from arxmcp.ingest.oai_license import (
-    LICENSE_STATUS_ELIGIBLE,
-    LICENSE_STATUS_NOT_ALLOWLISTED_OPEN,
-    LICENSE_STATUS_UNKNOWN,
-)
-from arxmcp.server.corpus_manifest import (
+from arxmcp.corpus.corpus_manifest import (
     MANIFEST_VERSION,
     OVERRIDE_KEY_PREFIX,
     build_manifest,
     compute_manifest_hash,
     rollup_sha256,
 )
-from arxmcp.server.documents_store import (
+from arxmcp.corpus.documents_store import (
     DOCUMENT_STATUS_ACTIVE,
     DOCUMENT_STATUS_SUPERSEDED,
     DOCUMENT_STATUS_WITHDRAWN,
     DOCUMENTS_DB_FILENAME,
+    LICENSE_STATUS_ELIGIBLE,
+    LICENSE_STATUS_NOT_ALLOWLISTED_OPEN,
+    LICENSE_STATUS_UNKNOWN,
     RAW_SOURCE_STATUS_PRESENT,
     RAW_SOURCE_STATUS_UNAVAILABLE,
     DocumentRecord,
     DocumentsStore,
 )
+from arxmcp.corpus.notebooks import (
+    CORPUS_PARSED_DIR,
+    CORPUS_RAW_DIR,
+    notebook_dir,
+)
+from arxmcp.corpus.notebooks_store import NotebooksStore
 from arxmcp.server.mcp_resources import (
     CORPUS_MANIFEST_URI,
     register_resources,
     reset_notebooks_store_for_tests,
     set_notebooks_store,
 )
-from arxmcp.server.notebooks_store import NotebooksStore
 from arxmcp.server.tools import register_all
 from arxmcp.settings import set_setting
 from arxmcp.tools.notebook_documents_backfill import (
@@ -693,7 +691,7 @@ class TestRegistryDegrade:
         is present) is monkeypatched to raise ``RuntimeError`` for one slug —
         a stand-in for any future non-caught exception (e.g.
         ``sqlite3.InterfaceError``, a ``DatabaseError`` sibling)."""
-        import arxmcp.server.corpus_manifest as cm
+        import arxmcp.corpus.corpus_manifest as cm
 
         orig = cm._read_override
 

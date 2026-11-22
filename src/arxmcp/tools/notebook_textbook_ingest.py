@@ -60,6 +60,7 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 from arxmcp.corpus import (
+    EMBEDDER_VERSION,
     EMBEDDING_DIM,
     EmbedRecord,
     NotebookError,
@@ -71,11 +72,7 @@ from arxmcp.corpus import (
     validate_slug,
     write_chunks,
 )
-from arxmcp.ingest.embedder import (
-    EMBED_BATCH_DEFAULT,
-    EMBEDDER_VERSION,
-    _encode_batch,
-)
+from arxmcp.ingest.embedder import EMBED_BATCH_DEFAULT, _encode_batch
 from arxmcp.ingest.textbook_chunker import chunk_textbook
 from arxmcp.ingest.textbook_markdown_chunker import chunk_textbook_markdown
 

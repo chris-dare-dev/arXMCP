@@ -8,7 +8,7 @@ valid ``corpus-version.json`` marker that are NOT already in
 operators running ``make repair-registry`` against a stopped server.
 
 Every registration routes through
-:meth:`arxmcp.server.notebooks_store.NotebooksStore.create_notebook` — the
+:meth:`arxmcp.corpus.notebooks_store.NotebooksStore.create_notebook` — the
 canonical writer per the m2 critique F1 lesson. Direct SQLite INSERTs
 into the ``notebooks`` table are BANNED.
 
@@ -65,7 +65,7 @@ async def _repair(
 ) -> dict[str, list[str]]:
     """Walk + register; returns the same four-bucket shape as the REST
     endpoint's response model."""
-    from arxmcp.server.notebooks_store import NotebooksStore  # local
+    from arxmcp.corpus import NotebooksStore
 
     # m2 synthesis FM-1 / m3 synthesis §3 D5: ensure busy_timeout is set
     # so a concurrent server write doesn't immediately raise

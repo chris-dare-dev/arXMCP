@@ -156,7 +156,7 @@ def _migrate(conn: sqlite3.Connection, version: int, *statements: str) -> None:
 #:
 #: A writer must call this; a READER must not (it migrates), and should open
 #: ``mode=ro`` the way the offline lister does.
-def open_sync(db_path: Path) -> sqlite3.Connection:
+def open_notebooks_db(db_path: Path) -> sqlite3.Connection:
     """Open + migrate ``notebooks.db``, synchronously. Returns the connection.
 
     Same PRAGMAs and the same migration ladder :meth:`NotebooksStore.open`
@@ -416,11 +416,11 @@ class NotebooksStore:
         check. Idempotent — calling :meth:`open` against a current-
         version file is a no-op beyond opening the connection.
 
-        The migration ladder lives in :func:`open_sync` at module scope so
+        The migration ladder lives in :func:`open_notebooks_db` at module scope so
         the sync CLIs that write this file run it too; see that docstring
         for what went wrong while they could not.
         """
-        conn = await asyncio.to_thread(open_sync, db_path)
+        conn = await asyncio.to_thread(open_notebooks_db, db_path)
         return cls(db_path=db_path, connection=conn)
 
     async def close(self) -> None:
@@ -996,5 +996,5 @@ __all__ = [
     "NotebooksStore",
     "ParseMetrics",
     "SCHEMA_VERSION",
-    "open_sync",
+    "open_notebooks_db",
 ]

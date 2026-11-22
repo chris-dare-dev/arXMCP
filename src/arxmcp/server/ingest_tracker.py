@@ -53,7 +53,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
-    from arxmcp.server.notebooks_store import NotebooksStore
+    from arxmcp.corpus import NotebooksStore
 
 logger = logging.getLogger(__name__)
 

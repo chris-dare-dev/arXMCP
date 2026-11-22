@@ -477,7 +477,9 @@ def _chunks_table_from_records(
     """
     import lancedb
 
-    from arxmcp.ingest.embedder import EMBEDDING_DIM
+    from arxmcp.corpus.chunk import (
+        EMBEDDING_DIM,
+    )
 
     rows: list[dict[str, Any]] = []
     for ch in records:

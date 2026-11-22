@@ -31,10 +31,16 @@ import pytest
 from fastapi.testclient import TestClient
 from prometheus_client.parser import text_string_to_metric_families
 
-from arxmcp.corpus.chunk import CHUNKER_VERSION, ChunkRecord
+from arxmcp.corpus.chunk import (
+    CHUNKER_VERSION,
+    EMBEDDING_DIM,
+    ChunkRecord,
+)
+from arxmcp.corpus.embedding import (
+    EMBEDDER_VERSION,
+)
 from arxmcp.corpus.schema import EmbedRecord
 from arxmcp.corpus.store import write_chunks
-from arxmcp.ingest.embedder import EMBEDDER_VERSION, EMBEDDING_DIM
 from arxmcp.server.health import (
     refresh_sentinel_metrics,
     reset_metrics_for_tests,
@@ -114,8 +120,8 @@ def mocked_bge_m3(monkeypatch):
 
     fake_model = object()
     fake_tokenizer = object()
-    monkeypatch.setattr(qe_mod, "_get_model", lambda: fake_model)
-    monkeypatch.setattr(qe_mod, "_get_tokenizer", lambda: fake_tokenizer)
+    monkeypatch.setattr(qe_mod, "get_embedding_model", lambda: fake_model)
+    monkeypatch.setattr(qe_mod, "get_embedding_tokenizer", lambda: fake_tokenizer)
     yield
 
 
@@ -267,8 +273,8 @@ class TestEmbedderMetrics:
                 "attention_mask": torch.ones((1, 4), dtype=torch.long),
             }
 
-        monkeypatch.setattr(qe_mod, "_get_model", lambda: _FakeModel())
-        monkeypatch.setattr(qe_mod, "_get_tokenizer", lambda: _fake_tokenizer)
+        monkeypatch.setattr(qe_mod, "get_embedding_model", lambda: _FakeModel())
+        monkeypatch.setattr(qe_mod, "get_embedding_tokenizer", lambda: _fake_tokenizer)
 
         vec = qe_mod._encode_query_sync("a test query")
         assert vec.shape == (EMBEDDING_DIM,)

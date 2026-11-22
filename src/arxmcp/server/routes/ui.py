@@ -55,7 +55,7 @@ from arxmcp.server.routes.notebooks import (
 from arxmcp.settings import ApplicationPaths
 
 if TYPE_CHECKING:
-    from arxmcp.server.notebooks_store import NotebooksStore
+    from arxmcp.corpus import NotebooksStore
 
 logger = logging.getLogger(__name__)
 
@@ -137,7 +137,7 @@ def _data_relative_path(value: object, paths: ApplicationPaths) -> str:
 
 
 #: notebook-surface-expansion-m1 — map a notebook's ``parse_status`` enum
-#: (src/arxmcp/server/notebooks_store.py: skipped/pending/running/complete/failed) to the
+#: (src/arxmcp/corpus/notebooks_store.py: skipped/pending/running/complete/failed) to the
 #: shared ``.status-badge--{ok,warn,down}`` CSS classes (frontend/static/app.css,
 #: added in notebook-ops-hardening-m4). ``skipped`` is the normal arxiv-kind
 #: state (no PDF parse needed) → ok. ``.get(..., "warn")`` is the forward-compat

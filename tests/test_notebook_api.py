@@ -28,7 +28,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from arxmcp.corpus import notebooks as _notebook_common
-from arxmcp.server.notebooks_store import SCHEMA_VERSION, NotebooksStore
+from arxmcp.corpus.notebooks_store import SCHEMA_VERSION, NotebooksStore
 from arxmcp.server.routes import notebooks as notebooks_module
 from arxmcp.server.routes.notebooks import (
     _arxiv_url_to_paper_id,

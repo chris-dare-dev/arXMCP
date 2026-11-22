@@ -25,14 +25,14 @@ from pathlib import Path
 import pytest
 
 from arxmcp.corpus.chunk import CHUNKER_VERSION
-from arxmcp.corpus.notebooks import NotebookError
-from arxmcp.ingest.arxiv_fetch import POLITENESS_SLEEP_SECONDS
-from arxmcp.server.documents_store import (
+from arxmcp.corpus.documents_store import (
     DOCUMENTS_DB_FILENAME,
     RAW_SOURCE_STATUS_PRESENT,
     RAW_SOURCE_STATUS_UNAVAILABLE,
     DocumentsStore,
 )
+from arxmcp.corpus.notebooks import NotebookError
+from arxmcp.ingest.arxiv_fetch import POLITENESS_SLEEP_SECONDS
 from arxmcp.tools import notebook_documents_backfill
 
 SLUG = "bridgeland-stability"
@@ -815,7 +815,7 @@ class TestMembershipSource:
         the empty ``notebook_papers`` junction table."""
         source = inspect.getsource(notebook_documents_backfill)
         assert "NotebooksStore" not in source
-        assert "arxmcp.server.notebooks_store" not in source
+        assert "arxmcp.corpus.notebooks_store" not in source
         assert "read_paper_ids_from_papers_txt" in source
 
 

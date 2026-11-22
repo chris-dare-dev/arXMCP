@@ -24,8 +24,8 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from arxmcp.corpus import notebooks as _notebook_common
+from arxmcp.corpus.notebooks_store import NotebooksStore
 from arxmcp.ingest import arxiv_api as _arxiv_api
-from arxmcp.server.notebooks_store import NotebooksStore
 from arxmcp.server.routes import notebooks as notebooks_module
 from arxmcp.server.routes.notebooks import router as notebooks_router
 from arxmcp.server.routes.ui import router as ui_router

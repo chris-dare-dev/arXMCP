@@ -8,7 +8,7 @@ active/withdrawn/superseded ``status``. ``get_chunk`` does NOT read this
 store in m1 (chunks-schema v2 + tool surfacing are m2/m5); the only
 writer is :mod:`arxmcp.tools.notebook_documents_backfill`.
 
-**Placement.** Mirrors :mod:`arxmcp.server.paper_metadata_store` EXACTLY: one
+**Placement.** Mirrors :mod:`arxmcp.corpus.paper_metadata_store` EXACTLY: one
 SQLite file PER NOTEBOOK at
 ``var/arxmcp/notebooks/<slug>/documents.db``
 (:data:`DOCUMENTS_DB_FILENAME`), a SIBLING of ``paper_metadata.db``.
@@ -17,8 +17,8 @@ The data is REGENERABLE (re-run the backfill), so it takes the
 tier of the non-regenerable central ``notebooks.db``.
 
 **Pattern.** Async-over-sync SQLite exactly like
-:mod:`arxmcp.server.paper_metadata_store` /
-:mod:`arxmcp.server.notebooks_store`: ``asyncio.to_thread`` + an
+:mod:`arxmcp.corpus.paper_metadata_store` /
+:mod:`arxmcp.corpus.notebooks_store`: ``asyncio.to_thread`` + an
 ``asyncio.Lock`` serializing a single ``sqlite3.Connection``, an
 ``open()`` async classmethod, ``PRAGMA user_version`` versioning with
 strictly ADDITIVE migrations. The v0->v1 create is wrapped in an
@@ -100,6 +100,23 @@ DOCUMENT_STATUS_SUPERSEDED: str = "superseded"
 RAW_SOURCE_STATUS_PRESENT: str = "present"
 RAW_SOURCE_STATUS_UNAVAILABLE: str = "unavailable"
 
+# ``license_status`` column vocabulary (3-way). The OAI license harvest in
+# ingest decides which value a revision gets.
+
+#: A CC-allowlisted open license URI (full-body eligible).
+LICENSE_STATUS_ELIGIBLE: str = "eligible"
+
+#: A real, dereferenceable license URI was recovered but it is NOT
+#: CC-allowlisted (e.g. arXiv's default ``nonexclusive-distrib``). Its
+#: open-access policy call is the owner's (D8-R04), not m1's. Kept
+#: DISTINCT from ``unknown``: "we have data, the policy is pending",
+#: not "we have no data".
+LICENSE_STATUS_NOT_ALLOWLISTED_OPEN: str = "not-allowlisted-open"
+
+#: No license data at all — the old-style arXiv-side gap (missing
+#: ``<license>`` element) or ``idDoesNotExist``. A genuine data gap.
+LICENSE_STATUS_UNKNOWN: str = "unknown"
+
 
 @dataclass(frozen=True)
 class DocumentRecord:
@@ -134,7 +151,7 @@ class DocumentsStore:
     Construct via :meth:`open`. All public methods are ``async`` and
     offload SQL I/O via :func:`asyncio.to_thread`, serialized through an
     internal ``asyncio.Lock`` (single-threaded connection, never raced)
-    — the :class:`arxmcp.server.paper_metadata_store.PaperMetadataStore`
+    — the :class:`arxmcp.corpus.paper_metadata_store.PaperMetadataStore`
     pattern.
     """
 
@@ -358,6 +375,9 @@ __all__ = [
     "DOCUMENT_STATUS_ACTIVE",
     "DOCUMENT_STATUS_SUPERSEDED",
     "DOCUMENT_STATUS_WITHDRAWN",
+    "LICENSE_STATUS_ELIGIBLE",
+    "LICENSE_STATUS_NOT_ALLOWLISTED_OPEN",
+    "LICENSE_STATUS_UNKNOWN",
     "RAW_SOURCE_STATUS_PRESENT",
     "RAW_SOURCE_STATUS_UNAVAILABLE",
     "DocumentRecord",

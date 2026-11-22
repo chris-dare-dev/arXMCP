@@ -54,11 +54,11 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from arxmcp.server.notebooks_store import ParseMetrics
+from arxmcp.corpus import ParseMetrics
 
 if TYPE_CHECKING:
+    from arxmcp.corpus import NotebooksStore
     from arxmcp.ingest.textbook_parser import MinerUResult
-    from arxmcp.server.notebooks_store import NotebooksStore
 
 logger = logging.getLogger(__name__)
 
@@ -206,7 +206,7 @@ class ParseTaskTracker:
         """Return True if a live in-flight parse task exists for ``slug``.
 
         Used as the primary 409 collision check; paired with
-        :meth:`arxmcp.server.notebooks_store.NotebooksStore.has_running_parse`
+        :meth:`arxmcp.corpus.notebooks_store.NotebooksStore.has_running_parse`
         as a cross-restart fallback in the handler.
         """
         task = self._tasks.get(slug)

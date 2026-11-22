@@ -280,7 +280,7 @@ class EmbedRecord:
 
     ``embedder_version`` is the model-identity stamp written to every
     row's ``embedder_version`` column. Form: ``"bge-m3@<8-hex>"`` (from
-    ``arxmcp.ingest.embedder.EMBEDDER_VERSION``).
+    ``arxmcp.corpus.embedding.EMBEDDER_VERSION``).
     """
 
     chunk_ids_stmt: list[str] = field(default_factory=list)

@@ -80,8 +80,8 @@ from arxmcp.server.discovery import discover_for_notebook_async
 from arxmcp.settings import ApplicationPaths, get_contact_email
 
 if TYPE_CHECKING:
+    from arxmcp.corpus import NotebooksStore
     from arxmcp.server.discovery import DiscoveryCandidate
-    from arxmcp.server.notebooks_store import NotebooksStore
 
 logger = logging.getLogger(__name__)
 

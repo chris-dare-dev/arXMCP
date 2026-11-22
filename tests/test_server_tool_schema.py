@@ -120,8 +120,8 @@ def _mocked_bge(monkeypatch):
     """Replace BGE-M3 model + tokenizer load with no-ops."""
     import arxmcp.server.query_encoder as qe_mod
 
-    monkeypatch.setattr(qe_mod, "_get_model", lambda: object())
-    monkeypatch.setattr(qe_mod, "_get_tokenizer", lambda: object())
+    monkeypatch.setattr(qe_mod, "get_embedding_model", lambda: object())
+    monkeypatch.setattr(qe_mod, "get_embedding_tokenizer", lambda: object())
     yield
 
 

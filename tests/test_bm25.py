@@ -30,7 +30,14 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from arxmcp.corpus.chunk import CHUNKER_VERSION, ChunkRecord
+from arxmcp.corpus.chunk import (
+    CHUNKER_VERSION,
+    EMBEDDING_DIM,
+    ChunkRecord,
+)
+from arxmcp.corpus.embedding import (
+    EMBEDDER_VERSION,
+)
 from arxmcp.corpus.schema import EmbedRecord
 from arxmcp.corpus.store import write_chunks
 from arxmcp.ingest.bm25_indexer import (
@@ -39,7 +46,6 @@ from arxmcp.ingest.bm25_indexer import (
     BM25Stats,
     build_bm25_index,
 )
-from arxmcp.ingest.embedder import EMBEDDER_VERSION, EMBEDDING_DIM
 
 # ===========================================================================
 # Helpers — curated chunks with hand-crafted body_tokens

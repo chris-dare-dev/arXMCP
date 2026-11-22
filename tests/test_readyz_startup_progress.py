@@ -57,8 +57,8 @@ def test_readyz_names_the_cold_embedder_mid_startup(tmp_path, monkeypatch):
             raise RuntimeError("test never released the model load")
         return object()
 
-    monkeypatch.setattr(qe_mod, "_get_tokenizer", lambda: object())
-    monkeypatch.setattr(qe_mod, "_get_model", _blocking_model)
+    monkeypatch.setattr(qe_mod, "get_embedding_tokenizer", lambda: object())
+    monkeypatch.setattr(qe_mod, "get_embedding_model", _blocking_model)
 
     lancedb_path = tmp_path / "lancedb"
     seed_corpus(lancedb_path, n=2)

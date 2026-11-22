@@ -527,9 +527,9 @@ def hostile_corpus(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     import numpy as np
     import pyarrow as pa
 
+    from arxmcp.corpus.paper_metadata_store import PaperMetadataRecord, PaperMetadataStore
     from arxmcp.corpus.schema import CHUNKS_SCHEMA_V1
     from arxmcp.server.handlers import citations, equation
-    from arxmcp.server.paper_metadata_store import PaperMetadataRecord, PaperMetadataStore
     from arxmcp.server.tools import reset_resources_for_tests, set_resources
 
     def _row(paper_id: str, suffix: str) -> dict[str, Any]:

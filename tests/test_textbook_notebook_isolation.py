@@ -36,11 +36,17 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from arxmcp.corpus.chunk import CHUNKER_VERSION, ChunkRecord
+from arxmcp.corpus.chunk import (
+    CHUNKER_VERSION,
+    EMBEDDING_DIM,
+    ChunkRecord,
+)
+from arxmcp.corpus.embedding import (
+    EMBEDDER_VERSION,
+)
 from arxmcp.corpus.reader import open_chunks_table
 from arxmcp.corpus.schema import EmbedRecord
 from arxmcp.corpus.store import write_chunks
-from arxmcp.ingest.embedder import EMBEDDER_VERSION, EMBEDDING_DIM
 
 
 def _make_arxiv_chunk() -> ChunkRecord:

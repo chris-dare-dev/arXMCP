@@ -35,6 +35,7 @@ from arxmcp.corpus.chunk import (
     route,
     to_row,
 )
+from arxmcp.corpus.embedding import EMBEDDER_VERSION
 from arxmcp.corpus.schema import (
     CHUNKS_TABLE_NAME,
     EMBEDDING_DIM,
@@ -42,7 +43,6 @@ from arxmcp.corpus.schema import (
     EmbedRecord,
 )
 from arxmcp.corpus.store import CORPUS_VERSION_MARKER_NAME, write_chunks
-from arxmcp.ingest.embedder import EMBEDDER_VERSION
 from arxmcp.ingest.re_embed import (
     _read_old_embedder_version,
     _subset_embed_record,

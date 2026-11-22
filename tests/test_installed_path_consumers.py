@@ -17,6 +17,7 @@ from mcp.server.fastmcp import FastMCP
 
 import arxmcp.corpus
 from arxmcp.corpus import notebooks as _notebook_common
+from arxmcp.corpus.notebooks_store import NotebooksStore
 from arxmcp.server.ingest_tracker import IngestTaskTracker
 from arxmcp.server.mcp_resources import (
     CORPUS_MANIFEST_URI,
@@ -24,7 +25,6 @@ from arxmcp.server.mcp_resources import (
     reset_notebooks_store_for_tests,
     set_notebooks_store,
 )
-from arxmcp.server.notebooks_store import NotebooksStore
 from arxmcp.server.routes.notebooks import router as notebooks_router
 from arxmcp.server.routes.ui import router as ui_router
 from arxmcp.server.tools import reset_resources_for_tests, set_resources
@@ -134,7 +134,7 @@ def test_per_notebook_retrieval_uses_configured_base(
 def test_mcp_resources_use_live_config_paths(
     tmp_path: Path, monkeypatch
 ) -> None:
-    from arxmcp.server import corpus_manifest
+    from arxmcp.server import mcp_resources
 
     config = Config(data_dir=tmp_path / "runtime")
     poison = tmp_path / "poison-notebooks"
@@ -146,7 +146,7 @@ def test_mcp_resources_use_live_config_paths(
         seen["settings_db_path"] = settings_db_path
         return {"snapshot": {"notebooks": {}}}
 
-    monkeypatch.setattr(corpus_manifest, "build_manifest", fake_manifest)
+    monkeypatch.setattr(mcp_resources, "build_manifest", fake_manifest)
 
     async def exercise() -> None:
         store = await NotebooksStore.open(config.notebooks_db_path)

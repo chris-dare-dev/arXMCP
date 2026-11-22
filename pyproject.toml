@@ -394,8 +394,6 @@ layers = [
     "arxmcp.settings",
 ]
 ignore_imports = [
-    "arxmcp.ingest.chunker -> arxmcp.server.model_loader",
-    "arxmcp.ingest.embedder -> arxmcp.server.model_loader",
     "arxmcp.ingest.graph_ingest -> arxmcp.tools.fetch_seed",
     "arxmcp.ingest.inspire_ingest -> arxmcp.tools.fetch_seed",
     "arxmcp.ingest.intra_paper_refs -> arxmcp.tools.fetch_seed",

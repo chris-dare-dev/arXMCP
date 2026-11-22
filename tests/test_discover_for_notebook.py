@@ -15,12 +15,12 @@ from pathlib import Path
 
 import pytest
 
+from arxmcp.corpus.notebooks_store import NotebooksStore
 from arxmcp.ingest import arxiv_api as _arxiv_api
 from arxmcp.server.discovery import (
     DiscoveryCandidate,
     discover_for_notebook_async,
 )
-from arxmcp.server.notebooks_store import NotebooksStore
 
 
 def _feed(entries: list[tuple[str, str, str]]) -> bytes:

@@ -55,8 +55,13 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Final
 
-from arxmcp.corpus import NOTEBOOKS_BASE, NotebookError, notebook_dir, validate_slug
-from arxmcp.server.notebooks_store import open_sync
+from arxmcp.corpus import (
+    NOTEBOOKS_BASE,
+    NotebookError,
+    notebook_dir,
+    open_notebooks_db,
+    validate_slug,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -221,7 +226,7 @@ def _validate_manifest(manifest: dict) -> tuple[str, dict, list[dict]]:
 # DB layer — sync, through the store's own migration ladder.
 #
 # `NotebooksStore` is async-only, which is why this CLI reached for raw
-# sqlite3 in the first place. `open_sync` is that ladder at module scope, so
+# sqlite3 in the first place. `open_notebooks_db` is that ladder at module scope, so
 # "the CLI is sync" stops meaning "the CLI skips migrations".
 # ---------------------------------------------------------------------------
 
@@ -229,7 +234,7 @@ def _validate_manifest(manifest: dict) -> tuple[str, dict, list[dict]]:
 def _open_db_with_retry(db_path: Path) -> sqlite3.Connection:
     """Open + MIGRATE the target ``notebooks.db``, retrying on a WAL BUSY.
 
-    Goes through :func:`arxmcp.server.notebooks_store.open_sync` rather than opening
+    Goes through :func:`arxmcp.corpus.notebooks_store.open_notebooks_db` rather than opening
     a raw connection and setting three PRAGMAs by hand.
 
     The hand-rolled version was a live data-loss hazard, not a style problem.
@@ -248,7 +253,7 @@ def _open_db_with_retry(db_path: Path) -> sqlite3.Connection:
     last_err: sqlite3.OperationalError | None = None
     for attempt in range(_DB_BUSY_RETRIES):
         try:
-            return open_sync(db_path)
+            return open_notebooks_db(db_path)
         except sqlite3.OperationalError as exc:
             last_err = exc
             if "locked" in str(exc).lower() and attempt < _DB_BUSY_RETRIES - 1:

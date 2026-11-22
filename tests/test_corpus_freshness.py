@@ -44,7 +44,9 @@ import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 
-from arxmcp.ingest.embedder import EMBEDDING_DIM
+from arxmcp.corpus.chunk import (
+    EMBEDDING_DIM,
+)
 from arxmcp.server.corpus_freshness import (
     DEFAULT_FRESHNESS_INTERVAL_SECONDS,
     FreshnessGate,

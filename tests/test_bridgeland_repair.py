@@ -40,8 +40,8 @@ def test_body_policy_and_special_token_budget(monkeypatch):
                 return {"length": [embedder.MAX_TOKENS + 1]}
             raise AssertionError("overflow must fail before model encoding")
 
-    monkeypatch.setattr(embedder, "_get_tokenizer", lambda: Tokenizer())
-    monkeypatch.setattr(embedder, "_get_model", lambda: pytest.fail("model loaded"))
+    monkeypatch.setattr(embedder, "get_embedding_tokenizer", lambda: Tokenizer())
+    monkeypatch.setattr(embedder, "get_embedding_model", lambda: pytest.fail("model loaded"))
     with pytest.raises(ValueError, match="including special tokens"):
         embedder._encode_batch(["too long"], ["arxiv:test:chunk"])
 

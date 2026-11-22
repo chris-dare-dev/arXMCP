@@ -1065,9 +1065,14 @@ def _write_staging(path: Path, chunks, *, build_indices: bool, seed: int = 0) ->
     """Write ``chunks`` into a real staging LanceDB (marker included)."""
     import numpy as np
 
+    from arxmcp.corpus.chunk import (
+        EMBEDDING_DIM,
+    )
+    from arxmcp.corpus.embedding import (
+        EMBEDDER_VERSION,
+    )
     from arxmcp.corpus.schema import EmbedRecord
     from arxmcp.corpus.store import write_chunks
-    from arxmcp.ingest.embedder import EMBEDDER_VERSION, EMBEDDING_DIM
 
     rng = np.random.default_rng(seed)
 

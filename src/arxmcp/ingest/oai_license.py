@@ -49,7 +49,12 @@ from dataclasses import dataclass
 
 import defusedxml.ElementTree as DET
 
-from arxmcp.corpus import is_valid_arxiv_paper_id
+from arxmcp.corpus import (
+    LICENSE_STATUS_ELIGIBLE,
+    LICENSE_STATUS_NOT_ALLOWLISTED_OPEN,
+    LICENSE_STATUS_UNKNOWN,
+    is_valid_arxiv_paper_id,
+)
 from arxmcp.ingest.arxiv_api import strip_id_version
 from arxmcp.ingest.arxiv_fetch import POLITENESS_SLEEP_SECONDS
 
@@ -102,19 +107,8 @@ _OAI_IDENTIFIER_PREFIX: str = "oai:arXiv.org:"
 # License-decision vocabulary (source-truth-m1 OWNER DECISION — 3-way)
 # ---------------------------------------------------------------------------
 
-#: A CC-allowlisted open license URI (full-body eligible).
-LICENSE_STATUS_ELIGIBLE: str = "eligible"
-
-#: A real, dereferenceable license URI was recovered but it is NOT
-#: CC-allowlisted (e.g. arXiv's default ``nonexclusive-distrib``). Its
-#: open-access policy call is the owner's (D8-R04), not m1's. Kept
-#: DISTINCT from ``unknown``: "we have data, the policy is pending",
-#: not "we have no data".
-LICENSE_STATUS_NOT_ALLOWLISTED_OPEN: str = "not-allowlisted-open"
-
-#: No license data at all — the old-style arXiv-side gap (missing
-#: ``<license>`` element) or ``idDoesNotExist``. A genuine data gap.
-LICENSE_STATUS_UNKNOWN: str = "unknown"
+#: The 3-way vocabulary itself is the documents registry's
+#: ``license_status`` domain (:mod:`arxmcp.corpus`).
 
 #: Substring markers for the CC families that correspond to
 #: the former serving OA allowlist's open tokens (``CC-BY`` /
@@ -451,9 +445,6 @@ __all__ = [
     "DEFAULT_BACKOFF_INITIAL_SECONDS",
     "DEFAULT_BACKOFF_MAX_SECONDS",
     "DEFAULT_RETRY_CAP_SECONDS",
-    "LICENSE_STATUS_ELIGIBLE",
-    "LICENSE_STATUS_NOT_ALLOWLISTED_OPEN",
-    "LICENSE_STATUS_UNKNOWN",
     "METADATA_PREFIX",
     "OAI_PMH_ENDPOINT",
     "OAI_PMH_MAX_RESPONSE_BYTES",

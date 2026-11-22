@@ -28,10 +28,16 @@ from pathlib import Path
 
 import numpy as np
 
-from arxmcp.corpus.chunk import CHUNKER_VERSION, ChunkRecord
+from arxmcp.corpus.chunk import (
+    CHUNKER_VERSION,
+    EMBEDDING_DIM,
+    ChunkRecord,
+)
+from arxmcp.corpus.embedding import (
+    EMBEDDER_VERSION,
+)
 from arxmcp.corpus.schema import EmbedRecord
 from arxmcp.corpus.store import write_chunks
-from arxmcp.ingest.embedder import EMBEDDER_VERSION, EMBEDDING_DIM
 
 
 def seed_corpus(lancedb_path: Path, *, n: int = 2) -> int:
@@ -159,5 +165,5 @@ def patch_bge_m3_model(monkeypatch) -> None:
 
     fake_model = object()
     fake_tokenizer = object()
-    monkeypatch.setattr(qe_mod, "_get_model", lambda: fake_model)
-    monkeypatch.setattr(qe_mod, "_get_tokenizer", lambda: fake_tokenizer)
+    monkeypatch.setattr(qe_mod, "get_embedding_model", lambda: fake_model)
+    monkeypatch.setattr(qe_mod, "get_embedding_tokenizer", lambda: fake_tokenizer)

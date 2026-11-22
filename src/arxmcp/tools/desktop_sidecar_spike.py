@@ -122,8 +122,7 @@ def _native_model_probe() -> dict[str, object]:
     from tokenizers import Tokenizer, models
     from transformers import AutoModel, XLMRobertaConfig
 
-    from arxmcp.ingest.embedder import BGE_M3_COMMIT_SHA
-    from arxmcp.server.model_loader import validate_model_revision
+    from arxmcp.corpus import BGE_M3_COMMIT_SHA, validate_model_revision
     from arxmcp.server.retrieval.rerank import BGE_RERANKER_COMMIT_SHA
 
     data = Path(os.environ["ARXMCP_DATA_DIR"]).resolve() / "spike-probe"

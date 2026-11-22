@@ -25,13 +25,19 @@ import numpy as np
 import pyarrow as pa
 import pytest
 
-from arxmcp.corpus.chunk import CHUNKER_VERSION, ChunkRecord
+from arxmcp.corpus.chunk import (
+    CHUNKER_VERSION,
+    EMBEDDING_DIM,
+    ChunkRecord,
+)
+from arxmcp.corpus.embedding import (
+    EMBEDDER_VERSION,
+)
 from arxmcp.corpus.schema import (
     CHUNKS_SCHEMA_V1,
     CHUNKS_TABLE_NAME,
     EmbedRecord,
 )
-from arxmcp.ingest.embedder import EMBEDDER_VERSION, EMBEDDING_DIM
 
 # ===========================================================================
 # Helpers

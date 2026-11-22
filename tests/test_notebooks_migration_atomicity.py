@@ -14,8 +14,8 @@ from pathlib import Path
 
 import pytest
 
-from arxmcp.server import notebooks_store
-from arxmcp.server.notebooks_store import SCHEMA_VERSION, open_sync
+from arxmcp.corpus import notebooks_store
+from arxmcp.corpus.notebooks_store import SCHEMA_VERSION, open_notebooks_db
 
 
 def _version(db_path: Path) -> int:
@@ -65,7 +65,7 @@ def test_a_step_that_fails_midway_rolls_back_and_the_next_open_finishes(
         )
         try:
             with pytest.raises(sqlite3.OperationalError, match="injected"):
-                open_sync(db_path)
+                open_notebooks_db(db_path)
         finally:
             for conn in opened:
                 conn.close()
@@ -88,7 +88,7 @@ def test_a_step_that_fails_midway_rolls_back_and_the_next_open_finishes(
     finally:
         conn.close()
 
-    conn = open_sync(db_path)
+    conn = open_notebooks_db(db_path)
     try:
         row = conn.execute(
             "SELECT slug, parse_status, discovery_category FROM notebooks"

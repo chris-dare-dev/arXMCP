@@ -2,7 +2,7 @@
 
 Backs ``make notebook-list``'s server-down path. Opens
 ``var/arxmcp/cache/notebooks.db`` directly via raw :mod:`sqlite3`
-(NOT via :class:`arxmcp.server.notebooks_store.NotebooksStore` — see m2
+(NOT via :class:`arxmcp.corpus.notebooks_store.NotebooksStore` — see m2
 critique F2 / HIGH below) and prints one ``  <slug> (<display_name>)``
 line per registered notebook, matching the server-up REST path's
 output format.
@@ -16,7 +16,7 @@ cleanly in a ``-c`` one-liner.
 called :meth:`NotebooksStore.open` which runs the FULL v0→v4 migration
 sequence on the operator's only copy of ``notebooks.db`` — including
 the destructive ``DROP TABLE IF EXISTS notebooks`` in the v0→v1 block
-at ``src/arxmcp/server/notebooks_store.py:154-156``. A "list" command silently
+at ``src/arxmcp/corpus/notebooks_store.py:154-156``. A "list" command silently
 mutating the schema was the surprise; combined with m2 critique F1's
 cold-DB scenario, listing AFTER ``make init`` would have destroyed the
 just-registered row. The rectified path opens a raw read-only

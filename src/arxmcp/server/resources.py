@@ -386,7 +386,7 @@ def reconcile_corpus_marker(
     ``corpus_corruption`` from the N-1 fallback). It is not overwritten unless
     a strictly more severe condition is found.
     """
-    from arxmcp.ingest.embedder import EMBEDDER_VERSION  # noqa: PLC0415
+    from arxmcp.corpus import EMBEDDER_VERSION  # noqa: PLC0415
 
     # --- The embedder pin. Free (a string compare), so unlike the counts it
     # runs even under an existing degrade: knowing the vector space is wrong is
@@ -656,7 +656,7 @@ class Resources:
     # chunks table with ``retrieval_mode="in_memory_scan_fallback"``.
     theorem_names_db: Any | None = None
     # Per-notebook paper-metadata SQLite store (paper-metadata-m2).
-    # A ``arxmcp.server.paper_metadata_store.PaperMetadataStore`` when the
+    # A ``arxmcp.corpus.paper_metadata_store.PaperMetadataStore`` when the
     # sibling ``paper_metadata.db`` file exists next to the lancedb
     # dir (hydrated by ``src/arxmcp/tools/notebook_metadata_backfill.py``);
     # ``None`` otherwise — ``get_paper`` degrades gracefully to the
@@ -776,7 +776,7 @@ class Resources:
            ``arxmcp.corpus.reader.open_chunks_table`` contract, the table
            handle is fresh; we cache it for process lifetime and
            never re-checkout.
-        3. Eager-load BGE-M3 (forces ``query_encoder._get_model()``
+        3. Eager-load BGE-M3 (forces ``query_encoder.get_embedding_model()``
            to populate its module-level singleton; subsequent
            ``encode_query`` calls hit the cached model).
         4. If ``enable_rerank=True``, load the reranker model (raise
@@ -978,8 +978,8 @@ class Resources:
 
         # 3. Eager BGE-M3 load (forces query_encoder's singletons to
         #    populate; subsequent calls hit cached model + tokenizer).
-        await loop.run_in_executor(None, query_encoder._get_tokenizer)
-        await loop.run_in_executor(None, query_encoder._get_model)
+        await loop.run_in_executor(None, query_encoder.get_embedding_tokenizer)
+        await loop.run_in_executor(None, query_encoder.get_embedding_model)
         logger.info("Resources.startup: BGE-M3 embedder warm")
         progress.embedder = True
 
@@ -2412,10 +2412,7 @@ async def _open_paper_metadata_store(config: Config) -> Any | None:
     then serves the v1 synthesized-from-chunks nulls).
     """
     try:
-        from arxmcp.server.paper_metadata_store import (  # noqa: PLC0415
-            PAPER_METADATA_DB_FILENAME,
-            PaperMetadataStore,
-        )
+        from arxmcp.corpus import PAPER_METADATA_DB_FILENAME, PaperMetadataStore  # noqa: PLC0415
 
         pmd_path = Path(config.lancedb_path).parent / PAPER_METADATA_DB_FILENAME
         if not pmd_path.exists():
@@ -2493,7 +2490,7 @@ async def _load_reranker_or_raise() -> Any:
     the cache cannot achieve RCE, and ``revision=BGE_RERANKER_COMMIT_SHA``
     so transformers fetches the pinned ref (rather than HEAD).
     """
-    from arxmcp.server.model_loader import (
+    from arxmcp.corpus import (
         assert_no_bin_in_snapshot,
         resolve_trust_remote_code,
         validate_model_revision,

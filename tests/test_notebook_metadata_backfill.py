@@ -21,12 +21,12 @@ from pathlib import Path
 import pytest
 
 from arxmcp.corpus.notebooks import NotebookError
-from arxmcp.ingest import arxiv_api as _arxiv_api
-from arxmcp.ingest.arxiv_fetch import DEFAULT_503_BACKOFF_SECONDS, POLITENESS_SLEEP_SECONDS
-from arxmcp.server.paper_metadata_store import (
+from arxmcp.corpus.paper_metadata_store import (
     PAPER_METADATA_DB_FILENAME,
     PaperMetadataStore,
 )
+from arxmcp.ingest import arxiv_api as _arxiv_api
+from arxmcp.ingest.arxiv_fetch import DEFAULT_503_BACKOFF_SECONDS, POLITENESS_SLEEP_SECONDS
 from arxmcp.tools import notebook_metadata_backfill
 
 SLUG = "bridgeland-stability"
@@ -472,5 +472,5 @@ class TestMembershipSource:
         # No import path reaches the junction table: the driver must
         # not touch NotebooksStore / notebooks.db at all.
         assert "NotebooksStore" not in source
-        assert "arxmcp.server.notebooks_store" not in source
+        assert "arxmcp.corpus.notebooks_store" not in source
         assert "read_paper_ids_from_papers_txt" in source

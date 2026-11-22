@@ -11,8 +11,8 @@ import asyncio
 
 import pytest
 
+from arxmcp.corpus.paper_metadata_store import PaperMetadataRecord, PaperMetadataStore
 from arxmcp.server.metadata_enrich import enrich_rows_with_titles
-from arxmcp.server.paper_metadata_store import PaperMetadataRecord, PaperMetadataStore
 
 
 def _run(coro):

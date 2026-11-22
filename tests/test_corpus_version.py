@@ -22,13 +22,13 @@ import json
 import pytest
 
 from arxmcp.corpus.chunk import CHUNKER_VERSION
+from arxmcp.corpus.embedding import EMBEDDER_VERSION
 from arxmcp.corpus.reader import CorpusVersionInfo, read_corpus_version
 from arxmcp.corpus.store import (
     CORPUS_VERSION_MARKER_NAME,
     write_chunks,
     write_corpus_version_marker,
 )
-from arxmcp.ingest.embedder import EMBEDDER_VERSION
 
 # Reuse the synthetic-corpus helpers from test_store.py so the
 # integration test exercises the actual write_chunks → marker

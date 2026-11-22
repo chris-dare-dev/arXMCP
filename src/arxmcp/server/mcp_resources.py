@@ -46,8 +46,7 @@ import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from arxmcp.corpus import NotebookError, notebook_dir, validate_slug
-from arxmcp.server import corpus_manifest
+from arxmcp.corpus import NotebookError, build_manifest, notebook_dir, validate_slug
 from arxmcp.server.handlers.chunk import read_chunk_in_full
 from arxmcp.server.tools import (
     CHUNK_RESOURCE_URI_SCHEME,
@@ -59,7 +58,7 @@ from arxmcp.server.tools import (
 if TYPE_CHECKING:
     from mcp.server.fastmcp import FastMCP
 
-    from arxmcp.server.notebooks_store import NotebooksStore
+    from arxmcp.corpus import NotebooksStore
     from arxmcp.settings import ApplicationPaths
 
 logger = logging.getLogger(__name__)
@@ -255,7 +254,7 @@ def register_resources(mcp_server: FastMCP) -> None:
         # set_at / note) are all neutralized by the payload-wide
         # escape-on-emit (and str-coerced in _read_override).
         paths = _configured_application_paths()
-        payload = await corpus_manifest.build_manifest(
+        payload = await build_manifest(
             _require_store(),
             base=paths.notebooks if paths is not None else None,
             settings_db_path=(

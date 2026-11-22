@@ -141,7 +141,7 @@ def _register_notebook_in_sqlite(
     notebooks_base: Path | None = None,
 ) -> None:
     """Register a notebook row in ``notebooks.db::notebooks`` via the
-    canonical :class:`arxmcp.server.notebooks_store.NotebooksStore` path —
+    canonical :class:`arxmcp.corpus.notebooks_store.NotebooksStore` path —
     the **single owner** of the table's schema + migrations.
 
     **m2 critique F1 rectification (CRITICAL fix).** The prior
@@ -151,7 +151,7 @@ def _register_notebook_in_sqlite(
     synthesis §3 D1. On a fresh-clone path that left ``user_version=0``;
     when the operator later ran ``make up`` for the first time,
     :meth:`NotebooksStore.open` entered the v0→v1 migration block at
-    ``src/arxmcp/server/notebooks_store.py:154-156`` which runs ``DROP TABLE IF
+    ``src/arxmcp/corpus/notebooks_store.py:154-156`` which runs ``DROP TABLE IF
     EXISTS notebooks`` UNCONDITIONALLY, destroying the row inserted by
     ``make init``. The exact 404 AC3 was built to prevent re-emerged
     on the cold-clone path — live-reproduced.
@@ -180,7 +180,7 @@ def _register_notebook_in_sqlite(
     # stripped-down environment before the server package is installed).
     import sqlite3 as _sqlite3  # noqa: PLC0415
 
-    from arxmcp.server.notebooks_store import NotebooksStore  # noqa: PLC0415
+    from arxmcp.corpus import NotebooksStore  # noqa: PLC0415
 
     async def _register() -> bool:
         store = await NotebooksStore.open(db_path)

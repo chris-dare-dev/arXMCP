@@ -6,7 +6,7 @@ paper-metadata-m1 (t-backfill-driver). Reads the notebook's
 keying off it would hydrate zero rows and silently "pass"), fetches
 title/authors/abstract/year/categories from the arXiv Atom API in
 batched ``id_list`` requests, and upserts them into the per-notebook
-:class:`arxmcp.server.paper_metadata_store.PaperMetadataStore` at
+:class:`arxmcp.corpus.paper_metadata_store.PaperMetadataStore` at
 ``var/arxmcp/notebooks/<slug>/paper_metadata.db``.
 
 Politeness contract (arXiv ToU, live-verified hazards in the m1
@@ -62,7 +62,10 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from arxmcp.corpus import (
+    PAPER_METADATA_DB_FILENAME,
     NotebookError,
+    PaperMetadataRecord,
+    PaperMetadataStore,
     is_valid_arxiv_paper_id,
     notebook_dir,
     read_paper_ids_from_papers_txt,
@@ -81,11 +84,6 @@ from arxmcp.ingest.arxiv_fetch import (
     parse_retry_after,
 )
 from arxmcp.ingest.notebooks import resolve_contact_email
-from arxmcp.server.paper_metadata_store import (
-    PAPER_METADATA_DB_FILENAME,
-    PaperMetadataRecord,
-    PaperMetadataStore,
-)
 
 logger = logging.getLogger("notebook_metadata_backfill")
 
