@@ -22,8 +22,8 @@ from typing import Any
 
 import pytest
 
-from ingest.store import ALLOWED_KINDS
-from server.handlers.search import (
+from arxmcp.ingest.store import ALLOWED_KINDS
+from arxmcp.server.handlers.search import (
     _EXCLUDED_KINDS_PROOF_ROUTE,
     _PROOF_COLUMN,
     _ROUTING_FILTER_KEYS,
@@ -72,7 +72,7 @@ class _FakeSearchBuilder:
 def fake(monkeypatch: pytest.MonkeyPatch):
     """Resources whose chunks_table records the vector column it was
     asked for — the single fact this milestone turns on."""
-    from server.tools import reset_resources_for_tests, set_resources
+    from arxmcp.server.tools import reset_resources_for_tests, set_resources
 
     cap: dict[str, Any] = {"columns": [], "tables": []}
 
@@ -109,13 +109,13 @@ def fake(monkeypatch: pytest.MonkeyPatch):
 
     res = _Res()
     set_resources(res)  # type: ignore[arg-type]
-    monkeypatch.setattr("server.handlers.search.get_cache", lambda: None)
+    monkeypatch.setattr("arxmcp.server.handlers.search.get_cache", lambda: None)
 
     async def _enc(query: str):
         import numpy as np
         return np.zeros(1024, dtype=np.float32)
 
-    monkeypatch.setattr("server.handlers.search.encode_query", _enc)
+    monkeypatch.setattr("arxmcp.server.handlers.search.encode_query", _enc)
     yield {"res": res, "cap": cap, "Table": _Table}
     reset_resources_for_tests()
 
@@ -155,7 +155,7 @@ class TestProofRoute:
         assert "stmt" in excluded and "lemma" in excluded
 
     def test_excluded_kinds_is_derived_from_the_write_time_enum(self) -> None:
-        """Guard: a kind added to ingest.store cannot silently go
+        """Guard: a kind added to arxmcp.ingest.store cannot silently go
         unreported in the proof route's exclusion set."""
         assert set(_EXCLUDED_KINDS_PROOF_ROUTE) == ALLOWED_KINDS - {"proof"}
 

@@ -43,16 +43,16 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.testclient import TestClient
 
-from ingest import notebooks as _notebook_common
-from server.notebooks_store import NotebooksStore
-from server.routes import notebooks as notebooks_module
-from server.routes.notebooks import (
+from arxmcp.ingest import notebooks as _notebook_common
+from arxmcp.server.notebooks_store import NotebooksStore
+from arxmcp.server.routes import notebooks as notebooks_module
+from arxmcp.server.routes.notebooks import (
     _notebook_row_html,
 )
-from server.routes.notebooks import (
+from arxmcp.server.routes.notebooks import (
     router as notebooks_router,
 )
-from server.routes.ui import router as ui_router
+from arxmcp.server.routes.ui import router as ui_router
 
 # ui-uplift-m6 rectify (critique M5): this file used to define its own
 # `_hex_to_rgb` / `_relative_luminance` / `_contrast_ratio` on the 0.03928
@@ -65,8 +65,8 @@ from server.routes.ui import router as ui_router
 from tests._ui_color import contrast_ratio as _contrast_ratio
 
 REPO_ROOT: Path = Path(__file__).resolve().parents[1]
-FRONTEND_STATIC: Path = REPO_ROOT / "server" / "frontend" / "static"
-FRONTEND_TEMPLATES: Path = REPO_ROOT / "server" / "frontend" / "templates"
+FRONTEND_STATIC: Path = REPO_ROOT / "src" / "arxmcp" / "server" / "frontend" / "static"
+FRONTEND_TEMPLATES: Path = REPO_ROOT / "src" / "arxmcp" / "server" / "frontend" / "templates"
 
 APP_CSS: str = (FRONTEND_STATIC / "app.css").read_text(encoding="utf-8")
 APP_CSS_NO_COMMENTS: str = _re.sub(r"/\*.*?\*/", "", APP_CSS, flags=_re.S)
@@ -836,7 +836,7 @@ class TestCrossMilestoneSafety:
 
     def test_m4_paper_row_html_still_present(self) -> None:
         # Sanity check: importing _paper_row_html still works.
-        from server.routes.notebooks import _paper_row_html
+        from arxmcp.server.routes.notebooks import _paper_row_html
 
         out = _paper_row_html(
             slug="x", paper_id="1.1", added_at="2026-05-31T18:00:00+00:00"
@@ -849,7 +849,7 @@ class TestCrossMilestoneSafety:
         # This test mirrors the cap-tests in m3 and m4 test files — all
         # three MUST move in lockstep on a future cap raise.
         # ui-uplift-m7: cap UNCHANGED. The type scale fit because m7 moved
-        # both :root blocks into server/frontend/static/tokens.css — the
+        # both :root blocks into src/arxmcp/server/frontend/static/tokens.css — the
         # documented split, taken instead of a fourth raise. All three caps
         # still measure app.css, so the lockstep rule is untouched.
         line_count = APP_CSS.count("\n") + (

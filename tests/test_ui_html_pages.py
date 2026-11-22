@@ -25,19 +25,19 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.testclient import TestClient
 
-from ingest import notebooks as _notebook_common
-from server.notebooks_store import NotebooksStore
-from server.routes import notebooks as notebooks_module
-from server.routes.notebooks import (
+from arxmcp.ingest import notebooks as _notebook_common
+from arxmcp.server.notebooks_store import NotebooksStore
+from arxmcp.server.routes import notebooks as notebooks_module
+from arxmcp.server.routes.notebooks import (
     _arxiv_url_to_paper_id,
 )
-from server.routes.notebooks import (
+from arxmcp.server.routes.notebooks import (
     router as notebooks_router,
 )
-from server.routes.ui import router as ui_router
+from arxmcp.server.routes.ui import router as ui_router
 
 REPO_ROOT: Path = Path(__file__).resolve().parents[1]
-FRONTEND_STATIC: Path = REPO_ROOT / "server" / "frontend" / "static"
+FRONTEND_STATIC: Path = REPO_ROOT / "src" / "arxmcp" / "server" / "frontend" / "static"
 
 
 @pytest.fixture
@@ -398,7 +398,7 @@ class TestCSPHeaderOnUiSurface:
     ) -> Iterator[TestClient]:
         import asyncio
 
-        from server.middleware import SecurityHeadersMiddleware
+        from arxmcp.server.middleware import SecurityHeadersMiddleware
         db_path = tmp_path / "csp_test.db"
         loop = asyncio.new_event_loop()
         try:
@@ -505,22 +505,22 @@ class TestNarrowedByteCapExemptPrefixes:
     `/ui/notebooks/<slug>` as NOT exempt."""
 
     def test_static_path_is_exempt(self) -> None:
-        from server.main import _is_exempt_path
+        from arxmcp.server.main import _is_exempt_path
         assert _is_exempt_path("/ui/static/htmx.min.js") is True
         assert _is_exempt_path("/ui/static/app.css") is True
 
     def test_api_path_is_not_exempt(self) -> None:
-        from server.main import _is_exempt_path
+        from arxmcp.server.main import _is_exempt_path
         assert _is_exempt_path("/ui/api/notebooks") is False
         assert _is_exempt_path("/ui/api/notebooks/foo/papers") is False
 
     def test_html_page_path_is_not_exempt(self) -> None:
-        from server.main import _is_exempt_path
+        from arxmcp.server.main import _is_exempt_path
         assert _is_exempt_path("/ui/notebooks/demo-nb") is False
         assert _is_exempt_path("/ui/") is False
 
     def test_existing_exempt_paths_still_exempt(self) -> None:
-        from server.main import _is_exempt_path
+        from arxmcp.server.main import _is_exempt_path
         assert _is_exempt_path("/healthz") is True
         assert _is_exempt_path("/readyz") is True
         assert _is_exempt_path("/metrics") is True
@@ -529,5 +529,5 @@ class TestNarrowedByteCapExemptPrefixes:
 
     def test_uiother_path_not_exempt(self) -> None:
         """Prefix-match form — /uiOTHER/static must NOT match /ui/static."""
-        from server.main import _is_exempt_path
+        from arxmcp.server.main import _is_exempt_path
         assert _is_exempt_path("/uiOTHER/static/htmx.min.js") is False

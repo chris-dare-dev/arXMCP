@@ -60,7 +60,7 @@ or edits any other:
   `CHANGES.md`, `SECURITY.md`, `OWNERS.md`, `LICENSE`, `CONTRIBUTING.md`,
   `CONTRIBUTORS.md`.
 - **Elsewhere:** a navigational `README.md` in a product or test directory,
-  `.github/pull_request_template.md` and `server/frontend/static/VENDORED.md`.
+  `.github/pull_request_template.md` and `src/arxmcp/server/frontend/static/VENDORED.md`.
 - **Wiki:** guides, runbooks, API reference, architecture, design notes and
   rules agents follow.
 - **Issue or pull request:** plans, research, critiques and handoffs.

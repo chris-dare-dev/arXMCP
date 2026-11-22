@@ -32,20 +32,20 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from server.cache import (
+from arxmcp.server.cache import (
     EMBEDDING_DIM,
     TIER2_COSINE_THRESHOLD,
     RetrievalCache,
     reset_cache_for_tests,
     set_cache,
 )
-from server.cache_sqlite import (
+from arxmcp.server.cache_sqlite import (
     Tier1Store,
     canonical_key_components,
     canonical_query_form,
     derive_tier1_key,
 )
-from server.metrics import (
+from arxmcp.server.metrics import (
     ALL_TIERS,
     CACHE_BYTES_GAUGE,
     CACHE_HITS_COUNTER,
@@ -424,7 +424,7 @@ class TestCorpusVersionInvalidation:
 
 class TestTier3RerankMemo:
     """The brief: 'Tier-3 hit after identical candidate set.' Reuses
-    ``server.retrieval.rerank._build_singleflight_key`` so a Tier-3
+    ``arxmcp.server.retrieval.rerank._build_singleflight_key`` so a Tier-3
     hit corresponds to the same (query_embedding, candidate_set,
     model) triple."""
 
@@ -587,7 +587,7 @@ class TestDebugCacheStatsEndpoint:
 
     def test_empty_cache_returns_all_zero_stats(self):
         """No cache singleton set → endpoint returns all-zero stats."""
-        from server.routes.debug import _empty_stats
+        from arxmcp.server.routes.debug import _empty_stats
 
         stats = _empty_stats()
         assert set(stats.keys()) == {"tier1", "tier2", "tier3"}
@@ -644,7 +644,7 @@ class TestDebugCacheStatsEndpoint:
 
 class TestPrometheusMetricsExposition:
     """AC: Prometheus metrics are emitted at /metrics. The metrics
-    are defined as module-level Counter/Gauge in server/metrics.py
+    are defined as module-level Counter/Gauge in src/arxmcp/server/metrics.py
     and live in the default single-process registry — automatically
     included in the /metrics scrape."""
 
@@ -705,7 +705,7 @@ class TestResetHooks:
                 cache_db_path=cache_db_path, corpus_version=42,
             )
             set_cache(cache)
-            from server.cache import get_cache
+            from arxmcp.server.cache import get_cache
 
             assert get_cache() is cache
             reset_cache_for_tests()
@@ -812,13 +812,13 @@ class TestRectificationGuards:
 
         Instead: directly assert that the cache.lookup_rerank /
         cache.store_rerank symbols are referenced by name from
-        ``server/retrieval/rerank.py``. The full integration is
+        ``src/arxmcp/server/retrieval/rerank.py``. The full integration is
         covered by the existing rerank tests once the cache is wired."""
         from pathlib import Path
 
         rerank_src = (
             Path(__file__).resolve().parent.parent
-            / "server" / "retrieval" / "rerank.py"
+            / "src" / "arxmcp" / "server" / "retrieval" / "rerank.py"
         ).read_text(encoding="utf-8")
         assert "lookup_rerank" in rerank_src, (
             "F3 regression: RerankPhase.rerank must call "
@@ -836,7 +836,7 @@ class TestRectificationGuards:
         writes don't pollute the worktree."""
         # Importing Config inside the test ensures pydantic-settings
         # picks up the env var the autouse fixture set.
-        from server.config import Config
+        from arxmcp.server.config import Config
 
         cfg = Config()
         # Path should now point under the per-test tmp_path.
@@ -848,9 +848,9 @@ class TestRectificationGuards:
         """F8 (MEDIUM): rehydrate must truncate at TIER1_MIRROR_CAP
         rather than blindly populating every SQLite row, keeping the
         freshest."""
-        import server.cache as cache_mod
-        from server.cache import TIER1_MIRROR_CAP
-        from server.cache_sqlite import MAX_ROWS, Tier1Store
+        import arxmcp.server.cache as cache_mod
+        from arxmcp.server.cache import TIER1_MIRROR_CAP
+        from arxmcp.server.cache_sqlite import MAX_ROWS, Tier1Store
 
         assert TIER1_MIRROR_CAP == MAX_ROWS
 
@@ -956,7 +956,7 @@ class TestRectificationGuards:
         fingerprint now spans more than the filters dict."""
         # Two distinct (filters, level) inputs MUST produce two
         # distinct fingerprints.
-        from server.cache import _tier2_scope_fingerprint
+        from arxmcp.server.cache import _tier2_scope_fingerprint
 
         fp_a = _tier2_scope_fingerprint(
             {"year": 2024}, level="theorem", corpus_version=7)
@@ -1013,7 +1013,7 @@ class TestRectificationGuards:
         # Build a minimal app with just the debug router. The full
         # create_app() requires LanceDB / BGE which are heavy; this
         # test verifies route registration + JSON shape only.
-        from server.routes.debug import router as debug_router
+        from arxmcp.server.routes.debug import router as debug_router
 
         app = FastAPI()
         app.include_router(debug_router, prefix="/debug")
@@ -1039,7 +1039,7 @@ class TestRectificationGuards:
         from prometheus_client import REGISTRY, generate_latest
 
         # Ensure at least one labeled instance exists for each family.
-        from server.metrics import (
+        from arxmcp.server.metrics import (
             CACHE_BYTES_GAUGE,
             CACHE_EVICTIONS_COUNTER,
             CACHE_HITS_COUNTER,

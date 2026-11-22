@@ -15,7 +15,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
 class TestResticEnvTemplate:
-    template = REPO_ROOT / "ops" / "restic-env.sh.template"
+    template = REPO_ROOT / "src" / "arxmcp" / "ops" / "restic-env.sh.template"
 
     def test_template_exists(self):
         assert self.template.is_file()
@@ -43,8 +43,8 @@ class TestResticEnvTemplate:
 
 
 class TestBackupSystemdUnits:
-    service = REPO_ROOT / "ops" / "systemd" / "arxmcp-backup.service"
-    timer = REPO_ROOT / "ops" / "systemd" / "arxmcp-backup.timer"
+    service = REPO_ROOT / "src" / "arxmcp" / "ops" / "systemd" / "arxmcp-backup.service"
+    timer = REPO_ROOT / "src" / "arxmcp" / "ops" / "systemd" / "arxmcp-backup.timer"
 
     def test_units_exist(self):
         assert self.service.is_file()
@@ -82,7 +82,7 @@ class TestBackupSystemdUnits:
 
 
 class TestBackupShellWrapper:
-    wrapper = REPO_ROOT / "ops" / "cron" / "arxmcp-backup.sh"
+    wrapper = REPO_ROOT / "src" / "arxmcp" / "ops" / "cron" / "arxmcp-backup.sh"
 
     def test_wrapper_exists_and_executable(self):
         assert self.wrapper.is_file()
@@ -143,7 +143,7 @@ class TestBackupWrapperSyntax:
     tests parse the script so the quote-balance class is caught going
     forward (the script is now materially more complex)."""
 
-    wrapper = REPO_ROOT / "ops" / "cron" / "arxmcp-backup.sh"
+    wrapper = REPO_ROOT / "src" / "arxmcp" / "ops" / "cron" / "arxmcp-backup.sh"
 
     def test_wrapper_parses_under_bash_n(self):
         """bash -n must accept the whole script. An odd number of body
@@ -177,10 +177,10 @@ class TestBackupWrapperSyntax:
 class TestNotebookBackupScope:
     """notebook-ops-hardening-m1: notebook data + metadata enter scope."""
 
-    wrapper = REPO_ROOT / "ops" / "cron" / "arxmcp-backup.sh"
+    wrapper = REPO_ROOT / "src" / "arxmcp" / "ops" / "cron" / "arxmcp-backup.sh"
 
     def test_checkpoint_helper_exists(self):
-        helper = REPO_ROOT / "ops" / "checkpoint_notebooks_db.py"
+        helper = REPO_ROOT / "src" / "arxmcp" / "ops" / "checkpoint_notebooks_db.py"
         assert helper.is_file()
 
     def test_manifest_uses_files_from_verbatim(self):
@@ -230,7 +230,7 @@ class TestNotebookBackupScope:
         assert '"${DB}-wal" "${DB}-shm"' in text
         # And the final status is forced partial when degraded. The token
         # comes from the shared vocabulary (arXMCP#202), not a literal —
-        # see ops/cron/backup-status-lib.sh and tests/
+        # see src/arxmcp/ops/cron/backup-status-lib.sh and tests/
         # test_backup_status_vocabulary.py.
         assert 'BACKUP_STATUS="${ARXMCP_BACKUP_STATE_PARTIAL}"' in text
 
@@ -263,14 +263,14 @@ class TestRetentionIgnoresPartialSnapshots:
         import sqlite3
 
         root = tmp_path / "root"
-        (root / "ops" / "cron").mkdir(parents=True)
+        (root / "src" / "arxmcp" / "ops" / "cron").mkdir(parents=True)
         for rel in (
-            "ops/cron/arxmcp-backup.sh",
-            "ops/cron/backup-status-lib.sh",
-            "ops/checkpoint_notebooks_db.py",
+            "src/arxmcp/ops/cron/arxmcp-backup.sh",
+            "src/arxmcp/ops/cron/backup-status-lib.sh",
+            "src/arxmcp/ops/checkpoint_notebooks_db.py",
         ):
             shutil.copy2(REPO_ROOT / rel, root / rel)
-        (root / "ops" / "restic-env.sh").write_text(
+        (root / "src" / "arxmcp" / "ops" / "restic-env.sh").write_text(
             f'export RESTIC_REPOSITORY="{tmp_path / "repo"}"\n'
             'export RESTIC_PASSWORD="test"\n',
             encoding="utf-8",
@@ -289,7 +289,7 @@ class TestRetentionIgnoresPartialSnapshots:
         import json
 
         subprocess.run(
-            ["bash", str(root / "ops" / "cron" / "arxmcp-backup.sh")],
+            ["bash", str(root / "src" / "arxmcp" / "ops" / "cron" / "arxmcp-backup.sh")],
             env={**os.environ, "ARXMCP_UV": "/bin/true"},
             capture_output=True,
             text=True,

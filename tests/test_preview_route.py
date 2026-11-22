@@ -21,7 +21,7 @@ Fixture pattern matches ``tests/test_ui_html_pages.py``: minimal
 FastAPI app with the m7 (notebooks) + m8 (ui) routers + SecurityHeaders
 middleware (so we can verify the broader m8 CSP is OVERRIDDEN by the
 m10 handler's tighter CSP). The notebooks_base / corpus_parsed
-fixtures monkeypatch the shared :mod:`ingest.notebooks`
+fixtures monkeypatch the shared :mod:`arxmcp.ingest.notebooks`
 constants to point at tmp_path so the search-order tests can plant
 files at both locations.
 """
@@ -35,16 +35,16 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from ingest import notebooks as _notebook_common
-from server.middleware import (
+from arxmcp.ingest import notebooks as _notebook_common
+from arxmcp.server.middleware import (
     CONTENT_SECURITY_POLICY_PREVIEW,
     SecurityHeadersMiddleware,
 )
-from server.notebooks_store import NotebooksStore
-from server.routes import notebooks as notebooks_module
-from server.routes import ui as ui_module
-from server.routes.notebooks import router as notebooks_router
-from server.routes.ui import router as ui_router
+from arxmcp.server.notebooks_store import NotebooksStore
+from arxmcp.server.routes import notebooks as notebooks_module
+from arxmcp.server.routes import ui as ui_module
+from arxmcp.server.routes.notebooks import router as notebooks_router
+from arxmcp.server.routes.ui import router as ui_router
 
 REPO_ROOT: Path = Path(__file__).resolve().parents[1]
 
@@ -415,7 +415,7 @@ class TestPreviewPaperIdValidation:
         the route layer cannot silently regress the security
         boundary.
         """
-        from ingest.identifiers import is_valid_paper_id
+        from arxmcp.ingest.identifiers import is_valid_paper_id
 
         bad_inputs = [
             "../etc/passwd",

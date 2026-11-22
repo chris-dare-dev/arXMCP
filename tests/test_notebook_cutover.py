@@ -1,4 +1,4 @@
-"""Tests for tools/notebook_cutover.py (notebook-cutover-m1).
+"""Tests for src/arxmcp/tools/notebook_cutover.py (notebook-cutover-m1).
 
 Synthetic-fixture only — no BGE-M3, no BM25 build. A "lancedb" dir is modeled as
 a directory carrying a valid ``corpus-version.json`` marker plus a
@@ -36,8 +36,8 @@ from pathlib import Path
 
 import pytest
 
-import tools.notebook_cutover as nc
-from ingest.notebooks import NotebookError
+import arxmcp.tools.notebook_cutover as nc
+from arxmcp.ingest.notebooks import NotebookError
 
 
 def _write_lancedb(d: Path, version: int, chunk_count: int = 10) -> None:
@@ -62,12 +62,12 @@ def _write_lancedb(d: Path, version: int, chunk_count: int = 10) -> None:
 def nb_base(tmp_path: Path, monkeypatch) -> Path:
     """A notebooks-base dir; redirect the module-level NOTEBOOKS_BASE so
     main()/discover_promotable resolve here."""
-    import ingest.notebooks as _nc_common
+    import arxmcp.ingest.notebooks as _nc_common
 
     base = tmp_path / "notebooks"
     base.mkdir()
     # discover_promotable() reads nc.NOTEBOOKS_BASE; notebook_dir(slug,
-    # base=None) — the path main() takes — reads ingest.notebooks.NOTEBOOKS_BASE.
+    # base=None) — the path main() takes — reads arxmcp.ingest.notebooks.NOTEBOOKS_BASE.
     # Patch BOTH so the main()-level (all-notebooks) tests resolve to tmp.
     monkeypatch.setattr(nc, "NOTEBOOKS_BASE", base)
     monkeypatch.setattr(_nc_common, "NOTEBOOKS_BASE", base)
@@ -596,7 +596,7 @@ def _makefile_text() -> str:
 def test_makefile_recipe_does_not_say_the_cutover_builds_bm25() -> None:
     text = _makefile_text()
     start = text.index("\nnotebook-cutover:\n")
-    block = text[start:text.index("tools.notebook_cutover", start)]
+    block = text[start:text.index("arxmcp.tools.notebook_cutover", start)]
     assert "building the staging BM25" not in block
     assert "BM25 is not built here" in block
     assert 'ARGS="--notebook=<slug> --force"' in block

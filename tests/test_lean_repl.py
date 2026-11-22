@@ -20,8 +20,8 @@ from pathlib import Path
 
 import pytest
 
-from server.config import Config
-from server.lean_repl import (
+from arxmcp.server.config import Config
+from arxmcp.server.lean_repl import (
     DEFAULT_QUERY_TIMEOUT_S,
     LeanRepl,
     LeanReplError,
@@ -29,7 +29,7 @@ from server.lean_repl import (
     LeanReplTimeoutError,
     LeanUnavailableError,
 )
-from server.resources import ResourceStartupError
+from arxmcp.server.resources import ResourceStartupError
 
 # ---------------------------------------------------------------------------
 # Lean-toolchain opt-in detection (mirrors ARXMCP_RUN_REAL_BGE_RERANKER)
@@ -243,7 +243,7 @@ class TestFakeProcRoundTrips:
         """F5 guard: when terminate()'s grace wait AND the post-kill()
         reap both stall, close() still returns within a bounded time
         rather than hanging the lifespan shutdown drain."""
-        monkeypatch.setattr("server.lean_repl._CLOSE_GRACE_S", 0.1)
+        monkeypatch.setattr("arxmcp.server.lean_repl._CLOSE_GRACE_S", 0.1)
         proc = _FakeProc(returncode=None, wait_hangs=True)
         repl = _repl(proc)
         start = time.monotonic()

@@ -17,10 +17,10 @@ import json
 import numpy as np
 import pytest
 
-import server.cache as cache_mod
-from server.cache import EMBEDDING_DIM, RetrievalCache, reset_cache_for_tests
-from server.cache_sqlite import Tier1Store
-from server.metrics import (
+import arxmcp.server.cache as cache_mod
+from arxmcp.server.cache import EMBEDDING_DIM, RetrievalCache, reset_cache_for_tests
+from arxmcp.server.cache_sqlite import Tier1Store
+from arxmcp.server.metrics import (
     CACHE_BYTES_GAUGE,
     TIER_1,
     TIER_2,

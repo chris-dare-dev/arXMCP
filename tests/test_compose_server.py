@@ -22,8 +22,8 @@ import pytest
 import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-COMPOSE_PATH = REPO_ROOT / "infra" / "docker-compose.yml"
-DOCKERFILE_PATH = REPO_ROOT / "docker" / "Dockerfile.server"
+COMPOSE_PATH = REPO_ROOT / "deploy" / "docker-compose.yml"
+DOCKERFILE_PATH = REPO_ROOT / "deploy" / "Dockerfile.server"
 
 
 def _service(spec: dict) -> dict:
@@ -66,7 +66,7 @@ def test_loopback_only_port_bindings() -> None:
 
 def test_bind_mount_uses_single_dotdot_prefix() -> None:
     """RESOLVED #1 / F1-class trap: Compose resolves relative bind paths
-    against the compose FILE's parent (infra/), so the repo-root var/arxmcp is
+    against the compose FILE's parent (deploy/), so the repo-root var/arxmcp is
     reached with ONE '../'. A bare './var' lands at infra/var; '../../var'
     lands ABOVE the repo. Pin the exact source string."""
     svc = _service(yaml.safe_load(COMPOSE_PATH.read_text(encoding="utf-8")))
@@ -82,7 +82,7 @@ def test_bind_mount_uses_single_dotdot_prefix() -> None:
         f"server must bind-mount '../var/arxmcp' (ONE '../' — resolves to "
         f"repo-root var/arxmcp); got {sources!r}"
     )
-    assert "./var/arxmcp" not in sources, "bare './var/arxmcp' lands in infra/"
+    assert "./var/arxmcp" not in sources, "bare './var/arxmcp' lands in deploy/"
     assert "../../var/arxmcp" not in sources, (
         "'../../var/arxmcp' resolves ABOVE the repo root — the F1 trap"
     )
@@ -160,8 +160,8 @@ def test_builds_from_project_dockerfile() -> None:
     svc = _service(yaml.safe_load(COMPOSE_PATH.read_text(encoding="utf-8")))
     build = svc.get("build", {})
     assert isinstance(build, dict), "build must be a context/dockerfile mapping"
-    assert build.get("dockerfile") == "docker/Dockerfile.server", (
-        f"build.dockerfile must be docker/Dockerfile.server; got {build!r}"
+    assert build.get("dockerfile") == "deploy/Dockerfile.server", (
+        f"build.dockerfile must be deploy/Dockerfile.server; got {build!r}"
     )
 
 
@@ -221,7 +221,7 @@ def test_compose_config_resolves_bind_to_repo_root() -> None:
         f"got {src!r} (RESOLVED #1 regression — wrong '../' depth)"
     )
     assert "/infra/var/" not in src, (
-        f"bind-mount resolved INSIDE infra/ — relative-path bug. Got {src!r}"
+        f"bind-mount resolved INSIDE deploy/ — relative-path bug. Got {src!r}"
     )
 
     # Host-side port must be loopback.

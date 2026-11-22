@@ -16,7 +16,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from ingest.arxiv_fetch import (
+from arxmcp.ingest.arxiv_fetch import (
     MAX_RESPONSE_BYTES,
     FetchResult,
     ParseResult,
@@ -25,8 +25,8 @@ from ingest.arxiv_fetch import (
     fetch_eprint,
     parse_with_latexml,
 )
-from tools import fetch_seed
-from tools.fetch_seed import (
+from arxmcp.tools import fetch_seed
+from arxmcp.tools.fetch_seed import (
     EXPECTED_SEED_COUNT,
     Outcome,
     already_parsed,
@@ -308,7 +308,7 @@ class TestF6ParseWithLatexml:
         # raise, carrying the child's returncode, rather than return a soft
         # ParseResult a caller can silently drop — which previously surfaced
         # misleadingly as a downstream "no index.html" error in
-        # ingest/textbook_renderer.py. RuntimeError stays in fetch_seed's
+        # src/arxmcp/ingest/textbook_renderer.py. RuntimeError stays in fetch_seed's
         # PER_PAPER_FAILURE_EXCEPTIONS, so batch fetches still skip-and-
         # continue; "surface configuration failures cleanly" is preserved.
         main = tmp_path / "main.tex"

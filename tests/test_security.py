@@ -25,7 +25,7 @@ exposes a generator knob, the implementation can switch without
 changing this test.
 
 The startup test uses ``subprocess.run`` against ``python -m
-server.main`` because the AC is about exit code, not config-parse
+arxmcp.server.main`` because the AC is about exit code, not config-parse
 exception type (TestConfigValidation in test_server_startup.py
 already covers the latter).
 """
@@ -42,14 +42,14 @@ import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 
-from ingest.chunk import CHUNKER_VERSION, ChunkRecord
-from ingest.embedder import EMBEDDER_VERSION, EMBEDDING_DIM
-from ingest.schema import EmbedRecord
-from ingest.store import write_chunks
-from server.config import Config
-from server.health import reset_metrics_for_tests
-from server.main import create_app
-from server.middleware import (
+from arxmcp.ingest.chunk import CHUNKER_VERSION, ChunkRecord
+from arxmcp.ingest.embedder import EMBEDDER_VERSION, EMBEDDING_DIM
+from arxmcp.ingest.schema import EmbedRecord
+from arxmcp.ingest.store import write_chunks
+from arxmcp.server.config import Config
+from arxmcp.server.health import reset_metrics_for_tests
+from arxmcp.server.main import create_app
+from arxmcp.server.middleware import (
     LOOPBACK_HOST_HEADER_HOSTS,
     LOOPBACK_ORIGIN_HOSTS,
     MAX_ECHOED_ORIGIN_LEN,
@@ -99,7 +99,7 @@ def _seed_corpus(lancedb_path: Path) -> int:
 @pytest.fixture
 def _mocked_bge(monkeypatch):
     """Replace BGE-M3 model + tokenizer load with no-ops."""
-    import server.query_encoder as qe_mod
+    import arxmcp.server.query_encoder as qe_mod
 
     monkeypatch.setattr(qe_mod, "_get_model", lambda: object())
     monkeypatch.setattr(qe_mod, "_get_tokenizer", lambda: object())
@@ -258,7 +258,7 @@ class TestStartupRejectsBadBind:
     The lower-level config-parse rejection is already covered by
     ``tests/test_server_startup.py::TestConfigValidation``. This test
     goes one level higher — assert that the actual
-    ``python -m server.main`` invocation exits non-zero with the
+    ``python -m arxmcp.server.main`` invocation exits non-zero with the
     FATAL message in stderr."""
 
     def test_subprocess_exits_nonzero_with_fatal_message(self, tmp_path):
@@ -268,7 +268,7 @@ class TestStartupRejectsBadBind:
         # PYTHONPATH so the subprocess can import the local package.
         env["PYTHONPATH"] = str(Path(__file__).resolve().parents[1])
         proc = subprocess.run(
-            [sys.executable, "-m", "server.main"],
+            [sys.executable, "-m", "arxmcp.server.main"],
             env=env,
             capture_output=True,
             text=True,
@@ -878,13 +878,13 @@ class TestSecurityEventLogging:
     def test_origin_reject_emits_warn_log(self, warm_app, caplog):
         import logging
 
-        with caplog.at_level(logging.WARNING, logger="server.middleware.security"):
+        with caplog.at_level(logging.WARNING, logger="arxmcp.server.middleware.security"):
             r = warm_app.get("/healthz", headers={"Origin": "https://evil.com"})
         assert r.status_code == 403
         msgs = [
             r.getMessage()
             for r in caplog.records
-            if r.name == "server.middleware.security"
+            if r.name == "arxmcp.server.middleware.security"
         ]
         assert any("origin rejected" in m for m in msgs), (
             f"expected 'origin rejected' WARN log; got {msgs}"
@@ -893,13 +893,13 @@ class TestSecurityEventLogging:
     def test_host_reject_emits_warn_log(self, warm_app, caplog):
         import logging
 
-        with caplog.at_level(logging.WARNING, logger="server.middleware.security"):
+        with caplog.at_level(logging.WARNING, logger="arxmcp.server.middleware.security"):
             r = warm_app.get("/healthz", headers={"Host": "attacker.example.com"})
         assert r.status_code == 421
         msgs = [
             r.getMessage()
             for r in caplog.records
-            if r.name == "server.middleware.security"
+            if r.name == "arxmcp.server.middleware.security"
         ]
         assert any("host rejected" in m for m in msgs), (
             f"expected 'host rejected' WARN log; got {msgs}"
@@ -914,7 +914,7 @@ class TestSecurityEventLogging:
         app = create_app(cfg)
         with (
             caplog.at_level(
-                logging.WARNING, logger="server.middleware.security"
+                logging.WARNING, logger="arxmcp.server.middleware.security"
             ),
             TestClient(app) as client,
         ):
@@ -930,7 +930,7 @@ class TestSecurityEventLogging:
         msgs = [
             r.getMessage()
             for r in caplog.records
-            if r.name == "server.middleware.security"
+            if r.name == "arxmcp.server.middleware.security"
         ]
         assert any("content-length" in m for m in msgs), (
             f"expected 'content-length' WARN log; got {msgs}"

@@ -56,7 +56,7 @@ make init NOTEBOOK=demo EMAIL=you@example.com
 make add  NOTEBOOK=demo PAPER=1309.4265
 
 # 3. ingest, then serve it
-make ingest ARGS="--paper-ids-file=tools/seed-papers.txt --limit=5"
+make ingest ARGS="--paper-ids-file=src/arxmcp/tools/seed-papers.txt --limit=5"
 ARXMCP_NOTEBOOK=demo make up        # MCP server on 127.0.0.1:7733
 
 # 4. register the stdio shim: merge this into ~/.claude.json
@@ -65,7 +65,7 @@ ARXMCP_NOTEBOOK=demo make up        # MCP server on 127.0.0.1:7733
 ```
 
 `make help` lists every target. The `Makefile` is bash-only; on Windows run
-the server with `python -m server.main` from the activated venv.
+the server with `python -m arxmcp.server.main` from the activated venv.
 
 ## Documentation
 
@@ -87,8 +87,8 @@ arXMCP/
 ├── ops/        operability layer (backup, cutover, restore drill, drift watchdog, cron/systemd units)
 ├── tools/      dev + ingest utilities (seed/notebook fetch, eval gates, ops reports)
 ├── tests/      pytest suite + retrieval-quality eval harness under tests/eval/
-├── docker/     multi-stage Dockerfile (non-root, tini, HEALTHCHECK on /readyz)
-├── infra/      deployment + observability manifests
+├── deploy/     multi-stage Dockerfile (non-root, tini, HEALTHCHECK on /readyz)
+├── deploy/      deployment + observability manifests
 ├── apps/       desktop shell (Tauri supervisor + PyInstaller packaging)
 └── var/        gitignored data tree (created by `make bootstrap`)
 ```

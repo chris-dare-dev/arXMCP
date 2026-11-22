@@ -29,18 +29,18 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.testclient import TestClient
 
-from ingest import notebooks as _notebook_common
-from server.notebooks_store import NotebooksStore
-from server.routes import notebooks as notebooks_module
-from server.routes.notebooks import (
+from arxmcp.ingest import notebooks as _notebook_common
+from arxmcp.server.notebooks_store import NotebooksStore
+from arxmcp.server.routes import notebooks as notebooks_module
+from arxmcp.server.routes.notebooks import (
     INGEST_STATE_CUE_ID,
     _ingest_status_fragment,
 )
-from server.routes.notebooks import router as notebooks_router
-from server.routes.ui import router as ui_router
+from arxmcp.server.routes.notebooks import router as notebooks_router
+from arxmcp.server.routes.ui import router as ui_router
 
 REPO_ROOT: Path = Path(__file__).resolve().parents[1]
-FRONTEND: Path = REPO_ROOT / "server" / "frontend"
+FRONTEND: Path = REPO_ROOT / "src" / "arxmcp" / "server" / "frontend"
 FRONTEND_STATIC: Path = FRONTEND / "static"
 
 DETAIL_HTML: str = (FRONTEND / "templates" / "notebook_detail.html").read_text(
@@ -441,7 +441,7 @@ class TestSummaryStateCue:
             "read of one fact, free to drift."
         )
         for name in ("ui.py", "notebooks.py"):
-            src = (REPO_ROOT / "server" / "routes" / name).read_text(encoding="utf-8")
+            src = (REPO_ROOT / "src/arxmcp/server" / "routes" / name).read_text(encoding="utf-8")
             assert "get_latest_ingest_run(" in src, (
                 f"{name} no longer calls get_latest_ingest_run; the same-row "
                 f"guarantee behind AC#3 is gone."

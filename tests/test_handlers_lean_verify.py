@@ -28,8 +28,8 @@ from typing import Any
 
 import pytest
 
-from server.config import Config
-from server.handlers.lean_verify import (
+from arxmcp.server.config import Config
+from arxmcp.server.handlers.lean_verify import (
     _DECL_KEYWORDS,
     _DECL_MODIFIERS,
     AXIOM_ALLOWLIST,
@@ -44,14 +44,14 @@ from server.handlers.lean_verify import (
     _normalize_response,
     handle_lean_verify,
 )
-from server.lean_repl import (
+from arxmcp.server.lean_repl import (
     DEFAULT_QUERY_TIMEOUT_S,
     LeanReplError,
     LeanReplRestartedError,
     LeanReplTimeoutError,
     LeanUnavailableError,
 )
-from server.tools import (
+from arxmcp.server.tools import (
     LEAN_VERIFY,
     TOOL_SCHEMA_VERSION,
     reset_resources_for_tests,
@@ -81,7 +81,7 @@ def _run(coro):
 
 
 class _FakeLeanRepl:
-    """Async stand-in for ``server.lean_repl.LeanRepl``.
+    """Async stand-in for ``arxmcp.server.lean_repl.LeanRepl``.
 
     ``responses`` is a list of REPL JSON responses returned in order.
     ``raise_with`` (optional) is the LeanReplError to raise on the
@@ -190,7 +190,7 @@ def fake_resources_disabled():
 
 class TestToolRegistration:
     def test_lean_verify_in_all_tools(self):
-        from server.tools import ALL_TOOLS
+        from arxmcp.server.tools import ALL_TOOLS
 
         assert LEAN_VERIFY in ALL_TOOLS, "LEAN_VERIFY must appear in ALL_TOOLS"
         assert ALL_TOOLS[-1] is LEAN_VERIFY, (
@@ -260,7 +260,7 @@ class TestToolRegistration:
 
         schema_path = (
             Path(__file__).parent.parent
-            / "server"
+            / "src" / "arxmcp" / "server"
             / "schemas"
             / "lean_verify_result.json"
         )
@@ -1011,7 +1011,7 @@ class TestContinuationSchemaConformance:
 
         schema_path = (
             Path(__file__).parent.parent
-            / "server"
+            / "src" / "arxmcp" / "server"
             / "schemas"
             / "lean_verify_result.json"
         )
@@ -1207,7 +1207,7 @@ class TestSpawnRlimitGuard:
         reason="POSIX-only branch: setrlimit/preexec_fn required",
     )
     def test_posix_attaches_preexec_fn(self, tmp_path, monkeypatch):
-        from server import lean_repl as lean_mod
+        from arxmcp.server import lean_repl as lean_mod
 
         fake_lake = tmp_path / "lake"
         fake_lake.write_text("", encoding="utf-8")
@@ -1256,7 +1256,7 @@ class TestSpawnRlimitGuard:
 
     def test_no_rlimit_means_no_preexec_fn(self, tmp_path, monkeypatch):
         """rlimit_as_bytes=0/None disables the cap on every platform."""
-        from server import lean_repl as lean_mod
+        from arxmcp.server import lean_repl as lean_mod
 
         fake_lake = tmp_path / "lake"
         fake_lake.write_text("", encoding="utf-8")
@@ -1294,7 +1294,7 @@ class TestSpawnRlimitGuard:
         """Windows must silently skip the cap (the platform has no
         RLIMIT_AS and would crash on preexec_fn). The handler logs a
         WARN so the operator sees the unprotected path explicitly."""
-        from server import lean_repl as lean_mod
+        from arxmcp.server import lean_repl as lean_mod
 
         fake_lake = tmp_path / "lake"
         fake_lake.write_text("", encoding="utf-8")
@@ -1349,7 +1349,7 @@ class TestLeanVerifyResultSchema:
 
         schema_path = (
             Path(__file__).parent.parent
-            / "server"
+            / "src" / "arxmcp" / "server"
             / "schemas"
             / "lean_verify_result.json"
         )
@@ -1440,7 +1440,7 @@ class TestLeanVerifyResultSchema:
     ):
         """m3 critique F6: the non-timeout LeanReplError envelope
         (process exited, malformed response) must conform."""
-        from server.lean_repl import LeanReplError
+        from arxmcp.server.lean_repl import LeanReplError
 
         _fake, repl = fake_resources_with_repl
         repl._raise_with = LeanReplError(
@@ -1471,7 +1471,7 @@ class TestTimeoutDiscriminatorIsTypeNotSubstring:
         to the generic-error envelope. Without the F3 fix (substring
         match), this test fails: the handler erroneously kills + tries
         to respawn the REPL."""
-        from server.lean_repl import LeanReplError
+        from arxmcp.server.lean_repl import LeanReplError
 
         _fake, repl = fake_resources_with_repl
         # The substring "timeout" appears, but the exception is NOT a
@@ -1568,7 +1568,7 @@ class TestImportsListLengthDefenseInDepth:
     path' — and direct callers can bypass Pydantic's max_length)."""
 
     def test_oversize_imports_list_rejected(self, fake_resources_with_repl):
-        from server.handlers.lean_verify import MAX_IMPORTS
+        from arxmcp.server.handlers.lean_verify import MAX_IMPORTS
 
         with pytest.raises(ValueError, match="imports list too long"):
             _run(
@@ -1592,7 +1592,7 @@ class TestRealLeanRepl:
 
     @staticmethod
     async def _setup_real_repl():
-        from server.lean_repl import LeanRepl
+        from arxmcp.server.lean_repl import LeanRepl
 
         repl = await LeanRepl.spawn(
             lake_path=_LAKE_PATH,
@@ -1822,7 +1822,7 @@ class TestRealLeanRepl:
         LeanReplError, RLIMIT_AS proved it can constrain the child;
         an ``ok`` status would mean the cap silently failed to apply.
         """
-        from server.lean_repl import LeanRepl, LeanReplError
+        from arxmcp.server.lean_repl import LeanRepl, LeanReplError
 
         async def _go():
             # 32 MiB — well below Lean's baseline; the kernel + oleans
@@ -1998,7 +1998,7 @@ class TestProgressHeartbeat:
         """Crank the heartbeat down to 50 ms so tests don't sleep for
         seconds. We still verify the >=1-emission AC-2 with a query
         delay of 200 ms (>= 4 heartbeat intervals)."""
-        from server.handlers import lean_verify as lv
+        from arxmcp.server.handlers import lean_verify as lv
 
         monkeypatch.setattr(lv, "_HEARTBEAT_INTERVAL_S", 0.05)
         # Total stays at 30.0 so the reported progress / total ratio
@@ -2140,7 +2140,7 @@ class TestProgressHeartbeat:
         """AC-5 / FM-7: ``LeanReplTimeoutError`` mid-await must cancel
         the heartbeat task in ``finally`` — no emissions leak after the
         exception, and the timeout envelope is still returned."""
-        from server.lean_repl import LeanReplTimeoutError
+        from arxmcp.server.lean_repl import LeanReplTimeoutError
 
         slow_timeout_repl = _SlowFakeLeanRepl(
             raise_with=LeanReplTimeoutError("simulated 30s timeout"),
@@ -2177,7 +2177,7 @@ class TestProgressHeartbeat:
         """AC-5 / FM-7: non-timeout ``LeanReplError`` mid-await must
         also cancel the heartbeat. The handler returns an error envelope
         (m3 contract), not the timeout envelope."""
-        from server.lean_repl import LeanReplError
+        from arxmcp.server.lean_repl import LeanReplError
 
         erroring_repl = _SlowFakeLeanRepl(
             raise_with=LeanReplError("REPL crashed: non-JSON response"),
@@ -2371,7 +2371,7 @@ class TestProgressHeartbeat:
         ctx = _RecordingCtx(raise_on_call=ConnectionError("SSE closed"))
         try:
             with caplog.at_level(
-                _logging.WARNING, logger="server.handlers.lean_verify"
+                _logging.WARNING, logger="arxmcp.server.handlers.lean_verify"
             ):
                 result = _run(
                     handle_lean_verify(
@@ -3521,7 +3521,7 @@ class TestAxiomAuditAbstentionPaths:
     def test_no_envelope_ever_defaults_the_axis_to_clean(self):
         """Belt-and-braces over the whole sentinel family: a 'clean' outcome
         must be impossible without a measurement behind it."""
-        from server.handlers.lean_verify import (
+        from arxmcp.server.handlers.lean_verify import (
             _disabled_envelope,
             _invalid_continuation_envelope,
             _message_error_envelope,
@@ -3611,7 +3611,7 @@ class TestAxiomAuditSchemaConformance:
 
         schema_path = (
             Path(__file__).parent.parent
-            / "server"
+            / "src" / "arxmcp" / "server"
             / "schemas"
             / "lean_verify_result.json"
         )
@@ -3651,7 +3651,7 @@ class TestAxiomAuditSchemaConformance:
         required rather than optional."""
         schema_path = (
             Path(__file__).parent.parent
-            / "server"
+            / "src" / "arxmcp" / "server"
             / "schemas"
             / "lean_verify_result.json"
         )
@@ -3675,7 +3675,7 @@ class TestAxiomHygieneAgainstRealLean:
         reset_resources_for_tests()
 
     def test_axiom_false_is_flagged_by_the_real_kernel(self):
-        from server.lean_repl import LeanRepl
+        from arxmcp.server.lean_repl import LeanRepl
 
         async def _go():
             repl = await LeanRepl.spawn(

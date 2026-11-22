@@ -1,4 +1,4 @@
-"""Tests for ``tools/validate_eval_fixtures.py`` (E05_S01).
+"""Tests for ``src/arxmcp/tools/validate_eval_fixtures.py`` (E05_S01).
 
 Coverage map (synthesis §D12):
 
@@ -33,9 +33,9 @@ from pathlib import Path
 
 import pytest
 
-from ingest.chunk import CHUNKER_VERSION
-from ingest.chunker import _PAPER_ID_RE as CHUNKER_PAPER_ID_RE
-from tools.validate_eval_fixtures import (
+from arxmcp.ingest.chunk import CHUNKER_VERSION
+from arxmcp.ingest.chunker import _PAPER_ID_RE as CHUNKER_PAPER_ID_RE
+from arxmcp.tools.validate_eval_fixtures import (
     _PAPER_ID_RE,
     DEFAULT_FIXTURE_PATH,
     MIN_QUERIES_BY_KIND,
@@ -66,7 +66,7 @@ def _write_fixture(path: Path, *, queries: list, **header_overrides) -> Path:
 def _write_manifest(
     chunks_dir: Path, paper_id: str, chunks: list[dict]
 ) -> Path:
-    """Write a chunk_manifest.json mirroring ingest.chunker schema."""
+    """Write a chunk_manifest.json mirroring arxmcp.ingest.chunker schema."""
     out = chunks_dir / paper_id / "chunk_manifest.json"
     out.parent.mkdir(parents=True, exist_ok=True)
     payload = {
@@ -159,7 +159,7 @@ def _make_full_fixture(kind_index: dict[str, str]) -> list[dict]:
 class TestSingleSourceOfTruth:
     def test_paper_id_regex_matches_chunker(self):
         """The validator duplicates ``_PAPER_ID_RE`` from
-        ``ingest.chunker`` to avoid pulling LaTeXML deps. The pattern
+        ``arxmcp.ingest.chunker`` to avoid pulling LaTeXML deps. The pattern
         strings MUST be identical."""
         assert _PAPER_ID_RE.pattern == CHUNKER_PAPER_ID_RE.pattern
 
@@ -174,11 +174,11 @@ class TestSingleSourceOfTruth:
         source — ``CHUNKER_VERSION`` is the only acceptable reference.
         Mirrors the E04_S04 single-source-of-truth literal scan."""
         repo_root = Path(__file__).parent.parent.parent
-        validator_src = (repo_root / "tools" / "validate_eval_fixtures.py").read_text(
+        validator_src = (repo_root / "src/arxmcp/tools" / "validate_eval_fixtures.py").read_text(
             encoding="utf-8"
         )
         assert '"v1.0"' not in validator_src, (
-            "tools/validate_eval_fixtures.py must not literalize "
+            "src/arxmcp/tools/validate_eval_fixtures.py must not literalize "
             '"v1.0" — import CHUNKER_VERSION instead'
         )
 
@@ -705,7 +705,7 @@ class TestCreatedAtFormat:
 class TestCli:
     def test_cli_seed_mode_exits_zero(self, tmp_path):
         """F1: the implementation summary AND the runbook tell the
-        curator to run ``python tools/validate_eval_fixtures.py`` from
+        curator to run ``python src/arxmcp/tools/validate_eval_fixtures.py`` from
         the shell. The pytest wrapper does not exercise that CLI surface
         (argparse, stdout ``OK:`` prefix, sys.exit). Lock it here."""
         import subprocess
@@ -718,7 +718,7 @@ class TestCli:
         result = subprocess.run(
             [
                 _sys.executable,
-                str(repo_root / "tools" / "validate_eval_fixtures.py"),
+                str(repo_root / "src" / "arxmcp" / "tools" / "validate_eval_fixtures.py"),
                 "--fixture",
                 str(stub),
                 "--chunks-dir",
@@ -746,7 +746,7 @@ class TestCli:
         result = subprocess.run(
             [
                 _sys.executable,
-                str(repo_root / "tools" / "validate_eval_fixtures.py"),
+                str(repo_root / "src" / "arxmcp" / "tools" / "validate_eval_fixtures.py"),
                 "--fixture",
                 str(bad),
                 "--chunks-dir",

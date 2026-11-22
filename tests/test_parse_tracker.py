@@ -23,16 +23,16 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from ingest import textbook_parser
-from ingest.textbook_parser import MinerUResult
-from ingest.textbook_renderer import RenderResult
-from server.notebooks_store import (
+from arxmcp.ingest import textbook_parser
+from arxmcp.ingest.textbook_parser import MinerUResult
+from arxmcp.ingest.textbook_renderer import RenderResult
+from arxmcp.server.notebooks_store import (
     SCHEMA_VERSION,
     NotebooksStore,
     ParseMetrics,
     open_sync,
 )
-from server.parse_tracker import (
+from arxmcp.server.parse_tracker import (
     PARSE_ERROR_TAIL_MAX_BYTES,
     ParseTaskTracker,
     _format_parse_error,
@@ -172,7 +172,7 @@ class TestParseTaskTrackerSurface:
         mineru_result = _make_mineru_result(tmp_path)
         render_result = _make_render_result(tmp_path)
 
-        from ingest import textbook_parser, textbook_renderer
+        from arxmcp.ingest import textbook_parser, textbook_renderer
         monkeypatch.setattr(
             textbook_parser, "run_mineru_sandboxed",
             lambda pdf_path, output_dir: mineru_result,
@@ -217,7 +217,7 @@ class TestParseTaskTrackerSurface:
         def fake_mineru(pdf_path, output_dir):  # noqa: ARG001
             raise RuntimeError("boom: subprocess exited 137")
 
-        from ingest import textbook_parser
+        from arxmcp.ingest import textbook_parser
         monkeypatch.setattr(
             textbook_parser, "run_mineru_sandboxed", fake_mineru,
         )
@@ -250,7 +250,7 @@ class TestParseTaskTrackerSurface:
         store = _make_store_mock()
         mineru_result = _make_mineru_result(tmp_path)
 
-        from ingest import textbook_parser, textbook_renderer
+        from arxmcp.ingest import textbook_parser, textbook_renderer
         monkeypatch.setattr(
             textbook_parser, "run_mineru_sandboxed",
             lambda pdf_path, output_dir: mineru_result,
@@ -311,8 +311,8 @@ class TestSuccessPathStatusWrite:
     def _run_successful_parse(
         tmp_path: Path, monkeypatch: pytest.MonkeyPatch, store: MagicMock,
     ) -> None:
-        from ingest import textbook_parser, textbook_renderer
-        from server import parse_tracker
+        from arxmcp.ingest import textbook_parser, textbook_renderer
+        from arxmcp.server import parse_tracker
 
         mineru_result = _make_mineru_result(tmp_path)
         render_result = _make_render_result(tmp_path)
@@ -542,7 +542,7 @@ class TestShutdownRecordsWhatHappened:
             release.set()
             return 1
 
-        from ingest import textbook_renderer
+        from arxmcp.ingest import textbook_renderer
         monkeypatch.setattr(textbook_parser, "run_mineru_sandboxed", fake_mineru)
         monkeypatch.setattr(textbook_parser, "terminate_live_mineru", fake_terminate)
         monkeypatch.setattr(
@@ -584,7 +584,7 @@ class TestShutdownRecordsWhatHappened:
             release.set()
             return 0
 
-        from ingest import textbook_renderer
+        from arxmcp.ingest import textbook_renderer
         monkeypatch.setattr(textbook_parser, "run_mineru_sandboxed", fake_mineru)
         monkeypatch.setattr(textbook_parser, "terminate_live_mineru", fake_terminate)
         monkeypatch.setattr(
@@ -622,7 +622,7 @@ class TestShutdownRecordsWhatHappened:
             time.sleep(0.3)
             return render_result
 
-        from ingest import textbook_renderer
+        from arxmcp.ingest import textbook_renderer
         monkeypatch.setattr(
             textbook_parser, "run_mineru_sandboxed", lambda *a: mineru_result,
         )
@@ -652,7 +652,7 @@ class TestShutdownRecordsWhatHappened:
             never.wait(60)
             raise RuntimeError("released by the test")
 
-        from ingest import textbook_renderer
+        from arxmcp.ingest import textbook_renderer
         monkeypatch.setattr(
             textbook_parser, "run_mineru_sandboxed", lambda *a: mineru_result,
         )
@@ -703,7 +703,7 @@ class TestParseMetricsPersistence:
     def test_tracker_persists_measurements_of_a_clean_parse(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        from ingest import textbook_renderer
+        from arxmcp.ingest import textbook_renderer
 
         render_result = dataclasses.replace(
             _make_render_result(tmp_path), latex_error_annotations=4000,

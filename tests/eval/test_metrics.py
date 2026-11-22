@@ -1,4 +1,4 @@
-"""Unit tests for ``ops/eval_metrics.py``.
+"""Unit tests for ``src/arxmcp/ops/eval_metrics.py``.
 
 The retrieval-quality test (``test_retrieval_quality.py``) skips on a
 cold-start dev box, so the metric functions need their own self-
@@ -25,7 +25,7 @@ import math
 
 import pytest
 
-from ops.eval_metrics import (
+from arxmcp.ops.eval_metrics import (
     HIGHLY_RELEVANT_GRADE,
     ThresholdNotMetError,
     _mean,
@@ -415,7 +415,7 @@ class TestScoreAndWrite:
         integration of ``assert_threshold`` into the actual harness
         (the original critique was that the helper was tested in
         isolation but the integration was unverified)."""
-        from ops.eval_metrics import ThresholdNotMetError
+        from arxmcp.ops.eval_metrics import ThresholdNotMetError
         from tests.eval.test_retrieval_quality import score_and_write
 
         rows = self._synthetic_rows(
@@ -641,14 +641,14 @@ class TestLatencyBudgetPin:
 class TestColumnNamesSourceOfTruth:
     def test_test_module_uses_imported_constant(self):
         """Closes F3: ``EMBEDDING_COLUMN_NAMES`` is exported from
-        ``ingest.schema``; the eval harness imports it rather than
+        ``arxmcp.ingest.schema``; the eval harness imports it rather than
         literalizing the column-name strings."""
-        from ingest.schema import EMBEDDING_COLUMN_NAMES
+        from arxmcp.ingest.schema import EMBEDDING_COLUMN_NAMES
         from tests.eval.test_retrieval_quality import EMBEDDING_COLUMNS
 
         assert EMBEDDING_COLUMNS is EMBEDDING_COLUMN_NAMES
         # Sanity: the actual schema column list contains both names.
-        from ingest.schema import CHUNKS_SCHEMA_V1
+        from arxmcp.ingest.schema import CHUNKS_SCHEMA_V1
 
         schema_field_names = {f.name for f in CHUNKS_SCHEMA_V1}
         for col in EMBEDDING_COLUMN_NAMES:

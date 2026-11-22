@@ -30,7 +30,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from ingest.bm25_indexer import (
+from arxmcp.ingest.bm25_indexer import (
     BM25_CHUNK_IDS_NAME,
     BM25_INDEX_NAME,
     _atomic_write_bytes,
@@ -38,11 +38,11 @@ from ingest.bm25_indexer import (
     build_bm25_index,
     resolve_bm25_root,
 )
-from ingest.chunk import CHUNKER_VERSION, ChunkRecord
-from ingest.embedder import EMBEDDER_VERSION, EMBEDDING_DIM
-from ingest.schema import EmbedRecord
-from ingest.store import write_chunks
-from server.retrieval.bm25 import (
+from arxmcp.ingest.chunk import CHUNKER_VERSION, ChunkRecord
+from arxmcp.ingest.embedder import EMBEDDER_VERSION, EMBEDDING_DIM
+from arxmcp.ingest.schema import EmbedRecord
+from arxmcp.ingest.store import write_chunks
+from arxmcp.server.retrieval.bm25 import (
     DEFAULT_TOP_N,
     DEFERRED_FILTER_KEYS,
     SUPPORTED_FILTER_KEYS,
@@ -266,7 +266,7 @@ class TestKnownGoodQueries:
     ):
         """Every returned chunk_id must exist in the LanceDB chunks
         table — closes the brief AC literally."""
-        from ingest.corpus import open_chunks_table
+        from arxmcp.ingest.corpus import open_chunks_table
 
         lancedb_path, version = _seeded_lancedb
         tbl = open_chunks_table(lancedb_path, version=version)
@@ -689,7 +689,7 @@ class TestParentDirectorySafety:
     def test_world_writable_parent_dir_rejected(
         self, _seeded_lancedb
     ):
-        from server.retrieval.bm25 import _assert_dir_safe
+        from arxmcp.server.retrieval.bm25 import _assert_dir_safe
 
         lancedb_path, version = _seeded_lancedb
         build_bm25_index(lancedb_path, corpus_version=version)
@@ -707,7 +707,7 @@ class TestParentDirectorySafety:
     def test_safe_parent_dir_passes(self, _bm25_phase):
         """The artifact built by build_bm25_index in this test lives
         under a default-mode tmp directory — must pass the check."""
-        from server.retrieval.bm25 import _assert_dir_safe
+        from arxmcp.server.retrieval.bm25 import _assert_dir_safe
 
         _assert_dir_safe(_bm25_phase.artifact_path.parent)
 
@@ -735,14 +735,14 @@ class TestChunkIdsLiveCrossCheck:
         tampered[0] = "arxiv:9999.99999:" + ("9" * 16)
         # Rewrite using the same atomic write so the file-safety
         # check passes; the cross-check is what we want to fire.
-        from ingest.bm25_indexer import _atomic_write_text
+        from arxmcp.ingest.bm25_indexer import _atomic_write_text
 
         _atomic_write_text(
             ids_path, json.dumps(tampered, ensure_ascii=False) + "\n"
         )
 
         # Build live_chunk_ids from the actual table.
-        from ingest.corpus import open_chunks_table
+        from arxmcp.ingest.corpus import open_chunks_table
 
         tbl = open_chunks_table(lancedb_path, version=version)
         live_ids = set(tbl.to_arrow().column("chunk_id").to_pylist())
@@ -790,7 +790,7 @@ class TestAtomicWriteMode:
         )
 
     def test_text_write_under_open_umask_is_0o600(self, tmp_path):
-        from ingest.bm25_indexer import _atomic_write_text
+        from arxmcp.ingest.bm25_indexer import _atomic_write_text
 
         out = tmp_path / "x.json"
         original_umask = os.umask(0o000)
@@ -817,7 +817,7 @@ class TestArtifactIntegrityExtended:
         version_dir = _bm25_version_dir(version, resolve_bm25_root(lancedb_path))
         ids_path = version_dir / BM25_CHUNK_IDS_NAME
 
-        from ingest.bm25_indexer import _atomic_write_text
+        from arxmcp.ingest.bm25_indexer import _atomic_write_text
 
         original = json.loads(ids_path.read_text())
         extended = original + ["arxiv:0000.00000:" + "0" * 16]
@@ -926,9 +926,9 @@ class TestResourcesIntegration:
         """``Resources.startup(cfg)`` MUST populate
         ``r.bm25_phase`` with a working ``BM25Phase`` instance."""
         # Mock BGE-M3 so we don't pay the model download in CI.
-        import server.query_encoder as qe_mod
-        from server.config import Config
-        from server.resources import Resources
+        import arxmcp.server.query_encoder as qe_mod
+        from arxmcp.server.config import Config
+        from arxmcp.server.resources import Resources
 
         original_get_model = qe_mod._get_model
         original_get_tok = qe_mod._get_tokenizer

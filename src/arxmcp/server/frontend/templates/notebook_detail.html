@@ -1,0 +1,624 @@
+{% extends "base.html" %}
+
+{% block title %}{{ notebook.slug }} · arXMCP{% endblock %}
+
+{% block content %}
+<nav class="breadcrumb"><a href="/ui/">← All notebooks</a></nav>
+
+{# ui-uplift-m8 (UPL-2): `class="card"` is gone from all seven blocks here and
+   the ELEMENT was decided per site — see the same note in index.html for the
+   rule and for why no aria-labelledby was added. Two SECTIONs survive on this
+   page (the record's identity block and the papers inventory); the five job
+   forms drop to DIV. #}
+{# ui-uplift-m12 (UPL-1) — corpus before machinery. Three re-decisions, each
+   recorded because each overturns something an earlier milestone pinned.
+
+   1. ORDER. The authored anatomy: ruled
+      masthead -> papers ledger -> ONE <details> "Manage this notebook"
+      carrying the five mutation forms (Topic, Discover, Add-by-URL, Upload,
+      Ingest, in that order). Seven top-level blocks become THREE REGIONS —
+      the BAN-2 payload the roadmap dropped. m8's per-site <section>/<div>
+      decisions are UNCHANGED; only their order moved, and
+      tests/test_ui_m8_rule_ladder.py's DECIDED list is re-transcribed with a
+      reason per site rather than silently re-sorted. The five DIVs stay at
+      COLUMN 0 on purpose: indenting them would drop five of the seven
+      per-site records out of that guard's ^<(section|div)> view, and "a
+      decision recorded as a total is not a recorded decision" is m8's own
+      note. A separate guard pins that they are inside the disclosure.
+
+   2. AC#1 WAS NARROWED HERE, AND THE ROADMAP NOW SAYS SO. SIX forms exist on
+      this page, not the five the roadmap scopes: the sixth is form.rename-form
+      below, inside this identity <section>, and it STAYS. Renaming is part of
+      the record's identity — it belongs with the slug and the metadata that
+      lead the page — and moving it would pull a control out of the <section>
+      landmark m8 deliberately created. AC#1 is implemented as "no
+      CORPUS-MUTATION form above the table": rename edits the record's label,
+      not the corpus.
+
+   3. WHY <details> IS SAFE HERE AND WAS REFUSED AT src/arxmcp/server/routes/ui.py:280.
+      onboarding-uplift-m3 synthesis D2 rejected <details>/<summary> for the
+      status badge because hx-swap="outerHTML" replaced the whole element
+      every 10s and would snap the disclosure closed on every poll. That does
+      not reach m12: the polled element (#ingest-status) is strictly NESTED
+      inside this disclosure and the <details> is never a swap target nor
+      inside one, so outerHTML replaces that div alone and `open` is never in
+      the swapped subtree. HARD CONSTRAINT for later milestones on this page
+      (m13 moves aria-live onto "a stable never-swapped wrapper" and is the
+      near-miss): no swap may target the <details> or any ancestor of it.
+      Verified at the vendored htmx 2.0.10 source — a poll inside a CLOSED
+      <details> keeps firing, the only guard being bodyContains — so the open
+      predicate below mitigates a live defect, not a hypothetical. #}
+{# SECTION — the record itself: identity, name, metadata, delete. #}
+<section>
+  <h2><code>{{ notebook.slug }}</code></h2>
+  {# notebook-surface-expansion-m2: always-rendered display-name block — the
+     stable htmx swap target (#display-name-block). PATCH /ui/api/notebooks/{slug}
+     returns this same <p> re-rendered (server-side html.escape'd in
+     src/arxmcp/server/routes/notebooks.py::_display_name_fragment). Autoescape applies
+     here too; an empty name shows "—". Do NOT add `| safe`.
+     ui-attractive-polish-m1 (UPL-3): aria-live="polite" so screen-readers
+     announce the renamed value after the outerHTML swap. CRITICAL: the swap
+     REPLACES this element, so _display_name_fragment in src/arxmcp/server/routes/
+     notebooks.py MUST also emit the attribute on its returned <p>. #}
+  <p class="display-name" id="display-name-block" aria-live="polite">{{ notebook.display_name or "—" }}</p>
+  {# Rename form sits OUTSIDE #display-name-block so it survives the outerHTML
+     swap. The base.html JSON-shim serializes the PATCH body to JSON
+     ({"display_name": ...}) → the NotebookRename model. On success htmx swaps
+     the <p> in place (no reload); on 4xx the JSON `detail` is surfaced.
+     m2-rect F2 (deferred, cosmetic): the `value` ATTRIBUTE below is only the
+     initial server-rendered name; after an in-page rename it is intentionally
+     NOT refreshed. The live input DOM value already reflects what the operator
+     typed (= the new stored name), so a follow-up rename starts from the
+     correct current value; only a hard reload would rewrite the stale
+     attribute. No data-integrity impact (the stored value is authoritative). #}
+  <form class="rename-form"
+    hx-patch="/ui/api/notebooks/{{ notebook.slug }}"
+    hx-ext="json-enc"
+    hx-target="#display-name-block"
+    hx-swap="outerHTML"
+    hx-disabled-elt="find button"
+    data-error-target="rename-error"
+  >
+    <label>
+      Rename
+      <input type="text" name="display_name" maxlength="256"
+             value="{{ notebook.display_name }}"
+             placeholder="Display name">
+    </label>
+    <button type="submit">Rename</button>
+    <output id="rename-error" class="error"></output>
+  </form>
+  <dl class="meta">
+    {# Never an absolute host path: the location is relative to the data
+       directory (see _data_relative_path in src/arxmcp/server/routes/ui.py). #}
+    <dt>LanceDB path</dt><dd>{% if lancedb_location %}<code>{{ lancedb_location }}</code> <small>in the data directory</small>{% else %}outside the data directory{% endif %}</dd>
+    <dt>Created</dt><dd><time>{{ notebook.created_at }}</time></dd>
+    {# notebook-surface-expansion-m1: notebook-scoped parse status + a
+       last-indexed freshness signal, server-rendered on page open.
+       parse_status lives on the notebooks table (not per-paper); for
+       arxiv-kind notebooks it is always "skipped" (no PDF parse). All values
+       here are server-written enums / timestamps; the Jinja2 env autoescapes
+       (src/arxmcp/server/routes/ui.py) so they are XSS-safe — do NOT add `| safe`. #}
+    <dt>Parse status</dt>
+    <dd>
+      <span class="status-badge status-badge--{{ parse_status_css }}">{{ notebook.parse_status | default('unknown', true) }}</span>
+      {# m1 rect F3: clarify that "skipped" is normal for arxiv-kind notebooks
+         (they have no PDF to parse) so the operator does not misread it as
+         "not indexed" — the "Last indexed" line below is the indexing signal. #}
+      {% if notebook.notebook_kind == 'arxiv' %}
+        <span class="hint">PDF parse — arxiv notebooks skip this; see "Last indexed" below for indexing</span>
+      {% endif %}
+    </dd>
+    <dt>Last indexed</dt>
+    <dd>
+      {% if latest_run and (latest_run.finished_at or latest_run.started_at) %}
+        <time>{{ latest_run.finished_at or latest_run.started_at }}</time>
+        {# ui-uplift-m7 rectify (critique H2/H6/M5): latest_run.status is a
+           state token — a machine-addressable value from a fixed vocabulary,
+           exactly what AC#2 puts in the mono voice. It was inventory site 10
+           and was left in sans, while the ingest-status fragment builder
+           renders the SAME datum as <code>. The two rendering paths for one
+           value disagreed on its voice, which is the same class of defect
+           _paper_row_html carried before this milestone fixed it.
+
+           OVERLAP RECORDED, NOT RESOLVED (m12 L8). `latest_run.status` is
+           rendered twice on this page in the same <code> voice — here, and
+           again in the Manage summary ~130 lines below. They cannot disagree
+           (one row, and since m12's H2 rectify the summary's copy is
+           OOB-refreshed from the fragment's own token), but they do repeat,
+           which adds density without adding a fact. Left as-is deliberately:
+           UPL-5's posture lede owns this masthead and has to resolve it
+           anyway, so deciding it here would be re-decided there. If one goes,
+           it is THIS one — "Last indexed <time>" already carries the
+           freshness fact, and a run's OUTCOME belongs beside the control that
+           produces it. #}
+        <span class="hint">(ingest <code>{{ latest_run.status }}</code>)</span>
+      {% else %}
+        <span class="hint">Never indexed</span>
+      {% endif %}
+    </dd>
+  </dl>
+  {# notebook-surface-expansion-m2: in-page Delete (wires the existing
+     DELETE /ui/api/notebooks/{slug} behind an hx-confirm). Metadata-only —
+     the hx-confirm text states the on-disk var/ tree is NOT wiped (that is
+     src/arxmcp/tools/notebook_purge.py's job). On success the notebook no longer exists,
+     so we navigate to /ui/ rather than reload this (now-404) detail page. #}
+  <div class="notebook-actions">
+    <button type="button"
+            hx-delete="/ui/api/notebooks/{{ notebook.slug }}"
+            hx-disabled-elt="this"
+            hx-confirm="Delete notebook '{{ notebook.slug }}'? On-disk data at var/arxmcp/notebooks/{{ notebook.slug }}/ is NOT deleted — run src/arxmcp/tools/notebook_purge.py to wipe the disk."
+            data-on-success="navigate:/ui/"
+            class="danger">
+      Delete notebook
+    </button>
+  </div>
+</section>
+
+{# SECTION — the page's focal content region: the corpus itself. ui-uplift-m12
+   (UPL-1) moved it from LAST in source order to second, directly under the
+   record: it is the reason the operator opened the page. #}
+<section>
+  {# ui-uplift-m12 M13: the pointer to the machinery has to be adjacent to the
+     corpus in EVERY state, not only the empty one. Even one full page of the
+     table (_PAPERS_PAGE_SIZE rows, src/arxmcp/server/routes/ui.py) pushes the disclosure
+     below some 2400px down, with no sticky affordance, so the link stays.
+
+     Deliberately a LINK and not a duplicated control: a second Add/Ingest
+     button up here would be a second primary CTA in one viewport, which BAN-9
+     forbids. It costs no CSS and adds no swap target. #}
+  {# The count is the notebook's total, not the rows on this page. #}
+  <h2>Papers in this notebook ({{ paper_count }})
+    <a class="hint" href="#manage">Manage this notebook</a></h2>
+  {% if not papers %}
+    {# ui-uplift-m12 (UPL-1): was "No papers yet. Add one above." — false the
+       moment the Add-by-URL form moved below this table, and a first-run page
+       whose only instruction points the wrong way at a collapsed region is
+       a real harm. ui-uplift-m11 (UPL-21) owns
+       empty-state copy and depends_on m12, so it revisits the voice; this
+       fixes the FACT now. The disclosure's own label is quoted so the
+       instruction names the affordance the operator will actually see. #}
+    <p class="empty">No papers yet. Add one from "Manage this notebook" below.</p>
+  {% endif %}
+  {# ui-attractive-polish-m2 (UPL-19 v0): wrap the table in .table-wrap
+     (overflow-x:auto) so narrow viewports scroll the table rather than
+     clipping the Preview / Remove column off the right edge. The wrapper is
+     OUTSIDE the <table> but INSIDE this <section> (ui-uplift-m8 deleted the
+     card class; the wrapper's position is unchanged); m1's
+     aria-live="polite" on <tbody id="papers-tbody"> below is untouched. #}
+  <div class="table-wrap">
+  <table class="papers">
+    {# #480: the <table>/<tbody> are ALWAYS rendered because the tbody is the
+       htmx swap target, but a header row above an empty-state message reads
+       as a rendering glitch. The head is conditional; the swap target is not.
+       A row added by a swap into an empty table therefore arrives without a
+       header — acceptable because the create/upload paths reload rather than
+       leaving the page in that state, and a stale header is the worse of the
+       two artefacts. #}
+    {% if papers %}
+    <thead>
+      <tr><th>Paper ID</th><th>Added</th><th>Preview</th><th></th></tr>
+    </thead>
+    {% endif %}
+    {# ui-attractive-polish-m1 (UPL-3): aria-live="polite" on the tbody so
+       a successfully uploaded paper-row (hx-swap="beforeend" from the
+       Upload card) is announced to screen readers. Note this is a
+       beforeend swap (not outerHTML), so the <tbody> element itself is
+       NEVER replaced — only the static template attribute is required;
+       no server-fragment update. #}
+    <tbody id="papers-tbody" aria-live="polite">
+      {% for p in papers %}
+      <tr data-slug="{{ notebook.slug }}" data-paper-id="{{ p.paper_id }}">
+        <td><code>{{ p.paper_id }}</code></td>
+        <td><time>{{ p.added_at }}</time></td>
+        <td>
+          {# m10 AC #2: Preview link only when on-disk HTML exists.
+             ``target="_blank"`` opens in a new tab; ``rel="noopener"``
+             prevents the previewed page from accessing window.opener
+             (defense-in-depth alongside the tight CSP). When no
+             preview exists, render a disabled-looking ``<span>`` with
+             a tooltip explaining why. #}
+          {% if p.has_preview %}
+            <a href="/ui/notebooks/{{ notebook.slug }}/papers/{{ p.paper_id }}/preview"
+               target="_blank"
+               rel="noopener">Preview</a>
+          {% else %}
+            {# m10 rect F6: actionable tooltip text — directs the
+               operator to the upload card rather than leaving them
+               stuck at a "no preview" dead end. #}
+            <span class="hint"
+                  title="upload an ar5iv HTML to enable preview">Preview</span>
+          {% endif %}
+        </td>
+        <td>
+          <button type="button"
+                  hx-delete="/ui/api/notebooks/{{ notebook.slug }}/papers/{{ p.paper_id }}"
+                  hx-disabled-elt="this"
+                  hx-confirm="Remove paper '{{ p.paper_id }}' from notebook '{{ notebook.slug }}'?"
+                  data-on-success="remove-closest:tr"
+                  class="danger">
+            Remove
+          </button>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>{# /.table-wrap (UPL-19 v0) #}
+  {# Paging. Plain links, not an htmx swap: a GET to ?page=N is a full page
+     the browser puts in history itself, so reload, Back and Forward work
+     without hx-push-url (which Discover needs only because it is a POST).
+     A row added in place by the Add or Upload swap lands at the bottom of
+     whatever page is showing; the next load puts it in order. #}
+  {% if page_count > 1 %}
+  <nav aria-label="Papers pages">
+    {% if page > 1 %}<a href="/ui/notebooks/{{ notebook.slug }}?page={{ page - 1 }}" rel="prev">← Previous</a>{% endif %}
+    <span class="hint">Page {{ page }} of {{ page_count }} · papers {{ page_first_row }}–{{ page_first_row + papers|length - 1 }} of {{ paper_count }}</span>
+    {% if page < page_count %}<a href="/ui/notebooks/{{ notebook.slug }}?page={{ page + 1 }}" rel="next">Next →</a>{% endif %}
+  </nav>
+  {% endif %}
+</section>
+
+{# ui-uplift-m12 (UPL-1): the Manage disclosure — region 3 of 3.
+
+   LABEL + STATE CUE (AC#3) are both AUTHORED strings, not invented copy:
+   "Manage this notebook" and the cue form "Manage this notebook — ingest
+   running". BAN-10
+   scores 0 on this page and the discovery calls that a strength to protect —
+   "Quick Actions" / "Controls" / "Tools" are the shapes it replaces. The cue
+   is PLAIN TEXT, not a fourth status pill (BAN-7) and not a heading: browsers
+   mapping <summary> to role=button treat its children as presentational, so
+   only a cue riding the accessible NAME is announced by every AT pairing. The
+   <code> voice matches this datum's other rendering at "Last indexed" above —
+   m7's rectify exists because two paths for one value disagreed on voice.
+
+   SOURCE. `latest_run` is passed by src/arxmcp/server/routes/ui.py:461 from the SAME
+   store.get_latest_ingest_run(slug) the polling endpoint calls at
+   src/arxmcp/server/routes/notebooks.py:2283. That is what AC#3 asks for and it holds.
+
+   m12 rectify (H2/M2), round 2. An earlier revision claimed "the cue cannot
+   drift from the fragment by construction", which was FALSE: page load emitted
+   `ingest running`, the poll returned `success` into a fragment inside this
+   same open disclosure, and the summary never changed. Round 1 corrected the
+   COMMENT and kept the snapshot — but a cue that lies is a defect whether or
+   not the comment admits it, so this closes the behaviour.
+
+   The cue is now OOB-refreshed. `_ingest_status_fragment`
+   (src/arxmcp/server/routes/notebooks.py) appends a top-level
+   `<code id="ingest-state-cue" hx-swap-oob="true">` carrying the SAME literal
+   token that branch renders into the body, so every path that produces a
+   fragment also re-renders this cue: the 2s poll, the terminal 286 response
+   that stops it, and the 202 returned when a run is started in-page (M2's
+   sharper direction — `success`/`none` displayed over a live run).
+
+   Both drift directions are therefore closed at the source that caused them.
+   The cue is NOT a second read of the row: the OOB token is the fragment's
+   own token, so there is exactly one reader and nothing to disagree with.
+   htmx strips `hx-swap-oob` from the element as it inserts it, so the swapped
+   cue is inert markup and re-swappable on the next cycle.
+
+   OPEN (AC#2) MUST BE EMITTED BARE. open="false" renders the disclosure OPEN
+   — HTML boolean attributes are presence-based — so the only correct Jinja
+   form is conditional emission of the attribute itself. The predicate is
+   "open unless success": `none` and `running` both still poll every 2s, and
+   `failed` is terminal but carries the stderr tail the operator has to read.
+
+   THE THREE-REGION RENDER IS THE POST-SUCCESS STATE (m12 L9). "Seven blocks
+   to three regions" is stated unconditionally in this milestone's record and
+   it is state-dependent: with this predicate, a never-ingested notebook
+   (`latest_run is None`), a running one and a failed one all still paint all
+   seven headed blocks stacked. The reduction is realised only after a
+   successful ingest. The predicate STAYS — open-on-first-run is the right
+   call for an empty notebook, where the forms are the entire job — but the
+   claim is a trade, not an unconditional win, and first run is precisely the
+   page the discovery cared about most. The ladder still ranks the inner
+   blocks at --rule-row under one --rule-section region, so this costs
+   claim precision, not layout.
+
+   NO EXPAND ANIMATION (AC#5), and the roadmap's stated reason is wrong so it
+   is not repeated: `::details-content` is Baseline NEWLY across all engines
+   since 2025-09-16 (Chrome 131 / Firefox 143 / Safari 18.4, WPT 1.0) — only
+   `interpolate-size`/`calc-size()` are Chromium-only. The refusal stands on
+   Newly-not-Widely (Widely 2028-03-16), the basis m6 used for light-dark(),
+   m7 for text-wrap: balance and m10 for line-clamp. Seven live discovery
+   lines still assign [MOT-15 accordion-expand] to UPL-1; later review
+   dropped it.
+
+   No `name` attribute: a shared name opts disclosures into exclusive-
+   accordion grouping and makes them close each other. #}
+{# id + aria-labelledby added 2026-08-05 closing m12 M12 and M13.
+
+   M12 (Accessibility). <summary> is styled at --text-section, byte-identical
+   to h2, but it is a role=button — so region 3 contributed NOTHING to the
+   heading list. A screen-reader user navigating by heading went "Papers in
+   this notebook (N)" -> "Topic & discovery" with no signal they had entered a
+   different region, and the heading list silently gained or lost five entries
+   with the disclosure's open state. Nesting an <h2> inside <summary> is NOT
+   the fix (role=button makes its children presentational); HTML-AAM maps
+   <details> to role=group, so aria-labelledby gives the region an announced
+   name on entry at zero structural cost and without touching m8's
+   ^<(section|div)> record view.
+
+   M13 (Discoverability). A full page of the papers table is
+   _PAPERS_PAGE_SIZE rows, so on a large notebook this disclosure — the only
+   affordance for adding, discovering, uploading or ingesting — sits ~2400px
+   below the fold. The id is the anchor
+   target for the link beside the papers <h2>; see the note there for why it
+   is a link and not a second control. #}
+<details class="manage-disclosure" id="manage" aria-labelledby="manage-summary"{% if not latest_run or latest_run.status != 'success' %} open{% endif %}>
+  <summary id="manage-summary">Manage this notebook — ingest <code id="ingest-state-cue">{{ latest_run.status if latest_run else 'none' }}</code></summary>
+
+{# DIV — the topic form and its readback. #}
+<div>
+  <h2>Topic &amp; discovery</h2>
+  <p class="hint">
+    The research interest the m2–m4 arXiv discovery channels will use to
+    propose new papers for this notebook. Category is a fixed arXiv code;
+    topic is free-text keywords. Both are optional.
+  </p>
+  {# notebook-paper-discovery-m1: always-rendered topic block — the stable
+     htmx swap target (#topic-block). PATCH /ui/api/notebooks/{slug}/topic
+     returns this same <div> re-rendered (server-side html.escape'd in
+     src/arxmcp/server/routes/notebooks.py::_topic_fragment). Autoescape applies here
+     too; empty values show "—". Do NOT add `| safe`. aria-live="polite"
+     so screen-readers announce the updated topic after the outerHTML swap;
+     the swap REPLACES this element, so _topic_fragment MUST also emit the
+     attribute on its returned <div>. #}
+  <div class="topic-block" id="topic-block" aria-live="polite">
+    <p class="topic-category">Discovery category: <code>{{ notebook.discovery_category or "—" }}</code></p>
+    <p class="topic-description">{{ notebook.description or "—" }}</p>
+  </div>
+  {# Topic form sits OUTSIDE #topic-block so it survives the outerHTML swap.
+     The base.html JSON-shim serializes the PATCH body to JSON
+     ({"discovery_category": ..., "description": ...}) → NotebookTopicUpdate.
+     On success htmx swaps the <div> in place (no reload); on 4xx the JSON
+     `detail` is surfaced. The dedicated /topic sub-route keeps the rename
+     endpoint's contract untouched (mass-assignment defense). #}
+  <form class="topic-form"
+    hx-patch="/ui/api/notebooks/{{ notebook.slug }}/topic"
+    hx-ext="json-enc"
+    hx-target="#topic-block"
+    hx-swap="outerHTML"
+    hx-disabled-elt="find button"
+    data-error-target="topic-error"
+  >
+    <label>
+      Discovery category
+      <select name="discovery_category">
+        <option value="" {% if not notebook.discovery_category %}selected{% endif %}>Not specified</option>
+        <option value="math.AG" {% if notebook.discovery_category == 'math.AG' %}selected{% endif %}>math.AG — Algebraic Geometry</option>
+        <option value="math.NT" {% if notebook.discovery_category == 'math.NT' %}selected{% endif %}>math.NT — Number Theory</option>
+        <option value="math-ph" {% if notebook.discovery_category == 'math-ph' %}selected{% endif %}>math-ph — Mathematical Physics</option>
+        <option value="hep-th" {% if notebook.discovery_category == 'hep-th' %}selected{% endif %}>hep-th — High Energy Physics (Theory)</option>
+      </select>
+    </label>
+    <label>
+      Topic / keywords
+      <textarea name="description" maxlength="512" rows="2"
+                placeholder="Bridgeland stability conditions on K3 surfaces">{{ notebook.description }}</textarea>
+    </label>
+    <button type="submit">Save topic</button>
+    <output id="topic-error" class="error"></output>
+  </form>
+</div>
+
+{# DIV — a job form plus its transient htmx result panel. #}
+<div>
+  <h2>Discover papers</h2>
+  <p class="hint">
+    Find new arXiv papers matching this notebook's topic (set in
+    <em>Topic &amp; discovery</em> above). Candidates already in this notebook
+    are filtered out; click <strong>Add</strong> to record one, then use
+    <em>Ingest</em> below to embed it. Results are not saved — click
+    <strong>Discover</strong> to (re-)run.
+  </p>
+  {# notebook-paper-discovery-m4: the Discover button POSTs to
+     /ui/api/notebooks/{slug}/discover, which runs the m3 arXiv-Atom driver and
+     returns the #discover-results fragment (server-rendered + html.escape'd in
+     src/arxmcp/server/routes/notebooks.py::_discover_results_fragment — the candidate
+     title/abstract come from the arXiv API, so escaping is the XSS guard; do
+     NOT add `| safe`). The candidate queue is EPHEMERAL (no persistence). The
+     outerHTML swap REPLACES #discover-results, so the fragment re-emits
+     aria-live (ui-attractive-polish-m1 lesson). On 4xx/502 the JSON detail is
+     surfaced in #discover-error.
+     Discover is the one swap that changes what the operator is looking at
+     without storing anything, so it pushes ?discover=1, which this page
+     renders with a fresh run already in the panel (ui_notebook_detail).
+     htmx pushes only after a successful swap, so a failed run adds no entry.
+     hx-history="false" turns off htmx's page-snapshot cache: a snapshot taken
+     before an Add or a rename would bring back a paper list that is no longer
+     true, so Back and Forward re-render from the server instead. #}
+  <form
+    hx-post="/ui/api/notebooks/{{ notebook.slug }}/discover"
+    hx-ext="json-enc"
+    hx-target="#discover-results"
+    hx-swap="outerHTML"
+    hx-push-url="/ui/notebooks/{{ notebook.slug }}?discover=1"
+    hx-disabled-elt="find button"
+    data-error-target="discover-error"
+    hx-history="false"
+  >
+    <button type="submit">Discover</button>
+    <output id="discover-error" class="error">{{ discover_error }}</output>
+  </form>
+  {% if discover_results %}
+  {{ discover_results }}
+  {% else %}
+  <div id="discover-results" aria-live="polite" aria-atomic="true">
+    <p class="hint">No discovery run yet — click Discover above.</p>
+  </div>
+  {% endif %}
+</div>
+
+{# DIV — a single add form. #}
+<div>
+  <h2>Add paper by URL</h2>
+  <p class="hint">
+    Accepted forms: <code>https://arxiv.org/abs/&lt;id&gt;</code> or
+    <code>https://ar5iv.labs.arxiv.org/html/&lt;id&gt;</code>.
+  </p>
+  {# ui-attractive-polish-m4 (UPL-12 v0): converted from location.reload()
+     to in-place htmx swap. The server-side add-paper handler returns an
+     HTML <tr> fragment when HX-Request: true (content-negotiation; see
+     src/arxmcp/server/routes/notebooks.py::add_paper). The fragment appends to
+     #papers-tbody via hx-swap="beforeend"; m1's aria-live="polite" on the
+     tbody (line ~215 — UPL-3) fires the live-region announcement for
+     screen readers automatically without any new attribute. m3's
+     hx-disabled-elt="find button" stays for the submit-button disable +
+     m3's .htmx-request styling for the in-flight spinner. #}
+  {# ui-attractive-polish-m5 (m4-F3 carryover): clear the URL input on
+     a successful in-place swap so a follow-up paste doesn't double-fire
+     into a 409. The pre-m4 location.reload() flow incidentally cleared
+     the form; the m4 beforeend swap doesn't. Compatible with the m4
+     negative-regression test (which asserts only `location.reload`
+     absence). #}
+  {# ui-uplift-m12 (UPL-1) AC#4: #papers-tbody used to sit BELOW this form;
+     the reorder puts it above the disclosure this form now lives in, so a
+     bare beforeend append can land off-screen upward — "invisible success",
+     the failure AC#4's second clause names. The swap KIND is unchanged;
+     htmx's `show:` modifier only scrolls the append point into view, costs
+     zero CSS lines and adds no dependency. `:bottom` is the just-added row
+     AND the table edge nearest this disclosure, so the form stays near the
+     viewport. Sighted-only fix — the tbody's aria-live always announced.
+     The row count in the papers <h2> is server-rendered and still does NOT
+     update on a beforeend swap; that drift predates m12 (m13 owns it). #}
+  <form
+    hx-post="/ui/api/notebooks/{{ notebook.slug }}/papers"
+    hx-ext="json-enc"
+    hx-disabled-elt="find button"
+    hx-target="#papers-tbody"
+    hx-swap="beforeend show:#papers-tbody:bottom"
+    data-on-success="reset"
+    data-error-target="paste-error"
+  >
+    <label>
+      arXiv URL
+      <input type="url" name="arxiv_url" required maxlength="512"
+             placeholder="https://arxiv.org/abs/2604.26204">
+    </label>
+    <button type="submit">Add</button>
+    <output id="paste-error" class="error"></output>
+  </form>
+</div>
+
+{# DIV — a single upload form. #}
+<div>
+  <h2>Upload ar5iv HTML</h2>
+  <p class="hint">
+    Drop an HTML file from <code>ar5iv.labs.arxiv.org</code>. Max
+    upload size: 10 MB. The on-disk filename is derived from the
+    <code>paper_id</code> field below (your local filename is NOT
+    used) — this is the path-traversal defense.
+  </p>
+  {# ui-uplift-m12 (UPL-1) AC#4: same `show:` fix as the Add-by-URL form
+     above, same reason. hx-encoding="multipart/form-data" is deliberate on
+     THIS form and must not be normalised to hx-ext="json-enc". #}
+  <form
+    hx-post="/ui/api/notebooks/{{ notebook.slug }}/papers/upload"
+    hx-encoding="multipart/form-data"
+    hx-target="#papers-tbody"
+    hx-swap="beforeend show:#papers-tbody:bottom"
+    hx-disabled-elt="find button"
+    data-error-target="upload-error"
+  >
+    <label>
+      Paper ID
+      <input type="text" name="paper_id" required maxlength="64"
+             placeholder="2604.26204">
+    </label>
+    <label>
+      ar5iv HTML file
+      <input type="file" name="file" accept=".html,text/html" required>
+    </label>
+    <button type="submit">Upload</button>
+    <output id="upload-error" class="error"></output>
+  </form>
+</div>
+
+{# DIV — a job form plus its htmx status target. #}
+<div>
+  <h2>Ingest</h2>
+  <p class="hint">
+    Run the ingest pipeline against this notebook's
+    <code>papers.txt</code>. The daemon spawns
+    <code>python -m arxmcp.tools.notebook_ingest {{ notebook.slug }}</code>
+    as a background subprocess — one ingest in flight at a time per
+    notebook; the UI polls for status every 2 seconds.
+    Destructive notebook wipe is the explicit job of
+    <code>src/arxmcp/tools/notebook_purge.py</code> and is NOT triggerable from the UI.
+  </p>
+  <form
+    hx-post="/ui/api/notebooks/{{ notebook.slug }}/ingest"
+    hx-ext="json-enc"
+    hx-target="#ingest-status"
+    hx-swap="outerHTML"
+    hx-disabled-elt="find button"
+    data-error-target="ingest-error"
+  >
+    <button type="submit">Ingest now</button>
+    <output id="ingest-error" class="error"></output>
+  </form>
+  <!-- m9: status placeholder. The trigger handler returns an HTML
+       fragment that replaces this div via hx-swap="outerHTML". The
+       polling fragment carries hx-trigger="every 2s"; terminal-state
+       fragments OMIT the trigger AND the polling endpoint returns
+       HTTP 286 to stop client polling (htmx-documented mechanism).
+       ui-attractive-polish-m1 (UPL-3): aria-live="polite" announces
+       run-state transitions (queued -> running -> complete/failed)
+       to screen readers. CRITICAL: the outerHTML swap REPLACES this
+       <div>; every fragment in _ingest_status_fragment (none/running/
+       success/failed) MUST also emit aria-live="polite". m1-rect F1
+       adds aria-atomic="true" for parity with the status-badge — the
+       ingest-status content is a composite string ("Status: success
+       · Finished … · Run #42"), and atomic-true tells the AT to
+       re-read the whole region rather than guessing diffs on a
+       whole-element replacement. -->
+  {# ui-uplift-m13 (UPL-13, AC#1) — THE LIVE REGION IS THIS WRAPPER, and it is
+     never swapped.
+
+     Before m13, aria-live sat on #ingest-status itself, which is the
+     hx-swap="outerHTML" target of a 2s poll. Inserting a node that carries
+     aria-live announces its content — the AT has no previous version of that
+     node to diff against, so "the status did not change" is not an observation
+     it can make. Every tick re-announced the whole composite string for the
+     entire run. That is UPL-13's complaint, stated exactly.
+
+     A live region only announces CHANGED text, and the element has to PERSIST
+     for that comparison to exist. So the region moves out here and the swap
+     target stays inside it: #ingest-status is replaced as before, this wrapper
+     is not, and an identical re-render is silent by spec.
+
+     AC#3 — this region is deliberately NOT migrated to <output> like the six
+     error blocks were. <output> is phrasing content; the failed branch of
+     _ingest_status_fragment emits <pre class="error">, which is flow content
+     and cannot legally sit inside it.
+
+     A WRAPPER, not hx-swap="innerHTML" on the existing element. Both make the
+     region persist. innerHTML would leave hx-trigger="every 2s" on the
+     surviving element permanently, discarding the defence-in-depth half of the
+     stop mechanism — terminal fragments OMIT the trigger AND the endpoint
+     returns HTTP 286. Keeping outerHTML keeps both halves.
+
+     HARD CONSTRAINT (see the m12 note at the top of this file, which names m13
+     as the near-miss): no swap may target the <details> or any ancestor of it.
+     This wrapper is a DESCENDANT of the disclosure, is never a swap target,
+     and carries no hx-* attribute. m12's
+     TestStructuralInvariantsHoldInTheRenderedTree enforces that and fails
+     loudly on the wrong shape. #}
+  <div id="ingest-live" aria-live="polite" aria-atomic="true">
+    <div id="ingest-status"
+         data-status="placeholder"
+         hx-get="/ui/api/notebooks/{{ notebook.slug }}/ingest/latest"
+         hx-trigger="load"
+         hx-target="#ingest-status"
+         {# #453: transition:false here too. This fires on `load`, at the same
+            moment the footer status badge does, and two startViewTransition
+            calls overlapping is exactly the InvalidStateError. Silencing the
+            polls alone left one error per page load. #}
+         hx-swap="outerHTML transition:false">
+      Loading ingest status…
+    </div>
+  </div>
+</div>
+</details>
+{% endblock %}

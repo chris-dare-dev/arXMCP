@@ -7,7 +7,7 @@ Covers:
 - AC4: a degraded server returns /status warn 200 AND /readyz 503 (the
   existing /readyz 503-on-degraded behavior is unchanged).
 - GET /ui/status-badge: HTML fragment, always 200, correct modifier class.
-- tools/status_line.py: the `make status` human-line parser.
+- src/arxmcp/tools/status_line.py: the `make status` human-line parser.
 - Makefile: the `status` target exists.
 
 Uses a minimal FastAPI app + fake Resources (no model load / no lifespan), the
@@ -26,11 +26,11 @@ from types import SimpleNamespace
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from ingest.corpus import DegradedState
-from server.backup_status import BACKUP_STATE_FAILED, BACKUP_STATE_OK
-from server.health import compute_health_status
-from server.health import router as health_router
-from tools.status_line import format_status_line
+from arxmcp.ingest.corpus import DegradedState
+from arxmcp.server.backup_status import BACKUP_STATE_FAILED, BACKUP_STATE_OK
+from arxmcp.server.health import compute_health_status
+from arxmcp.server.health import router as health_router
+from arxmcp.tools.status_line import format_status_line
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -79,7 +79,7 @@ def _write_recent_backup(ops_dir: Path) -> None:
         json.dumps({
             "finished_at": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
             # arXMCP#202: "success" was never a token any consumer knew.
-            # The shared vocabulary lives in server/backup_status.py.
+            # The shared vocabulary lives in src/arxmcp/server/backup_status.py.
             "status": BACKUP_STATE_OK,
         }),
         encoding="utf-8",
@@ -227,7 +227,7 @@ class TestComputeHealthStatus:
         res = _FakeResources(
             warm=True, data_dir=tmp_path, ops_dir=tmp_path / "ops",
         )
-        with caplog.at_level(logging.WARNING, logger="server.health"):
+        with caplog.at_level(logging.WARNING, logger="arxmcp.server.health"):
             report = _run(compute_health_status(res, _BoomStore()))
         assert report["status"] == "warn"
         assert report["checks"]["notebooks:count"][0]["observedValue"] is None
@@ -239,7 +239,7 @@ class TestComputeHealthStatus:
     def test_now_injection_pins_backup_staleness_boundary(self, tmp_path):
         """m4 rect F2: exercise the documented ``now`` clock at the
         _BACKUP_STALE_SECONDS boundary (deterministic, no wall-clock flake)."""
-        from server.health import _BACKUP_STALE_SECONDS
+        from arxmcp.server.health import _BACKUP_STALE_SECONDS
 
         ops = tmp_path / "ops"
         ops.mkdir()
@@ -280,7 +280,7 @@ def _app_with(resources, store) -> FastAPI:
     app.state.resources = resources
     app.state.notebooks_store = store
     app.include_router(health_router)
-    from server.routes.ui import router as ui_router
+    from arxmcp.server.routes.ui import router as ui_router
     app.include_router(ui_router, prefix="/ui")
     return app
 
@@ -447,7 +447,7 @@ class TestClassifyStatusBadge:
     entries, ALL retrieval-key membership)."""
 
     def _classify(self, report):
-        from server.routes.ui import _classify_status_badge
+        from arxmcp.server.routes.ui import _classify_status_badge
 
         return _classify_status_badge(report)
 
@@ -473,7 +473,7 @@ class TestClassifyStatusBadge:
         assert self._classify({"status": "warn"}) == ("DEGRADED", "warn")
 
     def test_warn_with_each_retrieval_key_renders_degraded(self):
-        from server.routes.ui import _RETRIEVAL_CHECK_KEYS
+        from arxmcp.server.routes.ui import _RETRIEVAL_CHECK_KEYS
 
         for key in _RETRIEVAL_CHECK_KEYS:
             report = {
@@ -583,7 +583,7 @@ class TestMakefileTarget:
         assert "status" in phony_targets, (
             f".PHONY stanzas must list 'status'; got {phony_targets}"
         )
-        assert "tools/status_line.py" in mk
+        assert "src/arxmcp/tools/status_line.py" in mk
 
 
 class TestStatusSecFetchSiteDeviation:
@@ -600,8 +600,8 @@ class TestStatusSecFetchSiteDeviation:
         monkeypatch.delenv("ARXMCP_ALLOWED_ORIGINS", raising=False)
         monkeypatch.delenv("ARXMCP_UNSAFE_NETWORK_BIND", raising=False)
         monkeypatch.delenv("ARXMCP_CONTACT_EMAIL", raising=False)
-        from server.config import Config
-        from server.main import create_app
+        from arxmcp.server.config import Config
+        from arxmcp.server.main import create_app
 
         return TestClient(create_app(Config()))
 

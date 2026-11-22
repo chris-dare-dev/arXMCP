@@ -2,7 +2,7 @@
 
 **What broke.** The console carried its behaviour in eleven inline ``hx-on::``
 attributes. htmx compiles an ``hx-on`` body with ``new Function()``; the
-console's own CSP (``CONTENT_SECURITY_POLICY_UI`` in ``server/middleware.py``)
+console's own CSP (``CONTENT_SECURITY_POLICY_UI`` in ``src/arxmcp/server/middleware.py``)
 grants ``script-src 'self' 'unsafe-inline'`` and deliberately withholds
 ``'unsafe-eval'``. Every handler threw ``EvalError`` at parse time, so the UI
 had no working error display and no post-success cleanup anywhere (#431), a
@@ -41,7 +41,7 @@ import pytest
 from tests._source_blocks import css_block
 
 REPO_ROOT: Path = Path(__file__).resolve().parents[1]
-FRONTEND: Path = REPO_ROOT / "server" / "frontend"
+FRONTEND: Path = REPO_ROOT / "src" / "arxmcp" / "server" / "frontend"
 STATIC: Path = FRONTEND / "static"
 TEMPLATES: list[Path] = sorted((FRONTEND / "templates").glob("*.html"))
 
@@ -148,7 +148,7 @@ def test_script_src_has_no_unsafe_inline() -> None:
     Hashes were never needed: ``'sha256-...'`` is for INLINE scripts, and
     ``test_the_console_ships_no_inline_script`` above proves there are none.
     """
-    from server.middleware import CONTENT_SECURITY_POLICY_UI
+    from arxmcp.server.middleware import CONTENT_SECURITY_POLICY_UI
 
     policy = CONTENT_SECURITY_POLICY_UI.decode()
     script_src = next(

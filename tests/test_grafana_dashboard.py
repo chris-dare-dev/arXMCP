@@ -11,8 +11,8 @@ Coverage matrix:
 - TestMetricNamesAreRegistered
     Every metric referenced in panel PromQL targets actually exists as
     a registered Counter / Histogram / Gauge in
-    server/observability/metrics.py, server/metrics.py, or
-    server/health.py.
+    src/arxmcp/server/observability/metrics.py, src/arxmcp/server/metrics.py, or
+    src/arxmcp/server/health.py.
 - TestPanelInvariants
     Each panel has datasource, targets, gridPos, title (positive-
     existence checks).
@@ -35,13 +35,13 @@ import pytest
 
 REPO_ROOT: Path = Path(__file__).resolve().parents[1]
 DASHBOARD_PATH: Path = (
-    REPO_ROOT / "infra" / "observability" / "grafana-dashboard.json"
+    REPO_ROOT / "deploy" / "observability" / "grafana-dashboard.json"
 )
 DATASOURCE_PATH: Path = (
-    REPO_ROOT / "infra" / "observability" / "grafana-datasource.yml"
+    REPO_ROOT / "deploy" / "observability" / "grafana-datasource.yml"
 )
 DASHBOARD_PROVIDER_PATH: Path = (
-    REPO_ROOT / "infra" / "observability"
+    REPO_ROOT / "deploy" / "observability"
     / "grafana-dashboard-provider.yml"
 )
 
@@ -138,8 +138,8 @@ class TestDashboardByteStability:
             "Dashboard JSON drift: re-serialization with sort_keys=True "
             "indent=2 does not match the on-disk bytes. Run "
             "`python -c \"import json,sys; "
-            "d=json.load(open('infra/observability/grafana-dashboard.json'));"
-            " open('infra/observability/grafana-dashboard.json','w')"
+            "d=json.load(open('deploy/observability/grafana-dashboard.json'));"
+            " open('deploy/observability/grafana-dashboard.json','w')"
             ".write(json.dumps(d,sort_keys=True,indent=2,ensure_ascii=False)+'\\n')\""
             " to canonicalize."
         )
@@ -163,9 +163,9 @@ class TestMetricNamesAreRegistered:
     """
 
     METRIC_SOURCES: tuple[Path, ...] = (
-        REPO_ROOT / "server" / "observability" / "metrics.py",
-        REPO_ROOT / "server" / "metrics.py",
-        REPO_ROOT / "server" / "health.py",
+        REPO_ROOT / "src" / "arxmcp" / "server" / "observability" / "metrics.py",
+        REPO_ROOT / "src" / "arxmcp" / "server" / "metrics.py",
+        REPO_ROOT / "src" / "arxmcp" / "server" / "health.py",
     )
 
     def _all_registered_metrics(self) -> set[str]:

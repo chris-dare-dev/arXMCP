@@ -47,8 +47,8 @@ import pytest
 from tests._ui_color import alpha_over, contrast_ratio, load_tokens
 
 REPO_ROOT: Path = Path(__file__).resolve().parents[1]
-FRONTEND_STATIC: Path = REPO_ROOT / "server" / "frontend" / "static"
-FRONTEND_TEMPLATES: Path = REPO_ROOT / "server" / "frontend" / "templates"
+FRONTEND_STATIC: Path = REPO_ROOT / "src" / "arxmcp" / "server" / "frontend" / "static"
+FRONTEND_TEMPLATES: Path = REPO_ROOT / "src" / "arxmcp" / "server" / "frontend" / "templates"
 
 APP_CSS: str = (FRONTEND_STATIC / "app.css").read_text(encoding="utf-8")
 APP_CSS_NO_COMMENTS: str = _re.sub(r"/\*.*?\*/", "", APP_CSS, flags=_re.S)
@@ -593,7 +593,7 @@ class TestCrossMilestoneSafety:
         # un-rederivable hand-typed value m6 exists to eliminate.
         # ui-uplift-m7: kept the cap at 480 and took the escape hatch this
         # comment has named since m3. The two :root blocks moved to
-        # server/frontend/static/tokens.css. NOTE: m7's own claim that this
+        # src/arxmcp/server/frontend/static/tokens.css. NOTE: m7's own claim that this
         # "dropped app.css from 471 to ~400" was wrong — it landed at 478
         # (critique M1); the type scale added back most of what the split
         # removed. The cap now bounds the RULE

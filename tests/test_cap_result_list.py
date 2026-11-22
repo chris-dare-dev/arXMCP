@@ -8,8 +8,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from server import tools
-from server.tools import cap_result_list, reset_resources_for_tests, set_resources
+from arxmcp.server import tools
+from arxmcp.server.tools import cap_result_list, reset_resources_for_tests, set_resources
 
 
 def _wire_size(payload: dict) -> int:

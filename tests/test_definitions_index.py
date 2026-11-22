@@ -34,15 +34,15 @@ from unittest.mock import patch
 
 import pytest
 
-import server.handlers.definitions as defs_handler_mod
-import server.tools as server_tools
-from ingest.index_definitions import (
+import arxmcp.server.handlers.definitions as defs_handler_mod
+import arxmcp.server.tools as server_tools
+from arxmcp.ingest.index_definitions import (
     build_definitions_for_paper,
     index_definitions_for_paper,
     open_or_create_definitions_table,
     parse_macro_line,
 )
-from ingest.preamble_types import PreambleDoc
+from arxmcp.ingest.preamble_types import PreambleDoc
 
 # tests/_graph_helpers exposes a similar light-weight Resources stub for
 # the citation tests; this module rolls its own to keep coupling low.
@@ -55,7 +55,7 @@ from ingest.preamble_types import PreambleDoc
 
 @dataclass
 class _MinimalConfig:
-    """Mirror just enough of ``server.config.Config`` for the handler.
+    """Mirror just enough of ``arxmcp.server.config.Config`` for the handler.
 
     The real Config carries dozens of fields; the handler only reads
     ``r.config`` indirectly (via the ``envelope`` helper) and never
@@ -81,7 +81,7 @@ class _MinimalResources:
 def _install_resources(tmp_path: Path, table: Any | None) -> None:
     """Register a minimal Resources stub for the handler under test.
 
-    Patches ``server.tools._RESOURCES`` so ``get_resources()`` returns
+    Patches ``arxmcp.server.tools._RESOURCES`` so ``get_resources()`` returns
     the stub without going through ``Resources.startup`` (which would
     require BGE-M3, the chunks table, etc.).
     """
@@ -119,8 +119,8 @@ def _stage_preamble(
 
 
 def _patched_preamble_dir(preamble_dir: Path):
-    """Context manager: redirect ``ingest.preamble.PREAMBLE_DIR``."""
-    return patch("ingest.preamble.PREAMBLE_DIR", preamble_dir)
+    """Context manager: redirect ``arxmcp.ingest.preamble.PREAMBLE_DIR``."""
+    return patch("arxmcp.ingest.preamble.PREAMBLE_DIR", preamble_dir)
 
 
 def _has_paper_row(tbl: Any, paper_id: str) -> bool:
@@ -482,7 +482,7 @@ class TestIndexer:
         with (
             _patched_preamble_dir(preamble_dir),
             _patch(
-                "ingest.index_definitions.open_or_create_definitions_table",
+                "arxmcp.ingest.index_definitions.open_or_create_definitions_table",
                 return_value=bad_tbl,
             ),
             pytest.raises(PermissionError, match="simulated"),

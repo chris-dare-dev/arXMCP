@@ -17,12 +17,12 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from ingest import notebooks as _notebook_common
-from server.notebooks_store import NotebooksStore
-from server.routes import notebooks as notebooks_module
-from server.routes import ui as ui_module
-from server.routes.notebooks import router as notebooks_router
-from server.routes.ui import router as ui_router
+from arxmcp.ingest import notebooks as _notebook_common
+from arxmcp.server.notebooks_store import NotebooksStore
+from arxmcp.server.routes import notebooks as notebooks_module
+from arxmcp.server.routes import ui as ui_module
+from arxmcp.server.routes.notebooks import router as notebooks_router
+from arxmcp.server.routes.ui import router as ui_router
 
 _SLUG = "paging"
 _SIZE = ui_module._PAPERS_PAGE_SIZE

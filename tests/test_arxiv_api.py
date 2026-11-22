@@ -1,9 +1,9 @@
-"""Unit tests for ``ingest.arxiv_api`` (notebook-paper-discovery-m2).
+"""Unit tests for ``arxmcp.ingest.arxiv_api`` (notebook-paper-discovery-m2).
 
 The HTTP layer is mocked via ``monkeypatch.setattr(_arxiv_api, "_fetch_url", …)``
 — the ``graph_ingest._fetch_openalex_work`` pattern — so NO live arXiv call
 happens in CI. ``tests/test_fetch_seed.py`` continues to exercise the
-re-exported names through ``tools.curate_seed`` unchanged.
+re-exported names through ``arxmcp.tools.curate_seed`` unchanged.
 """
 
 from __future__ import annotations
@@ -12,8 +12,8 @@ import urllib.parse
 
 import pytest
 
-from ingest import arxiv_api as _arxiv_api
-from ingest.arxiv_api import (
+from arxmcp.ingest import arxiv_api as _arxiv_api
+from arxmcp.ingest.arxiv_api import (
     Candidate,
     build_query_url,
     fetch_candidates,
@@ -221,16 +221,16 @@ class TestFetchCandidates:
 
 class TestReExport:
     def test_curate_seed_reexports_resolve(self) -> None:
-        from tools.curate_seed import (
+        from arxmcp.tools.curate_seed import (
             Candidate as CSCandidate,
         )
-        from tools.curate_seed import (
+        from arxmcp.tools.curate_seed import (
             build_query_url as cs_build,
         )
-        from tools.curate_seed import (
+        from arxmcp.tools.curate_seed import (
             fetch_candidates as cs_fetch,
         )
-        from tools.curate_seed import (
+        from arxmcp.tools.curate_seed import (
             parse_atom_feed as cs_parse,
         )
 

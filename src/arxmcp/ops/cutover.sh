@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+# E11_S05 cutover activation wrapper.
+#
+# Thin wrapper around `python -m arxmcp.ops.cutover`. The heavy logic
+# (JSON parsing, atomic renames, HTTP polling, subprocess to
+# watchdog) lives in Python where it can be unit-tested.
+#
+# Usage:
+#   src/arxmcp/ops/cutover.sh                       # full cutover
+#   src/arxmcp/ops/cutover.sh --dry-run             # check criteria, no swap
+#   src/arxmcp/ops/cutover.sh --rollback            # inverse swap
+#   src/arxmcp/ops/cutover.sh --skip-post-activation
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
+cd "${REPO_ROOT}"
+
+# Resolve `uv` from PATH; ARXMCP_UV overrides (E11_S02 IS2
+# pattern — no hardcoded /Users/ path).
+if [ -n "${ARXMCP_UV:-}" ]; then
+    UV_BIN="${ARXMCP_UV}"
+elif UV_BIN="$(command -v uv 2>/dev/null)"; then
+    :
+else
+    echo "ERROR: uv not found on PATH. Install via your package " \
+         "manager (brew install uv / apt install uv) or set " \
+         "ARXMCP_UV=<absolute path to uv>." >&2
+    exit 1
+fi
+
+# Closes infra-safety IS1: cutover is human-initiated, but two
+# concurrent invocations (tmux split, retry typo, systemd
+# accidental trigger) can interleave between the two os.rename
+# calls in perform_directory_swap and leave the active path
+# missing. flock -n closes the window.
+if ! command -v flock >/dev/null 2>&1; then
+    echo "ERROR: flock not found on PATH. flock(1) is part of " \
+         "util-linux:" >&2
+    echo "  macOS: brew install flock" >&2
+    echo "  Linux: pre-installed via util-linux" >&2
+    exit 1
+fi
+
+LOCK_PATH="${REPO_ROOT}/var/arxmcp/ops/.cutover.lock"
+# The watchdog cron writes reports into the directory cutover's
+# post-activation gate reads, so cutover also holds the watchdog's lock:
+# the two never run at the same time.
+WATCHDOG_LOCK_PATH="${REPO_ROOT}/var/arxmcp/ops/.watchdog.lock"
+mkdir -p "$(dirname "${LOCK_PATH}")"
+
+exec flock -n "${LOCK_PATH}" \
+    flock -n "${WATCHDOG_LOCK_PATH}" \
+    "${UV_BIN}" run python -m arxmcp.ops.cutover "$@"

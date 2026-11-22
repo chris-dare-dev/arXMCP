@@ -16,8 +16,8 @@ import kuzu
 import pyarrow as pa
 import pytest
 
-from ingest import kuzudb_schema
-from ingest.intra_paper_refs import (
+from arxmcp.ingest import kuzudb_schema
+from arxmcp.ingest.intra_paper_refs import (
     _extract_intrapaper_labels,
     _resolved_labels_for_paper,
     ingest,
@@ -76,7 +76,7 @@ def lancedb_with_labels(tmp_path: Path) -> Path:
     """
     import lancedb
 
-    from ingest.schema import CHUNKS_SCHEMA_V1
+    from arxmcp.ingest.schema import CHUNKS_SCHEMA_V1
 
     lancedb_path = tmp_path / "lancedb"
     db = lancedb.connect(str(lancedb_path))
@@ -211,7 +211,7 @@ class TestResolvedLabels:
         self, lancedb_with_labels: Path
     ):
         # F6: helper now takes an OPEN chunks_table handle, not a path.
-        from ingest.intra_paper_refs import _open_chunks_table_or_none
+        from arxmcp.ingest.intra_paper_refs import _open_chunks_table_or_none
 
         table = _open_chunks_table_or_none(lancedb_with_labels)
         candidates = {"thm-main", "lem-aux", "bib1"}
@@ -219,7 +219,7 @@ class TestResolvedLabels:
         assert resolved == {"thm-main", "lem-aux"}
 
     def test_empty_candidate_set_returns_empty(self, lancedb_with_labels: Path):
-        from ingest.intra_paper_refs import _open_chunks_table_or_none
+        from arxmcp.ingest.intra_paper_refs import _open_chunks_table_or_none
 
         table = _open_chunks_table_or_none(lancedb_with_labels)
         resolved = _resolved_labels_for_paper(P_HAS_REFS, set(), table)
@@ -231,7 +231,7 @@ class TestResolvedLabels:
         assert resolved == set()
 
     def test_open_chunks_table_or_none_handles_missing_path(self, tmp_path: Path):
-        from ingest.intra_paper_refs import _open_chunks_table_or_none
+        from arxmcp.ingest.intra_paper_refs import _open_chunks_table_or_none
 
         assert _open_chunks_table_or_none(tmp_path / "no-such-lancedb") is None
 

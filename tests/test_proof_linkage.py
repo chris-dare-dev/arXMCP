@@ -9,7 +9,7 @@ keep the implementation honest as the corpus code moves:
   share a section. The AC's "without cross-matching the second theorem's
   proof" is met by returning nothing rather than by guessing, because
   document order is not recoverable from served data (see
-  ``server/proof_linkage.py``'s module docstring).
+  ``src/arxmcp/server/proof_linkage.py``'s module docstring).
 * AC3 / t-reverse-proof-linkage — proof -> originating statement
 * AC4 — a theorem whose proof is absent reports ``not-in-corpus``,
   distinct from an operational error and from a silent empty list
@@ -24,8 +24,8 @@ from typing import Any
 import pyarrow as pa
 import pytest
 
-from server.handlers.chunk import handle_get_chunk
-from server.proof_linkage import (
+from arxmcp.server.handlers.chunk import handle_get_chunk
+from arxmcp.server.proof_linkage import (
     MAX_REFERENCED,
     MAX_SECTION_SCAN_ROWS,
     PROOF_PAIRING_STMT_KINDS,
@@ -359,7 +359,7 @@ class TestGuards:
         pin that catches drift when the chunker's environment tables
         change. Without it, a new theorem-like environment would silently
         stop resolving proofs."""
-        from ingest.chunker import _THEOREM_ENV_KINDS, _THEOREM_LIKE_ENVNAMES
+        from arxmcp.ingest.chunker import _THEOREM_ENV_KINDS, _THEOREM_LIKE_ENVNAMES
 
         derived = {
             _THEOREM_ENV_KINDS.get(env, "stmt") for env in _THEOREM_LIKE_ENVNAMES
@@ -422,7 +422,7 @@ class TestGuards:
 def wired(monkeypatch: pytest.MonkeyPatch):
     """Install a Resources whose chunks_table is a _FakeTable, so
     get_chunk exercises the real linkage path end to end."""
-    from server.tools import reset_resources_for_tests, set_resources
+    from arxmcp.server.tools import reset_resources_for_tests, set_resources
 
     holder: dict[str, Any] = {"table": None}
 

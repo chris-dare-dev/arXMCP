@@ -18,7 +18,7 @@ path; mirrors the precedent in ``tests/test_embedder.py``.
 
 Tests do NOT pollute ``var/arxmcp/``: every Resources fixture
 points the LanceDB path at ``tmp_path`` and seeds it via
-``ingest.store.write_chunks`` against a tiny fixture.
+``arxmcp.ingest.store.write_chunks`` against a tiny fixture.
 """
 
 from __future__ import annotations
@@ -34,14 +34,14 @@ import pytest
 import uvicorn
 from fastapi.testclient import TestClient
 
-from ingest.chunk import CHUNKER_VERSION, ChunkRecord
-from ingest.embedder import EMBEDDER_VERSION, EMBEDDING_DIM
-from ingest.schema import EmbedRecord
-from ingest.store import write_chunks
-from server.config import Config
-from server.health import reset_metrics_for_tests
-from server.main import create_app
-from server.resources import (
+from arxmcp.ingest.chunk import CHUNKER_VERSION, ChunkRecord
+from arxmcp.ingest.embedder import EMBEDDER_VERSION, EMBEDDING_DIM
+from arxmcp.ingest.schema import EmbedRecord
+from arxmcp.ingest.store import write_chunks
+from arxmcp.server.config import Config
+from arxmcp.server.health import reset_metrics_for_tests
+from arxmcp.server.main import create_app
+from arxmcp.server.resources import (
     CorpusNotIngestedError,
     RerankerUnavailableError,
     Resources,
@@ -94,7 +94,7 @@ def _seed_notebook_marker(lancedb_dir: Path) -> None:
     Config-only tests (those that construct ``Config`` but do NOT run
     ``Resources.startup``) need only the marker file to exist — the
     validator does ``(derived / "corpus-version.json").is_file()``, the
-    same predicate ``Resources.startup`` uses (server/resources.py:308).
+    same predicate ``Resources.startup`` uses (src/arxmcp/server/resources.py:308).
     For tests that boot the server end-to-end, use ``_seed_corpus``
     (writes a real LanceDB table + a real marker).
     """
@@ -113,7 +113,7 @@ def mocked_bge_m3(monkeypatch):
     minutes. The real-model path is gated separately via
     ``ARXMCP_RUN_REAL_BGE_M3=1``.
     """
-    import server.query_encoder as qe_mod
+    import arxmcp.server.query_encoder as qe_mod
 
     fake_model = object()
     fake_tokenizer = object()
@@ -154,11 +154,11 @@ class TestModelWarmupIsPatchable:
     def test_startup_warms_through_the_query_encoder_loaders(
         self, seeded_lancedb, monkeypatch
     ):
-        """Startup must reach BGE-M3 through ``server.query_encoder``'s
+        """Startup must reach BGE-M3 through ``arxmcp.server.query_encoder``'s
         module attributes, so a test that patches them keeps the model
         out. A name bound at import would load the real model instead, and
         every mocked test would still pass wherever the model is cached."""
-        import server.query_encoder as qe_mod
+        import arxmcp.server.query_encoder as qe_mod
 
         calls: list[str] = []
         monkeypatch.setattr(qe_mod, "_get_tokenizer", lambda: calls.append("tokenizer"))
@@ -333,7 +333,7 @@ class TestToolResourcesLifetime:
         """Tool handlers see the live Resources while the app serves,
         and a not-ready error after the lifespan has shut down, never
         the drained object."""
-        from server.tools import ResourcesNotReadyError, get_resources
+        from arxmcp.server.tools import ResourcesNotReadyError, get_resources
 
         app = create_app(Config(lancedb_path=seeded_lancedb))
         with TestClient(app):
@@ -408,13 +408,13 @@ class TestConfigValidation:
 
     def test_contact_email_env_var_rejected(self, monkeypatch):
         """``ARXMCP_CONTACT_EMAIL`` is an INGEST-side env var (consumed
-        by ``ingest/arxiv_fetch.py`` for the polite User-Agent string)
+        by ``src/arxmcp/ingest/arxiv_fetch.py`` for the polite User-Agent string)
         and is NOT a declared server ``Config`` field. An earlier draft
         of ``docs/ops/notebook-modes.md`` Mode 1 launch recipe
         instructed operators to ``export ARXMCP_CONTACT_EMAIL=...``;
         the server then refused to start with the custom
         ``_scan_unknown_arxmcp_env_vars`` error from
-        ``server/main.py:232`` (an F4 closure from E06_S01 — pydantic's
+        ``src/arxmcp/server/main.py:232`` (an F4 closure from E06_S01 — pydantic's
         ``extra="forbid"`` does NOT fire on env-var input, only on
         direct ``__init__`` kwargs). The m4 rect F1 closure removed
         the env var from the runbook AND pins this regression guard so
@@ -427,7 +427,7 @@ class TestConfigValidation:
         to assert acceptance and update both the runbook and the
         comment on this test.
         """
-        from server.main import _scan_unknown_arxmcp_env_vars
+        from arxmcp.server.main import _scan_unknown_arxmcp_env_vars
 
         monkeypatch.setenv("ARXMCP_CONTACT_EMAIL", "test@example.com")
         cfg = Config()
@@ -449,7 +449,7 @@ class TestConfigValidation:
     def test_env_vars_the_server_reads_are_accepted(
         self, monkeypatch, var, value
     ):
-        from server.main import _scan_unknown_arxmcp_env_vars
+        from arxmcp.server.main import _scan_unknown_arxmcp_env_vars
 
         monkeypatch.setenv(var, value)
         _scan_unknown_arxmcp_env_vars(Config())
@@ -466,13 +466,13 @@ class TestConfigValidation:
     def test_test_and_ops_env_vars_do_not_block_startup(
         self, monkeypatch, var
     ):
-        from server.main import _scan_unknown_arxmcp_env_vars
+        from arxmcp.server.main import _scan_unknown_arxmcp_env_vars
 
         monkeypatch.setenv(var, "1")
         _scan_unknown_arxmcp_env_vars(Config())
 
     def test_typo_is_still_rejected_beside_tooling_vars(self, monkeypatch):
-        from server.main import _scan_unknown_arxmcp_env_vars
+        from arxmcp.server.main import _scan_unknown_arxmcp_env_vars
 
         monkeypatch.setenv("ARXMCP_RUN_REAL_MINERU", "1")
         monkeypatch.setenv("ARXMCP_BIND_HOTS", "127.0.0.1")
@@ -497,7 +497,7 @@ class TestNotebookConfig:
     def notebooks_base(self, tmp_path: Path, monkeypatch):
         """Redirect the shared notebook-base constant to a tmp dir so
         the Config validator's notebook_lancedb_path() resolves there."""
-        from ingest import notebooks as _notebook_common
+        from arxmcp.ingest import notebooks as _notebook_common
 
         base = tmp_path / "notebooks"
         base.mkdir()
@@ -567,12 +567,12 @@ class TestNotebookConfig:
 
     def test_ac5_named_ingest_script_exists(self):
         """F5 rectification: the AC5 remediation message (and the
-        ingest/notebooks docstring) name ``tools/notebook_ingest.py``
+        ingest/notebooks docstring) name ``src/arxmcp/tools/notebook_ingest.py``
         as the command an operator runs to ingest a notebook. Pin that the
         script actually exists so a future rename cannot silently turn the
         remediation hint into a dead path (a drift class). Co-located with
         the AC5 message test that emits the command string."""
-        script = Path(__file__).resolve().parents[1] / "tools" / "notebook_ingest.py"
+        script = Path(__file__).resolve().parents[1] / "src/arxmcp/tools" / "notebook_ingest.py"
         assert script.is_file(), (
             f"AC5 error message names {script.name} but it does not exist "
             f"at {script}; the remediation hint would be a dead command."
@@ -685,7 +685,7 @@ class TestNotebookConfig:
         cfg_b = Config(notebook="beta-nb")
         assert cfg_a.cache_db_path != cfg_b.cache_db_path
 
-        from server.cache_sqlite import Tier1Store
+        from arxmcp.server.cache_sqlite import Tier1Store
 
         async def _roundtrip():
             store_a = await Tier1Store.open(cfg_a.cache_db_path)
@@ -776,7 +776,7 @@ class TestNotebookConfig:
 
             # With the phase on, startup auto-builds the missing index
             # inside the served dataset.
-            import ingest.bm25_indexer as bm25_mod  # noqa: PLC0415
+            import arxmcp.ingest.bm25_indexer as bm25_mod  # noqa: PLC0415
 
             nb_bm25_pkl = (
                 notebooks_base / "demo-nb" / "lancedb" / "derived" / "bm25"
@@ -790,11 +790,11 @@ class TestNotebookConfig:
 
 class TestNotebookLancedbPathHelper:
     """AC8 (stepping-stone shaping): the slug→lancedb-path derivation
-    lives in ingest.notebooks.notebook_lancedb_path — the shared
+    lives in arxmcp.ingest.notebooks.notebook_lancedb_path — the shared
     seam both fork C (startup) and fork A (per-request) call."""
 
     def test_helper_returns_notebook_dir_slash_lancedb(self, tmp_path):
-        from ingest.notebooks import notebook_dir, notebook_lancedb_path
+        from arxmcp.ingest.notebooks import notebook_dir, notebook_lancedb_path
 
         base = tmp_path / "notebooks"
         (base / "demo-nb").mkdir(parents=True)
@@ -805,7 +805,7 @@ class TestNotebookLancedbPathHelper:
         """The helper re-uses notebook_dir's Threat-1 guard — bad slugs
         raise NotebookError (so the C and A paths share one safety
         contract, not two divergent ones)."""
-        from ingest.notebooks import NotebookError, notebook_lancedb_path
+        from arxmcp.ingest.notebooks import NotebookError, notebook_lancedb_path
 
         base = tmp_path / "notebooks"
         base.mkdir()
@@ -817,7 +817,7 @@ class TestNotebookLancedbPathHelper:
     def test_helper_rejects_symlinked_notebook(self, tmp_path):
         """notebook_dir's m6 F3 symlink rejection flows through the
         shared helper."""
-        from ingest.notebooks import NotebookError, notebook_lancedb_path
+        from arxmcp.ingest.notebooks import NotebookError, notebook_lancedb_path
 
         base = tmp_path / "notebooks"
         base.mkdir()
@@ -973,8 +973,8 @@ class TestRouteSurface:
         mount is present in ``app.routes`` — the route exists; the
         wire-up of the session-manager lifespan is E06_S03 territory.
         """
-        from server.config import Config
-        from server.main import create_app
+        from arxmcp.server.config import Config
+        from arxmcp.server.main import create_app
 
         app = create_app(Config())
         # Find the /mcp Mount in app.routes.
@@ -1012,12 +1012,12 @@ class TestStartupRefusals:
         E07_S03 ships the real reranker loader (replacing the
         E06_S01 stub that always raised). To preserve the original
         test intent (load failure → fatal), we patch
-        ``server.resources._load_reranker_or_raise`` itself to
+        ``arxmcp.server.resources._load_reranker_or_raise`` itself to
         raise — same outcome as the pre-E07_S03 stub:
         ``RerankerUnavailableError`` propagates out of
         ``Resources.startup`` and the server refuses to open
         ``/readyz``."""
-        import server.resources as res_mod
+        import arxmcp.server.resources as res_mod
 
         async def _force_raise():
             raise RerankerUnavailableError(
@@ -1050,9 +1050,9 @@ class TestStartupRefusals:
         step-6e Lean spawn AFTER the ``Resources`` constructor so a
         failure routes through ``instance.shutdown()``.
         """
-        import server.lean_repl as lean_mod
-        from server.cache import get_cache
-        from server.lean_repl import LeanUnavailableError
+        import arxmcp.server.lean_repl as lean_mod
+        from arxmcp.server.cache import get_cache
+        from arxmcp.server.lean_repl import LeanUnavailableError
 
         async def _force_raise(_config):
             raise LeanUnavailableError(
@@ -1350,11 +1350,11 @@ class TestEnvVarScan:
     pydantic-settings's ``extra="forbid"`` only fires for direct
     ``__init__`` kwargs, NOT for env-var input. So a typo like
     ``ARXMCP_BIND_HOST_TYPO`` was silently ignored. The startup-
-    time scan in :func:`server.main._scan_unknown_arxmcp_env_vars`
+    time scan in :func:`arxmcp.server.main._scan_unknown_arxmcp_env_vars`
     catches it."""
 
     def test_unknown_env_var_rejected(self, monkeypatch):
-        from server.main import _scan_unknown_arxmcp_env_vars
+        from arxmcp.server.main import _scan_unknown_arxmcp_env_vars
 
         monkeypatch.setenv("ARXMCP_DOES_NOT_EXIST", "x")
         with pytest.raises(ValueError, match="unknown ARXMCP_"):
@@ -1362,7 +1362,7 @@ class TestEnvVarScan:
 
     def test_known_env_vars_pass(self, monkeypatch):
         """Setting the canonical env vars must NOT trip the scan."""
-        from server.main import _scan_unknown_arxmcp_env_vars
+        from arxmcp.server.main import _scan_unknown_arxmcp_env_vars
 
         monkeypatch.setenv("ARXMCP_BIND_HOST", "127.0.0.1")
         monkeypatch.setenv("ARXMCP_BIND_PORT", "7733")
@@ -1380,7 +1380,7 @@ class TestEnvVarScan:
     def test_create_app_accepts_the_trust_remote_code_escape_hatch(
         self, monkeypatch, seeded_lancedb
     ):
-        """ARXMCP_TRUST_REMOTE_CODE is read by server.model_loader, not
+        """ARXMCP_TRUST_REMOTE_CODE is read by arxmcp.server.model_loader, not
         Config. Setting it must not stop the server from being built."""
         monkeypatch.setenv("ARXMCP_TRUST_REMOTE_CODE", "1")
         cfg = Config(lancedb_path=seeded_lancedb)
@@ -1400,7 +1400,7 @@ class TestEnvVarScan:
         suggested correct name appears — not the full sentence wording.
         That keeps the test stable under future wording refactors.
         """
-        from server.main import _scan_unknown_arxmcp_env_vars
+        from arxmcp.server.main import _scan_unknown_arxmcp_env_vars
 
         monkeypatch.setenv("ARXMCP_BIND_HOTS", "127.0.0.1")
         with pytest.raises(ValueError) as exc_info:
@@ -1429,7 +1429,7 @@ class TestEnvVarScan:
         — variable name + carve-out semantic ("ingest" or "not a
         server" or named tools) — not the full sentence wording.
         """
-        from server.main import _scan_unknown_arxmcp_env_vars
+        from arxmcp.server.main import _scan_unknown_arxmcp_env_vars
 
         monkeypatch.setenv("ARXMCP_CONTACT_EMAIL", "x@y")
         with pytest.raises(ValueError) as exc_info:
@@ -1444,35 +1444,35 @@ class TestEnvVarScan:
         )
         # At least one of the ingest-tool modules MUST be named so the
         # operator can find where the var is actually consumed. m1
-        # critique F1: the prior 3-tool list omitted tools/fetch_seed.py
+        # critique F1: the prior 3-tool list omitted src/arxmcp/tools/fetch_seed.py
         # (the very tool the README quick-start runs); the rectification
         # extended the carve-out hint to name all 5 actual consumers
-        # + the ingest/arxiv_fetch.py shared library. The expanded
+        # + the src/arxmcp/ingest/arxiv_fetch.py shared library. The expanded
         # ``tools=`` tuple here documents the operator paths and is
         # used by BOTH the at-least-one assertion below AND the
         # README-quick-start tool assertion (which is the cardinal
-        # F1 regression guard — without ``tools/fetch_seed.py`` the
+        # F1 regression guard — without ``src/arxmcp/tools/fetch_seed.py`` the
         # user following the documented README path lands on an error
         # that names tools they DIDN'T run).
         tools = (
-            "ingest/arxiv_fetch.py",
-            "tools/fetch_seed.py",
-            "tools/notebook_fetch.py",
-            "tools/recover_preambles.py",
-            "ingest/inspire_ingest.py",
-            "ingest/graph_ingest.py",
+            "src/arxmcp/ingest/arxiv_fetch.py",
+            "src/arxmcp/tools/fetch_seed.py",
+            "src/arxmcp/tools/notebook_fetch.py",
+            "src/arxmcp/tools/recover_preambles.py",
+            "src/arxmcp/ingest/inspire_ingest.py",
+            "src/arxmcp/ingest/graph_ingest.py",
         )
         assert any(tool in msg for tool in tools), (
             f"carve-out must name an ingest-tool module so the operator "
             f"can locate where the var is actually consumed; got {msg!r}"
         )
         # m1 critique F1 regression guard — the README quick-start runs
-        # ``python tools/fetch_seed.py``, so the user's most likely
+        # ``python src/arxmcp/tools/fetch_seed.py``, so the user's most likely
         # mental link from "where did I export this?" to "where do I
         # need it?" goes through fetch_seed. A carve-out hint that
         # omits this name re-opens the F1 defect.
-        assert "tools/fetch_seed.py" in msg, (
-            f"carve-out MUST name tools/fetch_seed.py — it is the tool "
+        assert "src/arxmcp/tools/fetch_seed.py" in msg, (
+            f"carve-out MUST name src/arxmcp/tools/fetch_seed.py — it is the tool "
             f"the README quick-start runs (line 51), and omitting it "
             f"means an operator who follows the README and forgets "
             f"`unset` lands on an error pointing at tools they didn't "
@@ -1494,7 +1494,7 @@ class TestEnvVarScan:
         couldn't visually parse. A regression that re-introduces it
         would re-open the BLOCKER without breaking any other assertion.
         """
-        from server.main import _scan_unknown_arxmcp_env_vars
+        from arxmcp.server.main import _scan_unknown_arxmcp_env_vars
 
         monkeypatch.setenv("ARXMCP_DOES_NOT_EXIST_AT_ALL", "x")
         with pytest.raises(ValueError) as exc_info:

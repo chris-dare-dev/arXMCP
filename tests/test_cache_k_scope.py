@@ -1,6 +1,6 @@
 """Tier-2 scope-key tests — GitHub issue #204.
 
-``server/cache.py::_filter_fingerprint`` fed sentinel values for
+``src/arxmcp/server/cache.py::_filter_fingerprint`` fed sentinel values for
 ``query``, ``k`` and ``corpus_version`` into ``canonical_key_components``
 and justified them with: *"the query and k are already disambiguated by
 the embedding."* The first half is true; the second is false. **The
@@ -40,15 +40,15 @@ import numpy as np
 import pyarrow as pa
 import pytest
 
-from server.cache import (
+from arxmcp.server.cache import (
     EMBEDDING_DIM,
     RetrievalCache,
     reset_cache_for_tests,
     set_cache,
 )
-from server.cache_sqlite import derive_tier1_key
-from server.metrics import TIER_2, reset_cache_metrics_for_tests
-from server.query_encoder import embedder_identity
+from arxmcp.server.cache_sqlite import derive_tier1_key
+from arxmcp.server.metrics import TIER_2, reset_cache_metrics_for_tests
+from arxmcp.server.query_encoder import embedder_identity
 
 
 def _run(coro):
@@ -500,7 +500,7 @@ _QUERY_VECTORS["stability conditions, restated"] = _near(
 def handler_env(monkeypatch, tmp_path):
     """Fake Resources + a REAL RetrievalCache, so ``handle_search_papers``
     exercises the production cache code rather than a stand-in."""
-    from server.tools import reset_resources_for_tests, set_resources
+    from arxmcp.server.tools import reset_resources_for_tests, set_resources
 
     class _FakeSem:
         async def __aenter__(self): return self
@@ -521,7 +521,7 @@ def handler_env(monkeypatch, tmp_path):
     async def _fake_encode(query: str):
         return _QUERY_VECTORS[query]
 
-    monkeypatch.setattr("server.handlers.search.encode_query", _fake_encode)
+    monkeypatch.setattr("arxmcp.server.handlers.search.encode_query", _fake_encode)
 
     cache = _run(RetrievalCache.open(tmp_path / "handler.db", corpus_version=101))
     set_cache(cache)
@@ -531,7 +531,7 @@ def handler_env(monkeypatch, tmp_path):
 
 
 def _search(**kwargs):
-    from server.handlers.search import handle_search_papers
+    from arxmcp.server.handlers.search import handle_search_papers
 
     return _run(handle_search_papers(**kwargs)).structuredContent
 
@@ -594,7 +594,7 @@ class TestHandlerKRegression:
         import jsonschema
 
         schema = json.loads(
-            Path("server/schemas/search_papers_result.json").read_text(
+            Path("src/arxmcp/server/schemas/search_papers_result.json").read_text(
                 encoding="utf-8",
             )
         )

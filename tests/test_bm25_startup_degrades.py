@@ -41,7 +41,7 @@ def _rows(start: int, count: int) -> list[dict[str, Any]]:
 
 
 def _write_marker(lance: Path, *, version: int, chunk_count: int) -> None:
-    from ingest.embedder import EMBEDDER_VERSION
+    from arxmcp.ingest.embedder import EMBEDDER_VERSION
 
     (lance / "corpus-version.json").write_text(
         json.dumps(
@@ -63,11 +63,11 @@ def unbuildable_bm25(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[st
     import lancedb
     import pyarrow as pa
 
-    import server.cache as cache_mod
-    import server.query_encoder as qe_mod
-    import server.resources as res_mod
-    from ingest.schema import CHUNKS_SCHEMA_V1
-    from server.config import Config
+    import arxmcp.server.cache as cache_mod
+    import arxmcp.server.query_encoder as qe_mod
+    import arxmcp.server.resources as res_mod
+    from arxmcp.ingest.schema import CHUNKS_SCHEMA_V1
+    from arxmcp.server.config import Config
 
     lance = tmp_path / "lancedb"
     table = lancedb.connect(str(lance)).create_table(
@@ -101,7 +101,7 @@ def unbuildable_bm25(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[st
 def test_startup_serves_without_an_unbuildable_bm25_index(
     unbuildable_bm25: dict[str, Any], caplog: pytest.LogCaptureFixture
 ) -> None:
-    from server.resources import Resources
+    from arxmcp.server.resources import Resources
 
     with caplog.at_level("WARNING"):
         resources = asyncio.run(Resources.startup(unbuildable_bm25["cfg"]))
@@ -130,9 +130,9 @@ def test_rebind_lands_without_an_unbuildable_bm25_index(
     """
     import pyarrow as pa
 
-    from ingest.schema import CHUNKS_SCHEMA_V1
-    from server.config import Config
-    from server.resources import Resources
+    from arxmcp.ingest.schema import CHUNKS_SCHEMA_V1
+    from arxmcp.server.config import Config
+    from arxmcp.server.resources import Resources
 
     lance = unbuildable_bm25["lance"]
     bm25_root = lance.parent / "bm25"

@@ -20,10 +20,10 @@ rather than assert into the dark, which is how issue #423 was mis-filed. The
 skip is not a silent pass: the zero-skip gate above (``tests/conftest.py``)
 turns any skip in a ``make desktop-conformance`` session into a session
 failure. That makes the child half of the gate macOS-only; see
-``apps/desktop/README.md`` § "Fault matrix and cleanup claims (m6)".
+``src/desktop/README.md`` § "Fault matrix and cleanup claims (m6)".
 
 The supervisor binary path env var is deliberately NOT ``ARXMCP_``-prefixed:
-the AC2 test imports ``server.main`` (module-level app construction), whose
+the AC2 test imports ``arxmcp.server.main`` (module-level app construction), whose
 unknown-``ARXMCP_*`` scan would otherwise FATAL on the harness knob.
 """
 
@@ -53,7 +53,7 @@ from typing import BinaryIO
 
 import pytest
 
-from server.desktop_child import (
+from arxmcp.server.desktop_child import (
     COMPONENT,
     STARTUP_TOKEN_HEADER_BYTES,
     ReadyzStartupTokenMiddleware,
@@ -61,7 +61,7 @@ from server.desktop_child import (
     identity_source_path,
     read_frame,
 )
-from server.desktop_contract import (
+from arxmcp.server.desktop_contract import (
     FRAME_LIMIT,
     MIN_GRACE_MS,
     STARTUP_TOKEN_HEADER,
@@ -83,9 +83,9 @@ from tests.test_desktop_contract import (
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-FIXTURES = REPO_ROOT / "apps" / "desktop" / "contract-fixtures"
+FIXTURES = REPO_ROOT / "src" / "desktop" / "contract-fixtures"
 SUPERVISOR_BIN_ENV = "DESKTOP_SUPERVISOR_BIN"
-CHILD_ARGV = [sys.executable, "-m", "server.desktop_child"]
+CHILD_ARGV = [sys.executable, "-m", "arxmcp.server.desktop_child"]
 _HEX64 = re.compile(rb"[0-9a-f]{64}")
 
 _MCP_HEADERS = {
@@ -418,7 +418,7 @@ def test_ac3_zero_delay_race_single_spawn(tmp_path: Path) -> None:
         "child_argv": CHILD_ARGV,
         "component": identity.component,
         "data_root": root.as_posix(),
-        "identity_file": str(REPO_ROOT / "server" / "desktop_child.py"),
+        "identity_file": str(REPO_ROOT / "src" / "arxmcp" / "server" / "desktop_child.py"),
         "smoke": True,
         "version": identity.version,
     }
@@ -574,7 +574,7 @@ def test_ac5_port_zero_still_rejected_by_config() -> None:
     the desktop ephemeral bind lives entirely outside Config."""
     import pydantic
 
-    from server.config import Config
+    from arxmcp.server.config import Config
 
     for port in (0, 80, 65536):
         with pytest.raises(pydantic.ValidationError):
@@ -594,7 +594,7 @@ def test_graceful_drain_is_bounded_by_the_launch_frame() -> None:
     floor. MIN_GRACE_MS bounds how long the SUPERVISOR waits and says nothing
     about the child bounding itself, so any incomplete request cycle kept
     uvicorn's drain loop spinning past the supervisor's SIGKILL."""
-    from server.desktop_child import _graceful_timeout_seconds
+    from arxmcp.server.desktop_child import _graceful_timeout_seconds
 
     launch = _golden_launch()
     assert launch.shutdown.grace_ms == MIN_GRACE_MS
@@ -615,7 +615,7 @@ def test_serve_hands_the_bounded_drain_to_uvicorn(monkeypatch) -> None:
     so the hand-driven boot path only needs to pass it."""
     import uvicorn
 
-    from server.desktop_child import _graceful_timeout_seconds, _serve
+    from arxmcp.server.desktop_child import _graceful_timeout_seconds, _serve
 
     def _spy(*_args, **kwargs):
         raise _CapturedConfig(kwargs)
@@ -651,9 +651,9 @@ def test_desktop_boot_installs_the_redaction_filter_and_json_format() -> None:
     import logging
     import tempfile
 
-    from server.config import Config
-    from server.desktop_child import _configure_child_logging
-    from server.observability.logging_setup import JsonFormatter, RedactionFilter
+    from arxmcp.server.config import Config
+    from arxmcp.server.desktop_child import _configure_child_logging
+    from arxmcp.server.observability.logging_setup import JsonFormatter, RedactionFilter
 
     root = logging.getLogger()
     saved_filters = list(root.filters)
@@ -683,7 +683,7 @@ def test_desktop_boot_installs_the_redaction_filter_and_json_format() -> None:
 
 
 def test_desktop_boot_path_calls_the_logging_configurator() -> None:
-    identifiers = _code_identifiers(REPO_ROOT / "server" / "desktop_child.py")
+    identifiers = _code_identifiers(REPO_ROOT / "src" / "arxmcp" / "server" / "desktop_child.py")
     assert "_configure_child_logging" in identifiers, (
         "the helper must be CALLED from the boot path, not merely defined"
     )
@@ -696,7 +696,7 @@ def test_identity_digest_targets_the_executable_when_frozen(monkeypatch, tmp_pat
     could not complete a handshake at all. Frozen, the digest must be the
     executable's own bytes, which is also what the supervisor hashes for
     ``plan.identity_file``."""
-    source_module = REPO_ROOT / "server" / "desktop_child.py"
+    source_module = REPO_ROOT / "src" / "arxmcp" / "server" / "desktop_child.py"
     assert identity_source_path() == source_module
     assert (
         executable_identity().sha256
@@ -721,7 +721,7 @@ def test_startup_token_header_is_derived_from_the_contract_constant() -> None:
     READY_DEADLINE, with no test failing first."""
     assert STARTUP_TOKEN_HEADER.lower().encode("ascii") == STARTUP_TOKEN_HEADER_BYTES
     assert STARTUP_TOKEN_HEADER_BYTES == b"x-arxmcp-startup-token"
-    source = (REPO_ROOT / "server" / "desktop_child.py").read_text(encoding="utf-8")
+    source = (REPO_ROOT / "src/arxmcp/server" / "desktop_child.py").read_text(encoding="utf-8")
     assert 'b"x-arxmcp-startup-token"' not in source
 
 
@@ -748,11 +748,11 @@ def _code_identifiers(path: Path) -> set[str]:
 
 
 def test_ac5_desktop_child_never_touches_config_bind_port() -> None:
-    identifiers = _code_identifiers(REPO_ROOT / "server" / "desktop_child.py")
+    identifiers = _code_identifiers(REPO_ROOT / "src" / "arxmcp" / "server" / "desktop_child.py")
     assert "bind_port" not in identifiers, (
         "desktop child must pre-bind outside Config, never via bind_port"
     )
-    config_source = (REPO_ROOT / "server" / "config.py").read_text(encoding="utf-8")
+    config_source = (REPO_ROOT / "src/arxmcp/server" / "config.py").read_text(encoding="utf-8")
     assert "if not 1024 <= v <= 65535:" in config_source, (
         "validate_port_range guard changed — AC5 forbids widening it"
     )
@@ -844,9 +844,9 @@ class TestReadyzStartupTokenMiddleware:
         assert inner.paths[-1] == "lifespan"
 
     def test_middleware_is_desktop_scoped_not_shared(self) -> None:
-        main_source = (REPO_ROOT / "server" / "main.py").read_text(encoding="utf-8")
+        main_source = (REPO_ROOT / "src/arxmcp/server" / "main.py").read_text(encoding="utf-8")
         assert "ReadyzStartupTokenMiddleware" not in main_source
-        child_identifiers = _code_identifiers(REPO_ROOT / "server" / "desktop_child.py")
+        child_identifiers = _code_identifiers(REPO_ROOT / "src/arxmcp/server" / "desktop_child.py")
         assert "BaseHTTPMiddleware" not in child_identifiers
         assert "add_middleware" not in child_identifiers
 
@@ -862,7 +862,7 @@ def test_executable_identity_is_wire_valid_and_self_measured() -> None:
     identity = executable_identity()
     assert identity.component == "arxmcp-server-desktop-child"
     assert identity.sha256 == hashlib.sha256(
-        (REPO_ROOT / "server" / "desktop_child.py").read_bytes()
+        (REPO_ROOT / "src" / "arxmcp" / "server" / "desktop_child.py").read_bytes()
     ).hexdigest()
     launch = replace(_golden_launch(), executable=identity)
     # encode_frame round-trips only wire-valid identities.
@@ -923,7 +923,7 @@ def _fixture_binary() -> Path:
 def _desktop_workspace_version() -> str:
     """The fixture validates launch.executable.version == CARGO_PKG_VERSION,
     which every crate inherits from [workspace.package]."""
-    manifest = (REPO_ROOT / "apps" / "desktop" / "Cargo.toml").read_text(
+    manifest = (REPO_ROOT / "src" / "desktop" / "Cargo.toml").read_text(
         encoding="utf-8"
     )
     match = re.search(r'^version\s*=\s*"([^"]+)"$', manifest, re.MULTILINE)
@@ -1543,7 +1543,7 @@ def test_real_server_bare_stdin_eof_is_bounded_cleanup(tmp_path: Path) -> None:
     supervisor's only effect on the child is the lease closing, and
     `_watch_stdin` already treats bare EOF as shutdown (m5's AC4 always sent
     an authenticated frame first, so this shipped path was untested).
-    `server/desktop_child.py` gains zero new lines for this.
+    `src/arxmcp/server/desktop_child.py` gains zero new lines for this.
 
     Also asserts loopback at SOCKET level against the live real-server port
     (AC5's real-server half). Scope (spike-3 non-claim #1): proves a

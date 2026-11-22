@@ -32,7 +32,7 @@ APP_CSS_NO_COMMENTS: str = _re.sub(r"/\*.*?\*/", "", APP_CSS, flags=_re.S)
 TOKENS_CSS: str = TOKENS_CSS_PATH.read_text(encoding="utf-8")
 TOKENS_NO_COMMENTS: str = _re.sub(r"/\*.*?\*/", "", TOKENS_CSS, flags=_re.S)
 
-TEMPLATES: Path = REPO_ROOT / "server" / "frontend" / "templates"
+TEMPLATES: Path = REPO_ROOT / "src" / "arxmcp" / "server" / "frontend" / "templates"
 BASE_HTML: str = (TEMPLATES / "base.html").read_text(encoding="utf-8")
 
 BASE_TOKENS, DARK_TOKENS = load_raw_tokens()
@@ -341,7 +341,7 @@ class TestAC2IdentifierSurfaces:
         # proportional beside identical mono + tabular rows until reload.
         # Assert the two AGREE, rather than pinning either shape alone —
         # that is the invariant, and it is what actually broke.
-        from server.routes.notebooks import _paper_row_html
+        from arxmcp.server.routes.notebooks import _paper_row_html
 
         out = _paper_row_html(
             slug="demo", paper_id="2401.01234", added_at="2026-08-04T12:00:00+00:00"
@@ -364,7 +364,7 @@ class TestAC2IdentifierSurfaces:
         # id and the exit code were all bare text in this fragment — sans
         # voice, proportional figures, on values the operator reads to
         # correlate a run against a log.
-        from server.routes.notebooks import _ingest_status_fragment
+        from arxmcp.server.routes.notebooks import _ingest_status_fragment
 
         failed = _ingest_status_fragment(
             slug="demo", run_id=42, status="failed", started_at=None,
@@ -560,7 +560,7 @@ class TestBaselineRefusals:
 # ui-uplift-m7 RECTIFY — guards for the Phase-3 critique findings.
 # ---------------------------------------------------------------------------
 NOTEBOOK_DETAIL: str = (
-    REPO_ROOT / "server" / "frontend" / "templates" / "notebook_detail.html"
+    REPO_ROOT / "src" / "arxmcp" / "server" / "frontend" / "templates" / "notebook_detail.html"
 ).read_text(encoding="utf-8")
 
 
@@ -632,7 +632,7 @@ class TestRectifyStateTokenVoice:
 class TestRectifyNestedSmallSizing:
     """M3/M12 — the badge's remediation text compounded to ~9.2px.
 
-    ``.status-badge`` is 11px and ``server/routes/ui.py`` nests a ``<small>``
+    ``.status-badge`` is 11px and ``src/arxmcp/server/routes/ui.py`` nests a ``<small>``
     inside it; UA ``<small>`` is 0.83em. The string that tells an operator what
     to DO about a degraded state ended up the smallest text in the product.
     """
@@ -745,7 +745,7 @@ class TestRectifyTabularNumsScope:
 # ---------------------------------------------------------------------------
 # ui-uplift-m10 RECTIFY guards.
 # ---------------------------------------------------------------------------
-NOTEBOOKS_PY: str = (REPO_ROOT / "server" / "routes" / "notebooks.py").read_text(
+NOTEBOOKS_PY: str = (REPO_ROOT / "src" / "arxmcp" / "server" / "routes" / "notebooks.py").read_text(
     encoding="utf-8"
 )
 
@@ -783,7 +783,7 @@ class TestM10RectifyDiscoverPanel:
         m10's remedy put the IDENTICAL ``abstract_head`` in both the
         ``<summary>`` and the ``<p>``. A ``<summary>`` is the disclosure's
         accessible NAME, and ``abstract_head`` is the untruncated arXiv
-        abstract (``ingest/arxiv_api.py`` builds it as
+        abstract (``src/arxmcp/ingest/arxiv_api.py`` builds it as
         ``" ".join(summary.split())``) — normally 800-1500 characters. So the
         control was named with an entire abstract, and because
         ``.discover-abstract[open] > summary`` releases the clamp, opening it
@@ -793,7 +793,7 @@ class TestM10RectifyDiscoverPanel:
         defect was that two rendered strings were equal, and only rendering
         can show that.
         """
-        from server.routes.notebooks import (  # noqa: PLC0415
+        from arxmcp.server.routes.notebooks import (  # noqa: PLC0415
             ABSTRACT_LEDE_CHARS,
             _abstract_lede,
         )
@@ -823,7 +823,7 @@ class TestM10RectifyDiscoverPanel:
         """The failure m10 existed to fix, which a blind slice would have
         reintroduced from the other side: a short abstract that fits must not
         acquire an ellipsis suggesting there is more to reveal."""
-        from server.routes.notebooks import _abstract_lede  # noqa: PLC0415
+        from arxmcp.server.routes.notebooks import _abstract_lede  # noqa: PLC0415
 
         short = "A short abstract that fits comfortably within the bound."
         assert _abstract_lede(short) == short
@@ -832,7 +832,7 @@ class TestM10RectifyDiscoverPanel:
     def test_an_absent_abstract_still_names_the_control(self) -> None:
         """An empty ``<summary>`` is an unnamed disclosure button, which is
         worse than a generic label."""
-        from server.routes.notebooks import (  # noqa: PLC0415
+        from arxmcp.server.routes.notebooks import (  # noqa: PLC0415
             ABSTRACT_LEDE_FALLBACK,
             _abstract_lede,
         )
@@ -842,10 +842,10 @@ class TestM10RectifyDiscoverPanel:
 
     def test_the_fragment_does_not_render_the_abstract_twice(self) -> None:
         """The end-to-end shape of the same defect, over the real builder."""
-        from server.discovery import (  # noqa: PLC0415
+        from arxmcp.server.discovery import (  # noqa: PLC0415
             DiscoveryCandidate,
         )
-        from server.routes.notebooks import (  # noqa: PLC0415
+        from arxmcp.server.routes.notebooks import (  # noqa: PLC0415
             _discover_results_fragment,
         )
 

@@ -1,103 +1,55 @@
 [build-system]
-# Closes F5+IS1 from the E06_S01 critique. Without an explicit
-# build-system + tool.setuptools.packages declaration, setuptools'
-# auto-discovery refuses to build because the flat layout has
-# >1 top-level dir (var/, shim/, infra/, docker/, ingest/, server/,
-# tests/, tools/). The ``pip install -e .`` in docker/Dockerfile.server
-# AND in ``make bootstrap`` would both fail without this.
 requires = ["setuptools>=64", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
-# Scoped discovery over the six package trees. The ``*`` globs are
-# load-bearing: a bare list of top-level names (server, ingest, tools, shim)
-# OMITS subpackages — server.handlers, server.routes, ingest.security, etc. —
-# so a built wheel raises ModuleNotFoundError at runtime (e.g. the container
-# crash on ``from ingest.security.pdfid import ...``). Scoping the include to
-# these patterns still avoids the "multiple top-level packages discovered
-# in a flat-layout" error that an unscoped find would raise on var/, infra/,
-# docker/. ``shim`` (E06_S02) carries the arxmcp-shim console-script below.
-#
-# ``ops*`` (issue #206) and the operator-console assets (issue #195 /
-# trustworthy-release-m4) were BOTH absent until 2026-07-31. The consequence
-# was silent: a wheel-installed operator got no backup, no cutover, no
-# restore drill and no drift watchdog, and ``create_app()`` crashed on the
-# missing static-assets directory. ``ops`` is a real package
-# (``ops/__init__.py``); ``ops.cron`` / ``ops.systemd`` /
-# ``server.frontend.*`` are implicit-namespace dirs picked up because
-# ``namespaces`` defaults to true — they carry no ``.py`` at all and exist
-# purely to anchor the ``package-data`` globs below.
-#
-# NOTE there is deliberately no ``frontend*`` entry. The console assets
-# briefly shipped as a TOP-LEVEL ``frontend`` package and were moved under
-# ``server/frontend/`` before the first PyPI publish: a top-level name that
-# generic is claimed in every installing environment's site-packages, where
-# any other distribution can collide with it, and un-claiming it after
-# publishing is a one-way door. ``server*`` now covers them — the glob
-# matches ``server.frontend.templates`` and ``server.frontend.static`` the
-# same way it already matched ``server.handlers`` and ``server.routes``.
-# Both call sites resolve the assets relative to the ``server`` package
-# (``server/routes/ui.py`` ``parents[1]``, ``server/main.py`` ``parent``), so
-# one expression serves a source checkout and an installed wheel alike.
-include = ["server*", "ingest*", "tools*", "shim*", "ops*"]
-# The desktop lifecycle spike is a Cargo-only experiment.  ``tools*`` would
-# otherwise discover its Python evidence harness as an implicit namespace and
-# silently add development-only process-control code to the production wheel.
-exclude = ["tools.desktop_lifecycle_spike*"]
+# Every Python box lives under the one ``arxmcp`` package in src/, so the
+# wheel claims a single top-level name in site-packages. The ``*`` glob is
+# load-bearing: without it setuptools ships ``arxmcp`` but none of its
+# subpackages. Data-only directories (``arxmcp.ops.cron``,
+# ``arxmcp.server.frontend.*``) are picked up as implicit namespaces and
+# exist to anchor the package-data globs below.
+where = ["src"]
+include = ["arxmcp*"]
+# The desktop lifecycle spike is a Cargo-only experiment; its Python harness
+# is development-only process-control code and stays out of the wheel.
+exclude = ["arxmcp.tools.desktop_lifecycle_spike*"]
 
 [tool.setuptools.package-data]
-# NON-``.py`` FILES ARE NOT PACKAGED WITHOUT AN EXPLICIT GLOB. Declaring a
-# directory in ``packages.find`` above ships only its modules; every data
-# file needs a line here. Three of these were missing entirely until
-# 2026-07-31 and the failure mode was a hard crash, not a warning:
-#
-#   * ``server/router_patterns.yaml`` — ``server/router.py:261`` RAISES
-#     ("router_patterns.yaml missing at ...") when absent, so the wheel
-#     built before this section could not boot at all.
-#   * ``server/schemas/*.json`` — the declared source of truth for the
-#     ``search_papers`` / ``lean_verify`` result rows (``server/tools.py:103``).
-#   * ``tools/seed-papers.txt`` — read at ``tools/fetch_seed.py:55``.
-#
-# ``tests/test_wheel_packaging.py`` walks the shipped trees on disk and
-# fails if any non-``.py`` file is not matched by a glob here, so a future
-# data file cannot silently drop out of the wheel the same way.
-"server" = ["router_patterns.yaml"]
-"server.schemas" = ["*.json"]
+# Non-``.py`` files ship only when a glob here names them; a missing one is a
+# runtime crash in the installed wheel, not a warning.
+# ``tests/test_wheel_packaging.py`` fails if a shipped tree holds a data file
+# that no glob matches.
+"arxmcp.server" = ["router_patterns.yaml"]
+"arxmcp.server.schemas" = ["*.json"]
 # The pinned arxiv CA bundle. Without it ARXMCP_PIN_ARXIV_CA=1 fails
 # Config validation on any install that is not a source checkout.
-"server.ca" = ["*.pem"]
-"ingest" = ["*.sh"]
-"tools" = ["*.sh", "seed-papers.txt"]
-# ops/: the operability layer — backup, cutover, restore drill, drift
-# watchdog. The ``.sh`` / ``.cron`` / ``.service`` / ``.timer`` files are
-# the halves an operator actually invokes; shipping only the ``.py``
-# modules would leave operators pointed at absent files.
-"ops" = ["*.sh", "*.template"]
-"ops.cron" = ["*.sh", "*.cron"]
-"ops.systemd" = ["*.service", "*.timer"]
-# server/frontend/: operator-console assets. NOT a Python package — data
-# only, which is why these two globs are the whole mechanism that ships
-# them. Absent, ``create_app()`` raises on the missing StaticFiles
-# directory before serving a single request.
-"server.frontend.templates" = ["*.html"]
-"server.frontend.static" = ["*.css", "*.js", "*.svg", "*.md"]
+"arxmcp.server.ca" = ["*.pem"]
+"arxmcp.ingest" = ["*.sh"]
+"arxmcp.tools" = ["*.sh", "seed-papers.txt"]
+# The shell, cron and systemd halves of ops are what an operator invokes.
+"arxmcp.ops" = ["*.sh", "*.template"]
+"arxmcp.ops.cron" = ["*.sh", "*.cron"]
+"arxmcp.ops.systemd" = ["*.service", "*.timer"]
+# Operator-console assets. Absent, ``create_app()`` raises on the missing
+# StaticFiles directory before serving a request.
+"arxmcp.server.frontend.templates" = ["*.html"]
+"arxmcp.server.frontend.static" = ["*.css", "*.js", "*.svg", "*.md"]
 
 [project.scripts]
-# E06_S02 stdio shim. Installed on $PATH by ``pip install -e .`` /
+# The stdio shim. Installed on $PATH by ``pip install -e .`` /
 # ``pipx install arxmcp``. Claude Code's ``~/.claude.json`` registers
 # this command name verbatim; renaming would force every operator to
 # update their MCP server registration.
-arxmcp-shim = "shim.arxmcp_shim:main"
+arxmcp-shim = "arxmcp.shim.arxmcp_shim:main"
 # The long-running server. Operators verify their install with
 # ``arxmcp-server --help``.
 #
-# Points at ``server.cli``, NOT ``server.main``: importing ``server.main``
-# executes ``create_app()`` at module scope (``server/main.py:890``), so
-# hanging the console script off it would build the entire FastAPI app —
-# LanceDB handles, MCP mount, StaticFiles — just to print ``--help``, and
-# would exit non-zero on any config error before argparse ever ran.
-# ``server/cli.py`` imports ``server.main`` lazily, inside ``main()``.
-arxmcp-server = "server.cli:main"
+# Points at ``arxmcp.server.cli``, not ``arxmcp.server.main``: importing
+# ``main`` runs ``create_app()`` at module scope, so ``--help`` would build
+# the whole FastAPI app and fail on any config error before argparse ran.
+# ``cli`` imports ``main`` lazily, inside ``main()``.
+arxmcp-server = "arxmcp.server.cli:main"
 
 [project]
 name = "arxmcp"
@@ -134,7 +86,7 @@ dependencies = [
     #   this dependency is installed and the repo ships safetensors files.
     "safetensors>=0.4",
     # numpy: NPZ-store backing for the per-paper embedding vectors written
-    #   by ``ingest/embedder.py``. Read by E04_S01's ``ingest/store.py``
+    #   by ``src/arxmcp/ingest/embedder.py``. Read by E04_S01's ``src/arxmcp/ingest/store.py``
     #   when assembling LanceDB rows.
     "numpy>=1.24",
     # lancedb: vector store for the chunks table (E04_S01). Embedded
@@ -143,7 +95,7 @@ dependencies = [
     #   On-disk format pin (notebook-ops-hardening-m2): every
     #   ``db.create_table`` passes
     #   ``storage_options={"new_table_data_storage_version": "stable"}``
-    #   (see ``ingest.schema.LANCE_STORAGE_OPTIONS``) so a version bump
+    #   (see ``arxmcp.ingest.schema.LANCE_STORAGE_OPTIONS``) so a version bump
     #   here can't silently migrate the on-disk format under a pinned
     #   reader.
     #
@@ -172,7 +124,7 @@ dependencies = [
     #   re-running the suite against the candidate, not editing this number.
     #
     #   FLOOR CORRECTED 2026-07-31 (issue #206): it was ``>=0.6``, which the
-    #   code cannot actually run against. ``ingest/schema.py:112`` documents
+    #   code cannot actually run against. ``src/arxmcp/ingest/schema.py:112`` documents
     #   that the modern kwarg is
     #   ``storage_options={"new_table_data_storage_version": "stable"}`` and
     #   that the older bare ``data_storage_version="stable"`` was accepted
@@ -183,7 +135,7 @@ dependencies = [
     "lancedb>=0.30.2,<0.35",
     # pyarrow: schema definition for the LanceDB ``chunks`` table
     #   (E04_S01). The single source of truth for all downstream readers
-    #   lives in ``ingest/schema.py`` as a ``pa.schema(...)`` object.
+    #   lives in ``src/arxmcp/ingest/schema.py`` as a ``pa.schema(...)`` object.
     #   Floor raised 16.0 and capped below 25 (issue #206): the schema
     #   object is the contract between ingest and every reader, and pyarrow
     #   has removed deprecated schema//type APIs at major boundaries before.
@@ -204,7 +156,7 @@ dependencies = [
     #   2025-06-18 spec's mandated Streamable HTTP transport. Pinned
     #   to a tested minor because the 1.x line has had attribute
     #   renames (``sse_app`` → ``streamable_http_app``); a future
-    #   bump is a one-line change inside ``server/_mcp_mount.py``.
+    #   bump is a one-line change inside ``src/arxmcp/server/_mcp_mount.py``.
     "mcp>=1.27,<2",
     # fastapi: ASGI framework for the long-running ``arxmcp-server``
     #   (E06_S01). 0.115+ is the modern lifespan-context-manager API
@@ -223,7 +175,7 @@ dependencies = [
     #   single-process registry; multiprocess mode is explicitly NOT
     #   used (the server is single-process by design).
     "prometheus-client>=0.20",
-    # PyYAML: parser for ``server/router_patterns.yaml`` (E08_S01).
+    # PyYAML: parser for ``src/arxmcp/server/router_patterns.yaml`` (E08_S01).
     #   Loaded via ``yaml.safe_load`` only (CVE-2017-18342 — never
     #   ``yaml.load`` without a Loader). Already a transitive dep
     #   via transformers / lancedb; declared explicitly to match
@@ -232,7 +184,7 @@ dependencies = [
     # jinja2: server-side HTML templating for the per-notebook UI
     #   (proof-verify-handler-wiring-m8). Used via
     #   ``fastapi.templating.Jinja2Templates`` from
-    #   ``server/routes/ui.py`` with ``autoescape=True`` (explicit;
+    #   ``src/arxmcp/server/routes/ui.py`` with ``autoescape=True`` (explicit;
     #   the Starlette default ``select_autoescape()`` enables the
     #   same protection but explicit > implicit). Already a transitive
     #   dep via mcp (>=1.27.1); declared explicitly to match the
@@ -247,7 +199,7 @@ dependencies = [
     #   License: Apache-2.0.
     "python-multipart>=0.0.18",
     # jsonschema: validates lean_verify's result against the schema it
-    #   advertises (``server/tools.py``), at import time of the server.
+    #   advertises (``src/arxmcp/server/tools.py``), at import time of the server.
     #   Already a transitive dep via mcp, at the same >=4.20 floor;
     #   declared explicitly. License: MIT.
     "jsonschema>=4.20",
@@ -266,7 +218,7 @@ dependencies = [
     "kuzu==0.11.3",
     # defusedxml: XXE/billion-laughs-safe replacement for
     #   ``xml.etree.ElementTree`` (E10_S03). Used by
-    #   ``ingest.mathml_tree`` to parse MathML from caller input
+    #   ``arxmcp.ingest.mathml_tree`` to parse MathML from caller input
     #   to the find_equation handler. Pure-Python stdlib drop-in;
     #   defense-in-depth for the per-handler max_length=4000 cap.
     #   License: Python Software Foundation License (PSF) 2.0, on the
@@ -275,8 +227,8 @@ dependencies = [
     # zss: Zhang-Shasha tree-edit distance over MathML parse trees
     #   (E10_S03). Pure Python, no compiled deps. Last release 2018-03-12
     #   (maintenance-frozen but stable — the algorithm is closed-form and
-    #   the project's use is narrow). Used in ingest.index_equations (build
-    #   time) and ingest.mathml_tree (query time). License:
+    #   the project's use is narrow). Used in arxmcp.ingest.index_equations (build
+    #   time) and arxmcp.ingest.mathml_tree (query time). License:
     #   BSD-3-Clause (verified from the LICENSE bundled in the wheel; the
     #   PyPI metadata does not surface this — both research briefs
     #   reported MIT but the actual bundled license is BSD-3-Clause,
@@ -330,6 +282,8 @@ dev = [
     # fastapi.testclient refuses to import without it, and no runtime
     # dependency is obliged to bring it.
     "httpx>=0.27",
+    # Checks the import-direction contract below ([tool.importlinter]).
+    "import-linter>=2.1",
 ]
 # textbook-ingest e2 — PDF parsing via MinerU 3.x is INTENTIONALLY NOT
 # in a project extra. MinerU's dep tree caps transformers at v4, which
@@ -372,9 +326,12 @@ dev = [
     # fastapi.testclient refuses to import without it, and no runtime
     # dependency is obliged to bring it.
     "httpx>=0.27",
+    # Checks the import-direction contract below ([tool.importlinter]).
+    "import-linter>=2.1",
 ]
 
 [tool.ruff]
+src = ["src", "tests"]
 line-length = 100
 target-version = "py311"
 extend-exclude = [
@@ -412,9 +369,47 @@ markers = [
     "requires_pdflatex: tests that invoke the real `pdflatex` + `pdftoppm` binaries (parser-fidelity-eval-m1 CDM gate). Skipped by default; opt-in via `pytest -m requires_pdflatex` AND `ARXMCP_RUN_REAL_PDFLATEX=1`. Requires pdflatex (part of texlive: `brew install --cask mactex-no-gui` / `apt install texlive-base`) and pdftoppm (part of poppler-utils: `brew install poppler` / `apt install poppler-utils`) installed locally. Subprocess sandbox follows the same `start_new_session=True` + `os.killpg` discipline as LaTeXML per `.claude/docs/security-cdm-sandbox.md`.",
     "requires_mineru: tests that invoke the real `mineru` binary (textbook-ingest-m5 PDF parser subprocess driver). Skipped by default; opt-in via `pytest -m requires_mineru` AND `ARXMCP_RUN_REAL_MINERU=1` AND `ARXMCP_MINERU_BIN` set to the absolute path of the mineru binary (typically `~/venvs/mineru/bin/mineru` — install via `uv venv ~/venvs/mineru && uv pip install --python ~/venvs/mineru/bin/python 'mineru[pipeline,mlx]'`). Subprocess sandbox profile is documented at `.claude/docs/security-pdf-sandbox.md`. RLIMIT_AS 4 GB cap is Linux-only — macOS does NOT enforce (verified live test); wall timeout is the only memory backstop on Darwin.",
     "requires_wheel_build: tests that build the project wheel and install it into a throwaway virtualenv (issue #206 / trustworthy-release-m4 clean-environment install check). Skipped by default; opt-in via `pytest -m requires_wheel_build`, or run the underlying script directly with `make wheel-check`. The `contents` half needs only `uv` (or `build`) on PATH and no network; the `full` half ALSO requires `ARXMCP_RUN_FULL_WHEEL_CHECK=1` and resolves the real ~2 GB dependency set before booting the server with ARXMCP_BOOTSTRAP_MODE=1 and polling /healthz. docs/releasing.md makes the full run a pre-publish gate.",
-    "requires_desktop_stack: desktop-distribution-m5/m6 real-lifecycle tests that boot the ACTUAL server (`python -m server.desktop_child`, eager BGE-M3/LanceDB warm-up) and/or the built Tauri supervisor binary, including the m6 fault matrix that drives the real supervisor against fault-injected fixture-sidecar arms plus the 30-cycle orphan stress and the socket-level loopback proof. Model prerequisite, declared because the gate is mandatory: the child env sets ARXMCP_ENABLE_RERANK=1 so the AC1 warm map is honestly all-true, which loads a THIRD model — BGE-reranker-v2-m3 (~2.3 GB) — fail-closed at startup, so a fresh clone needs it cached or downloadable. Conservative rather than universal: most m6 arms drive the fixture sidecar, not the real server, and need no model. Binary prerequisites: `lsof` and `ps`, which the cleanup-evidence probes REQUIRE and which raise rather than skip when absent (present by default on macOS; `apt install lsof` / `procps` on Debian-family Linux). Skipped by default; opt-in via `pytest -m requires_desktop_stack`, or run `make desktop-conformance` (which builds the binaries, exports DESKTOP_SUPERVISOR_BIN — deliberately not ARXMCP_-prefixed so the server's unknown-env-var scan never sees it — plus ARXMCP_FIXTURE_SIDECAR, and runs these with zero skips). Opting in with a missing prerequisite fails loudly (requires_latexmlc precedent).",
-    "requires_desktop_package: desktop-distribution-m7 PyInstaller packaging gate. Provisions the pinned build venv under var/desktop-package/build-venv (uv sync --locked layered with the freshly built wheel plus PyInstaller 6.21.0 hash-pinned via apps/desktop/pyinstaller/requirements-build.txt — deliberately OUTSIDE pyproject.toml/uv.lock per the MinerU precedent; network on first provision, so the first run REQUIRES NETWORK; macOS/Linux only — requirements-build.txt is a macOS-resolved hash-pinned lock with no environment markers and --require-hashes forbids resolving the missing Windows dependency), then runs TWO independent ~74 s onedir builds, each with its own cold PYINSTALLER_CONFIG_DIR so the second build reproduces rather than replays the first build's bincache. Disk is PERSISTENT, not transient: ~1 GB build venv (deliberately reused) plus ~0.75 GB per bundle, ~2.5 GB at the two-build peak; reclaim with `make desktop-package-clean`. The builds prove the closed-set manifest determinism (AC1), frozen latex2mathml byte-parity (AC2), the freeze_support spawn re-exec guard (AC3), direct_url.json sanitization (AC4), and the recursive build-root string scan including embedded-PYZ .pyc bytes (AC5). Skipped by default; opt-in via `pytest -m requires_desktop_package`, or run `make desktop-package-check` (which sets DESKTOP_PACKAGE_GATE=1 so ANY skip fails the session). Opting in with `uv` missing fails loudly (requires_latexmlc precedent). The BUILD runs on macOS and Linux (the OpenMP consolidation is platform-aware: macOS drops faiss's redundant copy, Linux has none to drop because auditwheel gives each wheel's libgomp a distinct mangled SONAME), but the AC2-B fault-injection arm needs Mach-O install-name rewriting and SKIPS off macOS — so under DESKTOP_PACKAGE_GATE=1 the gate FAILS on Linux by design rather than reporting a pass with that evidence missing.",
+    "requires_desktop_stack: desktop-distribution-m5/m6 real-lifecycle tests that boot the ACTUAL server (`python -m arxmcp.server.desktop_child`, eager BGE-M3/LanceDB warm-up) and/or the built Tauri supervisor binary, including the m6 fault matrix that drives the real supervisor against fault-injected fixture-sidecar arms plus the 30-cycle orphan stress and the socket-level loopback proof. Model prerequisite, declared because the gate is mandatory: the child env sets ARXMCP_ENABLE_RERANK=1 so the AC1 warm map is honestly all-true, which loads a THIRD model — BGE-reranker-v2-m3 (~2.3 GB) — fail-closed at startup, so a fresh clone needs it cached or downloadable. Conservative rather than universal: most m6 arms drive the fixture sidecar, not the real server, and need no model. Binary prerequisites: `lsof` and `ps`, which the cleanup-evidence probes REQUIRE and which raise rather than skip when absent (present by default on macOS; `apt install lsof` / `procps` on Debian-family Linux). Skipped by default; opt-in via `pytest -m requires_desktop_stack`, or run `make desktop-conformance` (which builds the binaries, exports DESKTOP_SUPERVISOR_BIN — deliberately not ARXMCP_-prefixed so the server's unknown-env-var scan never sees it — plus ARXMCP_FIXTURE_SIDECAR, and runs these with zero skips). Opting in with a missing prerequisite fails loudly (requires_latexmlc precedent).",
+    "requires_desktop_package: desktop-distribution-m7 PyInstaller packaging gate. Provisions the pinned build venv under var/desktop-package/build-venv (uv sync --locked layered with the freshly built wheel plus PyInstaller 6.21.0 hash-pinned via src/desktop/pyinstaller/requirements-build.txt — deliberately OUTSIDE pyproject.toml/uv.lock per the MinerU precedent; network on first provision, so the first run REQUIRES NETWORK; macOS/Linux only — requirements-build.txt is a macOS-resolved hash-pinned lock with no environment markers and --require-hashes forbids resolving the missing Windows dependency), then runs TWO independent ~74 s onedir builds, each with its own cold PYINSTALLER_CONFIG_DIR so the second build reproduces rather than replays the first build's bincache. Disk is PERSISTENT, not transient: ~1 GB build venv (deliberately reused) plus ~0.75 GB per bundle, ~2.5 GB at the two-build peak; reclaim with `make desktop-package-clean`. The builds prove the closed-set manifest determinism (AC1), frozen latex2mathml byte-parity (AC2), the freeze_support spawn re-exec guard (AC3), direct_url.json sanitization (AC4), and the recursive build-root string scan including embedded-PYZ .pyc bytes (AC5). Skipped by default; opt-in via `pytest -m requires_desktop_package`, or run `make desktop-package-check` (which sets DESKTOP_PACKAGE_GATE=1 so ANY skip fails the session). Opting in with `uv` missing fails loudly (requires_latexmlc precedent). The BUILD runs on macOS and Linux (the OpenMP consolidation is platform-aware: macOS drops faiss's redundant copy, Linux has none to drop because auditwheel gives each wheel's libgomp a distinct mangled SONAME), but the AC2-B fault-injection arm needs Mach-O install-name rewriting and SKIPS off macOS — so under DESKTOP_PACKAGE_GATE=1 the gate FAILS on Linux by design rather than reporting a pass with that evidence missing.",
     "requires_desktop_bundle: desktop-distribution-m15 macOS application-bundle gate — the FIRST committed gate that builds BOTH the Rust binaries and the frozen PyInstaller child in one session and exercises the artifact they combine into, which is why it retires m10's fixture-in-the-onedir-shape substitution rather than inheriting it. `make desktop-bundle` provisions the pinned tauri-cli (cargo install --locked --version, into var/desktop-package/tauri-cli — NETWORK on first provision, several minutes to compile), runs `make desktop-package` for the onedir, then `desktop_package.py assemble`: bottom-up ad-hoc codesign of every nested Mach-O (NOT codesign --deep), `tauri build` for the shell, placement at Contents/Resources/arxmcp-desktop-child/ per the bundle-assembly ADR's Decision 2a (which SUPERSEDED Decision 2's Contents/MacOS/ location on 2026-08-12), and an outer re-seal that must SUCCEED — assembly raises rather than leaving an unsealed .app, and the gate asserts codesign --verify reports the bundle valid on disk. The A/B location control still runs every time: codesign will not seal a bundle whose Contents/MacOS carries non-Mach-O files, which is why the payload moved, and the control keeps any future seal failure attributable to the layout rather than to this host. A sealed ad-hoc bundle says NOTHING about Apple's notary. The gate then measures the artifact: the supervisor's own two-layout payload resolution (bundle Contents/Resources first, m7's onedir sibling second, refusal when neither is present) via a --print-child-plan diagnostic probe that reports which arm resolved, plus the symlinked-root negative arm that proves resolve_inside() still refuses without falling through, byte-identity between the placed child and the onedir, m7's build-root string scan and m8's single-libomp guard re-run over the PLACED tree, m9's minos over the bundled binary, and the PyInstaller executables' own minos (11.0, three majors below the declared 14.0 floor — measured, pinned, and NOT reconciled here). Gatekeeper path translocation is attempted and recorded UNVERIFIED: a quarantined ad-hoc-signed bundle does not launch at all. macOS only. Disk: ~0.75 GB bundle on top of the m7 build root. Skipped by default; opt-in via `pytest -m requires_desktop_bundle`, or run `make desktop-bundle-check` (which sets DESKTOP_BUNDLE_GATE=1 so ANY skip fails the session). An absent artifact RAISES rather than skips (requires_bundled_model precedent).",
     "requires_bundled_model: desktop-distribution-m8 real-model gate. Loads the REAL BGE-M3 and BGE-reranker-v2-m3 weights (~4.6 GB) from the operator's EXTERNAL HuggingFace cache and compares the production encode/rerank output against tests/fixtures/desktop_model/golden_v1.json, then boots the FROZEN desktop child from var/desktop-package/dist/ and asserts an all-true warm map. Prerequisites: both pinned revisions already cached under $HF_HOME (else ~/.cache/huggingface) — the probe runs with HF_HUB_OFFLINE=1 so a missing snapshot fails rather than downloading — plus a bundle built by `make desktop-package` (absent bundle RAISES, it does not skip). Skipped by default; opt-in via `pytest -m requires_bundled_model`, or run `make desktop-model-check` (which builds the bundle and sets DESKTOP_BUNDLED_MODEL_GATE=1 so ANY skip fails the session). The compute runs in subprocesses with an explicit launch environment because tests/conftest.py sets KMP_DUPLICATE_LIB_OK session-wide and the desktop contract forbids it.",
     "requires_restic: tests that invoke the real `restic` binary (notebook-ops-hardening-m1 backup round-trip). Skipped by default; opt-in via `pytest -m requires_restic` AND `ARXMCP_RUN_RESTIC_TESTS=1`. Requires restic >= 0.16 installed locally (`brew install restic` / `apt install restic`). The test inits a throwaway repo under tmp_path with RESTIC_PASSWORD=test and does a backup->wipe->restore->sha256 byte-equality round-trip of a synthetic notebook (uploaded PDF + notebooks.db row).",
 ]
+
+[tool.importlinter]
+root_package = "arxmcp"
+include_external_packages = false
+
+[[tool.importlinter.contracts]]
+# Invariant: a box imports only the boxes below it. ops and tools sit on top,
+# then server, with ingest at the base. The exceptions list only shrinks.
+name = "Boxes import downward only"
+type = "layers"
+layers = [
+    "arxmcp.ops | arxmcp.tools",
+    "arxmcp.server",
+    "arxmcp.ingest",
+]
+ignore_imports = [
+    "arxmcp.ingest.arxiv_fetch -> arxmcp.server.operator_settings",
+    "arxmcp.ingest.bulk_ingest -> arxmcp.server.ssl_pin",
+    "arxmcp.ingest.chunker -> arxmcp.server.model_loader",
+    "arxmcp.ingest.embedder -> arxmcp.server.model_loader",
+    "arxmcp.ingest.graph_ingest -> arxmcp.server.operator_settings",
+    "arxmcp.ingest.graph_ingest -> arxmcp.tools.fetch_seed",
+    "arxmcp.ingest.inspire_ingest -> arxmcp.server.operator_settings",
+    "arxmcp.ingest.inspire_ingest -> arxmcp.tools.fetch_seed",
+    "arxmcp.ingest.intra_paper_refs -> arxmcp.tools.fetch_seed",
+    "arxmcp.ingest.notebooks -> arxmcp.server.operator_settings",
+    "arxmcp.ingest.notebooks -> arxmcp.server.ssl_pin",
+    "arxmcp.ingest.re_embed -> arxmcp.tools.notebook_textbook_ingest",
+    "arxmcp.ingest.textbook_parser -> arxmcp.server.operator_settings",
+]
+
+[[tool.importlinter.contracts]]
+# Invariant: the stdio shim runs in the client's process and imports no other
+# box, so starting it never loads the server.
+name = "The shim imports no other box"
+type = "forbidden"
+source_modules = ["arxmcp.shim"]
+forbidden_modules = ["arxmcp.server", "arxmcp.ingest", "arxmcp.ops", "arxmcp.tools"]

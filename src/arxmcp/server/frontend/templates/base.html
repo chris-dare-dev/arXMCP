@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}arXMCP — notebooks{% endblock %}</title>
+  {# ui-uplift-m7 (UPL-3): tokens.css carries the :root design-token blocks
+     (colour, duration, type) that used to open app.css.
+
+     CORRECTED (external review, 2026-08-05). This comment used to say the
+     order was load-bearing because "a custom property has to be declared
+     before the rules that var() it". That is FALSE. Custom properties are
+     resolved at computed-value time through the cascade, not by source
+     order across sheets: `var(--x)` in app.css picks up the winning
+     declaration of `--x` on the matched element regardless of which
+     stylesheet declared it or when. Swapping these two links changes
+     nothing about what renders.
+
+     The order is kept as CONVENTION — tokens before the rules that spend
+     them reads in the obvious direction, and a reader opening the head
+     should meet the vocabulary first. It is not correctness, and the guard
+     in tests/test_ui_m7_type_scale.py no longer claims it is.
+
+     Both are same-origin under /ui/static/, so CSP style-src 'self' already
+     covers the second link and no middleware change was needed. #}
+  <link rel="stylesheet" href="/ui/static/tokens.css">
+  <link rel="stylesheet" href="/ui/static/app.css">
+  {# ui-attractive-polish-m2 (UPL-25): SVG favicon served from /ui/static/
+     (same-origin under the /ui carve-out, no SecFetchSite or CSP change
+     needed — img-src 'self' in CONTENT_SECURITY_POLICY_UI already covers
+     it). Eliminates the /favicon.ico → 403 devtools noise. The fill
+     color is a hardcoded hex kept in sync with the light --accent token
+     (ui-uplift-m6: #1f609b) because favicons render in browser-tab
+     context and don't inherit page CSS variables. The sync is asserted
+     by tests/test_ui_contrast.py::test_favicon_tracks_light_accent. #}
+  <link rel="icon" href="/ui/static/favicon.svg" type="image/svg+xml">
+  <!-- htmx 2.0.10 vendored at src/arxmcp/server/frontend/static/htmx.min.js (0BSD; m8 AC #5). -->
+  <script src="/ui/static/htmx.min.js" defer></script>
+  <!-- ui-htmx-json-fix-m1: JSON request-body extension for htmx 2.x. The m7
+       JSON routes require application/json, but htmx defaults to
+       application/x-www-form-urlencoded. The previous inline shim tried to fix
+       this by setting evt.detail.body on htmx:configRequest — but htmx 2.0.10
+       has NO evt.detail.body hook (encodeParameters is the real body-override
+       point), so it serialised an empty parameter map and the create-notebook /
+       add-paper / discover / ingest / rename / topic forms sent an EMPTY body
+       and FastAPI 422'd. The extension (src/arxmcp/server/frontend/static/json-enc.js) implements
+       encodeParameters correctly. It is attached PER-FORM via hx-ext="json-enc"
+       so multipart uploads (hx-encoding) and bodyless DELETE controls are left
+       untouched. Loaded deferred AFTER htmx so htmx.defineExtension exists. -->
+  <script src="/ui/static/json-enc.js" defer></script>
+  <!-- issues #431/#432/#433: the console's behaviour lives in ONE external
+       script. It cannot be inline and it cannot use hx-on:: attributes, because
+       CONTENT_SECURITY_POLICY_UI (src/arxmcp/server/middleware.py) withholds
+       'unsafe-eval' and htmx compiles hx-on:: bodies with new Function().
+       script-src 'self' already admits this file. It also absorbs the former
+       inline view-transition toggle, so the console now ships no inline
+       script at all -- the precondition #483 needs to drop 'unsafe-inline'.
+       Loaded with defer AFTER htmx so htmx is defined when it runs. -->
+  <script src="/ui/static/ui.js" defer></script>
+</head>
+<body>
+  {# ui-attractive-polish-m1 (UPL-4): skip-to-main-content link.
+     WCAG SC 2.4.1 (Level A) — keyboard users bypass the header on first Tab.
+     Visually hidden until :focus-visible (see .skip-link in app.css);
+     activation moves keyboard focus into <main id="main" tabindex="-1">. #}
+  {# issue #433: the backend can die while this page is open. htmx fires
+     htmx:sendError (NOT htmx:responseError) when the connection is refused,
+     so no response-error handler could ever have caught it. ui.js unhides
+     this on sendError and re-hides it on the next successful request.
+     role="alert" announces it on unhide; `hidden` keeps it out of the
+     accessibility tree and the layout until it matters. Carries .error so it
+     reuses that surface rather than adding a second themed box (m8's rule
+     ladder forbids the border/radius a standalone banner would want). ONE
+     LINE of text on purpose: .error is `white-space: pre-wrap`. #}
+  <div id="connection-lost" class="error connection-lost" role="alert" hidden>Cannot reach the arXMCP server. It may have stopped &mdash; check that it is still running, then reload this page.</div>
+  <a class="skip-link" href="#main">Skip to main content</a>
+  <header>
+    <h1><a href="/ui/">arXMCP notebooks</a></h1>
+    <p class="subtitle">Per-notebook arXiv corpora for the <code>/proof-verify</code> pipeline.</p>
+  </header>
+  {# ui-attractive-polish-m1 (UPL-4): id="main" is the skip-link target;
+     tabindex="-1" makes <main> programmatically focusable (not Tab-traversable)
+     so activating the skip link actually moves keyboard focus here, not just
+     scrolls. Per MDN tabindex docs + WebAIM G1. #}
+  <main id="main" tabindex="-1">
+    {% block content %}{% endblock %}
+  </main>
+  <footer>
+    <small>
+      {# ui-attractive-polish-m2 (UPL-23): the 5 footer middle-dot
+         separators are decorative. Wrapping in <span aria-hidden="true">
+         keeps them off the accessibility tree so VoiceOver/NVDA don't
+         interrupt the link list by reading "middle dot" / "interpunct"
+         between every textual segment. Static HTML — no htmx interaction. #}
+      Loopback only <span aria-hidden="true">·</span> same-origin only <span aria-hidden="true">·</span>
+      Destructive notebook wipe lives in <code>src/arxmcp/tools/notebook_purge.py</code> <span aria-hidden="true">·</span>
+      <a href="/healthz">/healthz</a> <span aria-hidden="true">·</span> <a href="/readyz">/readyz</a> <span aria-hidden="true">·</span>
+      <!-- notebook-ops-hardening-m4: live operability badge. Polls the
+           /ui/status-badge HTML fragment (NOT /status JSON — htmx renders
+           HTML, and a browser XHR to /status would 403 via SecFetchSite).
+           hx-get is same-origin under /ui so the existing CSP connect-src
+           'self' covers it; no CSP change needed. -->
+      {# ui-uplift-m13 (UPL-13, critique H1) — the live region is #status-live,
+         which is never swapped. The badge inside it is.
+
+         This block previously read: "CRITICAL: the outerHTML swap REPLACES
+         this <span> entirely on each 10s poll, so the SERVER-SIDE fragment
+         MUST also carry these attributes — otherwise the live region goes
+         silent after the first poll." True, and it bought silence-avoidance
+         at the price of announcing the whole composite string ("READY ·
+         corpus v… · N notebooks") every ten seconds, on every page, for as
+         long as the tab stayed open. A re-inserted live region has no
+         previous version to diff against, so the AT cannot tell an unchanged
+         poll from a state transition.
+
+         This was NOT in m13's acceptance criteria — those were written from
+         the ingest symptom — but it is one of the twelve regions the
+         milestone's census counts, and unlike the ingest poll it has no
+         terminal state. Fixing the 2s poll and leaving the 10s one would have
+         made the milestone's title true and its purpose false.
+
+         A <span> wrapper, not a <div>: this lives inside <small> and must stay
+         phrasing content. #}
+      <span id="status-live" aria-live="polite" aria-atomic="true">
+        <span id="status-badge" class="status-badge"
+              hx-get="/ui/status-badge" hx-trigger="load, every 10s"
+              {# #453: transition:false. globalViewTransitions is on for
+                 user-initiated swaps, but a POLL that fires forever will
+                 eventually start a transition while another is still in
+                 flight; startViewTransition then rejects with
+                 InvalidStateError and htmx does not catch it, so a shipped
+                 app logged a console error every few seconds. Polls get no
+                 crossfade — nobody asked for one on a background refresh. #}
+              hx-swap="outerHTML transition:false">checking…</span>
+      </span>
+    </small>
+  </footer>
+</body>
+</html>

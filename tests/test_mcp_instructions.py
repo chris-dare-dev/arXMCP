@@ -1,7 +1,7 @@
 """notebook-surface-expansion-m5 — static MCP initialize.instructions hint.
 
-Covers ``server/mcp_instructions.py::ARXMCP_INSTRUCTIONS`` and its wiring into the
-FastMCP construction (``server/main.py``). The load-bearing assertion is that
+Covers ``src/arxmcp/server/mcp_instructions.py::ARXMCP_INSTRUCTIONS`` and its wiring into the
+FastMCP construction (``src/arxmcp/server/main.py``). The load-bearing assertion is that
 setting ``instructions=`` leaves the frozen ``tools/list`` SHA-256 and BP1 hash
 byte-identical (spike-1 proved this; this pins it). The instructions string itself
 is hash-pinned so any edit is intentional + re-pinned.
@@ -14,8 +14,8 @@ import hashlib
 
 from mcp.server.fastmcp import FastMCP
 
-from server.mcp_instructions import ARXMCP_INSTRUCTIONS
-from server.tools import register_all
+from arxmcp.server.mcp_instructions import ARXMCP_INSTRUCTIONS
+from arxmcp.server.tools import register_all
 from tests.test_server_tool_schema import (
     EXPECTED_TOOL_SCHEMA_SHA256,
     compute_tool_schema_hash,
@@ -28,7 +28,7 @@ EXPECTED_INSTRUCTIONS_SHA256: str = (  # UPDATE-ANCHOR — do not delete
     "c3ee7785231dd3bbd461d6da1129b09960f26f5dc998f6e72c59b529b1ee0dfa"
 )
 
-#: The 8 live tool names (server/tools.py::ALL_TOOLS); the instructions string
+#: The 8 live tool names (src/arxmcp/server/tools.py::ALL_TOOLS); the instructions string
 #: must name each so a connecting agent's orientation can't silently go stale.
 _TOOL_NAMES: tuple[str, ...] = (
     "search_papers",
@@ -74,9 +74,9 @@ class TestInstructionsConstant:
         assert "secret" not in lowered
 
     def test_not_the_system_prompt(self) -> None:
-        """The instructions hint is distinct from server.prompts.SYSTEM_PROMPT
+        """The instructions hint is distinct from arxmcp.server.prompts.SYSTEM_PROMPT
         (different surfaces) — confirm they are not the same object/text."""
-        from server.prompts import SYSTEM_PROMPT
+        from arxmcp.server.prompts import SYSTEM_PROMPT
 
         assert ARXMCP_INSTRUCTIONS != SYSTEM_PROMPT
 

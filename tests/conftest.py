@@ -3,7 +3,7 @@
 Closes F8 from the E04_S01 adversary critique: the
 ``_patched_store_paths`` fixture lived inside ``tests/test_store.py``
 and only fired for tests in that file. Any future test in another
-file that exercises ``ingest.store.write_chunks`` would write to
+file that exercises ``arxmcp.ingest.store.write_chunks`` would write to
 the developer's checkout-local ``var/arxmcp/ops/store-stats.jsonl``
 on every run. Hoisting the fixture into the package-level
 ``conftest.py`` makes it autouse for every test in ``tests/``.
@@ -302,13 +302,13 @@ def _stand_in_chunker_tokenizer(request, monkeypatch):
         return
     from tests._stand_in_tokenizer import StandInTokenizer
 
-    monkeypatch.setattr("ingest.chunker._tokenizer", StandInTokenizer())
+    monkeypatch.setattr("arxmcp.ingest.chunker._tokenizer", StandInTokenizer())
     yield
 
 
 @pytest.fixture(autouse=True)
 def _patched_store_stats_path(tmp_path, monkeypatch):
-    """Redirect ``ingest.store.STORE_STATS_PATH`` into ``tmp_path``.
+    """Redirect ``arxmcp.ingest.store.STORE_STATS_PATH`` into ``tmp_path``.
 
     The store appends one JSON line to that path per ``write_chunks``
     call. Without this fixture, every integration test would pollute
@@ -318,9 +318,9 @@ def _patched_store_stats_path(tmp_path, monkeypatch):
     impossible.
     """
     try:
-        import ingest.store as store_mod
+        import arxmcp.ingest.store as store_mod
     except ImportError:
-        # ingest.store may not be importable from every test (e.g. tests
+        # arxmcp.ingest.store may not be importable from every test (e.g. tests
         # that intentionally avoid pulling lancedb / pyarrow); skipping
         # the patch is safe because no STORE_STATS_PATH writer can fire.
         yield
@@ -335,14 +335,14 @@ def _patched_store_stats_path(tmp_path, monkeypatch):
 
 @pytest.fixture(autouse=True)
 def _patched_bm25_stats_path(tmp_path, monkeypatch):
-    """Redirect ``ingest.bm25_indexer.BM25_STATS_PATH`` into ``tmp_path``.
+    """Redirect ``arxmcp.ingest.bm25_indexer.BM25_STATS_PATH`` into ``tmp_path``.
 
     Mirrors ``_patched_store_stats_path`` for the BM25 ops log so
     integration tests cannot pollute the developer's checkout-local
     ``var/arxmcp/ops/bm25-stats.jsonl`` on every run.
     """
     try:
-        import ingest.bm25_indexer as bm25_mod
+        import arxmcp.ingest.bm25_indexer as bm25_mod
     except ImportError:
         # rank-bm25 may not be installed in every test environment;
         # the patch is a no-op when the module can't be imported.
@@ -361,7 +361,7 @@ def _reset_session_state_for_tests():
     """Drop the per-MCP-session retrieval-cap registry before+after
     each test (E08_S04).
 
-    The registry is a module-level singleton in ``server/session.py``.
+    The registry is a module-level singleton in ``src/arxmcp/server/session.py``.
     Without this fixture, a session's counter from a previous test
     leaks into the next one, producing non-deterministic behavior
     when two tests use the same Mcp-Session-Id (or none — both
@@ -373,9 +373,9 @@ def _reset_session_state_for_tests():
     singletons that demand explicit per-test isolation.
     """
     try:
-        from server.session import reset_session_state_for_tests
+        from arxmcp.server.session import reset_session_state_for_tests
     except ImportError:
-        # ``server.session`` may not be importable from every test
+        # ``arxmcp.server.session`` may not be importable from every test
         # environment (the module could fail to import if a future
         # refactor breaks an unrelated dep). The fixture must NEVER
         # break test collection; if the import fails we yield with
@@ -417,7 +417,7 @@ def _patched_cache_db_path(tmp_path, monkeypatch):
 
 @pytest.fixture(autouse=True)
 def _patched_operator_settings_db(tmp_path, monkeypatch):
-    """Redirect ``server.operator_settings``'s default DB path into ``tmp_path``.
+    """Redirect ``arxmcp.server.operator_settings``'s default DB path into ``tmp_path``.
 
     Direct sibling of ``_patched_cache_db_path`` — same ``var/arxmcp/cache/``
     dir, same checkout-relative-path bug class. ``DEFAULT_DB_PATH`` is the
@@ -442,9 +442,9 @@ def _patched_operator_settings_db(tmp_path, monkeypatch):
     everything after the test.
     """
     try:
-        import server.operator_settings as ops
+        import arxmcp.server.operator_settings as ops
     except ImportError:
-        # server.operator_settings may not be importable from every test
+        # arxmcp.server.operator_settings may not be importable from every test
         # environment; the redirect is a no-op when it can't be imported.
         yield
         return

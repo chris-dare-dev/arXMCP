@@ -26,7 +26,7 @@ import numpy as np
 import pyarrow as pa
 import pytest
 
-from ingest.chunk import (
+from arxmcp.ingest.chunk import (
     CHUNKER_VERSION,
     CHUNKS_SCHEMA_V1,
     EMBED_INPUT_POLICY_VERSION,
@@ -35,20 +35,20 @@ from ingest.chunk import (
     route,
     to_row,
 )
-from ingest.embedder import EMBEDDER_VERSION
-from ingest.re_embed import (
+from arxmcp.ingest.embedder import EMBEDDER_VERSION
+from arxmcp.ingest.re_embed import (
     _read_old_embedder_version,
     _subset_embed_record,
     compute_diff,
     run_re_embed,
 )
-from ingest.schema import (
+from arxmcp.ingest.schema import (
     CHUNKS_TABLE_NAME,
     EMBEDDING_DIM,
     LANCE_STORAGE_OPTIONS,
     EmbedRecord,
 )
-from ingest.store import CORPUS_VERSION_MARKER_NAME, write_chunks
+from arxmcp.ingest.store import CORPUS_VERSION_MARKER_NAME, write_chunks
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -160,7 +160,7 @@ def _bytes(vector) -> bytes:
 
 def _ok_embed_stats():
     """Return an EmbedStats mimicking status=ok."""
-    from ingest.embedder import EmbedStats
+    from arxmcp.ingest.embedder import EmbedStats
 
     return EmbedStats(
         paper_id="x",
@@ -202,9 +202,9 @@ def _run(
     """Run the driver against ``active`` with a stub chunker and model."""
     embedder = _StubEmbedder(new_chunks)
     with (
-        patch("ingest.re_embed.chunk_paper", lambda pid: new_chunks[pid]),
-        patch("ingest.re_embed.embed_paper", embedder.embed_paper),
-        patch("ingest.re_embed.load_embed_record", embedder.load_embed_record),
+        patch("arxmcp.ingest.re_embed.chunk_paper", lambda pid: new_chunks[pid]),
+        patch("arxmcp.ingest.re_embed.embed_paper", embedder.embed_paper),
+        patch("arxmcp.ingest.re_embed.load_embed_record", embedder.load_embed_record),
     ):
         summary = run_re_embed(
             active_lancedb_path=active,
@@ -643,7 +643,7 @@ class TestStateFile:
         def _chunker_raises(_pid):
             raise RuntimeError("synthetic chunker explosion")
 
-        with patch("ingest.re_embed.chunk_paper", _chunker_raises):
+        with patch("arxmcp.ingest.re_embed.chunk_paper", _chunker_raises):
             state_path = tmp_path / "state.json"
             summary = run_re_embed(
                 paper_ids=[PAPER],
@@ -660,7 +660,7 @@ class TestStateFile:
         """A run with a failed paper ends ``complete_with_failures``, which
         ``make cutover``'s C3 accepts. Its staging table must still carry the
         vector indexes, or the cutover integrity probe refuses it."""
-        from ops.cutover import verify_lancedb_integrity
+        from arxmcp.ops.cutover import verify_lancedb_integrity
 
         bad = "2401.00002"
         chunks = [_make_chunk(PAPER, _cid(PAPER, i)) for i in range(3)]
@@ -706,7 +706,7 @@ class TestMakefileReEmbedTarget:
             Path(__file__).resolve().parent.parent / "Makefile"
         ).read_text(encoding="utf-8")
         assert "\nre-embed:\n" in text or "\nre_embed:\n" in text
-        assert "ingest.re_embed" in text
+        assert "arxmcp.ingest.re_embed" in text
 
 
 # ---------------------------------------------------------------------------
@@ -732,7 +732,7 @@ class TestChunkerVersionFreeze:
     #:
     #: To re-pin after a deliberate change:
     #: ``uv run python -c "import hashlib, inspect; from
-    #: ingest.chunk import _compute_chunk_id; print(hashlib.sha256(
+    #: arxmcp.ingest.chunk import _compute_chunk_id; print(hashlib.sha256(
     #: inspect.getsource(_compute_chunk_id).encode()).hexdigest())"``
     EXPECTED_COMPUTE_CHUNK_ID_SHA256 = (
         "101d8d8855d0df8040c7f7d11fcb2dbe27d1f19006f093c76bdeb7e22d2f3088"
@@ -742,7 +742,7 @@ class TestChunkerVersionFreeze:
         import hashlib
         import inspect
 
-        from ingest.chunker import _compute_chunk_id
+        from arxmcp.ingest.chunker import _compute_chunk_id
 
         src = inspect.getsource(_compute_chunk_id)
         actual = hashlib.sha256(src.encode("utf-8")).hexdigest()
@@ -752,13 +752,13 @@ class TestChunkerVersionFreeze:
             f"  actual SHA:   {actual}\n\n"
             f"An edit to the id function rotates chunk ids: a SCHEMA "
             f"migration. Either revert the edit OR (1) bump "
-            f"ingest.chunk.CHUNKER_VERSION, (2) update "
+            f"arxmcp.ingest.chunk.CHUNKER_VERSION, (2) update "
             f"EXPECTED_COMPUTE_CHUNK_ID_SHA256 in this test, and "
             f"(3) rotate existing tables through staging, per notebook: "
             f"make re-embed ARGS=\"--notebook=<slug>\", then "
             f"make notebook-cutover ARGS=\"--notebook=<slug> --force\" "
             f"(the schema-migration constraint on CHUNKER_VERSION in "
-            f"ingest/chunk.py)."
+            f"src/arxmcp/ingest/chunk.py)."
         )
 
     def test_contract_strings_present(self):
@@ -768,7 +768,7 @@ class TestChunkerVersionFreeze:
         unless a caller names a position."""
         import inspect
 
-        from ingest.chunker import _compute_chunk_id
+        from arxmcp.ingest.chunker import _compute_chunk_id
 
         src = inspect.getsource(_compute_chunk_id)
         assert "unicodedata.normalize" in src
@@ -815,10 +815,10 @@ class TestStagingSentinel:
         new_chunks = [_make_chunk(PAPER, _cid(PAPER, i)) for i in range(3)]
         embedder = _StubEmbedder({PAPER: new_chunks})
         with (
-            patch("ingest.re_embed.chunk_paper", lambda _pid: new_chunks),
-            patch("ingest.re_embed.embed_paper", embedder.embed_paper),
-            patch("ingest.re_embed.load_embed_record", embedder.load_embed_record),
-            patch("ingest.re_embed.write_chunks", _capturing_write),
+            patch("arxmcp.ingest.re_embed.chunk_paper", lambda _pid: new_chunks),
+            patch("arxmcp.ingest.re_embed.embed_paper", embedder.embed_paper),
+            patch("arxmcp.ingest.re_embed.load_embed_record", embedder.load_embed_record),
+            patch("arxmcp.ingest.re_embed.write_chunks", _capturing_write),
         ):
             run_re_embed(
                 paper_ids=[PAPER],
@@ -854,7 +854,7 @@ class TestStagingSentinel:
 
         chunks = [_make_chunk(PAPER, _cid(PAPER, 0))]
         active = _active(tmp_path)
-        with patch("ingest.re_embed.build_derived_indexes", _build):
+        with patch("arxmcp.ingest.re_embed.build_derived_indexes", _build):
             _run(tmp_path, active, {PAPER: chunks}, paper_ids=[PAPER])
 
         assert builds == [(tmp_path / "staging", "in_progress")]
@@ -937,9 +937,9 @@ class TestCliNotebook:
     ``--notebook``; a dataset holding textbook papers raises without a slug."""
 
     def _capture(self, monkeypatch, tmp_path):
-        import ingest.notebooks as common
-        from ingest import re_embed
-        from ingest.re_embed import ReEmbedSummary
+        import arxmcp.ingest.notebooks as common
+        from arxmcp.ingest import re_embed
+        from arxmcp.ingest.re_embed import ReEmbedSummary
 
         monkeypatch.setattr(common, "NOTEBOOKS_BASE", tmp_path / "notebooks")
         calls: list[dict] = []
@@ -991,9 +991,9 @@ class TestCliNotebook:
         assert call["notebook_slug"] == "demo-nb"
 
     def test_without_notebook_the_shared_defaults_hold(self, monkeypatch, tmp_path):
-        from ingest.bulk_ingest import DEFAULT_LANCEDB_STAGING_PATH
-        from ingest.re_embed import DEFAULT_STATE_PATH
-        from ingest.store import DEFAULT_LANCEDB_PATH
+        from arxmcp.ingest.bulk_ingest import DEFAULT_LANCEDB_STAGING_PATH
+        from arxmcp.ingest.re_embed import DEFAULT_STATE_PATH
+        from arxmcp.ingest.store import DEFAULT_LANCEDB_PATH
 
         re_embed, calls = self._capture(monkeypatch, tmp_path)
 
@@ -1006,7 +1006,7 @@ class TestCliNotebook:
         assert call["state_path"] == DEFAULT_STATE_PATH
 
     def test_a_bad_slug_is_refused(self, monkeypatch, tmp_path):
-        from ingest.notebooks import NotebookError
+        from arxmcp.ingest.notebooks import NotebookError
 
         re_embed, calls = self._capture(monkeypatch, tmp_path)
         with pytest.raises(NotebookError):
@@ -1054,7 +1054,7 @@ def _adversarial(seed: int) -> np.ndarray:
 def _preamble_doc(paper_id: str):
     import hashlib
 
-    from ingest.preamble_types import PreambleDoc
+    from arxmcp.ingest.preamble_types import PreambleDoc
 
     return PreambleDoc(
         paper_id=paper_id,
@@ -1084,13 +1084,13 @@ class _Corpus:
 
     def patches(self):
         return (
-            patch("ingest.chunker.PARSED_DIR", self.parsed),
-            patch("ingest.chunker.CHUNKS_DIR", self.chunks),
-            patch("ingest.chunker._resolve_preamble_doc", _resolve),
+            patch("arxmcp.ingest.chunker.PARSED_DIR", self.parsed),
+            patch("arxmcp.ingest.chunker.CHUNKS_DIR", self.chunks),
+            patch("arxmcp.ingest.chunker._resolve_preamble_doc", _resolve),
         )
 
     def chunk(self, paper_id: str) -> list[ChunkRecord]:
-        from ingest.chunker import chunk_paper
+        from arxmcp.ingest.chunker import chunk_paper
 
         a, b, c = self.patches()
         with a, b, c:
@@ -1141,9 +1141,9 @@ def _forbid_embedder():
         raise AssertionError("the id rotation must not reach the embedder")
 
     return (
-        patch("ingest.re_embed.embed_paper", _boom),
-        patch("ingest.re_embed.load_embed_record", _boom),
-        patch("tools.notebook_textbook_ingest._build_embed_record", _boom),
+        patch("arxmcp.ingest.re_embed.embed_paper", _boom),
+        patch("arxmcp.ingest.re_embed.load_embed_record", _boom),
+        patch("arxmcp.tools.notebook_textbook_ingest._build_embed_record", _boom),
     )
 
 
@@ -1152,7 +1152,7 @@ def _rotate(tmp_path: Path, corpus: _Corpus, active: Path, embedder_patches):
     p1, p2, p3 = corpus.patches()
     e1, e2, e3 = embedder_patches
     # run_re_embed reads the notebook's papers.txt through this base.
-    base = patch("ingest.textbook_chunker.NOTEBOOKS_BASE", active.parent.parent)
+    base = patch("arxmcp.ingest.textbook_chunker.NOTEBOOKS_BASE", active.parent.parent)
     with p1, p2, p3, e1, e2, e3, base:
         summary = run_re_embed(
             active_lancedb_path=active,
@@ -1228,8 +1228,8 @@ class TestOneTimeIdRotation:
     def test_cutover_promotes_the_rotation_and_drops_version_keyed_caches(
         self, tmp_path
     ):
-        from ingest.corpus import read_corpus_version
-        from tools import notebook_cutover as nc
+        from arxmcp.ingest.corpus import read_corpus_version
+        from arxmcp.tools import notebook_cutover as nc
 
         corpus, active, stored = self._setup(tmp_path)
         _summary, staging = _rotate(tmp_path, corpus, active, _forbid_embedder())
@@ -1283,20 +1283,20 @@ class TestOneTimeIdRotation:
         )
         new_chunks: dict[str, list[ChunkRecord]] = {}
 
-        from ingest.chunker import chunk_paper as real_chunk_paper
+        from arxmcp.ingest.chunker import chunk_paper as real_chunk_paper
 
         def _recording_chunk_paper(pid):
             new_chunks[pid] = real_chunk_paper(pid)
             return new_chunks[pid]
 
         embedder = _StubEmbedder(new_chunks)
-        with patch("ingest.re_embed.chunk_paper", _recording_chunk_paper):
+        with patch("arxmcp.ingest.re_embed.chunk_paper", _recording_chunk_paper):
             summary, staging = _rotate(
                 tmp_path, corpus, active,
                 (
-                    patch("ingest.re_embed.embed_paper", embedder.embed_paper),
-                    patch("ingest.re_embed.load_embed_record", embedder.load_embed_record),
-                    patch("tools.notebook_textbook_ingest._build_embed_record",
+                    patch("arxmcp.ingest.re_embed.embed_paper", embedder.embed_paper),
+                    patch("arxmcp.ingest.re_embed.load_embed_record", embedder.load_embed_record),
+                    patch("arxmcp.tools.notebook_textbook_ingest._build_embed_record",
                           lambda *_a, **_k: pytest.fail("not a TeX/textbook paper")),
                 ),
             )

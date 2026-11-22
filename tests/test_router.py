@@ -30,7 +30,7 @@ from pathlib import Path
 
 import pytest
 
-from server.router import (
+from arxmcp.server.router import (
     DEFAULT_TAG,
     MAX_QUERY_PREFIX_CHARS,
     PATTERNS_PATH,
@@ -141,7 +141,7 @@ class TestAmbiguousCases:
 
         AUTOFORMALIZATION > VERIFICATION > LOOKUP > SYNTHESIS
 
-    See ``server/router_patterns.yaml`` header for the full
+    See ``src/arxmcp/server/router_patterns.yaml`` header for the full
     priority rationale + ``research-synthesis.md`` D4."""
 
     def test_what_is_proof_of_X_routes_to_lookup(self):
@@ -313,12 +313,12 @@ class TestPatternFileSourceOfTruth:
         just 3. A future YAML edit that adds a new pattern is
         automatically covered.
 
-        F5 fix: use ``Path(server.router.__file__)`` instead of a
+        F5 fix: use ``Path(arxmcp.server.router.__file__)`` instead of a
         CWD-relative path so the test passes regardless of where
         pytest is invoked from."""
         import yaml
 
-        import server.router as router_mod
+        import arxmcp.server.router as router_mod
 
         router_src = Path(router_mod.__file__).resolve()
         router_text = router_src.read_text(encoding="utf-8")
@@ -648,7 +648,7 @@ class TestBlockOrderInvariant:
         assert len(result) == 4
 
     def test_live_yaml_satisfies_block_order(self):
-        """The live ``server/router_patterns.yaml`` MUST satisfy
+        """The live ``src/arxmcp/server/router_patterns.yaml`` MUST satisfy
         the priority block-order invariant. Sanity check: this
         passing today would have failed if the implementer had
         gotten the YAML order wrong."""
@@ -778,7 +778,7 @@ class TestExtraKeyRejection:
 
 
 def test_missing_pattern_file_does_not_stop_server_import():
-    """``server.tools`` reaches ``server.router`` only for ``RouteTag``.
+    """``arxmcp.server.tools`` reaches ``arxmcp.server.router`` only for ``RouteTag``.
     With the pattern file unreadable, importing the tool surface still
     succeeds, and the failure surfaces from ``classify`` instead."""
     script = textwrap.dedent(
@@ -794,8 +794,8 @@ def test_missing_pattern_file_does_not_stop_server_import():
 
         pathlib.Path.read_text = read_text
 
-        import server.tools  # noqa: F401
-        from server.router import classify
+        import arxmcp.server.tools  # noqa: F401
+        from arxmcp.server.router import classify
 
         try:
             classify("prove the lemma")

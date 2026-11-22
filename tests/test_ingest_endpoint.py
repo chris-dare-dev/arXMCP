@@ -13,7 +13,7 @@ Coverage matrix:
 - TestIngestTrackerUnit      — direct unit tests of IngestTaskTracker
 
 The subprocess invocation is monkey-patched in most tests so the
-tests don't actually spawn `tools/notebook_ingest.py` (which
+tests don't actually spawn `src/arxmcp/tools/notebook_ingest.py` (which
 would re-load BGE-M3). The path-redaction + html-escape pipeline
 is exercised against synthetic stderr bytes.
 """
@@ -28,16 +28,16 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from ingest import notebooks as _notebook_common
-from server.ingest_tracker import (
+from arxmcp.ingest import notebooks as _notebook_common
+from arxmcp.server.ingest_tracker import (
     STDERR_TAIL_MAX_BYTES,
     IngestTaskTracker,
     prepare_stderr_tail,
     redact_paths,
 )
-from server.notebooks_store import NotebooksStore
-from server.routes import notebooks as notebooks_module
-from server.routes.notebooks import router as notebooks_router
+from arxmcp.server.notebooks_store import NotebooksStore
+from arxmcp.server.routes import notebooks as notebooks_module
+from arxmcp.server.routes.notebooks import router as notebooks_router
 
 
 @pytest.fixture
@@ -91,7 +91,7 @@ class TestIngestTrigger:
                     return b"", b""
             return _FakeProc()
         monkeypatch.setattr(
-            "server.ingest_tracker.asyncio.create_subprocess_exec",
+            "arxmcp.server.ingest_tracker.asyncio.create_subprocess_exec",
             _fake_spawn,
         )
         client.post("/ui/api/notebooks", json={"slug": "demo-nb"})
@@ -118,7 +118,7 @@ class TestIngestTrigger:
                     return b"", b""
             return _FakeProc()
         monkeypatch.setattr(
-            "server.ingest_tracker.asyncio.create_subprocess_exec",
+            "arxmcp.server.ingest_tracker.asyncio.create_subprocess_exec",
             _fake_spawn,
         )
         client.post("/ui/api/notebooks", json={"slug": "demo-nb"})
@@ -158,7 +158,7 @@ class TestPerNotebookCollision:
                     return b"", b""
             return _FakeProc()
         monkeypatch.setattr(
-            "server.ingest_tracker.asyncio.create_subprocess_exec",
+            "arxmcp.server.ingest_tracker.asyncio.create_subprocess_exec",
             _fake_spawn,
         )
         client.post("/ui/api/notebooks", json={"slug": "demo-nb"})
@@ -293,7 +293,7 @@ class TestHttp286OnTerminal:
                     return b"", b""
             return _FakeProc()
         monkeypatch.setattr(
-            "server.ingest_tracker.asyncio.create_subprocess_exec",
+            "arxmcp.server.ingest_tracker.asyncio.create_subprocess_exec",
             _fake_spawn,
         )
         client.post("/ui/api/notebooks", json={"slug": "demo-nb"})
@@ -322,7 +322,7 @@ class TestHttp286OnTerminal:
                     return b"", b"FATAL: simulated /Users/test/x/var/arxmcp/oops"
             return _FakeProc()
         monkeypatch.setattr(
-            "server.ingest_tracker.asyncio.create_subprocess_exec",
+            "arxmcp.server.ingest_tracker.asyncio.create_subprocess_exec",
             _fake_spawn,
         )
         client.post("/ui/api/notebooks", json={"slug": "demo-nb"})
@@ -490,7 +490,7 @@ class TestIngestTrackerUnit:
                 "demo-nb", "2026-05-22T17:00:00+00:00",
             )
             # Spawn — but stub create_subprocess_exec to hang.
-            import server.ingest_tracker as it_mod
+            import arxmcp.server.ingest_tracker as it_mod
 
             async def _fake_spawn(*args, **kwargs):
                 class _FakeProc:
@@ -529,7 +529,7 @@ class TestIngestTrackerUnit:
             run_id = await store.insert_ingest_run(
                 "demo-nb", "2026-05-22T17:00:00+00:00",
             )
-            import server.ingest_tracker as it_mod
+            import arxmcp.server.ingest_tracker as it_mod
 
             async def _fake_spawn(*args, **kwargs):
                 class _FakeProc:
@@ -596,7 +596,7 @@ class TestCancelPathWritesFailedRow:
             run_id = await store.insert_ingest_run(
                 "demo-nb", "2026-05-22T17:00:00+00:00",
             )
-            import server.ingest_tracker as it_mod
+            import arxmcp.server.ingest_tracker as it_mod
 
             async def _fake_spawn(*args, **kwargs):
                 class _FakeProc:

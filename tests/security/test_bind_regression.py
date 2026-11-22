@@ -11,7 +11,7 @@ The Threat-5 mitigation has two layers:
 2. **TCP-bind layer** (this file) — Config-validator rejects
    non-loopback `bind_host` values unless the operator explicitly
    opts in via ``ARXMCP_UNSAFE_NETWORK_BIND=1``. Implemented in
-   E13_S05's `server/config.py::reject_non_loopback_bind`; this
+   E13_S05's `src/arxmcp/server/config.py::reject_non_loopback_bind`; this
    file is the dedicated regression-suite name so the contract
    is grep-discoverable.
 
@@ -42,7 +42,7 @@ import logging
 import pytest
 from pydantic import ValidationError
 
-from server.config import LOOPBACK_HOSTS, Config
+from arxmcp.server.config import LOOPBACK_HOSTS, Config
 
 # Test inputs used in the milestone brief's verbatim examples.
 _LOOPBACK_IPV4 = "127.0.0.1"
@@ -265,7 +265,7 @@ class TestNonLoopbackAcceptedWithEscapeHatch:
 
 
 class TestUnsafeBindWarnLogContent:
-    """The startup WARN log at ``server/main.py:548-559`` is the
+    """The startup WARN log at ``src/arxmcp/server/main.py:548-559`` is the
     operator-visibility mechanism for the escape hatch. It must
     contain operator-actionable substrings so a grep over the
     operational log surfaces the deviation from the safe default.
@@ -293,12 +293,12 @@ class TestUnsafeBindWarnLogContent:
         monkeypatch.setenv("ARXMCP_UNSAFE_NETWORK_BIND", "1")
         cfg = Config(_env_file=None)  # type: ignore[call-arg]
 
-        # Mirror server.main's warn block exactly. The brief and
+        # Mirror arxmcp.server.main's warn block exactly. The brief and
         # audit doc claim grep-on-log alerting is the contract; we
         # pin the LITERAL substrings here so the audit doc cross-
         # reference holds across refactors.
-        server_main_logger = logging.getLogger("server.main")
-        with caplog.at_level(logging.WARNING, logger="server.main"):
+        server_main_logger = logging.getLogger("arxmcp.server.main")
+        with caplog.at_level(logging.WARNING, logger="arxmcp.server.main"):
             if cfg.unsafe_network_bind:
                 server_main_logger.warning(
                     "ARXMCP_UNSAFE_NETWORK_BIND=1 is set; server "
@@ -327,10 +327,10 @@ class TestUnsafeBindWarnLogContent:
         cfg = Config(_env_file=None)  # type: ignore[call-arg]
         assert cfg.unsafe_network_bind is False
 
-        # Reproduce the conditional branch from server.main; the
+        # Reproduce the conditional branch from arxmcp.server.main; the
         # if-guard must skip the warn.
-        server_main_logger = logging.getLogger("server.main")
-        with caplog.at_level(logging.WARNING, logger="server.main"):
+        server_main_logger = logging.getLogger("arxmcp.server.main")
+        with caplog.at_level(logging.WARNING, logger="arxmcp.server.main"):
             if cfg.unsafe_network_bind:  # noqa: SIM108
                 server_main_logger.warning("should not fire")
 

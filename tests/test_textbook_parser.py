@@ -30,8 +30,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from ingest import textbook_parser
-from ingest.textbook_parser import (
+from arxmcp.ingest import textbook_parser
+from arxmcp.ingest.textbook_parser import (
     _DEFAULT_TIMEOUT_S,
     _ENV_WHITELIST,
     _ENV_WHITELIST_POSIX,
@@ -162,7 +162,7 @@ class TestResolveMineruBinary:
     ) -> None:
         # env unset, which() empty, but a persisted mineru_bin exists (the
         # conftest fixture isolates operator_settings into tmp) -> resolve it.
-        from server.operator_settings import set_setting
+        from arxmcp.server.operator_settings import set_setting
 
         fake_bin = tmp_path / "mineru"
         fake_bin.write_text("#!/bin/sh\n")
@@ -174,7 +174,7 @@ class TestResolveMineruBinary:
     def test_operator_settings_stale_path_raises(
         self, monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        from server.operator_settings import set_setting
+        from arxmcp.server.operator_settings import set_setting
 
         set_setting("mineru_bin", "/gone/mineru")
         monkeypatch.delenv("ARXMCP_MINERU_BIN", raising=False)
@@ -191,7 +191,7 @@ class TestResolveMineruBinary:
         monkeypatch.delenv("ARXMCP_MINERU_BIN", raising=False)
         with (
             patch(
-                "server.operator_settings.get_mineru_bin",
+                "arxmcp.server.operator_settings.get_mineru_bin",
                 side_effect=RuntimeError("boom"),
             ),
             patch.object(shutil, "which", return_value="/usr/bin/mineru"),
@@ -428,7 +428,7 @@ class TestLocateOutputs:
     ) -> None:
         # Good markdown, no sidecar: the parse proceeds without it.
         md, _ = self._make_outputs(tmp_path, "doc", with_cl=False)
-        with caplog.at_level("WARNING", logger="ingest.textbook_parser"):
+        with caplog.at_level("WARNING", logger="arxmcp.ingest.textbook_parser"):
             rmd, rcl = _locate_outputs(tmp_path, "doc")
         assert rmd == md
         assert rcl is None
@@ -538,7 +538,7 @@ class TestPlatformSetup:
             "sys.platform = 'darwin'\n"
             "import logging\n"
             "logging.basicConfig(level=logging.WARNING)\n"
-            "from ingest import textbook_parser  # noqa: F401\n"
+            "from arxmcp.ingest import textbook_parser  # noqa: F401\n"
         )
         result = subprocess.run(
             [sys.executable, str(script)],
@@ -677,7 +677,7 @@ class TestRunMineruSandboxedSurface:
         # absent) — this exercises the getpgid-present branch regardless of
         # host OS. SIGKILL is patched to a sentinel int the assertion checks.
         with (
-            caplog.at_level(logging.WARNING, logger="ingest.textbook_parser"),
+            caplog.at_level(logging.WARNING, logger="arxmcp.ingest.textbook_parser"),
             patch.object(subprocess, "Popen", return_value=proc),
             patch.object(os, "killpg", create=True) as mock_killpg,
             patch.object(os, "getpgid", create=True, return_value=12345),

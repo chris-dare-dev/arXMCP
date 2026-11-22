@@ -32,20 +32,20 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.testclient import TestClient
 
-from ingest import notebooks as _notebook_common
-from server.notebooks_store import NotebooksStore
-from server.routes import notebooks as notebooks_module
-from server.routes.notebooks import (
+from arxmcp.ingest import notebooks as _notebook_common
+from arxmcp.server.notebooks_store import NotebooksStore
+from arxmcp.server.routes import notebooks as notebooks_module
+from arxmcp.server.routes.notebooks import (
     _paper_row_html,
 )
-from server.routes.notebooks import (
+from arxmcp.server.routes.notebooks import (
     router as notebooks_router,
 )
-from server.routes.ui import router as ui_router
+from arxmcp.server.routes.ui import router as ui_router
 
 REPO_ROOT: Path = Path(__file__).resolve().parents[1]
-FRONTEND_STATIC: Path = REPO_ROOT / "server" / "frontend" / "static"
-FRONTEND_TEMPLATES: Path = REPO_ROOT / "server" / "frontend" / "templates"
+FRONTEND_STATIC: Path = REPO_ROOT / "src" / "arxmcp" / "server" / "frontend" / "static"
+FRONTEND_TEMPLATES: Path = REPO_ROOT / "src" / "arxmcp" / "server" / "frontend" / "templates"
 
 APP_CSS: str = (FRONTEND_STATIC / "app.css").read_text(encoding="utf-8")
 APP_CSS_NO_COMMENTS: str = _re.sub(r"/\*.*?\*/", "", APP_CSS, flags=_re.S)
@@ -309,7 +309,7 @@ class TestUPL12PreFlightChecklist:
         self, m4_client: TestClient
     ) -> None:
         # m4-rect F2 (MEDIUM): _arxiv_url_to_paper_id (via
-        # is_valid_arxiv_paper_id at ingest/identifiers.py) accepts BOTH
+        # is_valid_arxiv_paper_id at src/arxmcp/ingest/identifiers.py) accepts BOTH
         # new-style (2604.00001) AND old-style (hep-th/0001234) paper IDs.
         # Pre-rect, every HTML-branch test in this file exercised only
         # new-style IDs, so the renderer's behaviour for the slash-bearing
@@ -459,7 +459,7 @@ class TestUPL13GlobalViewTransitions:
         # the original bug, so an un-stripped `in BASE_HTML` check would pass
         # on the prose even if the real code were deleted.
         # MOVED 2026-08-22 (#431): this code left base.html's inline
-        # <script> for server/frontend/static/ui.js. The property this
+        # <script> for src/arxmcp/server/frontend/static/ui.js. The property this
         # guard protects is unchanged and still asserted — only its home
         # moved, because the console now ships NO inline script (htmx's
         # hx-on:: needs 'unsafe-eval', which this CSP withholds).
@@ -477,7 +477,7 @@ class TestUPL13GlobalViewTransitions:
         # into a comment region (whose nearest preceding <script ...> is the
         # external deferred json-enc tag).
         # MOVED 2026-08-22 (#431): this code left base.html's inline
-        # <script> for server/frontend/static/ui.js. The property this
+        # <script> for src/arxmcp/server/frontend/static/ui.js. The property this
         # guard protects is unchanged and still asserted — only its home
         # moved, because the console now ships NO inline script (htmx's
         # hx-on:: needs 'unsafe-eval', which this CSP withholds).
@@ -508,7 +508,7 @@ class TestUPL13GlobalViewTransitions:
         # until a full page reload. The MediaQueryList must carry a
         # `change` listener, not just be sampled once at DOMContentLoaded.
         # MOVED 2026-08-22 (#431): this code left base.html's inline
-        # <script> for server/frontend/static/ui.js. The property this
+        # <script> for src/arxmcp/server/frontend/static/ui.js. The property this
         # guard protects is unchanged and still asserted — only its home
         # moved, because the console now ships NO inline script (htmx's
         # hx-on:: needs 'unsafe-eval', which this CSP withholds).

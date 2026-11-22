@@ -3,7 +3,7 @@
 Derived test for ``ui-uplift-m9`` (``plans/ui-uplift/roadmap.yaml``, epic
 ``ui-uplift-e2`` / tag ``BAN-R2``). Three acceptance criteria:
 
-1. Any class literal emitted by a fragment builder in ``server/routes/``
+1. Any class literal emitted by a fragment builder in ``src/arxmcp/server/routes/``
    must have a matching selector in ``app.css``, or this test fails.
 2. The dynamic status-badge modifier family is handled by an explicit
    allow-list, not a false failure.
@@ -40,19 +40,19 @@ Design (research-synthesis.md; both Phase-1 briefs agreed):
   ``_KNOWN_UNSTYLED`` is a DATED DEBT DEFERRAL, not an exemption, and it
   is **empty since ui-uplift-m10**: the 8 classes it still held (three
   ``topic-*``, five ``discover-*``) gained real rules in that milestone's
-  UPL-9 pass, so AC1 now binds unconditionally over ``server/routes/``.
+  UPL-9 pass, so AC1 now binds unconditionally over ``src/arxmcp/server/routes/``.
   Unlike a hand-maintained list it cannot rot silently:
   :class:`TestKnownUnstyledDebtIsSelfCleaning` fails the day an entry
   gains a rule, which is why it had to be emptied in the same commit as
   the CSS.
 
 Templates are out of scope (AC1 and the epic's own ``links.code`` both
-name only ``server/routes/``): Jinja2-only classes like
+name only ``src/arxmcp/server/routes/``): Jinja2-only classes like
 ``notebook_detail.html``'s ``rename-form`` are a deliberate scope line.
 **Read the headline above with that line in mind** — "every server-emitted
 CSS class" means every class emitted by a fragment builder under
-``server/routes/``, not every class that reaches a browser
-(ui-uplift-m9 critique M5). ui-uplift-m10 closed the ``server/routes/``
+``src/arxmcp/server/routes/``, not every class that reaches a browser
+(ui-uplift-m9 critique M5). ui-uplift-m10 closed the ``src/arxmcp/server/routes/``
 half of the debt; the template half is still untracked.
 """
 
@@ -63,11 +63,11 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-from server.routes.ui import _classify_status_badge
+from arxmcp.server.routes.ui import _classify_status_badge
 
 REPO_ROOT: Path = Path(__file__).resolve().parent.parent
-ROUTES_DIR: Path = REPO_ROOT / "server" / "routes"
-STATIC_DIR: Path = REPO_ROOT / "server" / "frontend" / "static"
+ROUTES_DIR: Path = REPO_ROOT / "src" / "arxmcp" / "server" / "routes"
+STATIC_DIR: Path = REPO_ROOT / "src" / "arxmcp" / "server" / "frontend" / "static"
 
 #: Negative lookbehind excludes a longer attribute name ending in "class"
 #: (e.g. a hypothetical ``data-class="..."``) from matching.
@@ -88,7 +88,7 @@ _CSS_COMMENT_RE: re.Pattern[str] = re.compile(r"/\*.*?\*/", re.S)
 #: text.
 _DYNAMIC_MARKER: str = "\x00"
 
-#: AC2 — the ONE dynamic class-token family in server/routes/:
+#: AC2 — the ONE dynamic class-token family in src/arxmcp/server/routes/:
 #: ``class="status-badge status-badge--{css}"`` (``ui.py:289``). ``css``
 #: is ``_classify_status_badge``'s 2nd return value; a static scan cannot
 #: resolve the interpolation, so this is an explicit CLOSED allow-list —
@@ -101,7 +101,7 @@ _DYNAMIC_MODIFIER_ALLOWLIST: dict[str, frozenset[str]] = {
 #: entries, dropped to 8 when m7's rectify styled ``status-badge__
 #: remediation``, and m10 (UPL-9) landed rules for the remaining 8 — the
 #: three ``topic-*`` and the five ``discover-*`` classes — so BAN-R2's AC1
-#: now binds every static class ``server/routes/`` emits, unconditionally.
+#: now binds every static class ``src/arxmcp/server/routes/`` emits, unconditionally.
 #:
 #: Empty is the intended terminal state, not a temporary one: both
 #: :class:`TestKnownUnstyledDebtIsSelfCleaning` checks iterate this dict and
@@ -112,7 +112,7 @@ _DYNAMIC_MODIFIER_ALLOWLIST: dict[str, frozenset[str]] = {
 #: resolve), not a debt list, and stays.
 #:
 #: SCOPE, stated because "unconditionally" is easy to over-read: this closes
-#: the ``server/routes/`` half only. Jinja templates are still unscanned
+#: the ``src/arxmcp/server/routes/`` half only. Jinja templates are still unscanned
 #: (ui-uplift-m9 findings M5/L5 — eight unstyled template classes remain
 #: untracked), which is the deliberate scope line the module docstring's last
 #: paragraph draws.
@@ -267,7 +267,7 @@ def _extract_emissions_from_source(source: str, relpath: str) -> list[EmittedCla
 
     Text, not a path, so :class:`TestPolicyBindsForwardAC3` can run this
     SAME machinery against a synthetic snippet — proving AC3 without
-    adding real dead code to ``server/routes/``.
+    adding real dead code to ``src/arxmcp/server/routes/``.
     """
     tree = ast.parse(source)
     docstring_ids = _docstring_constant_ids(tree)
@@ -277,7 +277,7 @@ def _extract_emissions_from_source(source: str, relpath: str) -> list[EmittedCla
 
 
 def _route_files() -> list[Path]:
-    """Every ``.py`` file directly under ``server/routes/`` — a GLOB, not
+    """Every ``.py`` file directly under ``src/arxmcp/server/routes/`` — a GLOB, not
     a hand-listed pair, so a fifth route module is picked up with no
     test-file edit required (AC3)."""
     return sorted(ROUTES_DIR.glob("*.py"))
@@ -293,7 +293,7 @@ def _all_emissions() -> list[EmittedClass]:
 
 
 def _css_files() -> list[Path]:
-    """Every ``.css`` file under ``server/frontend/static/`` — globbed,
+    """Every ``.css`` file under ``src/arxmcp/server/frontend/static/`` — globbed,
     not hardcoded to ``app.css``, so the ``tokens.css`` split the app.css
     line-cap tests already name as an escape hatch doesn't silently drop
     out of coverage the day it happens."""
@@ -366,7 +366,7 @@ def _offenders(
                         f"{e.file}:{e.lineno} — allow-listed dynamic class "
                         f"{concrete!r} (prefix {e.dynamic_prefix!r} + suffix "
                         f"{suffix!r}) has no selector in app.css. Add a "
-                        f"`.{concrete}` rule to server/frontend/static/app.css."
+                        f"`.{concrete}` rule to src/arxmcp/server/frontend/static/app.css."
                     )
             continue
         if e.token in known_unstyled:
@@ -375,7 +375,7 @@ def _offenders(
             offenders.append(
                 f"{e.file}:{e.lineno} — class {e.token!r} has no selector "
                 f"in app.css. Add a `.{e.token}` rule to "
-                "server/frontend/static/app.css. If the class is genuinely "
+                "src/arxmcp/server/frontend/static/app.css. If the class is genuinely "
                 "dynamic, _DYNAMIC_MODIFIER_ALLOWLIST is the mechanism. "
                 "_KNOWN_UNSTYLED has been EMPTY since ui-uplift-m10 — "
                 "re-populating it re-opens debt this epic closed, so it "
@@ -406,7 +406,7 @@ class TestExtractionFindsKnownSites:
     def test_scan_finds_at_least_the_16_known_emission_sites(self) -> None:
         emissions = _all_emissions()
         assert len(emissions) >= 16, (
-            f"expected >= 16 class-literal emissions across server/routes/"
+            f"expected >= 16 class-literal emissions across src/arxmcp/server/routes/"
             f"*.py (research counted 16 known sites); found "
             f"{len(emissions)} — the extractor or the route glob is "
             "probably broken"
@@ -441,7 +441,7 @@ class TestExtractionFindsKnownSites:
         hint_emissions = [
             e
             for e in _extract_emissions_from_source(
-                source, "server/routes/notebooks.py"
+                source, "src/arxmcp/server/routes/notebooks.py"
             )
             if e.token == "hint"
         ]
@@ -475,7 +475,7 @@ class TestEveryEmittedClassHasARuleOrExemption:
             allowlist=_DYNAMIC_MODIFIER_ALLOWLIST,
         )
         assert not offenders, (
-            "BAN-R2: every class emitted from server/routes/ must have a "
+            "BAN-R2: every class emitted from src/arxmcp/server/routes/ must have a "
             f"matching app.css selector. {len(offenders)} offender(s):\n  "
             + "\n  ".join(offenders)
         )
@@ -550,7 +550,7 @@ class TestKnownUnstyledDebtIsSelfCleaning:
         stale = sorted(c for c in _KNOWN_UNSTYLED if c not in emitted)
         assert not stale, (
             "the following _KNOWN_UNSTYLED entries are no longer emitted by "
-            "anything in server/routes/ — delete them from the list; leaving "
+            "anything in src/arxmcp/server/routes/ — delete them from the list; leaving "
             "them standing exempts a class that could later be re-introduced "
             f"with no CSS rule: {stale}"
         )
@@ -599,7 +599,7 @@ class TestKnownUnstyledDebtIsSelfCleaning:
 class TestPolicyBindsForwardAC3:
     """Direct proof: run the REAL extraction + offender-detection
     machinery against a synthetic fragment never added to
-    ``server/routes/`` — no need to ship real dead code to prove AC3.
+    ``src/arxmcp/server/routes/`` — no need to ship real dead code to prove AC3.
     """
 
     def test_new_static_class_with_no_css_rule_is_caught(self) -> None:
@@ -708,7 +708,7 @@ class TestCoveragePredicateRejectsAnEmptyRule:
         "status-badge__remediation": "display",
         # ui-uplift-m8: these three were covered ONLY as `.card X` compounds.
         # Deleting the primitive re-homes them as bare selectors, and all
-        # three are emitted from server/routes/notebooks.py, so BAN-R2 binds
+        # three are emitted from src/arxmcp/server/routes/notebooks.py, so BAN-R2 binds
         # on them unconditionally (_KNOWN_UNSTYLED is empty and pinned so).
         # Under the bare `\.token` matcher they would still pass as empty
         # gesture rules — pinning a real declaration per class is what this

@@ -31,17 +31,17 @@ import pytest
 from fastapi.testclient import TestClient
 from prometheus_client.parser import text_string_to_metric_families
 
-from ingest.chunk import CHUNKER_VERSION, ChunkRecord
-from ingest.embedder import EMBEDDER_VERSION, EMBEDDING_DIM
-from ingest.schema import EmbedRecord
-from ingest.store import write_chunks
-from server.config import Config
-from server.health import (
+from arxmcp.ingest.chunk import CHUNKER_VERSION, ChunkRecord
+from arxmcp.ingest.embedder import EMBEDDER_VERSION, EMBEDDING_DIM
+from arxmcp.ingest.schema import EmbedRecord
+from arxmcp.ingest.store import write_chunks
+from arxmcp.server.config import Config
+from arxmcp.server.health import (
     refresh_sentinel_metrics,
     reset_metrics_for_tests,
 )
-from server.main import create_app
-from server.metrics import (
+from arxmcp.server.main import create_app
+from arxmcp.server.metrics import (
     BACKUP_LAST_SUCCESS_GAUGE,
     BACKUP_STATUS_GAUGE,
     DELTA_TIMEOUT_ACTIVE_GAUGE,
@@ -59,7 +59,7 @@ from server.metrics import (
     reset_lean_repl_metrics_for_tests,
     reset_sentinel_metrics_for_tests,
 )
-from server.observability.metrics import (
+from arxmcp.server.observability.metrics import (
     EMBED_CALLS_COUNTER,
     EMBED_LATENCY,
     REQUEST_COUNTER,
@@ -69,7 +69,7 @@ from server.observability.metrics import (
     reset_embed_metrics_for_tests,
     reset_request_metrics_for_tests,
 )
-from server.tools import _wrap_with_metrics
+from arxmcp.server.tools import _wrap_with_metrics
 
 # ===========================================================================
 # Fixtures (mirror tests/test_server_startup.py)
@@ -110,7 +110,7 @@ def _seed_corpus(lancedb_path: Path) -> int:
 
 @pytest.fixture
 def mocked_bge_m3(monkeypatch):
-    import server.query_encoder as qe_mod
+    import arxmcp.server.query_encoder as qe_mod
 
     fake_model = object()
     fake_tokenizer = object()
@@ -244,7 +244,7 @@ class TestEmbedderMetrics:
     ):
         """The forward-pass path increments EMBED_CALLS_COUNTER and
         records EMBED_LATENCY exactly once per call."""
-        import server.query_encoder as qe_mod
+        import arxmcp.server.query_encoder as qe_mod
 
         # Fake tokenizer returns a dict-shaped object that supports
         # ``**encoded`` unpacking but the model below ignores its
@@ -376,7 +376,7 @@ class TestSentinelScrapeHook:
         reports_dir = tmp_path / "eval-reports"
         reports_dir.mkdir()
         # Colon-free timestamps: ":" is illegal in Windows filenames. The
-        # production reader (server.health._refresh_eval_ndcg5) globs
+        # production reader (arxmcp.server.health._refresh_eval_ndcg5) globs
         # corpus_v<N>-*.json and selects by mtime, so the exact timestamp
         # text is irrelevant — only the corpus_v<N> prefix + mtime matter.
         old = reports_dir / "corpus_v3-2026-05-01T00-00-00.json"
@@ -400,14 +400,14 @@ class TestSentinelScrapeHook:
 
 class TestF1OversizedSentinel:
     """F1 rectification — every read_text on a sentinel must enforce
-    :data:`server.health._MAX_SENTINEL_BYTES` so a 100 GB
+    :data:`arxmcp.server.health._MAX_SENTINEL_BYTES` so a 100 GB
     ``drift-detected.flag`` (attacker, or buggy cron) cannot OOM the
     server at /metrics scrape time."""
 
     def test_oversized_drift_flag_falls_through_to_touchfile(
         self, tmp_path: Path, caplog, reset_all_metrics
     ):
-        from server import health as health_mod  # noqa: PLC0415
+        from arxmcp.server import health as health_mod  # noqa: PLC0415
 
         # Write a file larger than the cap. Cap is 64 KB; we write
         # 65 KB and confirm the body is NEVER read.
@@ -424,7 +424,7 @@ class TestF1OversizedSentinel:
     def test_oversized_backup_status_is_ignored(
         self, tmp_path: Path, caplog, reset_all_metrics
     ):
-        from server import health as health_mod  # noqa: PLC0415
+        from arxmcp.server import health as health_mod  # noqa: PLC0415
 
         # First seed a known-good backup status so we have a prior
         # observable value.
@@ -454,7 +454,7 @@ class TestNonObjectJsonSentinel:
     """A sentinel whose body is VALID JSON of the wrong SHAPE must not
     500 the /metrics scrape.
 
-    Every reader in :func:`server.health.refresh_sentinel_metrics` pulls
+    Every reader in :func:`arxmcp.server.health.refresh_sentinel_metrics` pulls
     fields with ``.get``, which only a mapping has. Two of them guarded
     with ``if payload is not None`` and one had no guard at all, so a
     top-level array / string / number / bool raised ``AttributeError`` —
@@ -521,7 +521,7 @@ class TestNonObjectJsonSentinel:
         ``_read_capped`` has already logged it. The shape guard must not
         add a second, misleading "not a JSON object" line for a file it
         never even read."""
-        from server import health as health_mod
+        from arxmcp.server import health as health_mod
 
         self._seed_good_backup(tmp_path)
         (tmp_path / "backup-status.json").write_bytes(
@@ -714,15 +714,15 @@ class TestF2SingleflightCounter:
     identical queries. The scrape hook in
     :func:`refresh_metrics_from_singleton_state` rehydrates the
     Prometheus counter from the source-of-truth integer
-    :data:`server.query_encoder.SINGLEFLIGHT_DEDUP_COUNT` via a
+    :data:`arxmcp.server.query_encoder.SINGLEFLIGHT_DEDUP_COUNT` via a
     monotonic delta. A regression that flipped the delta sign would
     not have been caught without this test."""
 
     def test_counter_rehydrates_from_source_of_truth(
         self, monkeypatch, reset_all_metrics
     ):
-        import server.query_encoder as qe_mod  # noqa: PLC0415
-        from server import health as health_mod  # noqa: PLC0415
+        import arxmcp.server.query_encoder as qe_mod  # noqa: PLC0415
+        from arxmcp.server import health as health_mod  # noqa: PLC0415
 
         # Reset the module-level delta tracker so the increment math
         # starts from a known 0.
@@ -944,7 +944,7 @@ class TestLeanReplMetrics:
         self, monkeypatch, reset_all_metrics
     ):
         """M1 rectification — drive the gauges THROUGH the real
-        ``refresh_metrics_from_singleton_state`` wiring (``server/health.py``
+        ``refresh_metrics_from_singleton_state`` wiring (``src/arxmcp/server/health.py``
         ``refresh_lean_repl_metrics(getattr(resources, "lean_repl", None))``),
         not by calling ``refresh_lean_repl_metrics`` directly. The class's
         other tests exercise the hook in isolation, so a dropped scrape line
@@ -954,8 +954,8 @@ class TestLeanReplMetrics:
         ``TestF2SingleflightCounter``: a fully-shaped Resources fake carries
         every field the setters read (corpus_info + startup_chunk_count +
         singleflight source-of-truth), plus the ``lean_repl`` field."""
-        import server.query_encoder as qe_mod  # noqa: PLC0415
-        from server import health as health_mod  # noqa: PLC0415
+        import arxmcp.server.query_encoder as qe_mod  # noqa: PLC0415
+        from arxmcp.server import health as health_mod  # noqa: PLC0415
 
         # refresh_metrics_from_singleton_state also reads the singleflight
         # dedup source-of-truth; pin it so the unrelated hook is a no-op.
@@ -1076,7 +1076,7 @@ class TestMetricsEndpoint:
 
 class TestIngestSummaryReader:
     """FM-4, FM-5, FM-7 mitigations for the ingest-summary.json reader block
-    in :func:`server.health.refresh_sentinel_metrics`."""
+    in :func:`arxmcp.server.health.refresh_sentinel_metrics`."""
 
     def _seed_valid(self, ops_dir: Path) -> None:
         """Write a valid v1 ingest-summary.json to ops_dir."""
@@ -1126,7 +1126,7 @@ class TestIngestSummaryReader:
         self, tmp_path: Path, caplog, reset_all_metrics
     ):
         """FM-5 oversized: _read_capped returns None → leave prior gauges."""
-        from server import health as health_mod  # noqa: PLC0415
+        from arxmcp.server import health as health_mod  # noqa: PLC0415
 
         # Seed a valid read first so we have a prior value.
         self._seed_valid(tmp_path)

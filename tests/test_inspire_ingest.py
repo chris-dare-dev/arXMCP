@@ -2,7 +2,7 @@
 
 Mirrors the discipline of ``tests/test_graph_ingest.py``: real Kùzu
 DB in ``tmp_path``, mocked HTTP layer via ``monkeypatch.setattr`` on
-``ingest.inspire_ingest._fetch_inspire_record``. AC#5 (integration
+``arxmcp.ingest.inspire_ingest._fetch_inspire_record``. AC#5 (integration
 test passes with mocked API) requires this — CI never makes live
 INSPIRE calls.
 
@@ -10,7 +10,7 @@ Notable test design:
 
 - A synthetic 5-paper corpus that includes hep-th, math-ph, math.AG
   (skipped by the post-fetch physics gate), and a paper with no
-  INSPIRE record. The seed corpus (`tools/seed-papers.txt`) is
+  INSPIRE record. The seed corpus (`src/arxmcp/tools/seed-papers.txt`) is
   all math.AG and would not exercise the INSPIRE path at all; the
   integration test must construct a synthetic graph.
 - Tests for the F4 split-writer property: an INSPIRE re-MERGE must
@@ -33,7 +33,7 @@ from typing import Any
 import kuzu
 import pytest
 
-from ingest import graph_ingest, inspire_ingest, kuzudb_schema
+from arxmcp.ingest import graph_ingest, inspire_ingest, kuzudb_schema
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -576,7 +576,7 @@ class TestF4SplitWriter:
             sleep_seconds=0,
         )
         # Then: simulate a re-MERGE via the OpenAlex writer.
-        from ingest.graph_ingest import _merge_paper, _ResolvedWork
+        from arxmcp.ingest.graph_ingest import _merge_paper, _ResolvedWork
 
         db = kuzu.Database(str(populated_db))
         conn = None
@@ -811,7 +811,7 @@ class TestE09S02RectificationGuards:
     ):
         """F2: ``enrich()`` MUST accept old-style arXiv IDs like
         ``hep-th/9711200`` (Maldacena AdS/CFT). The new-style-only
-        ``ingest.arxiv_fetch.validate_paper_id`` rejected them; the
+        ``arxmcp.ingest.arxiv_fetch.validate_paper_id`` rejected them; the
         new ``_validate_paper_id_either_style`` accepts both."""
         old_style_id = "hep-th/9711200"
         # Pre-create the node so the citation pass has a target.
@@ -1091,7 +1091,7 @@ class TestFFindingInheritance:
     def test_f2_response_cap_tight(self):
         """F2: INSPIRE has its own response cap, less than the 200 MB
         arXiv-tarball cap."""
-        from ingest.arxiv_fetch import MAX_RESPONSE_BYTES as ARXIV_CAP
+        from arxmcp.ingest.arxiv_fetch import MAX_RESPONSE_BYTES as ARXIV_CAP
 
         assert inspire_ingest.INSPIRE_MAX_RESPONSE_BYTES <= 16 * 1024 * 1024
         assert inspire_ingest.INSPIRE_MAX_RESPONSE_BYTES < ARXIV_CAP
@@ -1170,7 +1170,7 @@ class TestFFindingInheritance:
 
         monkeypatch.setattr(inspire_ingest, "_fetch_inspire_record", _stub)
 
-        with caplog.at_level("WARNING", logger="ingest.inspire_ingest"):
+        with caplog.at_level("WARNING", logger="arxmcp.ingest.inspire_ingest"):
             inspire_ingest.enrich(
                 paper_ids=[P_HEP_TH, P_MATH_PH],
                 db_path=populated_db,

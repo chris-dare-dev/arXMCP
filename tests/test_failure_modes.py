@@ -23,13 +23,13 @@ from types import SimpleNamespace
 import pytest
 
 # ---------------------------------------------------------------------------
-# D4 — ingest/sentinel.py
+# D4 — src/arxmcp/ingest/sentinel.py
 # ---------------------------------------------------------------------------
 
 
 class TestIngestSentinel:
     def test_write_then_is_paused_reads_back(self, tmp_path):
-        from ingest.sentinel import is_paused, write_pause  # noqa: PLC0415
+        from arxmcp.ingest.sentinel import is_paused, write_pause  # noqa: PLC0415
 
         p = tmp_path / "ingest-paused"
         write_pause(
@@ -48,12 +48,12 @@ class TestIngestSentinel:
         assert record["written_at"].endswith("Z")
 
     def test_is_paused_returns_none_when_absent(self, tmp_path):
-        from ingest.sentinel import is_paused  # noqa: PLC0415
+        from arxmcp.ingest.sentinel import is_paused  # noqa: PLC0415
 
         assert is_paused(path=tmp_path / "absent") is None
 
     def test_clear_pause_removes_sentinel(self, tmp_path):
-        from ingest.sentinel import (  # noqa: PLC0415
+        from arxmcp.ingest.sentinel import (  # noqa: PLC0415
             clear_pause,
             is_paused,
             write_pause,
@@ -71,7 +71,7 @@ class TestIngestSentinel:
     def test_overwrite_with_different_reason(self, tmp_path):
         """Second write with a different reason overwrites — the
         sentinel is one-at-a-time by design (latest writer wins)."""
-        from ingest.sentinel import is_paused, write_pause  # noqa: PLC0415
+        from arxmcp.ingest.sentinel import is_paused, write_pause  # noqa: PLC0415
 
         p = tmp_path / "ingest-paused"
         write_pause(reason="disk_low", path=p)
@@ -84,7 +84,7 @@ class TestIngestSentinel:
         ``{"reason": "malformed_sentinel"}`` so callers don't have
         to handle ``json.JSONDecodeError`` — operators see a
         clear "honor the pause" signal."""
-        from ingest.sentinel import is_paused  # noqa: PLC0415
+        from arxmcp.ingest.sentinel import is_paused  # noqa: PLC0415
 
         p = tmp_path / "ingest-paused"
         p.write_text("{not valid json", encoding="utf-8")
@@ -94,14 +94,14 @@ class TestIngestSentinel:
 
 class TestDiskFullSentinelLogic:
     """The scrape-time refresh hook in
-    ``server.health.refresh_disk_free_metric`` is what wires
+    ``arxmcp.server.health.refresh_disk_free_metric`` is what wires
     ``shutil.disk_usage`` into the gauge + sentinel."""
 
     def test_writes_sentinel_when_free_below_threshold(
         self, tmp_path, monkeypatch
     ):
-        from ingest.sentinel import is_paused  # noqa: PLC0415
-        from server.health import (  # noqa: PLC0415
+        from arxmcp.ingest.sentinel import is_paused  # noqa: PLC0415
+        from arxmcp.server.health import (  # noqa: PLC0415
             DISK_PAUSE_THRESHOLD_BYTES,
             refresh_disk_free_metric,
         )
@@ -127,7 +127,7 @@ class TestDiskFullSentinelLogic:
 
     @staticmethod
     def _scrape_with_free(monkeypatch, data_dir, free_bytes):
-        from server.health import refresh_disk_free_metric  # noqa: PLC0415
+        from arxmcp.server.health import refresh_disk_free_metric  # noqa: PLC0415
 
         fake_usage = SimpleNamespace(
             total=100 * 1024**3, used=100 * 1024**3 - free_bytes, free=free_bytes
@@ -152,7 +152,7 @@ class TestDiskFullSentinelLogic:
         assert sentinel.read_bytes() == first
 
     def test_low_disk_keeps_an_operator_pause(self, tmp_path, monkeypatch):
-        from ingest.sentinel import is_paused, write_pause  # noqa: PLC0415
+        from arxmcp.ingest.sentinel import is_paused, write_pause  # noqa: PLC0415
 
         data_dir = tmp_path / "data"
         (data_dir / "ops").mkdir(parents=True)
@@ -168,8 +168,8 @@ class TestDiskFullSentinelLogic:
     def test_clears_sentinel_when_free_above_hysteresis_band(
         self, tmp_path, monkeypatch
     ):
-        from ingest.sentinel import is_paused, write_pause  # noqa: PLC0415
-        from server.health import refresh_disk_free_metric  # noqa: PLC0415
+        from arxmcp.ingest.sentinel import is_paused, write_pause  # noqa: PLC0415
+        from arxmcp.server.health import refresh_disk_free_metric  # noqa: PLC0415
 
         data_dir = tmp_path / "data"
         (data_dir / "ops").mkdir(parents=True)
@@ -193,8 +193,8 @@ class TestDiskFullSentinelLogic:
         """The auto-clear logic only clears sentinels with
         ``reason=disk_low``. An operator's manual maintenance
         sentinel survives auto-recovery."""
-        from ingest.sentinel import is_paused, write_pause  # noqa: PLC0415
-        from server.health import refresh_disk_free_metric  # noqa: PLC0415
+        from arxmcp.ingest.sentinel import is_paused, write_pause  # noqa: PLC0415
+        from arxmcp.server.health import refresh_disk_free_metric  # noqa: PLC0415
 
         data_dir = tmp_path / "data"
         (data_dir / "ops").mkdir(parents=True)
@@ -219,8 +219,8 @@ class TestDiskFullSentinelLogic:
         """When free is between 10 GB and 15 GB (the hysteresis
         band), the refresh neither writes nor clears. Avoids the
         boundary-flap pattern."""
-        from ingest.sentinel import is_paused  # noqa: PLC0415
-        from server.health import refresh_disk_free_metric  # noqa: PLC0415
+        from arxmcp.ingest.sentinel import is_paused  # noqa: PLC0415
+        from arxmcp.server.health import refresh_disk_free_metric  # noqa: PLC0415
 
         data_dir = tmp_path / "data"
         (data_dir / "ops").mkdir(parents=True)
@@ -265,7 +265,7 @@ def _readable_table(version: int) -> SimpleNamespace:
 
 class TestLanceDBCorruptionFallback:
     """The fallback decision tree lives in
-    ``ingest.corpus.open_chunks_table_with_fallback``. The tests
+    ``arxmcp.ingest.corpus.open_chunks_table_with_fallback``. The tests
     inject failures by monkey-patching ``open_chunks_table`` to
     raise on the live tip and succeed on N-1. A truly
     representative test would need a real LanceDB on disk with
@@ -274,7 +274,7 @@ class TestLanceDBCorruptionFallback:
     docs/ops/failure-modes.md."""
 
     def test_happy_path_returns_none_for_degraded(self, monkeypatch):
-        from ingest import corpus as corpus_mod  # noqa: PLC0415
+        from arxmcp.ingest import corpus as corpus_mod  # noqa: PLC0415
 
         fake_table = _readable_table(5)
         calls: list[int] = []
@@ -292,7 +292,7 @@ class TestLanceDBCorruptionFallback:
         assert calls == [5]
 
     def test_falls_back_to_n_minus_1_on_lance_error(self, monkeypatch):
-        from ingest import corpus as corpus_mod  # noqa: PLC0415
+        from arxmcp.ingest import corpus as corpus_mod  # noqa: PLC0415
 
         fallback_table = _readable_table(4)
         calls: list[int] = []
@@ -333,7 +333,7 @@ class TestLanceDBCorruptionFallback:
         assert calls == [5, None, 4]
 
     def test_raises_at_floor_when_version_is_1(self, monkeypatch):
-        from ingest import corpus as corpus_mod  # noqa: PLC0415
+        from arxmcp.ingest import corpus as corpus_mod  # noqa: PLC0415
 
         def fake_open(lancedb_path=None, version=None):
             raise OSError("manifest truncated")
@@ -345,7 +345,7 @@ class TestLanceDBCorruptionFallback:
             )
 
     def test_raises_when_both_versions_corrupt(self, monkeypatch):
-        from ingest import corpus as corpus_mod  # noqa: PLC0415
+        from arxmcp.ingest import corpus as corpus_mod  # noqa: PLC0415
 
         def fake_open(lancedb_path=None, version=None):
             raise OSError(f"manifest v={version} truncated")
@@ -366,7 +366,7 @@ class TestDegradedReadyz:
         """Build a minimal Resources duck and call readyz
         directly. The full ASGI test path is heavier; this is the
         contract check."""
-        from ingest.corpus import DegradedState  # noqa: PLC0415
+        from arxmcp.ingest.corpus import DegradedState  # noqa: PLC0415
 
         # Build a fake Resources with .warm=True + .degraded set.
         # readyz introspects the dataclass shape; a SimpleNamespace
@@ -388,7 +388,7 @@ class TestDegradedReadyz:
         )
         import asyncio  # noqa: PLC0415
 
-        from server.health import readyz  # noqa: PLC0415
+        from arxmcp.server.health import readyz  # noqa: PLC0415
 
         response = asyncio.run(readyz(scope))
         assert response.status_code == 503
@@ -410,7 +410,7 @@ class TestHostedEmbedderFallback:
 
     @pytest.fixture(autouse=True)
     def reset_warned(self):
-        from server.query_encoder import (  # noqa: PLC0415
+        from arxmcp.server.query_encoder import (  # noqa: PLC0415
             _reset_hosted_fallback_logged_for_tests,
         )
 
@@ -423,7 +423,7 @@ class TestHostedEmbedderFallback:
 
         import numpy as np  # noqa: PLC0415
 
-        from server import query_encoder as qe  # noqa: PLC0415
+        from arxmcp.server import query_encoder as qe  # noqa: PLC0415
 
         async def fake_encode(text):
             return np.array([1.0, 2.0], dtype=np.float32)
@@ -440,8 +440,8 @@ class TestHostedEmbedderFallback:
 
         import numpy as np  # noqa: PLC0415
 
-        from server import query_encoder as qe  # noqa: PLC0415
-        from server.observability.metrics import (  # noqa: PLC0415
+        from arxmcp.server import query_encoder as qe  # noqa: PLC0415
+        from arxmcp.server.observability.metrics import (  # noqa: PLC0415
             HOSTED_EMBED_FALLBACK_COUNTER,
         )
 
@@ -471,7 +471,7 @@ class TestHostedEmbedderFallback:
         future refactor doesn't silently swap exception types."""
         import asyncio  # noqa: PLC0415
 
-        from server import query_encoder as qe  # noqa: PLC0415
+        from arxmcp.server import query_encoder as qe  # noqa: PLC0415
 
         async def broken_local(text):
             raise RuntimeError("BGE-M3 OOM during encode")
@@ -486,13 +486,13 @@ class TestHostedEmbedderFallback:
 
         import numpy as np  # noqa: PLC0415
 
-        from server import query_encoder as qe  # noqa: PLC0415
+        from arxmcp.server import query_encoder as qe  # noqa: PLC0415
 
         async def fake_local(text):
             return np.array([1.0], dtype=np.float32)
 
         monkeypatch.setattr(qe, "encode_query", fake_local)
-        with caplog.at_level(logging.WARNING, logger="server.query_encoder"):
+        with caplog.at_level(logging.WARNING, logger="arxmcp.server.query_encoder"):
             asyncio.run(qe.encode_query_with_fallback("a", "voyage"))
             asyncio.run(qe.encode_query_with_fallback("b", "voyage"))
             asyncio.run(qe.encode_query_with_fallback("c", "voyage"))
@@ -518,7 +518,7 @@ class TestF1CacheDegradedRestamping:
     behavior contract."""
 
     def test_restamp_adds_degraded_when_server_degraded(self):
-        from server.handlers.search import _restamp_degraded  # noqa: PLC0415
+        from arxmcp.server.handlers.search import _restamp_degraded  # noqa: PLC0415
 
         cached = {
             "embed_model": "bge-m3",
@@ -534,7 +534,7 @@ class TestF1CacheDegradedRestamping:
         """A payload cached while degraded is returned (after
         recovery) with the degraded flag REMOVED. The current
         server state wins."""
-        from server.handlers.search import _restamp_degraded  # noqa: PLC0415
+        from arxmcp.server.handlers.search import _restamp_degraded  # noqa: PLC0415
 
         cached = {
             "embed_model": "bge-m3",
@@ -560,7 +560,7 @@ class TestF5VoyageKeyIsSecretStr:
     def test_secret_value_masked_in_repr(self, tmp_path):
         from pydantic import SecretStr  # noqa: PLC0415
 
-        from server.config import Config  # noqa: PLC0415
+        from arxmcp.server.config import Config  # noqa: PLC0415
 
         cfg = Config(
             lancedb_path=tmp_path,
@@ -586,20 +586,20 @@ class TestF2CronSentinelPathDrift:
     def test_cron_wrapper_references_arxmcp_data_dir(self):
         """Scrape the cron wrapper and confirm the pause-flag path
         uses ARXMCP_DATA_DIR with the same fallback precedence as
-        ingest.sentinel._resolve_sentinel_path."""
+        arxmcp.ingest.sentinel._resolve_sentinel_path."""
         import pathlib  # noqa: PLC0415
 
         repo_root = pathlib.Path(__file__).resolve().parents[1]
-        wrapper = repo_root / "ops" / "cron" / "arxmcp-delta.sh"
+        wrapper = repo_root / "src" / "arxmcp" / "ops" / "cron" / "arxmcp-delta.sh"
         content = wrapper.read_text(encoding="utf-8")
         # The fix substitutes ARXMCP_DATA_DIR into PAUSE_FLAG.
         assert "ARXMCP_DATA_DIR" in content, (
-            "ops/cron/arxmcp-delta.sh must reference ARXMCP_DATA_DIR "
+            "src/arxmcp/ops/cron/arxmcp-delta.sh must reference ARXMCP_DATA_DIR "
             "so the cron honors the same env var as the Python module"
         )
         # The PAUSE_FLAG construction should use the same suffix
         # the Python module uses (``/ops/ingest-paused``).
         assert "/ops/ingest-paused" in content, (
-            "ops/cron/arxmcp-delta.sh must use the ops/ingest-paused "
-            "suffix that matches ingest.sentinel"
+            "src/arxmcp/ops/cron/arxmcp-delta.sh must use the ops/ingest-paused "
+            "suffix that matches arxmcp.ingest.sentinel"
         )

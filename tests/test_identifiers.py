@@ -1,9 +1,9 @@
 """Single-source-of-truth lock for the arxmcp identifier regexes.
 
-Closes F11 from the E06_S03 critique. ``ingest/chunker.py``,
-``tools/validate_eval_fixtures.py``, and ``server/handlers/chunk.py``
+Closes F11 from the E06_S03 critique. ``src/arxmcp/ingest/chunker.py``,
+``src/arxmcp/tools/validate_eval_fixtures.py``, and ``src/arxmcp/server/handlers/chunk.py``
 all previously carried independent definitions of the paper_id /
-chunk_id format. ``ingest/identifiers.py`` now collapses them to
+chunk_id format. ``src/arxmcp/ingest/identifiers.py`` now collapses them to
 one; this test asserts every consumer site routes through that
 shared module.
 """
@@ -12,8 +12,8 @@ from __future__ import annotations
 
 import pytest
 
-from ingest.chunker import _PAPER_ID_RE
-from ingest.identifiers import (
+from arxmcp.ingest.chunker import _PAPER_ID_RE
+from arxmcp.ingest.identifiers import (
     PAPER_ID_RE,
     is_valid_arxiv_paper_id,
     is_valid_chunk_id,
@@ -25,13 +25,13 @@ from ingest.identifiers import (
 class TestPaperIdRegex:
     def test_chunker_pattern_equals_canonical(self):
         """The chunker's existing _PAPER_ID_RE must match the
-        canonical PAPER_ID_RE pattern from ingest.identifiers."""
+        canonical PAPER_ID_RE pattern from arxmcp.ingest.identifiers."""
         assert _PAPER_ID_RE.pattern == PAPER_ID_RE.pattern
 
     def test_validator_pattern_equals_canonical(self):
         """The eval-fixture validator's _PAPER_ID_RE must also
         match canonical."""
-        from tools.validate_eval_fixtures import _PAPER_ID_RE as VAL_RE
+        from arxmcp.tools.validate_eval_fixtures import _PAPER_ID_RE as VAL_RE
 
         assert VAL_RE.pattern == PAPER_ID_RE.pattern
 
@@ -109,7 +109,7 @@ class TestRegexEquality:
     """
 
     def test_chunk_id_pattern_contains_each_alternative(self):
-        from ingest.identifiers import CHUNK_ID_PATTERN, PAPER_ID_PATTERN
+        from arxmcp.ingest.identifiers import CHUNK_ID_PATTERN, PAPER_ID_PATTERN
 
         # Strip capturing parens around v-suffix; CHUNK_ID_PATTERN
         # uses non-capturing (?:v\d+)? inside the arXiv branch.
@@ -156,7 +156,7 @@ class TestTextbookIdentifiers:
     def test_paper_id_from_textbook_chunk_id_returns_full_paper_id(self):
         # AC #1 — round-trip returns ``textbook:<slug>``, NOT just
         # ``<slug>``. The ``textbook:`` prefix IS part of the paper_id.
-        from ingest.identifiers import paper_id_from_chunk_id
+        from arxmcp.ingest.identifiers import paper_id_from_chunk_id
 
         result = paper_id_from_chunk_id(
             "textbook:shimura-varieties:abcdef0123456789"
@@ -166,7 +166,7 @@ class TestTextbookIdentifiers:
     def test_paper_id_from_arxiv_chunk_id_unchanged(self):
         # AC #3 — arXiv round-trip unchanged. group("arxiv_inner")
         # captures the arXiv paper_id with no ``arxiv:`` prefix.
-        from ingest.identifiers import paper_id_from_chunk_id
+        from arxmcp.ingest.identifiers import paper_id_from_chunk_id
 
         assert (
             paper_id_from_chunk_id("arxiv:2401.00001:" + "a" * 16)
@@ -379,11 +379,11 @@ class TestM1RectGatesRejectTextbook:
     """
 
     def test_extract_equations_module_uses_arxiv_only_helper(self):
-        # ingest/extract_equations.py:369 validates via the arXiv-only
+        # src/arxmcp/ingest/extract_equations.py:369 validates via the arXiv-only
         # helper; the textbook form is rejected before any filesystem
         # path is constructed at PARSED_DIR/<paper_id>/. We verify by
         # source inspection — the gate import is the contract.
-        import ingest.extract_equations as ee
+        import arxmcp.ingest.extract_equations as ee
 
         assert hasattr(ee, "is_valid_arxiv_paper_id"), (
             "extract_equations must import the arXiv-only helper"
@@ -410,7 +410,7 @@ class TestM1RectGatesRejectTextbook:
         contract is legible at the point that pinned it. The live
         coverage is ``tests/test_source_kind_admission.py``.
         """
-        import server.handlers.paper as ph
+        import arxmcp.server.handlers.paper as ph
 
         assert not hasattr(ph, "is_valid_arxiv_paper_id"), (
             "get_paper must no longer gate on the arXiv-only validator"
@@ -419,7 +419,7 @@ class TestM1RectGatesRejectTextbook:
 
     def test_upload_sanitizer_neutralizes_colon(self):
         # m1 rect F1: even if a textbook paper_id slipped past the
-        # arXiv-only gate at server/routes/notebooks.py:558, the
+        # arXiv-only gate at src/arxmcp/server/routes/notebooks.py:558, the
         # sanitizer at :619 now replaces both ``/`` and ``:`` with
         # ``_``. Verify the byte-replacement explicitly.
         paper_id = "textbook:foo"

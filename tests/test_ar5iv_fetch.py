@@ -15,7 +15,7 @@ from unittest.mock import patch
 
 import pytest
 
-from ingest.ar5iv_fetch import (
+from arxmcp.ingest.ar5iv_fetch import (
     AR5IV_MAX_ATTEMPTS,
     AR5IV_MAX_RETRY_WAIT_SECONDS,
     AR5IV_RETRY_BACKOFF_SECONDS,
@@ -80,7 +80,7 @@ class TestTryCache:
         cache_dir = tmp_path / "cache"
         parsed_dir = tmp_path / "parsed"
         with patch(
-            "ingest.ar5iv_fetch.urllib.request.urlopen",
+            "arxmcp.ingest.ar5iv_fetch.urllib.request.urlopen",
             return_value=_ok_response(),
         ):
             result = try_cache(
@@ -109,8 +109,8 @@ class TestTryCache:
             '<math display="inline" alttext="x"><mi>x</mi></math></p></div>'
             "</article></body></html>"
         )
-        with caplog.at_level(logging.WARNING, logger="ingest.ar5iv_fetch"), patch(
-            "ingest.ar5iv_fetch.urllib.request.urlopen",
+        with caplog.at_level(logging.WARNING, logger="arxmcp.ingest.ar5iv_fetch"), patch(
+            "arxmcp.ingest.ar5iv_fetch.urllib.request.urlopen",
             return_value=_ok_response(body),
         ):
             result = try_cache(
@@ -131,8 +131,8 @@ class TestTryCache:
             '<math alttext="x"><mi>x</mi></math></p></section>'
             "</article></body></html>"
         )
-        with caplog.at_level(logging.WARNING, logger="ingest.ar5iv_fetch"), patch(
-            "ingest.ar5iv_fetch.urllib.request.urlopen",
+        with caplog.at_level(logging.WARNING, logger="arxmcp.ingest.ar5iv_fetch"), patch(
+            "arxmcp.ingest.ar5iv_fetch.urllib.request.urlopen",
             return_value=_ok_response(body),
         ):
             result = try_cache(
@@ -153,7 +153,7 @@ class TestTryCache:
         (parsed_dir / "2401.00001" / "index.html").write_text("<html/>")
         # urlopen should NOT be called.
         with patch(
-            "ingest.ar5iv_fetch.urllib.request.urlopen",
+            "arxmcp.ingest.ar5iv_fetch.urllib.request.urlopen",
             side_effect=AssertionError("network must not be hit"),
         ):
             result = try_cache(
@@ -168,7 +168,7 @@ class TestTryCache:
         cache_dir = tmp_path / "cache"
         parsed_dir = tmp_path / "parsed"
         with patch(
-            "ingest.ar5iv_fetch.urllib.request.urlopen",
+            "arxmcp.ingest.ar5iv_fetch.urllib.request.urlopen",
             side_effect=urllib.error.HTTPError(
                 url="x", code=404, msg="Not Found", hdrs=None,
                 fp=io.BytesIO(b""),
@@ -188,7 +188,7 @@ class TestTryCache:
         cache_dir = tmp_path / "cache"
         parsed_dir = tmp_path / "parsed"
         with patch(
-            "ingest.ar5iv_fetch.urllib.request.urlopen",
+            "arxmcp.ingest.ar5iv_fetch.urllib.request.urlopen",
             side_effect=TimeoutError("timed out"),
         ):
             result = try_cache(
@@ -205,7 +205,7 @@ class TestTryCache:
         parsed_dir = tmp_path / "parsed"
         body = "<html><body>this paper could not be processed</body></html>"
         with patch(
-            "ingest.ar5iv_fetch.urllib.request.urlopen",
+            "arxmcp.ingest.ar5iv_fetch.urllib.request.urlopen",
             return_value=_FakeResponse(200, body.encode()),
         ):
             result = try_cache(
@@ -239,7 +239,7 @@ class TestTryCache:
             "this paper could not be processed</body></html>"
         )
         with patch(
-            "ingest.ar5iv_fetch.urllib.request.urlopen",
+            "arxmcp.ingest.ar5iv_fetch.urllib.request.urlopen",
             return_value=_FakeResponse(200, body.encode()),
         ):
             result = try_cache(
@@ -261,7 +261,7 @@ class TestTryCache:
             "<math display='block'/></body></html>"
         )
         with patch(
-            "ingest.ar5iv_fetch.urllib.request.urlopen",
+            "arxmcp.ingest.ar5iv_fetch.urllib.request.urlopen",
             return_value=_FakeResponse(200, body.encode()),
         ):
             result = try_cache(
@@ -283,7 +283,7 @@ class TestTryCache:
             "<html><math display='block'>evil</math></html>"
         )
         with patch(
-            "ingest.ar5iv_fetch.urllib.request.urlopen",
+            "arxmcp.ingest.ar5iv_fetch.urllib.request.urlopen",
             return_value=_FakeResponse(
                 200, attacker_body.encode(), url="https://evil.example/x"
             ),
@@ -332,7 +332,7 @@ class TestOldStyleId:
         cache_dir = tmp_path / "cache"
         parsed_dir = tmp_path / "parsed"
         with patch(
-            "ingest.ar5iv_fetch.urllib.request.urlopen",
+            "arxmcp.ingest.ar5iv_fetch.urllib.request.urlopen",
             return_value=_ok_response(),
         ):
             result = try_cache(
@@ -361,7 +361,7 @@ class TestOldStyleId:
         (cache_dir / "math" / "0212237.html").write_text("<html/>")
         (parsed_dir / "math" / "0212237" / "index.html").write_text("<html/>")
         with patch(
-            "ingest.ar5iv_fetch.urllib.request.urlopen",
+            "arxmcp.ingest.ar5iv_fetch.urllib.request.urlopen",
             side_effect=AssertionError("network must not be hit"),
         ):
             result = try_cache(
@@ -425,9 +425,9 @@ class TestRetries:
         sleeps: list[float] = []
         with (
             patch(
-                "ingest.ar5iv_fetch.urllib.request.urlopen", side_effect=side_effect
+                "arxmcp.ingest.ar5iv_fetch.urllib.request.urlopen", side_effect=side_effect
             ) as urlopen,
-            patch("ingest.ar5iv_fetch.time.sleep", side_effect=sleeps.append),
+            patch("arxmcp.ingest.ar5iv_fetch.time.sleep", side_effect=sleeps.append),
         ):
             result = try_cache(
                 "2401.00001",

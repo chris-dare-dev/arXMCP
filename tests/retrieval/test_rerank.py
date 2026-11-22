@@ -35,12 +35,12 @@ from typing import Any
 import numpy as np
 import pytest
 
-from ingest.chunk import CHUNKER_VERSION, ChunkRecord
-from ingest.embedder import EMBEDDER_VERSION, EMBEDDING_DIM
-from ingest.schema import EmbedRecord
-from ingest.store import write_chunks
-from server.resources import Singleflight
-from server.retrieval.rerank import (
+from arxmcp.ingest.chunk import CHUNKER_VERSION, ChunkRecord
+from arxmcp.ingest.embedder import EMBEDDER_VERSION, EMBEDDING_DIM
+from arxmcp.ingest.schema import EmbedRecord
+from arxmcp.ingest.store import write_chunks
+from arxmcp.server.resources import Singleflight
+from arxmcp.server.retrieval.rerank import (
     BGE_RERANKER_COMMIT_SHA,
     MAX_K,
     RERANKER_MAX_LENGTH,
@@ -132,7 +132,7 @@ def _seeded_lancedb(tmp_path) -> tuple[Path, int]:
 
 
 def _open_chunks_table(lancedb_path: Path, version: int) -> Any:
-    from ingest.corpus import open_chunks_table
+    from arxmcp.ingest.corpus import open_chunks_table
 
     return open_chunks_table(lancedb_path, version=version)
 
@@ -575,7 +575,7 @@ class TestFetchBodyTexts:
         """F4 fix from the E07_S03 critique: chunk_ids containing
         single quotes are SQL-escaped (single quote → doubled), NOT
         dropped. Mirrors the project-wide escape pattern from
-        ``server/handlers/chunk.py:120``. The escaped query is safe
+        ``src/arxmcp/server/handlers/chunk.py:120``. The escaped query is safe
         against injection and produces no rows for a malicious id
         (no such id exists in the corpus).
         """
@@ -619,7 +619,7 @@ class TestShaConstants:
         """``Config.rerank_model_sha`` default MUST equal
         :data:`BGE_RERANKER_COMMIT_SHA` — the constant is the
         single source of truth; the Config field default mirrors."""
-        from server.config import Config
+        from arxmcp.server.config import Config
 
         cfg = Config()
         assert cfg.rerank_model_sha == BGE_RERANKER_COMMIT_SHA
@@ -638,7 +638,7 @@ class TestShaDriftCheck:
         import logging
 
         monkeypatch.setenv("HF_HOME", str(tmp_path))
-        with caplog.at_level(logging.INFO, logger="server.retrieval.rerank"):
+        with caplog.at_level(logging.INFO, logger="arxmcp.server.retrieval.rerank"):
             maybe_log_sha_drift(BGE_RERANKER_COMMIT_SHA)
         warns = [r for r in caplog.records if r.levelname == "WARNING"]
         assert warns == []
@@ -654,7 +654,7 @@ class TestShaDriftCheck:
         )
         snap.mkdir(parents=True)
         monkeypatch.setenv("HF_HOME", str(tmp_path))
-        with caplog.at_level(logging.INFO, logger="server.retrieval.rerank"):
+        with caplog.at_level(logging.INFO, logger="arxmcp.server.retrieval.rerank"):
             maybe_log_sha_drift(BGE_RERANKER_COMMIT_SHA)
         warns = [r for r in caplog.records if r.levelname == "WARNING"]
         assert warns == []
@@ -670,7 +670,7 @@ class TestShaDriftCheck:
         snap.mkdir(parents=True)
         monkeypatch.setenv("HF_HOME", str(tmp_path))
         with caplog.at_level(
-            logging.WARNING, logger="server.retrieval.rerank"
+            logging.WARNING, logger="arxmcp.server.retrieval.rerank"
         ):
             maybe_log_sha_drift(BGE_RERANKER_COMMIT_SHA)
         warns = [r for r in caplog.records if r.levelname == "WARNING"]
@@ -709,9 +709,9 @@ class TestResourcesIntegration:
     def test_resources_startup_populates_rerank_phase_off(
         self, _seeded_lancedb, monkeypatch
     ):
-        import server.query_encoder as qe_mod
-        from server.config import Config
-        from server.resources import Resources
+        import arxmcp.server.query_encoder as qe_mod
+        from arxmcp.server.config import Config
+        from arxmcp.server.resources import Resources
 
         monkeypatch.setattr(qe_mod, "_get_model", lambda: object())
         monkeypatch.setattr(qe_mod, "_get_tokenizer", lambda: object())
@@ -753,8 +753,8 @@ class TestOnPathRequiresModel:
         startup load — startup is paid once)."""
         import time as _time
 
-        from server.config import Config
-        from server.resources import Resources
+        from arxmcp.server.config import Config
+        from arxmcp.server.resources import Resources
 
         lancedb_path, _version = _seeded_lancedb
         cfg = Config(lancedb_path=lancedb_path, enable_rerank=True)

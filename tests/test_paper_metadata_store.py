@@ -1,4 +1,4 @@
-"""Tests for ``server.paper_metadata_store`` (paper-metadata-m1).
+"""Tests for ``arxmcp.server.paper_metadata_store`` (paper-metadata-m1).
 
 Covers the t-store-schema acceptance (double-init no-op; additive +
 atomic + re-runnable migration) and m1 AC2 (cold store reopen serves
@@ -16,8 +16,8 @@ from pathlib import Path
 
 import pytest
 
-import server.paper_metadata_store as store_mod
-from server.paper_metadata_store import (
+import arxmcp.server.paper_metadata_store as store_mod
+from arxmcp.server.paper_metadata_store import (
     SCHEMA_VERSION,
     PaperMetadataRecord,
     PaperMetadataStore,
@@ -181,7 +181,7 @@ class TestUpsertAndRead:
 
 
 class TestHandlerFieldMapping:
-    """paper-metadata-m2: ``server.handlers.paper.hydrated_paper_fields``
+    """paper-metadata-m2: ``arxmcp.server.handlers.paper.hydrated_paper_fields``
     maps a store record to the ``get_paper`` identity fields. Lives
     here (not in the handler smoke tests) because it pins the
     record-semantics contract: the empty-value conventions this store
@@ -189,7 +189,7 @@ class TestHandlerFieldMapping:
     the handler's null / not-hydrated shapes."""
 
     def test_usable_record_maps_all_fields(self) -> None:
-        from server.handlers.paper import hydrated_paper_fields
+        from arxmcp.server.handlers.paper import hydrated_paper_fields
 
         fields = hydrated_paper_fields(_record())
         assert fields == {
@@ -205,7 +205,7 @@ class TestHandlerFieldMapping:
     def test_none_and_leftover_rows_are_not_hydrated(self) -> None:
         """Mirrors ``hydrated_paper_ids``: a row with empty title OR
         empty authors is a defensive-write leftover, not identity."""
-        from server.handlers.paper import hydrated_paper_fields
+        from arxmcp.server.handlers.paper import hydrated_paper_fields
 
         assert hydrated_paper_fields(None) is None
         assert hydrated_paper_fields(_record(title="")) is None
@@ -215,7 +215,7 @@ class TestHandlerFieldMapping:
         """``year == 0`` ("unparseable <published>") and empty
         abstract / categories degrade to None field-by-field while the
         row as a whole still hydrates."""
-        from server.handlers.paper import hydrated_paper_fields
+        from arxmcp.server.handlers.paper import hydrated_paper_fields
 
         fields = hydrated_paper_fields(
             _record(abstract="", year=0, categories=())
@@ -272,5 +272,5 @@ class TestColdReopen:
         no LanceDB / corpus / chunks-table imports on any code path."""
         source = inspect.getsource(store_mod)
         assert "import lancedb" not in source
-        assert "ingest.corpus" not in source
+        assert "arxmcp.ingest.corpus" not in source
         assert "chunks_table" not in source

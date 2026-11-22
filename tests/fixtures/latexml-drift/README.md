@@ -2,8 +2,8 @@
 
 This directory is **dual-purpose**:
 
-1. **Cron-job reference data.** `ops/cron/latexml-drift-check.sh`
-   (daily) runs `python -m ops.drift_check`, which renders each
+1. **Cron-job reference data.** `src/arxmcp/ops/cron/latexml-drift-check.sh`
+   (daily) runs `python -m arxmcp.ops.drift_check`, which renders each
    `<name>.tex` through `latexmlc`, extracts the `<math>` elements,
    and diffs against the paired `<name>.expected.mathml`. Any drift
    causes ERROR logs + sentinel file + non-zero exit.
@@ -31,7 +31,7 @@ on `tikz-cd` output would be unstable and high-noise.
 ## Regenerating baselines after a LaTeXML upgrade
 
 ```bash
-python -m ops.drift_check --update-fixtures
+python -m arxmcp.ops.drift_check --update-fixtures
 ```
 
 This re-runs `latexmlc` on every `.tex` and overwrites the matching

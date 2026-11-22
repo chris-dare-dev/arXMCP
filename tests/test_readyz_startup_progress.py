@@ -1,6 +1,6 @@
 """``/readyz`` names the resources still loading, and each flag answers alone.
 
-The lifespan publishes a :class:`server.resources.StartupProgress` on
+The lifespan publishes a :class:`arxmcp.server.resources.StartupProgress` on
 ``app.state`` before ``Resources.startup`` begins, and startup flips one
 flag per resource as it loads. These tests hold BGE-M3's load open, ask
 ``/readyz`` in the middle, and check that the body separates the LanceDB
@@ -15,9 +15,9 @@ import threading
 import httpx
 import pytest
 
-from server.config import Config
-from server.main import create_app
-from server.resources import (
+from arxmcp.server.config import Config
+from arxmcp.server.main import create_app
+from arxmcp.server.resources import (
     WARM_RESOURCE_NAMES,
     Resources,
     Singleflight,
@@ -46,7 +46,7 @@ async def _readyz(app) -> httpx.Response:
 
 
 def test_readyz_names_the_cold_embedder_mid_startup(tmp_path, monkeypatch):
-    import server.query_encoder as qe_mod
+    import arxmcp.server.query_encoder as qe_mod
 
     release_model = threading.Event()
     model_requested = threading.Event()

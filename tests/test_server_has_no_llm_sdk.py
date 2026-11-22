@@ -9,7 +9,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-SERVER_DIR = Path(__file__).resolve().parents[1] / "server"
+SERVER_DIR = Path(__file__).resolve().parents[1] / "src" / "arxmcp" / "server"
 _SDK_IMPORT = re.compile(r"^\s*(from|import)\s+anthropic\b", re.MULTILINE)
 
 

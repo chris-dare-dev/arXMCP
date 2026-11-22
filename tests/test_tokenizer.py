@@ -6,7 +6,7 @@ import time
 
 import pytest
 
-from ingest.tokenizer import tokenize_body
+from arxmcp.ingest.tokenizer import tokenize_body
 
 # ===========================================================================
 # Acceptance criteria from the milestone brief
@@ -182,7 +182,7 @@ class TestEdgeCases:
 
 class TestModuleContract:
     def test_docstring_says_no_custom_tantivy_analyzer(self):
-        import ingest.tokenizer as tokmod
+        import arxmcp.ingest.tokenizer as tokmod
         assert "Tantivy" in (tokmod.__doc__ or "")
 
     def test_compiled_regex_at_module_level(self):
@@ -190,7 +190,7 @@ class TestModuleContract:
         # it inside the function would defeat the perf target.
         import re as _re
 
-        from ingest.tokenizer import _TOKENIZER_RE
+        from arxmcp.ingest.tokenizer import _TOKENIZER_RE
         assert isinstance(_TOKENIZER_RE, _re.Pattern)
 
 
@@ -386,7 +386,7 @@ class TestF6GoldenOutputRegression:
     )
 
     def test_tokenizer_version_constant_present(self):
-        from ingest.tokenizer import TOKENIZER_VERSION
+        from arxmcp.ingest.tokenizer import TOKENIZER_VERSION
         assert TOKENIZER_VERSION == "v1.0", (
             f"tokenizer version drift: got {TOKENIZER_VERSION!r}"
         )
@@ -402,7 +402,7 @@ class TestF6GoldenOutputRegression:
         # Expected output (computed from the current implementation):
         expected = tokenize_body(self.GOLDEN_INPUT)
         # The asserted hash pins the byte-stable output.
-        from ingest.tokenizer import TOKENIZER_VERSION
+        from arxmcp.ingest.tokenizer import TOKENIZER_VERSION
         assert digest == hashlib.sha256(expected.encode("utf-8")).hexdigest()
         # And core tokens that BM25 will index must be present.
         tokens = result.split()

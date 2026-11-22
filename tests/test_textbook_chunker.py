@@ -2,7 +2,7 @@
 
 Mirrors `tests/test_chunker.py`'s patched-NOTEBOOKS_BASE approach: copy
 a synthetic LaTeXML-shaped HTML5 fixture into a tmp notebook layout,
-patch `ingest.textbook_chunker.NOTEBOOKS_BASE`, run `chunk_textbook`.
+patch `arxmcp.ingest.textbook_chunker.NOTEBOOKS_BASE`, run `chunk_textbook`.
 
 Token counting runs on the stand-in tokenizer ``tests/conftest.py``
 installs, as in the arXiv chunker tests.
@@ -17,8 +17,8 @@ from unittest.mock import patch
 
 import pytest
 
-from ingest.identifiers import is_valid_chunk_id
-from ingest.textbook_chunker import (
+from arxmcp.ingest.identifiers import is_valid_chunk_id
+from arxmcp.ingest.textbook_chunker import (
     TEXTBOOK_CHUNKER_VERSION,
     _collect_chapter_titles,
     _compute_textbook_chunk_id,
@@ -207,7 +207,7 @@ class TestGoldenFixture:
     def _run(self, tmp_path: Path) -> list[dict]:
         base = tmp_path / "notebooks"
         _install_fixture(base, self.SLUG, self.PAPER_ID)
-        with patch("ingest.textbook_chunker.NOTEBOOKS_BASE", base):
+        with patch("arxmcp.ingest.textbook_chunker.NOTEBOOKS_BASE", base):
             records = chunk_textbook(self.SLUG, self.PAPER_ID)
         return [r.to_dict() for r in records]
 
@@ -274,7 +274,7 @@ class TestGoldenFixture:
     def test_output_json_written(self, tmp_path: Path) -> None:
         base = tmp_path / "notebooks"
         _install_fixture(base, self.SLUG, self.PAPER_ID)
-        with patch("ingest.textbook_chunker.NOTEBOOKS_BASE", base):
+        with patch("arxmcp.ingest.textbook_chunker.NOTEBOOKS_BASE", base):
             chunk_textbook(self.SLUG, self.PAPER_ID)
             # _textbook_chunks_dir now takes the resolved notebook dir.
             nb_dir = _resolve_notebook_dir(self.SLUG)
@@ -311,7 +311,7 @@ class TestNoChapterStructure:
     def test_no_chapter_chapter_is_none(self, tmp_path: Path) -> None:
         base = tmp_path / "notebooks"
         _write_html(base, "flat-nb", "textbook:flat-nb", self.FLAT_HTML)
-        with patch("ingest.textbook_chunker.NOTEBOOKS_BASE", base):
+        with patch("arxmcp.ingest.textbook_chunker.NOTEBOOKS_BASE", base):
             records = chunk_textbook("flat-nb", "textbook:flat-nb")
         assert records, "chunker should still emit chunks without chapters"
         for r in records:
@@ -346,7 +346,7 @@ class TestDedup:
     def test_identical_body_deduped(self, tmp_path: Path) -> None:
         base = tmp_path / "notebooks"
         _write_html(base, "dup-nb", "textbook:dup-nb", self.DUP_HTML)
-        with patch("ingest.textbook_chunker.NOTEBOOKS_BASE", base):
+        with patch("arxmcp.ingest.textbook_chunker.NOTEBOOKS_BASE", base):
             records = chunk_textbook("dup-nb", "textbook:dup-nb")
         # The two identical-body section chunks dedupe to one.
         section_chunks = [r for r in records if r.kind == "section"]
@@ -366,7 +366,7 @@ class TestResilience:
         base = tmp_path / "notebooks"
         # Create the notebook dir but NOT the parsed HTML.
         (base / "no-html-nb").mkdir(parents=True)
-        with patch("ingest.textbook_chunker.NOTEBOOKS_BASE", base):
+        with patch("arxmcp.ingest.textbook_chunker.NOTEBOOKS_BASE", base):
             records = chunk_textbook("no-html-nb", "textbook:no-html-nb")
             log = base / "no-html-nb" / "ops" / "chunk-failures.log"
         assert records == []
@@ -394,7 +394,7 @@ class TestResilience:
         outside.mkdir()
         (base / "evil-nb").symlink_to(outside, target_is_directory=True)
         with (
-            patch("ingest.textbook_chunker.NOTEBOOKS_BASE", base),
+            patch("arxmcp.ingest.textbook_chunker.NOTEBOOKS_BASE", base),
             pytest.raises(ValueError, match="unsafe notebook slug"),
         ):
             chunk_textbook("evil-nb", "textbook:evil-nb")
@@ -425,7 +425,7 @@ class TestTheoremLabelAutoId:
         dest = base / "autoid-nb" / "parsed" / flat
         dest.mkdir(parents=True)
         (dest / "index.html").write_text(self.AUTO_ID_HTML, encoding="utf-8")
-        with patch("ingest.textbook_chunker.NOTEBOOKS_BASE", base):
+        with patch("arxmcp.ingest.textbook_chunker.NOTEBOOKS_BASE", base):
             records = chunk_textbook("autoid-nb", "textbook:autoid-nb")
         stmt = next(r for r in records if r.kind == "stmt")
         assert stmt.theorem_label is None, (
@@ -453,7 +453,7 @@ class TestTheoremRemarkProofPairingAudit:
     def _run(self, tmp_path: Path) -> list:
         base = tmp_path / "notebooks"
         _install_fixture(base, self.SLUG, self.PAPER_ID, fixture_id=self.SLUG)
-        with patch("ingest.textbook_chunker.NOTEBOOKS_BASE", base):
+        with patch("arxmcp.ingest.textbook_chunker.NOTEBOOKS_BASE", base):
             return chunk_textbook(self.SLUG, self.PAPER_ID)
 
     def test_matches_golden(self, tmp_path: Path) -> None:

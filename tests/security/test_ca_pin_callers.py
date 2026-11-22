@@ -25,10 +25,10 @@ from pathlib import Path
 
 import pytest
 
-from ingest import bulk_ingest
-from ingest import notebooks as _notebook_common
-from server.ssl_pin import VENDORED_ARXIV_CA_BUNDLE
-from tools import (
+from arxmcp.ingest import bulk_ingest
+from arxmcp.ingest import notebooks as _notebook_common
+from arxmcp.server.ssl_pin import VENDORED_ARXIV_CA_BUNDLE
+from arxmcp.tools import (
     fetch_one_paper,
     fetch_seed,
     notebook_fetch,

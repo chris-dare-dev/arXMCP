@@ -1,4 +1,4 @@
-"""E14_S04 — tests for ``tools/quarterly_drill_reminder.sh``.
+"""E14_S04 — tests for ``src/arxmcp/tools/quarterly_drill_reminder.sh``.
 
 The shell script is intentionally simple (~80 LOC bash + an
 embedded Python heredoc for date math) so the test surface is
@@ -17,7 +17,7 @@ import sys
 import pytest
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
-SCRIPT = REPO_ROOT / "tools" / "quarterly_drill_reminder.sh"
+SCRIPT = REPO_ROOT / "src" / "arxmcp" / "tools" / "quarterly_drill_reminder.sh"
 
 #: Marker for the tests that EXEC the shipped bash script via subprocess.
 #: On Windows the `bash` on PATH (WSL / MSYS) cannot exec a `C:\...`-path
@@ -69,8 +69,8 @@ def test_dry_run_does_not_write_reminder_file(tmp_path, monkeypatch):
     # the parent (the new "REPO_ROOT") has no var/arxmcp/...
     # prior state, and assert nothing is created.
     new_repo = tmp_path / "fake-repo"
-    (new_repo / "tools").mkdir(parents=True)
-    new_script = new_repo / "tools" / SCRIPT.name
+    (new_repo / "src" / "arxmcp" / "tools").mkdir(parents=True)
+    new_script = new_repo / "src" / "arxmcp" / "tools" / SCRIPT.name
     new_script.write_bytes(SCRIPT.read_bytes())
     new_script.chmod(0o755)
 
@@ -101,8 +101,8 @@ def test_real_invocation_exits_zero(tmp_path):
     test is calendar-independent.
     """
     new_repo = tmp_path / "fake-repo"
-    (new_repo / "tools").mkdir(parents=True)
-    new_script = new_repo / "tools" / SCRIPT.name
+    (new_repo / "src" / "arxmcp" / "tools").mkdir(parents=True)
+    new_script = new_repo / "src" / "arxmcp" / "tools" / SCRIPT.name
     new_script.write_bytes(SCRIPT.read_bytes())
     new_script.chmod(0o755)
 
@@ -163,8 +163,8 @@ def test_aborts_when_python_heredoc_fails(tmp_path):
 
     # Stage the script in a fresh tree so var/ stays clean.
     new_repo = tmp_path / "fake-repo"
-    (new_repo / "tools").mkdir(parents=True)
-    new_script = new_repo / "tools" / SCRIPT.name
+    (new_repo / "src" / "arxmcp" / "tools").mkdir(parents=True)
+    new_script = new_repo / "src" / "arxmcp" / "tools" / SCRIPT.name
     new_script.write_bytes(SCRIPT.read_bytes())
     new_script.chmod(0o755)
 

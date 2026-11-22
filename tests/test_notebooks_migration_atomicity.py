@@ -14,8 +14,8 @@ from pathlib import Path
 
 import pytest
 
-from server import notebooks_store
-from server.notebooks_store import SCHEMA_VERSION, open_sync
+from arxmcp.server import notebooks_store
+from arxmcp.server.notebooks_store import SCHEMA_VERSION, open_sync
 
 
 def _version(db_path: Path) -> int:

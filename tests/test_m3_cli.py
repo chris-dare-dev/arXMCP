@@ -1,6 +1,6 @@
 """Tests for the m3 server-down CLI fallbacks
-(``tools/notebook_repair_registry.py`` and
-``tools/notebook_reconcile_marker.py``).
+(``src/arxmcp/tools/notebook_repair_registry.py`` and
+``src/arxmcp/tools/notebook_reconcile_marker.py``).
 
 These back the ``make repair-registry`` and ``make reconcile``
 recipes' server-down branches. They mirror the server-up REST
@@ -15,7 +15,7 @@ import asyncio
 import json
 from pathlib import Path
 
-from server.notebooks_store import NotebooksStore
+from arxmcp.server.notebooks_store import NotebooksStore
 
 
 def _seed_marker(
@@ -40,13 +40,13 @@ def _seed_marker(
 
 
 # ===========================================================================
-# tools/notebook_repair_registry.py
+# src/arxmcp/tools/notebook_repair_registry.py
 # ===========================================================================
 
 
 class TestNotebookRepairRegistryCLI:
     def test_empty_notebooks_base_exits_clean(self, tmp_path, capsys):
-        from tools.notebook_repair_registry import main
+        from arxmcp.tools.notebook_repair_registry import main
 
         notebooks_base = tmp_path / "notebooks"
         notebooks_base.mkdir()
@@ -59,7 +59,7 @@ class TestNotebookRepairRegistryCLI:
         assert "already_registered=0" in out
 
     def test_registers_orphan_on_disk_dir(self, tmp_path, capsys):
-        from tools.notebook_repair_registry import main
+        from arxmcp.tools.notebook_repair_registry import main
 
         notebooks_base = tmp_path / "notebooks"
         notebooks_base.mkdir()
@@ -92,7 +92,7 @@ class TestNotebookRepairRegistryCLI:
         """Walk classification: no-marker dirs go in
         ``skipped_no_marker``; malformed JSON dirs go in
         ``skipped_malformed_marker``. Walk continues past both."""
-        from tools.notebook_repair_registry import main
+        from arxmcp.tools.notebook_repair_registry import main
 
         notebooks_base = tmp_path / "notebooks"
         notebooks_base.mkdir()
@@ -116,7 +116,7 @@ class TestNotebookRepairRegistryCLI:
         assert "skipped_malformed_marker=1" in out
 
     def test_idempotent_re_run(self, tmp_path, capsys):
-        from tools.notebook_repair_registry import main
+        from arxmcp.tools.notebook_repair_registry import main
 
         notebooks_base = tmp_path / "notebooks"
         notebooks_base.mkdir()
@@ -134,13 +134,13 @@ class TestNotebookRepairRegistryCLI:
 
 
 # ===========================================================================
-# tools/notebook_reconcile_marker.py
+# src/arxmcp/tools/notebook_reconcile_marker.py
 # ===========================================================================
 
 
 class TestNotebookReconcileMarkerCLI:
     def test_requires_slug_or_shared_flag(self, capsys):
-        from tools.notebook_reconcile_marker import main
+        from arxmcp.tools.notebook_reconcile_marker import main
 
         rc = main([])
         assert rc == 1
@@ -148,13 +148,13 @@ class TestNotebookReconcileMarkerCLI:
         assert "pass a slug" in err.lower() or "shared" in err.lower()
 
     def test_mutually_exclusive_slug_and_shared(self, capsys):
-        from tools.notebook_reconcile_marker import main
+        from arxmcp.tools.notebook_reconcile_marker import main
 
         rc = main(["foo-slug", "--shared"])
         assert rc == 1
 
     def test_invalid_slug_rejected(self, capsys):
-        from tools.notebook_reconcile_marker import main
+        from arxmcp.tools.notebook_reconcile_marker import main
 
         rc = main(["INVALID-CAPS"])
         assert rc == 1
@@ -164,7 +164,7 @@ class TestNotebookReconcileMarkerCLI:
     def test_no_marker_returns_nonzero(self, tmp_path, capsys):
         """If the marker is absent the CLI MUST exit non-zero with a
         ``run make ingest first`` hint."""
-        from tools.notebook_reconcile_marker import main
+        from arxmcp.tools.notebook_reconcile_marker import main
 
         # We rely on the slug NOT existing under the real
         # NOTEBOOKS_BASE — use a unique high-entropy slug.
@@ -180,7 +180,7 @@ class TestNotebookReconcileMarkerCLI:
         """End-to-end test of the reconcile path with a stubbed recount.
         Verifies: chunk_count + paper_count updated; created_at
         preserved (D4); byte-identical at the canonical steady state."""
-        from tools import notebook_reconcile_marker as mod
+        from arxmcp.tools import notebook_reconcile_marker as mod
 
         # Build a tmp lancedb dir with a poisoned marker.
         lance = tmp_path / "lancedb"
@@ -223,7 +223,7 @@ class TestNotebookReconcileMarkerCLI:
         """After the first reconcile converts the marker to canonical
         form, a second reconcile produces a BYTE-IDENTICAL file (D4 /
         FM-10)."""
-        from tools import notebook_reconcile_marker as mod
+        from arxmcp.tools import notebook_reconcile_marker as mod
 
         lance = tmp_path / "lancedb"
         _seed_marker(lance, chunk_count=10, paper_count=2, version=5)
@@ -250,7 +250,7 @@ class TestNotebookReconcileMarkerCLI:
     ):
         """``--shared`` reconciles ``var/arxmcp/index/lancedb/`` (not a
         per-notebook path)."""
-        from tools import notebook_reconcile_marker as mod
+        from arxmcp.tools import notebook_reconcile_marker as mod
 
         shared = tmp_path / "index" / "lancedb"
         _seed_marker(shared, chunk_count=1, paper_count=1, version=1)

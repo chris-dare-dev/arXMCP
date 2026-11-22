@@ -33,17 +33,17 @@ from typing import Any
 import numpy as np
 import pytest
 
-from ingest.chunk import CHUNKER_VERSION, ChunkRecord
-from ingest.embedder import EMBEDDER_VERSION, EMBEDDING_DIM
-from ingest.schema import EmbedRecord
-from ingest.store import write_chunks
-from server.retrieval.ann import (
+from arxmcp.ingest.chunk import CHUNKER_VERSION, ChunkRecord
+from arxmcp.ingest.embedder import EMBEDDER_VERSION, EMBEDDING_DIM
+from arxmcp.ingest.schema import EmbedRecord
+from arxmcp.ingest.store import write_chunks
+from arxmcp.server.retrieval.ann import (
     DEFAULT_TOP_N,
     PER_COLUMN_LIMIT,
     ANNPhase,
     _distance_to_score,
 )
-from server.retrieval.rrf import RRF_K, reciprocal_rank_fusion
+from arxmcp.server.retrieval.rrf import RRF_K, reciprocal_rank_fusion
 
 # ===========================================================================
 # Fixtures (mirror tests/retrieval/test_bm25.py)
@@ -73,7 +73,7 @@ def _dual_corpus() -> tuple[list[ChunkRecord], list[ChunkRecord]]:
 
     Returns ``(stmt_chunks, proof_chunks)``. The two lists are
     disjoint (no chunk appears in both, per the schema invariant in
-    ``ingest/schema.py:135-138``).
+    ``src/arxmcp/ingest/schema.py:135-138``).
 
     Layout: 5 stmt chunks (paper ids 2307.00001-00005) + 3 proof
     chunks (paper ids 2307.10001-10003). Total 8 chunks; large
@@ -143,7 +143,7 @@ def _embeddings_for_dual(
     """Build an ``EmbedRecord`` with random L2-normalized vectors
     routed to ``embedding_stmt`` for stmt chunks and
     ``embedding_proof`` for proof chunks. Mirrors the
-    kind-routing rule in ``ingest/embedder.py:19-22``."""
+    kind-routing rule in ``src/arxmcp/ingest/embedder.py:19-22``."""
     rng = np.random.default_rng(seed)
 
     stmt_ids: list[str] = []
@@ -189,7 +189,7 @@ def _mocked_bge(monkeypatch):
     canonicalized query string so identical queries get identical
     vectors). The vector is the right shape (1024-dim float32) so
     LanceDB's HNSW search treats it as a real query."""
-    import server.query_encoder as qe_mod
+    import arxmcp.server.query_encoder as qe_mod
 
     def _fake_encode(query_text: str) -> np.ndarray:
         # Deterministic per-query: hash the canonicalized text → seed.
@@ -204,8 +204,8 @@ def _mocked_bge(monkeypatch):
         return _fake_encode(query_text)
 
     monkeypatch.setattr(qe_mod, "encode_query", _fake_encode_async)
-    # Also patch the import seen by server.retrieval.ann.
-    import server.retrieval.ann as ann_mod
+    # Also patch the import seen by arxmcp.server.retrieval.ann.
+    import arxmcp.server.retrieval.ann as ann_mod
 
     monkeypatch.setattr(ann_mod, "encode_query", _fake_encode_async)
     yield
@@ -240,7 +240,7 @@ def _stmt_only_lancedb(tmp_path) -> tuple[Path, int]:
 
 
 def _open_chunks_table(lancedb_path: Path, version: int) -> Any:
-    from ingest.corpus import open_chunks_table
+    from arxmcp.ingest.corpus import open_chunks_table
 
     return open_chunks_table(lancedb_path, version=version)
 
@@ -591,7 +591,7 @@ class TestSingleflightContract:
         F7 fix from the E07_S02 critique: uses ``monkeypatch.setattr``
         instead of manual try/finally so pytest's teardown is
         guaranteed even on KeyboardInterrupt."""
-        import server.query_encoder as qe_mod
+        import arxmcp.server.query_encoder as qe_mod
 
         qe_mod._reset_for_tests()
         before = qe_mod.get_singleflight_dedup_count()
@@ -630,7 +630,7 @@ class TestSingleflightContract:
         bypass).
 
         F7 fix: uses ``monkeypatch.setattr`` for guaranteed teardown."""
-        import server.query_encoder as qe_mod
+        import arxmcp.server.query_encoder as qe_mod
 
         qe_mod._reset_for_tests()
         before = qe_mod.get_singleflight_dedup_count()
@@ -678,7 +678,7 @@ class TestSingleflightContract:
         was invoked exactly once per ANNPhase.query call. Catches
         a future refactor that imports ``_encode_query_sync`` for
         "speed" and bypasses the singleflight."""
-        import server.retrieval.ann as ann_mod
+        import arxmcp.server.retrieval.ann as ann_mod
 
         call_count = {"n": 0}
 
@@ -717,9 +717,9 @@ class TestResourcesIntegration:
         self, _seeded_dual_lancedb
     ):
         # Mock BGE-M3 model + tokenizer load (no download in CI).
-        import server.query_encoder as qe_mod
-        from server.config import Config
-        from server.resources import Resources
+        import arxmcp.server.query_encoder as qe_mod
+        from arxmcp.server.config import Config
+        from arxmcp.server.resources import Resources
 
         original_get_model = qe_mod._get_model
         original_get_tok = qe_mod._get_tokenizer
@@ -825,7 +825,7 @@ class TestSchemaValidation:
     ):
         """Patch EMBEDDING_COLUMNS to include a typo column;
         construction MUST raise ValueError at init."""
-        import server.retrieval.ann as ann_mod
+        import arxmcp.server.retrieval.ann as ann_mod
 
         lancedb_path, version = _seeded_dual_lancedb
         tbl = _open_chunks_table(lancedb_path, version)
@@ -1000,7 +1000,7 @@ class TestStmtOnlyCorpusLogQuiet:
         import logging
 
         with caplog.at_level(
-            logging.WARNING, logger="server.retrieval.ann"
+            logging.WARNING, logger="arxmcp.server.retrieval.ann"
         ):
             asyncio.run(
                 _ann_phase_stmt_only.query(

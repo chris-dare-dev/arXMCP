@@ -38,7 +38,7 @@ if TYPE_CHECKING:
     from fastapi.testclient import TestClient
 
 REPO_ROOT: Path = Path(__file__).resolve().parents[1]
-FRONTEND: Path = REPO_ROOT / "server" / "frontend"
+FRONTEND: Path = REPO_ROOT / "src" / "arxmcp" / "server" / "frontend"
 TEMPLATES: Path = FRONTEND / "templates"
 STATIC: Path = FRONTEND / "static"
 
@@ -248,7 +248,7 @@ class TestPerFormHxExt:
 class TestViewTransitionsOrdering:
     def test_assignment_present(self) -> None:
         # MOVED 2026-08-22 (#431): this code left base.html's inline
-        # <script> for server/frontend/static/ui.js. The property this
+        # <script> for src/arxmcp/server/frontend/static/ui.js. The property this
         # guard protects is unchanged and still asserted — only its
         # home moved, because the console now ships NO inline script
         # (htmx's hx-on:: needs 'unsafe-eval', which the CSP withholds).
@@ -259,7 +259,7 @@ class TestViewTransitionsOrdering:
         # not sampled once at DOMContentLoaded. See the twin guard in
         # tests/test_ui_m4_in_place_add_paper.py.
         # MOVED 2026-08-22 (#431): this code left base.html's inline
-        # <script> for server/frontend/static/ui.js. The property this
+        # <script> for src/arxmcp/server/frontend/static/ui.js. The property this
         # guard protects is unchanged and still asserted — only its
         # home moved, because the console now ships NO inline script
         # (htmx's hx-on:: needs 'unsafe-eval', which the CSP withholds).
@@ -267,7 +267,7 @@ class TestViewTransitionsOrdering:
 
     def test_assignment_in_domcontentloaded_not_inline_defer(self) -> None:
         # MOVED 2026-08-22 (#431): this code left base.html's inline
-        # <script> for server/frontend/static/ui.js. The property this
+        # <script> for src/arxmcp/server/frontend/static/ui.js. The property this
         # guard protects is unchanged and still asserted — only its
         # home moved, because the console now ships NO inline script
         # (htmx's hx-on:: needs 'unsafe-eval', which the CSP withholds).
@@ -313,11 +313,11 @@ def _ui_client(
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
 
-    from ingest import notebooks as _notebook_common
-    from server.notebooks_store import NotebooksStore
-    from server.routes import notebooks as notebooks_module
-    from server.routes.notebooks import router as notebooks_router
-    from server.routes.ui import router as ui_router
+    from arxmcp.ingest import notebooks as _notebook_common
+    from arxmcp.server.notebooks_store import NotebooksStore
+    from arxmcp.server.routes import notebooks as notebooks_module
+    from arxmcp.server.routes.notebooks import router as notebooks_router
+    from arxmcp.server.routes.ui import router as ui_router
 
     base = tmp_path / "notebooks"
     base.mkdir()

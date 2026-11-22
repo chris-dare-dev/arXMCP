@@ -1,4 +1,4 @@
-"""Tests for ``tools.notebook_documents_backfill`` (source-truth-m1).
+"""Tests for ``arxmcp.tools.notebook_documents_backfill`` (source-truth-m1).
 
 Mirrors ``tests/test_notebook_metadata_backfill.py``: happy path,
 politeness (3s spacing, optional contact information), idempotent re-run
@@ -24,16 +24,16 @@ from pathlib import Path
 
 import pytest
 
-from ingest.arxiv_fetch import POLITENESS_SLEEP_SECONDS
-from ingest.chunk import CHUNKER_VERSION
-from ingest.notebooks import NotebookError
-from server.documents_store import (
+from arxmcp.ingest.arxiv_fetch import POLITENESS_SLEEP_SECONDS
+from arxmcp.ingest.chunk import CHUNKER_VERSION
+from arxmcp.ingest.notebooks import NotebookError
+from arxmcp.server.documents_store import (
     DOCUMENTS_DB_FILENAME,
     RAW_SOURCE_STATUS_PRESENT,
     RAW_SOURCE_STATUS_UNAVAILABLE,
     DocumentsStore,
 )
-from tools import notebook_documents_backfill
+from arxmcp.tools import notebook_documents_backfill
 
 SLUG = "bridgeland-stability"
 NONEXCLUSIVE = "http://arxiv.org/licenses/nonexclusive-distrib/1.0/"
@@ -471,7 +471,7 @@ class TestFetchedAt:
     ):
         """It is read as *when this notebook fetched this work*.
 
-        ``tools/notebook_arxiv_version_backfill.py`` windows arXiv's revision
+        ``src/arxmcp/tools/notebook_arxiv_version_backfill.py`` windows arXiv's revision
         history by this field. Stamped with ``now()``, that question silently
         becomes "which revision is arXiv serving today", and writing today's
         latest onto bytes fetched months ago is the fabrication that tool
@@ -505,7 +505,11 @@ class TestFetchedAt:
         by bytes of a different revision, which is precisely #171's failure
         one layer down.
         """
-        from tools.notebook_arxiv_version_backfill import Revision, parse_fetched_at, version_at
+        from arxmcp.tools.notebook_arxiv_version_backfill import (
+            Revision,
+            parse_fetched_at,
+            version_at,
+        )
 
         base = _make_notebook(tmp_path, "0708.2247\n")
         raw_root, parsed_root = _make_corpus(tmp_path, new_ids=["0708.2247"])
@@ -752,15 +756,15 @@ class TestZeroReEmbed:
         the embedder / LanceDB writer, so it cannot re-embed a chunk.
 
         Scans IMPORT LINES only (not prose) so the module docstring —
-        which names ``ingest.store`` precisely to say it is NOT
+        which names ``arxmcp.ingest.store`` precisely to say it is NOT
         imported — doesn't false-positive."""
         source = inspect.getsource(notebook_documents_backfill)
         import_block = "\n".join(
             line for line in source.splitlines()
             if line.strip().startswith(("import ", "from "))
         )
-        assert "ingest.store" not in import_block
-        assert "ingest.embedder" not in import_block
+        assert "arxmcp.ingest.store" not in import_block
+        assert "arxmcp.ingest.embedder" not in import_block
         assert "lancedb" not in import_block
         assert "embed_paper" not in import_block
 
@@ -811,7 +815,7 @@ class TestMembershipSource:
         the empty ``notebook_papers`` junction table."""
         source = inspect.getsource(notebook_documents_backfill)
         assert "NotebooksStore" not in source
-        assert "server.notebooks_store" not in source
+        assert "arxmcp.server.notebooks_store" not in source
         assert "read_paper_ids_from_papers_txt" in source
 
 

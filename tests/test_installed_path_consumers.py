@@ -15,20 +15,20 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from mcp.server.fastmcp import FastMCP
 
-from ingest import notebooks as _notebook_common
-from server.config import Config
-from server.ingest_tracker import IngestTaskTracker
-from server.mcp_resources import (
+from arxmcp.ingest import notebooks as _notebook_common
+from arxmcp.server.config import Config
+from arxmcp.server.ingest_tracker import IngestTaskTracker
+from arxmcp.server.mcp_resources import (
     CORPUS_MANIFEST_URI,
     register_resources,
     reset_notebooks_store_for_tests,
     set_notebooks_store,
 )
-from server.notebooks_store import NotebooksStore
-from server.routes.notebooks import router as notebooks_router
-from server.routes.ui import router as ui_router
-from server.tools import reset_resources_for_tests, set_resources
-from tools import wheel_install_check
+from arxmcp.server.notebooks_store import NotebooksStore
+from arxmcp.server.routes.notebooks import router as notebooks_router
+from arxmcp.server.routes.ui import router as ui_router
+from arxmcp.server.tools import reset_resources_for_tests, set_resources
+from arxmcp.tools import wheel_install_check
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -93,8 +93,8 @@ def test_http_consumers_ignore_import_time_writable_roots(
 def test_per_notebook_retrieval_uses_configured_base(
     tmp_path: Path, monkeypatch
 ) -> None:
-    from server import resources as resources_module
-    from server.resources import Resources, Singleflight
+    from arxmcp.server import resources as resources_module
+    from arxmcp.server.resources import Resources, Singleflight
 
     config = Config(data_dir=tmp_path / "runtime")
     seen_bases: list[Path | None] = []
@@ -133,7 +133,7 @@ def test_per_notebook_retrieval_uses_configured_base(
 def test_mcp_resources_use_live_config_paths(
     tmp_path: Path, monkeypatch
 ) -> None:
-    from server import corpus_manifest
+    from arxmcp.server import corpus_manifest
 
     config = Config(data_dir=tmp_path / "runtime")
     poison = tmp_path / "poison-notebooks"
@@ -345,7 +345,7 @@ def test_server_ingest_child_uses_application_paths(
         return FakeProcess()
 
     monkeypatch.setattr(
-        "server.ingest_tracker.asyncio.create_subprocess_exec", fake_spawn
+        "arxmcp.server.ingest_tracker.asyncio.create_subprocess_exec", fake_spawn
     )
 
     async def exercise_tracker() -> None:
@@ -369,7 +369,7 @@ def test_server_ingest_child_uses_application_paths(
     assert captured["args"][:3] == (
         sys.executable,
         "-m",
-        "tools.notebook_ingest",
+        "arxmcp.tools.notebook_ingest",
     )
     child_env = captured["env"]
     assert isinstance(child_env, dict)
@@ -381,9 +381,9 @@ def test_server_ingest_child_uses_application_paths(
     env["PYTHONPATH"] = str(REPO_ROOT)
     probe = (
         "import json\n"
-        "import ingest.application_paths as application_paths\n"
+        "import arxmcp.ingest.application_paths as application_paths\n"
         "application_paths._source_checkout_root = lambda: None\n"
-        "from tools.notebook_ingest import runtime_paths_report\n"
+        "from arxmcp.tools.notebook_ingest import runtime_paths_report\n"
         "print(json.dumps(runtime_paths_report(), sort_keys=True))\n"
     )
     result = subprocess.run(
@@ -410,7 +410,7 @@ def test_installed_writer_probe_is_independent_of_cwd(tmp_path: Path) -> None:
     )
     reports: list[dict[str, str]] = []
     probe = (
-        "import ingest.application_paths as application_paths\n"
+        "import arxmcp.ingest.application_paths as application_paths\n"
         "application_paths._source_checkout_root = lambda: None\n"
         + wheel_install_check._WRITER_PROBE
     )

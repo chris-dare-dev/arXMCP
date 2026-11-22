@@ -34,8 +34,8 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 
-import ingest.embedder as embedder_mod
-from ingest.embedder import (
+import arxmcp.ingest.embedder as embedder_mod
+from arxmcp.ingest.embedder import (
     BGE_M3_COMMIT_SHA,
     EMBEDDER_VERSION,
     EMBEDDING_DIM,
@@ -237,12 +237,12 @@ def _patched_embed(
         fake_tokenizer, fake_model = _fake_model_factory()
 
     with (
-        patch("ingest.embedder.CHUNKS_DIR", chunks_dir),
-        patch("ingest.embedder.EMBEDDINGS_DIR", embeddings_dir),
-        patch("ingest.embedder.EMBED_STATS_PATH", stats_path),
-        patch("ingest.embedder.EMBED_LOG_PATH", log_path),
-        patch("ingest.embedder._get_tokenizer", return_value=fake_tokenizer),
-        patch("ingest.embedder._get_model", return_value=fake_model),
+        patch("arxmcp.ingest.embedder.CHUNKS_DIR", chunks_dir),
+        patch("arxmcp.ingest.embedder.EMBEDDINGS_DIR", embeddings_dir),
+        patch("arxmcp.ingest.embedder.EMBED_STATS_PATH", stats_path),
+        patch("arxmcp.ingest.embedder.EMBED_LOG_PATH", log_path),
+        patch("arxmcp.ingest.embedder._get_tokenizer", return_value=fake_tokenizer),
+        patch("arxmcp.ingest.embedder._get_model", return_value=fake_model),
     ):
         stats = embed_paper(paper_id)
     return stats, embeddings_dir, stats_path
@@ -262,9 +262,9 @@ class TestModuleContract:
 
     def test_bge_m3_commit_sha_defined_exactly_once(self):
         # The brief mandates a single source of truth. Confirm the
-        # constant lives only in ingest/embedder.py — no stray duplicate
-        # in ingest/__init__.py or anywhere else under ingest/.
-        ingest_root = Path(__file__).parent.parent / "ingest"
+        # constant lives only in src/arxmcp/ingest/embedder.py — no stray duplicate
+        # in src/arxmcp/ingest/__init__.py or anywhere else under ingest/.
+        ingest_root = Path(__file__).parent.parent / "src" / "arxmcp" / "ingest"
         hits = []
         for py_file in ingest_root.rglob("*.py"):
             text = py_file.read_text(encoding="utf-8")
@@ -449,7 +449,7 @@ class TestTokenBudget:
             paper_id,
             [_make_chunk(paper_id, "stmt", long_body, suffix="0" * 16)],
         )
-        with caplog.at_level("WARNING", logger="ingest.embedder"):
+        with caplog.at_level("WARNING", logger="arxmcp.ingest.embedder"):
             stats, _, _ = _patched_embed(tmp_path, paper_id)
         assert stats.status == "fail"
         assert stats.chunks_processed == 0
@@ -466,7 +466,7 @@ class TestTokenBudget:
         (``add_special_tokens=False`` at the pre-pass call site), the
         special tokens are excluded from the count.
         """
-        from ingest.embedder import MAX_TOKENS
+        from arxmcp.ingest.embedder import MAX_TOKENS
 
         paper_id = "2307.00021"
         # Body of exactly MAX_TOKENS whitespace-separated "words"; the
@@ -493,7 +493,7 @@ class TestTokenBudget:
         """
         from pathlib import Path
 
-        src = Path(__file__).resolve().parent.parent / "ingest" / "embedder.py"
+        src = Path(__file__).resolve().parent.parent / "src" / "arxmcp" / "ingest" / "embedder.py"
         body = src.read_text(encoding="utf-8")
         # The pre-pass is the only place that should pass
         # add_special_tokens=False; the actual encode call MUST keep
@@ -552,10 +552,10 @@ class TestStatsLogging:
         stats_path = tmp_path / "ops" / "embed-stats.jsonl"
         log_path = tmp_path / "ops" / "embed.log"
         with (
-            patch("ingest.embedder.CHUNKS_DIR", chunks_dir),
-            patch("ingest.embedder.EMBEDDINGS_DIR", embeddings_dir),
-            patch("ingest.embedder.EMBED_STATS_PATH", stats_path),
-            patch("ingest.embedder.EMBED_LOG_PATH", log_path),
+            patch("arxmcp.ingest.embedder.CHUNKS_DIR", chunks_dir),
+            patch("arxmcp.ingest.embedder.EMBEDDINGS_DIR", embeddings_dir),
+            patch("arxmcp.ingest.embedder.EMBED_STATS_PATH", stats_path),
+            patch("arxmcp.ingest.embedder.EMBED_LOG_PATH", log_path),
         ):
             stats = embed_paper(paper_id)
         # Stats reflect the failure.
@@ -602,10 +602,10 @@ class TestStatsLogging:
         stats_path = tmp_path / "ops" / "embed-stats.jsonl"
         log_path = tmp_path / "ops" / "embed.log"
         with (
-            patch("ingest.embedder.CHUNKS_DIR", chunks_dir),
-            patch("ingest.embedder.EMBEDDINGS_DIR", embeddings_dir),
-            patch("ingest.embedder.EMBED_STATS_PATH", stats_path),
-            patch("ingest.embedder.EMBED_LOG_PATH", log_path),
+            patch("arxmcp.ingest.embedder.CHUNKS_DIR", chunks_dir),
+            patch("arxmcp.ingest.embedder.EMBEDDINGS_DIR", embeddings_dir),
+            patch("arxmcp.ingest.embedder.EMBED_STATS_PATH", stats_path),
+            patch("arxmcp.ingest.embedder.EMBED_LOG_PATH", log_path),
         ):
             stats = embed_paper(paper_id)
         assert stats.status == "fail"
@@ -659,14 +659,14 @@ class TestThreat6:
         embedder_mod._tokenizer = None
 
     def test_chunker_tokenizer_loaded_with_pinned_revision(self):
-        """Closes F7 from the E03_S01 critique: ``ingest.chunker._get_tokenizer``
+        """Closes F7 from the E03_S01 critique: ``arxmcp.ingest.chunker._get_tokenizer``
         must also pin to BGE_M3_COMMIT_SHA to satisfy Threat 6. Without it,
         body_tokens drifts across runs as HuggingFace rotates the
         tokenizer-only files for the floating ``main`` tag, while
         ``chunker_version`` stays the same — a dormant cache-poisoning bomb
         for BP1 byte-stability.
         """
-        import ingest.chunker as chunker_mod
+        import arxmcp.ingest.chunker as chunker_mod
 
         chunker_mod._tokenizer = None
         fake_tok = MagicMock()
@@ -691,7 +691,7 @@ class TestThreat6:
 
 class TestF3Fallback:
     def test_paper_without_preamble_embeds(self, tmp_path):
-        # The embedding input is the NFC body alone (ingest.chunk,
+        # The embedding input is the NFC body alone (arxmcp.ingest.chunk,
         # body-first-v1), so the embedder never looks a preamble up and a
         # paper whose preamble extraction failed embeds like any other.
         paper_id = "2307.00040"
@@ -720,7 +720,7 @@ class TestPerPaperFailure:
         # InvalidPaperIDError is a ValueError; the public embed_paper
         # validates _outside_ the per-paper envelope, so an invalid ID
         # surfaces to the caller rather than being silently logged.
-        from ingest.chunker import InvalidPaperIDError
+        from arxmcp.ingest.chunker import InvalidPaperIDError
 
         with pytest.raises(InvalidPaperIDError):
             embed_paper("../etc/passwd")
@@ -806,12 +806,12 @@ class TestEmbedCorpus:
         log_path = tmp_path / "ops" / "embed.log"
         fake_tokenizer, fake_model = _fake_model_factory()
         with (
-            patch("ingest.embedder.CHUNKS_DIR", chunks_dir),
-            patch("ingest.embedder.EMBEDDINGS_DIR", embeddings_dir),
-            patch("ingest.embedder.EMBED_STATS_PATH", stats_path),
-            patch("ingest.embedder.EMBED_LOG_PATH", log_path),
-            patch("ingest.embedder._get_tokenizer", return_value=fake_tokenizer),
-            patch("ingest.embedder._get_model", return_value=fake_model),
+            patch("arxmcp.ingest.embedder.CHUNKS_DIR", chunks_dir),
+            patch("arxmcp.ingest.embedder.EMBEDDINGS_DIR", embeddings_dir),
+            patch("arxmcp.ingest.embedder.EMBED_STATS_PATH", stats_path),
+            patch("arxmcp.ingest.embedder.EMBED_LOG_PATH", log_path),
+            patch("arxmcp.ingest.embedder._get_tokenizer", return_value=fake_tokenizer),
+            patch("arxmcp.ingest.embedder._get_model", return_value=fake_model),
         ):
             results = embed_corpus(corpus_path=str(chunks_dir))
         assert len(results) == 2
@@ -845,12 +845,12 @@ class TestEmbedCorpus:
         log_path = tmp_path / "ops" / "embed.log"
         fake_tokenizer, fake_model = _fake_model_factory()
         with (
-            patch("ingest.embedder.CHUNKS_DIR", chunks_dir),
-            patch("ingest.embedder.EMBEDDINGS_DIR", embeddings_dir),
-            patch("ingest.embedder.EMBED_STATS_PATH", stats_path),
-            patch("ingest.embedder.EMBED_LOG_PATH", log_path),
-            patch("ingest.embedder._get_tokenizer", return_value=fake_tokenizer),
-            patch("ingest.embedder._get_model", return_value=fake_model),
+            patch("arxmcp.ingest.embedder.CHUNKS_DIR", chunks_dir),
+            patch("arxmcp.ingest.embedder.EMBEDDINGS_DIR", embeddings_dir),
+            patch("arxmcp.ingest.embedder.EMBED_STATS_PATH", stats_path),
+            patch("arxmcp.ingest.embedder.EMBED_LOG_PATH", log_path),
+            patch("arxmcp.ingest.embedder._get_tokenizer", return_value=fake_tokenizer),
+            patch("arxmcp.ingest.embedder._get_model", return_value=fake_model),
         ):
             embed_corpus(corpus_path=str(chunks_dir))
         lines = [
@@ -898,14 +898,14 @@ class TestEmbedCorpus:
             return original_load_chunks(paper_id)
 
         with (
-            patch("ingest.embedder.CHUNKS_DIR", chunks_dir),
-            patch("ingest.embedder.EMBEDDINGS_DIR", embeddings_dir),
-            patch("ingest.embedder.EMBED_STATS_PATH", stats_path),
-            patch("ingest.embedder.EMBED_LOG_PATH", log_path),
-            patch("ingest.embedder._get_tokenizer", return_value=fake_tokenizer),
-            patch("ingest.embedder._get_model", return_value=fake_model),
+            patch("arxmcp.ingest.embedder.CHUNKS_DIR", chunks_dir),
+            patch("arxmcp.ingest.embedder.EMBEDDINGS_DIR", embeddings_dir),
+            patch("arxmcp.ingest.embedder.EMBED_STATS_PATH", stats_path),
+            patch("arxmcp.ingest.embedder.EMBED_LOG_PATH", log_path),
+            patch("arxmcp.ingest.embedder._get_tokenizer", return_value=fake_tokenizer),
+            patch("arxmcp.ingest.embedder._get_model", return_value=fake_model),
             patch(
-                "ingest.embedder._load_chunks",
+                "arxmcp.ingest.embedder._load_chunks",
                 side_effect=_selectively_failing_load_chunks,
             ),
         ):

@@ -25,7 +25,7 @@ from unittest.mock import patch
 
 import pytest
 
-from ops.drift_check import (
+from arxmcp.ops.drift_check import (
     DEFAULT_FIXTURE_DIR,
     EXPECTED_SUFFIX,
     DriftResult,
@@ -39,7 +39,7 @@ from ops.drift_check import (
     render_fixture,
     write_sentinel,
 )
-from server.metrics import (
+from arxmcp.server.metrics import (
     LATEXML_DRIFT_DETECTED_COUNTER,
     reset_drift_metrics_for_tests,
 )
@@ -143,9 +143,9 @@ class TestCheckFixtureMocked:
         # Stub render_fixture / extract_canonical_mathml to return
         # the same string the baseline holds.
         with patch(
-            "ops.drift_check.render_fixture", return_value="<html/>",
+            "arxmcp.ops.drift_check.render_fixture", return_value="<html/>",
         ), patch(
-            "ops.drift_check.extract_canonical_mathml",
+            "arxmcp.ops.drift_check.extract_canonical_mathml",
             return_value=expected,
         ):
             result = check_fixture(tex)
@@ -165,9 +165,9 @@ class TestCheckFixtureMocked:
         tex = tmp_fixture_dir / "frac.tex"
         # Bake a mismatch by stubbing the actual side.
         with patch(
-            "ops.drift_check.render_fixture", return_value="<html/>",
+            "arxmcp.ops.drift_check.render_fixture", return_value="<html/>",
         ), patch(
-            "ops.drift_check.extract_canonical_mathml",
+            "arxmcp.ops.drift_check.extract_canonical_mathml",
             return_value="<math><mi>DIFFERENT</mi></math>",
         ):
             result = check_fixture(tex)
@@ -183,9 +183,9 @@ class TestCheckFixtureMocked:
         self, tmp_fixture_dir
     ):
         with patch(
-            "ops.drift_check.render_fixture", return_value="<html/>",
+            "arxmcp.ops.drift_check.render_fixture", return_value="<html/>",
         ), patch(
-            "ops.drift_check.extract_canonical_mathml", return_value="",
+            "arxmcp.ops.drift_check.extract_canonical_mathml", return_value="",
         ):
             results = check_all_fixtures(tmp_fixture_dir)
         # Five fixtures, all drifted (empty actual vs non-empty
@@ -257,7 +257,7 @@ class TestCLI:
                 message=f"{tex_path.stem}: ok",
             )
 
-        with patch("ops.drift_check.check_fixture", side_effect=_no_drift):
+        with patch("arxmcp.ops.drift_check.check_fixture", side_effect=_no_drift):
             rc = _cli(
                 [
                     "--fixture-dir",
@@ -282,9 +282,9 @@ class TestCLI:
         sentinel = tmp_path / "drift.flag"
 
         with patch(
-            "ops.drift_check.render_fixture", return_value="<html/>",
+            "arxmcp.ops.drift_check.render_fixture", return_value="<html/>",
         ), patch(
-            "ops.drift_check.extract_canonical_mathml", return_value="",
+            "arxmcp.ops.drift_check.extract_canonical_mathml", return_value="",
         ):
             rc = _cli(
                 [
@@ -308,14 +308,14 @@ class TestCLI:
         pass because ``"" == ""``. That's the corruption mode the
         drift detector exists to prevent.
         """
-        from ops.drift_check import update_fixtures
+        from arxmcp.ops.drift_check import update_fixtures
 
         with (
             patch(
-                "ops.drift_check.render_fixture", return_value="<html/>",
+                "arxmcp.ops.drift_check.render_fixture", return_value="<html/>",
             ),
             patch(
-                "ops.drift_check.extract_canonical_mathml", return_value="",
+                "arxmcp.ops.drift_check.extract_canonical_mathml", return_value="",
             ),
             pytest.raises(
                 RuntimeError, match="refusing to write empty baselines"
@@ -327,12 +327,12 @@ class TestCLI:
         """F2 close — the ``allow_empty=True`` escape hatch lets a
         legitimately math-free fixture rebase. No current fixture
         uses this, but the API stays consistent."""
-        from ops.drift_check import update_fixtures
+        from arxmcp.ops.drift_check import update_fixtures
 
         with patch(
-            "ops.drift_check.render_fixture", return_value="<html/>",
+            "arxmcp.ops.drift_check.render_fixture", return_value="<html/>",
         ), patch(
-            "ops.drift_check.extract_canonical_mathml", return_value="",
+            "arxmcp.ops.drift_check.extract_canonical_mathml", return_value="",
         ):
             updated = update_fixtures(tmp_fixture_dir, allow_empty=True)
         assert set(updated) == FIXTURE_NAMES
@@ -361,9 +361,9 @@ class TestCLI:
         )
 
         with patch(
-            "ops.drift_check.render_fixture", return_value="<html/>",
+            "arxmcp.ops.drift_check.render_fixture", return_value="<html/>",
         ), patch(
-            "ops.drift_check.extract_canonical_mathml",
+            "arxmcp.ops.drift_check.extract_canonical_mathml",
             return_value="<math><mi>x</mi></math>",
         ):
             result = check_fixture(new_tex)
@@ -380,9 +380,9 @@ class TestCLI:
         """The `--update-fixtures` flow regenerates every baseline."""
         sentinel = tmp_path / "drift.flag"
         with patch(
-            "ops.drift_check.render_fixture", return_value="<html/>",
+            "arxmcp.ops.drift_check.render_fixture", return_value="<html/>",
         ), patch(
-            "ops.drift_check.extract_canonical_mathml",
+            "arxmcp.ops.drift_check.extract_canonical_mathml",
             return_value="<math><mi>NEW</mi></math>",
         ):
             rc = _cli(
@@ -424,7 +424,7 @@ class TestIntegrationRealLatexmlc:
         drifted = [r for r in results if r.drifted]
         assert not drifted, (
             "drift detected against current latexmlc — re-run "
-            "`python -m ops.drift_check --update-fixtures` after "
+            "`python -m arxmcp.ops.drift_check --update-fixtures` after "
             "confirming the LaTeXML upgrade is intentional. "
             f"Drifted: {[r.name for r in drifted]}"
         )
@@ -460,7 +460,7 @@ class TestMissingLatexmlc:
     ):
         tex = fixture_dir / "frac.tex"
         with (
-            patch("ops.drift_check.shutil.which", return_value=None),
+            patch("arxmcp.ops.drift_check.shutil.which", return_value=None),
             pytest.raises(RuntimeError, match="latexmlc not found"),
         ):
             render_fixture(tex)
@@ -483,7 +483,7 @@ class TestMetricsCounterExports:
         )
 
     def test_reset_drift_metrics_for_tests_exported(self):
-        from server.metrics import reset_drift_metrics_for_tests as fn
+        from arxmcp.server.metrics import reset_drift_metrics_for_tests as fn
 
         # Should be callable without raising.
         fn()

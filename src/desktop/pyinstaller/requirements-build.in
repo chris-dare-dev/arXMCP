@@ -1,0 +1,18 @@
+# PyInstaller build stack for `make desktop-package`.
+# DELIBERATELY outside pyproject.toml/uv.lock, as MinerU is: build-only
+# tooling must not enter the runtime wheel's resolvable dependency surface or
+# perturb wheel-check. Pins are the toolchain the desktop build was measured
+# with. Regenerate the hashed lockfile after ANY edit here:
+#   uv pip compile --generate-hashes --python-version 3.12 \
+#     src/desktop/pyinstaller/requirements-build.in \
+#     -o src/desktop/pyinstaller/requirements-build.txt
+# then verify the pyinstaller wheel hash still matches the pin
+# (327d1323...) before committing, and re-run `make desktop-package-check`.
+#
+# SCOPE: macOS/Linux only. Resolved on macOS with no environment markers, so
+# the lock pins darwin-only `macholib` and omits PyInstaller's Windows
+# requirement `pywin32-ctypes`; `--require-hashes` then forbids resolving it
+# at install time. Windows support means regenerating with `--universal` plus
+# `sys_platform` markers AND deriving `_tool_env()["PATH"]` per-platform.
+pyinstaller==6.21.0
+pyinstaller-hooks-contrib==2026.6

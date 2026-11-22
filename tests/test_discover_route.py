@@ -2,7 +2,7 @@
 
 Builds a minimal FastAPI app with the notebooks router + a real NotebooksStore on
 a tmp_path SQLite (the test_notebook_api.py pattern), seeds notebooks via the REST
-endpoints, and monkeypatches ``ingest.arxiv_api._fetch_url`` so NO live arXiv call
+endpoints, and monkeypatches ``arxmcp.ingest.arxiv_api._fetch_url`` so NO live arXiv call
 happens in CI. Focus: the propose→confirm panel fragment, XSS-escaping of untrusted
 arXiv metadata, dedup, and clean error handling (never a 500).
 """
@@ -17,11 +17,11 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from ingest import arxiv_api as _arxiv_api
-from ingest import notebooks as _notebook_common
-from server.notebooks_store import NotebooksStore
-from server.routes import notebooks as notebooks_module
-from server.routes.notebooks import router as notebooks_router
+from arxmcp.ingest import arxiv_api as _arxiv_api
+from arxmcp.ingest import notebooks as _notebook_common
+from arxmcp.server.notebooks_store import NotebooksStore
+from arxmcp.server.routes import notebooks as notebooks_module
+from arxmcp.server.routes.notebooks import router as notebooks_router
 
 
 @pytest.fixture

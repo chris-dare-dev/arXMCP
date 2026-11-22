@@ -27,7 +27,7 @@ from typing import Any
 import pyarrow as pa
 import pytest
 
-from server.handlers.search import (
+from arxmcp.server.handlers.search import (
     MAX_PAPER_ID_FILTER_ITEMS,
     SUPPORTED_FILTER_KEYS,
     _build_paper_id_predicate,
@@ -52,7 +52,7 @@ class TestBuildPaperIdPredicate:
 
     def test_single_string_is_coerced_to_list(self) -> None:
         """FM-3: a single str must be treated as a one-element list,
-        mirroring server.retrieval.bm25._apply_supported_filters."""
+        mirroring arxmcp.server.retrieval.bm25._apply_supported_filters."""
         predicate = _build_paper_id_predicate("2604.26204")
         assert predicate == "paper_id IN ('2604.26204')"
 
@@ -276,10 +276,10 @@ class _FakeSearchBuilder:
 @pytest.fixture
 def fake_resources(monkeypatch: pytest.MonkeyPatch):
     """Install a fake Resources via set_resources() so the handler AND
-    server.tools.envelope() (which calls get_resources() to read
+    arxmcp.server.tools.envelope() (which calls get_resources() to read
     corpus_version) see the same stub. Reset via
     reset_resources_for_tests so other tests aren't polluted."""
-    from server.tools import reset_resources_for_tests, set_resources
+    from arxmcp.server.tools import reset_resources_for_tests, set_resources
 
     captured: dict[str, Any] = {"search_builder": None}
 
@@ -317,11 +317,11 @@ def fake_resources(monkeypatch: pytest.MonkeyPatch):
 
     fake = _FakeResources()
     set_resources(fake)  # type: ignore[arg-type]
-    monkeypatch.setattr("server.handlers.search.get_cache", lambda: None)
+    monkeypatch.setattr("arxmcp.server.handlers.search.get_cache", lambda: None)
     async def _fake_encode(query: str):
         import numpy as np
         return np.zeros(1024, dtype=np.float32)
-    monkeypatch.setattr("server.handlers.search.encode_query", _fake_encode)
+    monkeypatch.setattr("arxmcp.server.handlers.search.encode_query", _fake_encode)
     yield {"resources": fake, "captured": captured}
     reset_resources_for_tests()
 
@@ -332,7 +332,7 @@ class TestHandlerFilterWiring:
     def test_filter_applied_when_paper_id_present(self, fake_resources) -> None:
         """AC #1: filter scopes results AND the .where() predicate +
         prefilter=True are passed to LanceDB."""
-        from server.handlers.search import handle_search_papers
+        from arxmcp.server.handlers.search import handle_search_papers
         fake_resources["resources"].chunks_table.set_rows([
             {"chunk_id": "arxiv:2604.26204:abc", "paper_id": "2604.26204"},
             {"chunk_id": "arxiv:2604.26208:def", "paper_id": "2604.26208"},
@@ -351,7 +351,7 @@ class TestHandlerFilterWiring:
     def test_no_filter_no_where_call(self, fake_resources) -> None:
         """AC #2: when filters=None, .where() is NOT called (pre-m1
         byte-identical behavior on the dense-only path)."""
-        from server.handlers.search import handle_search_papers
+        from arxmcp.server.handlers.search import handle_search_papers
         fake_resources["resources"].chunks_table.set_rows([])
         _run(handle_search_papers(query="anything", filters=None, k=10))
         builder = fake_resources["captured"]["search_builder"]
@@ -359,14 +359,14 @@ class TestHandlerFilterWiring:
 
     def test_empty_filter_dict_no_where_call(self, fake_resources) -> None:
         """filters={} (empty dict, no paper_id key) is no-filter."""
-        from server.handlers.search import handle_search_papers
+        from arxmcp.server.handlers.search import handle_search_papers
         fake_resources["resources"].chunks_table.set_rows([])
         _run(handle_search_papers(query="anything", filters={}, k=10))
         assert fake_resources["captured"]["search_builder"].where_call is None
 
     def test_empty_paper_id_list_raises_clear_error(self, fake_resources) -> None:
         """AC #3 / FM-2: empty list → ValueError, not 500."""
-        from server.handlers.search import handle_search_papers
+        from arxmcp.server.handlers.search import handle_search_papers
         with pytest.raises(ValueError, match="must not be empty"):
             _run(handle_search_papers(
                 query="x", filters={"paper_id": []}, k=10,
@@ -374,7 +374,7 @@ class TestHandlerFilterWiring:
 
     def test_string_paper_id_coerced_to_one_element(self, fake_resources) -> None:
         """FM-3: filters={"paper_id": "x"} works."""
-        from server.handlers.search import handle_search_papers
+        from arxmcp.server.handlers.search import handle_search_papers
         fake_resources["resources"].chunks_table.set_rows([])
         _run(handle_search_papers(
             query="x", filters={"paper_id": "2604.26204"}, k=10,
@@ -393,7 +393,7 @@ class TestHandlerFilterWiring:
         validator widening from is_valid_arxiv_paper_id to
         is_valid_paper_id.
         """
-        from server.handlers.search import handle_search_papers
+        from arxmcp.server.handlers.search import handle_search_papers
         with pytest.raises(ValueError, match="invalid IDs"):
             _run(handle_search_papers(
                 query="x",
@@ -403,7 +403,7 @@ class TestHandlerFilterWiring:
 
     def test_non_list_non_str_paper_id_raises(self, fake_resources) -> None:
         """AC #3: filters={"paper_id": 42} → ValueError."""
-        from server.handlers.search import handle_search_papers
+        from arxmcp.server.handlers.search import handle_search_papers
         with pytest.raises(ValueError, match="must be str or list"):
             _run(handle_search_papers(
                 query="x", filters={"paper_id": 42}, k=10,
@@ -411,7 +411,7 @@ class TestHandlerFilterWiring:
 
     def test_oversized_paper_id_list_raises(self, fake_resources) -> None:
         """FM-4: > MAX_PAPER_ID_FILTER_ITEMS → ValueError."""
-        from server.handlers.search import handle_search_papers
+        from arxmcp.server.handlers.search import handle_search_papers
         too_many = [f"2604.{i:05d}" for i in range(MAX_PAPER_ID_FILTER_ITEMS + 1)]
         with pytest.raises(ValueError, match="max allowed is"):
             _run(handle_search_papers(
@@ -421,7 +421,7 @@ class TestHandlerFilterWiring:
     def test_nonexistent_paper_id_returns_empty(self, fake_resources) -> None:
         """FM-7: valid-format paper_id not in corpus → empty results,
         no error. The fake table returns [] for this case."""
-        from server.handlers.search import handle_search_papers
+        from arxmcp.server.handlers.search import handle_search_papers
         fake_resources["resources"].chunks_table.set_rows([])
         result = _run(handle_search_papers(
             query="x",
@@ -436,7 +436,7 @@ class TestHandlerFilterWiring:
     def test_unknown_filter_key_surfaced_as_warning(self, fake_resources) -> None:
         """FM-9: filters={"paper_id":[...], "year":2024} keeps a warning
         for 'year' while honoring 'paper_id'."""
-        from server.handlers.search import handle_search_papers
+        from arxmcp.server.handlers.search import handle_search_papers
         fake_resources["resources"].chunks_table.set_rows([])
         result = _run(handle_search_papers(
             query="x",
@@ -457,7 +457,7 @@ class TestHandlerFilterWiring:
     def test_only_paper_id_filter_no_warnings(self, fake_resources) -> None:
         """When the only filter key is the honored paper_id, no
         filter_warnings should be emitted (m1 closes that F6 remnant)."""
-        from server.handlers.search import handle_search_papers
+        from arxmcp.server.handlers.search import handle_search_papers
         fake_resources["resources"].chunks_table.set_rows([])
         result = _run(handle_search_papers(
             query="x", filters={"paper_id": ["2604.26204"]}, k=10,
@@ -474,7 +474,7 @@ class TestSourceKindFilterWiring:
     dense ANN .where() pre-filter + surfaced in the result envelope."""
 
     def test_source_kind_threads_where_predicate(self, fake_resources) -> None:
-        from server.handlers.search import handle_search_papers
+        from arxmcp.server.handlers.search import handle_search_papers
         fake_resources["resources"].chunks_table.set_rows([
             {"chunk_id": "textbook:sv-book:abc", "paper_id": "textbook:sv-book",
              "source_kind": "textbook"},
@@ -491,7 +491,7 @@ class TestSourceKindFilterWiring:
 
     def test_combined_paper_id_and_source_kind(self, fake_resources) -> None:
         """Both filters present → ANDed, parenthesized, single .where()."""
-        from server.handlers.search import handle_search_papers
+        from arxmcp.server.handlers.search import handle_search_papers
         fake_resources["resources"].chunks_table.set_rows([])
         _run(handle_search_papers(
             query="x",
@@ -508,7 +508,7 @@ class TestSourceKindFilterWiring:
         assert kwargs == {"prefilter": True}
 
     def test_invalid_source_kind_raises_clear_error(self, fake_resources) -> None:
-        from server.handlers.search import handle_search_papers
+        from arxmcp.server.handlers.search import handle_search_papers
         with pytest.raises(ValueError, match="not a valid source_kind"):
             _run(handle_search_papers(
                 query="x", filters={"source_kind": "preprint"}, k=10,
@@ -517,7 +517,7 @@ class TestSourceKindFilterWiring:
     def test_result_row_carries_source_kind(self, fake_resources) -> None:
         """The result envelope row carries the source_kind tag (e4
         outcome: operator sees source_kind='textbook')."""
-        from server.handlers.search import handle_search_papers
+        from arxmcp.server.handlers.search import handle_search_papers
         fake_resources["resources"].chunks_table.set_rows([
             {"chunk_id": "textbook:sv-book:abc", "paper_id": "textbook:sv-book",
              "source_kind": "textbook"},
@@ -531,7 +531,7 @@ class TestSourceKindFilterWiring:
     def test_no_source_kind_filter_no_where(self, fake_resources) -> None:
         """Default: no source_kind filter → no .where() call (returns
         chunks of any source_kind)."""
-        from server.handlers.search import handle_search_papers
+        from arxmcp.server.handlers.search import handle_search_papers
         fake_resources["resources"].chunks_table.set_rows([])
         _run(handle_search_papers(query="x", filters={}, k=10))
         assert fake_resources["captured"]["search_builder"].where_call is None
@@ -608,7 +608,7 @@ def test_filters_field_description_names_source_kind() -> None:
     re-surfacing on the inputSchema surface."""
     import typing
 
-    from server.handlers.search import handle_search_papers
+    from arxmcp.server.handlers.search import handle_search_papers
 
     hints = typing.get_type_hints(handle_search_papers, include_extras=True)
     filters_ann = hints["filters"]
@@ -629,7 +629,7 @@ def test_arrow_to_rows_null_source_kind_falls_back_to_arxiv() -> None:
     the documented fallback so a future edit (e.g. to "unknown", or
     removing it and tripping the result schema's required +
     additionalProperties:false) is caught."""
-    from server.handlers.search import _arrow_to_rows
+    from arxmcp.server.handlers.search import _arrow_to_rows
 
     # Key present with value None → a real NULL in the arrow column
     # (_make_arrow_table's r.get default only fires when the key is absent).
@@ -659,7 +659,7 @@ class TestRectificationGuards:
         """F2 (HIGH): per-key length cap rejects oversized keys at the
         boundary, preventing the filter_warnings reflection block from
         amplifying input size beyond the result byte cap."""
-        from server.handlers.search import MAX_FILTER_KEY_LEN, handle_search_papers
+        from arxmcp.server.handlers.search import MAX_FILTER_KEY_LEN, handle_search_papers
         big_key = "x" * (MAX_FILTER_KEY_LEN + 1)
         with pytest.raises(ValueError, match="exceeds cap"):
             _run(handle_search_papers(
@@ -670,7 +670,7 @@ class TestRectificationGuards:
         """F2 (HIGH): With MAX_FILTER_KEY_LEN enforced, even an
         adversarial filter dict at the maximum cap produces a bounded
         filter_warnings payload."""
-        from server.handlers.search import (
+        from arxmcp.server.handlers.search import (
             MAX_FILTER_ITEMS,
             MAX_FILTER_KEY_LEN,
             handle_search_papers,
@@ -694,7 +694,7 @@ class TestRectificationGuards:
 
     def test_filter_warnings_rejects_non_str_key(self, fake_resources) -> None:
         """F2 companion: non-string keys are rejected early."""
-        from server.handlers.search import handle_search_papers
+        from arxmcp.server.handlers.search import handle_search_papers
         with pytest.raises(ValueError, match="must be strings"):
             _run(handle_search_papers(
                 query="x", filters={42: "v"}, k=3,
@@ -707,7 +707,7 @@ class TestRectificationGuards:
         # Read the rendered Pydantic Field description directly.
         # This catches any future refactor that reverts the description
         # to the stale "ignored at v1" text.
-        from server.handlers.search import handle_search_papers
+        from arxmcp.server.handlers.search import handle_search_papers
         sig = (
             handle_search_papers.__wrapped__
             if hasattr(handle_search_papers, "__wrapped__")
@@ -728,7 +728,7 @@ class TestRectificationGuards:
     def test_search_papers_toolmeta_mentions_paper_id_filter(self) -> None:
         """F1 (HIGH) companion: top-level SEARCH_PAPERS description
         also mentions paper_id filter scoping."""
-        from server.tools import SEARCH_PAPERS
+        from arxmcp.server.tools import SEARCH_PAPERS
         assert "paper_id" in SEARCH_PAPERS.description, (
             f"SEARCH_PAPERS.description must mention paper_id; "
             f"got: {SEARCH_PAPERS.description!r}"
@@ -739,7 +739,7 @@ class TestRectificationGuards:
         strings ending in \\n. Pre-fix, Python's default $ semantics
         accepted them. Closes the defense-in-depth gap named in the
         _escape_paper_id_literal docstring."""
-        from ingest.identifiers import is_valid_paper_id
+        from arxmcp.ingest.identifiers import is_valid_paper_id
         assert is_valid_paper_id("2604.26204\n") is False
         assert is_valid_paper_id("hep-th/0001234\n") is False
         # Also trailing CR + multiline
@@ -755,7 +755,7 @@ class TestRectificationGuards:
         the cache key canonicalizer (json.dumps with sort_keys) sees
         identical input → same cache slot for semantically-equivalent
         calls."""
-        from server.handlers.search import _canonicalize_filters
+        from arxmcp.server.handlers.search import _canonicalize_filters
         canon_str = _canonicalize_filters({"paper_id": "2604.26204"})
         canon_list = _canonicalize_filters({"paper_id": ["2604.26204"]})
         # Both must produce identical canonical dicts
@@ -770,7 +770,7 @@ class TestRectificationGuards:
     def test_cache_key_unsorted_list_normalized(self) -> None:
         """F4 companion: paper_id lists in different orders normalize
         to the same canonical form."""
-        from server.handlers.search import _canonicalize_filters
+        from arxmcp.server.handlers.search import _canonicalize_filters
         a = _canonicalize_filters({"paper_id": ["b", "a", "c"]})
         b = _canonicalize_filters({"paper_id": ["c", "a", "b"]})
         assert a == b
@@ -786,14 +786,14 @@ class TestFiltersAppliedHelper:
     """Direct unit tests of _inject_filters_applied."""
 
     def test_canonical_filters_none_returns_payload_unchanged(self) -> None:
-        from server.handlers.search import _inject_filters_applied
+        from arxmcp.server.handlers.search import _inject_filters_applied
         p = {"results": [], "retrieval_mode": "dense_only"}
         out = _inject_filters_applied(p, None)
         assert out is p
         assert "filters_applied" not in out  # absent, not null
 
     def test_canonical_filters_with_paper_id_adds_echo(self) -> None:
-        from server.handlers.search import _inject_filters_applied
+        from arxmcp.server.handlers.search import _inject_filters_applied
         p: dict = {"results": []}
         out = _inject_filters_applied(p, {"paper_id": ["a", "b"]})
         assert out["filters_applied"] == {"paper_id": ["a", "b"]}
@@ -801,7 +801,7 @@ class TestFiltersAppliedHelper:
     def test_unsupported_keys_excluded_from_echo(self) -> None:
         """Synthesis Disagreement 1: only SUPPORTED_FILTER_KEYS in the
         echo. year/categories etc. live in filter_warnings, NOT here."""
-        from server.handlers.search import _inject_filters_applied
+        from arxmcp.server.handlers.search import _inject_filters_applied
         p: dict = {"results": []}
         out = _inject_filters_applied(
             p, {"paper_id": ["x"], "year": 2024, "categories": ["math.AG"]},
@@ -812,7 +812,7 @@ class TestFiltersAppliedHelper:
     def test_canonical_filters_with_no_supported_keys_omits_field(self) -> None:
         """If canonical_filters has only UNsupported keys (year etc.),
         filters_applied should be absent — nothing was actually applied."""
-        from server.handlers.search import _inject_filters_applied
+        from arxmcp.server.handlers.search import _inject_filters_applied
         p: dict = {"results": []}
         out = _inject_filters_applied(p, {"year": 2024})
         assert "filters_applied" not in out
@@ -823,7 +823,7 @@ class TestFiltersAppliedHandlerIntegration:
     in the structured envelope on all 3 cache paths."""
 
     def test_filters_applied_on_miss_path(self, fake_resources) -> None:
-        from server.handlers.search import handle_search_papers
+        from arxmcp.server.handlers.search import handle_search_papers
         fake_resources["resources"].chunks_table.set_rows([])
         result = _run(handle_search_papers(
             query="x", filters={"paper_id": ["2604.26204"]}, k=3,
@@ -834,7 +834,7 @@ class TestFiltersAppliedHandlerIntegration:
     def test_filters_applied_absent_when_no_filter(self, fake_resources) -> None:
         """Synthesis Disagreement 4: absent, not null, preserves byte-
         equivalence with pre-m2 responses on the unfiltered common path."""
-        from server.handlers.search import handle_search_papers
+        from arxmcp.server.handlers.search import handle_search_papers
         fake_resources["resources"].chunks_table.set_rows([])
         result = _run(handle_search_papers(query="x", filters=None, k=3))
         sc = result.structuredContent
@@ -845,7 +845,7 @@ class TestFiltersAppliedHandlerIntegration:
     ) -> None:
         """Synthesis Disagreement 1: caller passed str; echo is the
         canonical list form (what was actually used to scope the query)."""
-        from server.handlers.search import handle_search_papers
+        from arxmcp.server.handlers.search import handle_search_papers
         fake_resources["resources"].chunks_table.set_rows([])
         result = _run(handle_search_papers(
             query="x", filters={"paper_id": "2604.26204"}, k=3,
@@ -856,7 +856,7 @@ class TestFiltersAppliedHandlerIntegration:
 
     def test_filters_applied_uses_sorted_list_form(self, fake_resources) -> None:
         """Caller passed unsorted list; echo is sorted (canonical)."""
-        from server.handlers.search import handle_search_papers
+        from arxmcp.server.handlers.search import handle_search_papers
         fake_resources["resources"].chunks_table.set_rows([])
         result = _run(handle_search_papers(
             query="x",
@@ -873,7 +873,7 @@ class TestFiltersAppliedHandlerIntegration:
     ) -> None:
         """FM-9 companion: unknown keys appear in filter_warnings, NOT
         in filters_applied. Two non-overlapping views."""
-        from server.handlers.search import handle_search_papers
+        from arxmcp.server.handlers.search import handle_search_papers
         fake_resources["resources"].chunks_table.set_rows([])
         result = _run(handle_search_papers(
             query="x",
@@ -896,7 +896,7 @@ class TestSchemaConformanceForFiltersApplied:
         import json
         from pathlib import Path
         schema = json.loads(
-            Path("server/schemas/search_papers_result.json").read_text()
+            Path("src/arxmcp/server/schemas/search_papers_result.json").read_text()
         )
         assert "filters_applied" in schema["properties"]
         # Must NOT be in required (it's conditional/optional)
@@ -909,9 +909,9 @@ class TestSchemaConformanceForFiltersApplied:
         import json
         from pathlib import Path
 
-        from server.tools import TOOL_SCHEMA_VERSION
+        from arxmcp.server.tools import TOOL_SCHEMA_VERSION
         schema = json.loads(
-            Path("server/schemas/search_papers_result.json").read_text()
+            Path("src/arxmcp/server/schemas/search_papers_result.json").read_text()
         )
         assert schema["version"] == TOOL_SCHEMA_VERSION
         assert schema["$id"].endswith(f"v{TOOL_SCHEMA_VERSION}.json")
@@ -926,9 +926,9 @@ class TestSchemaConformanceForFiltersApplied:
 
         import jsonschema
 
-        from server.handlers.search import handle_search_papers
+        from arxmcp.server.handlers.search import handle_search_papers
         schema = json.loads(
-            Path("server/schemas/search_papers_result.json").read_text()
+            Path("src/arxmcp/server/schemas/search_papers_result.json").read_text()
         )
         fake_resources["resources"].chunks_table.set_rows([])
         result = _run(handle_search_papers(
@@ -951,7 +951,7 @@ class TestCanonicalizeFiltersDedup:
     impl only sorted; the rect added `dict.fromkeys()` for dedup."""
 
     def test_canonicalize_filters_dedupes_paper_id(self) -> None:
-        from server.handlers.search import _canonicalize_filters
+        from arxmcp.server.handlers.search import _canonicalize_filters
         out = _canonicalize_filters({"paper_id": ["a", "a", "b"]})
         assert out == {"paper_id": ["a", "b"]}
 
@@ -959,20 +959,20 @@ class TestCanonicalizeFiltersDedup:
         """Order of operations: dedup first (via dict.fromkeys preserves
         first-occurrence) then sort. Both calls must produce identical
         output regardless of input ordering."""
-        from server.handlers.search import _canonicalize_filters
+        from arxmcp.server.handlers.search import _canonicalize_filters
         out_a = _canonicalize_filters({"paper_id": ["b", "a", "a", "b"]})
         out_b = _canonicalize_filters({"paper_id": ["a", "b"]})
         assert out_a == out_b == {"paper_id": ["a", "b"]}
 
     def test_dedup_does_not_affect_single_element(self) -> None:
-        from server.handlers.search import _canonicalize_filters
+        from arxmcp.server.handlers.search import _canonicalize_filters
         out = _canonicalize_filters({"paper_id": ["x"]})
         assert out == {"paper_id": ["x"]}
 
     def test_dedup_preserves_other_filter_keys(self) -> None:
         """Dedup only fires on the paper_id list; other keys
         pass through unchanged."""
-        from server.handlers.search import _canonicalize_filters
+        from arxmcp.server.handlers.search import _canonicalize_filters
         out = _canonicalize_filters({
             "paper_id": ["x", "x"], "year": 2024, "categories": ["math.AG"],
         })
@@ -1072,7 +1072,7 @@ def fake_resources_with_cache(monkeypatch: pytest.MonkeyPatch):
     of monkeypatching `get_cache` to `None`. Lets the cache-hit
     re-stamp tests verify the F1/F2 invariants end-to-end through
     the handler."""
-    from server.tools import reset_resources_for_tests, set_resources
+    from arxmcp.server.tools import reset_resources_for_tests, set_resources
 
     captured: dict[str, Any] = {"search_builder": None}
 
@@ -1112,13 +1112,13 @@ def fake_resources_with_cache(monkeypatch: pytest.MonkeyPatch):
     fake_cache = _FakeCache()
     set_resources(fake)  # type: ignore[arg-type]
     monkeypatch.setattr(
-        "server.handlers.search.get_cache", lambda: fake_cache,
+        "arxmcp.server.handlers.search.get_cache", lambda: fake_cache,
     )
 
     async def _fake_encode(query: str):
         import numpy as np
         return np.zeros(1024, dtype=np.float32)
-    monkeypatch.setattr("server.handlers.search.encode_query", _fake_encode)
+    monkeypatch.setattr("arxmcp.server.handlers.search.encode_query", _fake_encode)
     yield {"resources": fake, "cache": fake_cache, "captured": captured}
     reset_resources_for_tests()
 
@@ -1137,7 +1137,7 @@ class TestFiltersAppliedHitPathRestamp:
         """First call: miss + store (filter-agnostic cached payload).
         Second call: Tier-1 hit + re-stamp. Both wire-form responses
         carry the same `filters_applied` echo."""
-        from server.handlers.search import handle_search_papers
+        from arxmcp.server.handlers.search import handle_search_papers
         fake_resources_with_cache["resources"].chunks_table.set_rows([])
         r1 = _run(handle_search_papers(
             query="x", filters={"paper_id": ["2604.26204"]}, k=3,
@@ -1159,7 +1159,7 @@ class TestFiltersAppliedHitPathRestamp:
         The fake-cache models Tier-2 as a semantic-equivalent match
         (same filter + level matches regardless of query). The
         re-stamp must still fire."""
-        from server.handlers.search import handle_search_papers
+        from arxmcp.server.handlers.search import handle_search_papers
         fake_resources_with_cache["resources"].chunks_table.set_rows([])
         # First call: miss + store under Tier-1 key (query="alpha")
         # and Tier-2 key (filter+level, no query).
@@ -1181,7 +1181,7 @@ class TestFiltersAppliedHitPathRestamp:
         carry `filters_applied`. The miss path stamps post-store,
         and `_restamp_degraded` pops any stale field defensively
         on every hit."""
-        from server.handlers.search import handle_search_papers
+        from arxmcp.server.handlers.search import handle_search_papers
         fake_resources_with_cache["resources"].chunks_table.set_rows([])
         _ = _run(handle_search_papers(
             query="x", filters={"paper_id": ["2604.26204"]}, k=3,
@@ -1206,7 +1206,7 @@ class TestFiltersAppliedHitPathRestamp:
         canonical filter. `_restamp_degraded`'s `pop` call is the
         gate; this test prevents a future refactor from silently
         removing it."""
-        from server.handlers.search import handle_search_papers
+        from arxmcp.server.handlers.search import handle_search_papers
         fake_resources_with_cache["resources"].chunks_table.set_rows([])
         # Manually seed the Tier-1 cache with a payload that ALREADY
         # contains a stale `filters_applied` from a hypothetical
@@ -1242,7 +1242,7 @@ class TestFiltersAppliedHitPathRestamp:
     ) -> None:
         """The no-filter common path must remain byte-equivalent to
         pre-m2 across miss + hit (Synthesis Disagreement #4)."""
-        from server.handlers.search import handle_search_papers
+        from arxmcp.server.handlers.search import handle_search_papers
         fake_resources_with_cache["resources"].chunks_table.set_rows([])
         r1 = _run(handle_search_papers(query="x", filters=None, k=3))
         r2 = _run(handle_search_papers(query="x", filters=None, k=3))
@@ -1259,21 +1259,21 @@ class TestFiltersAppliedHitPathRestamp:
 
 class TestBm25SourceKindBranch:
     """The supplementary BM25-path filter in
-    server.retrieval.bm25._apply_supported_filters infers source_kind
+    arxmcp.server.retrieval.bm25._apply_supported_filters infers source_kind
     from the chunk_id prefix (BM25 candidates are (chunk_id, score)
     tuples with no source_kind column). The authoritative path is the
     LanceDB dense pre-filter; this branch keeps the filter coherent if
     the hybrid path is ever active."""
 
     def test_source_kind_from_chunk_id(self) -> None:
-        from server.retrieval.bm25 import _source_kind_from_chunk_id
+        from arxmcp.server.retrieval.bm25 import _source_kind_from_chunk_id
 
         assert _source_kind_from_chunk_id("arxiv:2401.1:abc") == "arxiv"
         assert _source_kind_from_chunk_id("textbook:sv-book:abc") == "textbook"
         assert _source_kind_from_chunk_id("weird:thing:abc") is None
 
     def test_filter_keeps_only_textbook(self) -> None:
-        from server.retrieval.bm25 import _apply_supported_filters
+        from arxmcp.server.retrieval.bm25 import _apply_supported_filters
 
         candidates = [
             ("arxiv:2401.00001:aaa", 0.9),
@@ -1284,7 +1284,7 @@ class TestBm25SourceKindBranch:
         assert out == [("textbook:sv-book:bbb", 0.8)]
 
     def test_filter_keeps_only_arxiv(self) -> None:
-        from server.retrieval.bm25 import _apply_supported_filters
+        from arxmcp.server.retrieval.bm25 import _apply_supported_filters
 
         candidates = [
             ("arxiv:2401.00001:aaa", 0.9),
@@ -1294,7 +1294,7 @@ class TestBm25SourceKindBranch:
         assert out == [("arxiv:2401.00001:aaa", 0.9)]
 
     def test_no_source_kind_filter_passes_all(self) -> None:
-        from server.retrieval.bm25 import _apply_supported_filters
+        from arxmcp.server.retrieval.bm25 import _apply_supported_filters
 
         candidates = [
             ("arxiv:2401.00001:aaa", 0.9),
@@ -1305,7 +1305,7 @@ class TestBm25SourceKindBranch:
 
     def test_paper_id_and_source_kind_compose(self) -> None:
         """Both filters AND together (a candidate must satisfy both)."""
-        from server.retrieval.bm25 import _apply_supported_filters
+        from arxmcp.server.retrieval.bm25 import _apply_supported_filters
 
         candidates = [
             ("arxiv:2401.00001:aaa", 0.9),
@@ -1327,7 +1327,7 @@ class TestResourceLinksFollowTheCap:
         chunks that are not in the payload it was handed."""
         from mcp.types import ResourceLink
 
-        from server.handlers.search import handle_search_papers
+        from arxmcp.server.handlers.search import handle_search_papers
 
         resources = fake_resources["resources"]
         # The full payload is ~3.8 KB, ~7.7 KB with the wire factor of 2,

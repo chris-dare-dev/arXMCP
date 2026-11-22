@@ -21,7 +21,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
-from server.config import Config
+from arxmcp.server.config import Config
 
 
 def _rows(start: int, count: int) -> list[dict[str, Any]]:
@@ -47,7 +47,7 @@ def _rows(start: int, count: int) -> list[dict[str, Any]]:
 
 
 def _write_marker(lance: Path, *, version: int, chunk_count: int) -> None:
-    from ingest.embedder import EMBEDDER_VERSION
+    from arxmcp.ingest.embedder import EMBEDDER_VERSION
 
     (lance / "corpus-version.json").write_text(
         json.dumps(
@@ -70,11 +70,11 @@ def corpus(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     import lancedb
     import pyarrow as pa
 
-    import server.cache as cache_mod
-    import server.query_encoder as qe_mod
-    import server.resources as res_mod
-    from ingest.schema import CHUNKS_SCHEMA_V1
-    from server.retrieval import BM25Phase
+    import arxmcp.server.cache as cache_mod
+    import arxmcp.server.query_encoder as qe_mod
+    import arxmcp.server.resources as res_mod
+    from arxmcp.ingest.schema import CHUNKS_SCHEMA_V1
+    from arxmcp.server.retrieval import BM25Phase
 
     lance = tmp_path / "lancedb"
     table = lancedb.connect(str(lance)).create_table(
@@ -161,8 +161,8 @@ class TestConfig:
 def test_default_startup_and_rebind_skip_the_phase(corpus) -> None:
     import pyarrow as pa
 
-    from ingest.schema import CHUNKS_SCHEMA_V1
-    from server.resources import Resources
+    from arxmcp.ingest.schema import CHUNKS_SCHEMA_V1
+    from arxmcp.server.resources import Resources
 
     async def _scenario() -> tuple[Any, str, bool, int]:
         resources = await Resources.startup(corpus["config"]())
@@ -190,8 +190,8 @@ def test_default_startup_and_rebind_skip_the_phase(corpus) -> None:
 def test_enabled_binds_cross_check_against_the_live_table(corpus) -> None:
     import pyarrow as pa
 
-    from ingest.schema import CHUNKS_SCHEMA_V1
-    from server.resources import Resources
+    from arxmcp.ingest.schema import CHUNKS_SCHEMA_V1
+    from arxmcp.server.resources import Resources
 
     async def _scenario() -> tuple[str, str]:
         resources = await Resources.startup(corpus["config"](bm25_phase="on"))
@@ -216,8 +216,8 @@ def test_enabled_binds_cross_check_against_the_live_table(corpus) -> None:
 def test_enabled_phase_with_a_stale_artifact_reads_unavailable(corpus) -> None:
     """A v1 artifact naming a chunk the table no longer has fails the
     cross-check: the phase stays unloaded and says so."""
-    from ingest.bm25_indexer import build_bm25_index
-    from server.resources import Resources
+    from arxmcp.ingest.bm25_indexer import build_bm25_index
+    from arxmcp.server.resources import Resources
 
     cfg = corpus["config"](bm25_phase="on")
     build_bm25_index(cfg.lancedb_path, corpus_version=1, index_root=cfg.bm25_index_root)
@@ -243,7 +243,7 @@ def test_enabled_phase_with_a_stale_artifact_reads_unavailable(corpus) -> None:
 
 
 def _readyz_body(resources: Any) -> dict[str, Any]:
-    from server.health import router
+    from arxmcp.server.health import router
 
     app = FastAPI()
     app.include_router(router)
@@ -259,7 +259,7 @@ def _readyz_body(resources: Any) -> dict[str, Any]:
     [({}, "disabled"), ({"bm25_phase": "on"}, "warm")],
 )
 def test_readyz_reports_the_phase_state(corpus, overrides, expected) -> None:
-    from server.resources import Resources
+    from arxmcp.server.resources import Resources
 
     resources = asyncio.run(Resources.startup(corpus["config"](**overrides)))
     try:
@@ -290,7 +290,7 @@ class _StatusResources:
 def test_status_reports_the_phase_and_warns_only_when_it_failed(
     tmp_path, state: str, check_status: str, warns: bool
 ) -> None:
-    from server.health import compute_health_status
+    from arxmcp.server.health import compute_health_status
 
     report = asyncio.run(compute_health_status(_StatusResources(tmp_path, state), None))
     (check,) = report["checks"]["bm25:phase"]
@@ -310,8 +310,8 @@ def test_hybrid_eval_turns_the_phase_on_and_refuses_without_it(
     """``ARXMCP_BM25_PHASE=off`` in the shell does not stop a hybrid run
     from requesting the phase, and a phase that did not load stops the run
     rather than scoring a pipeline with no BM25 stage."""
-    from ops.retrieval_eval import run_hybrid_against_corpus
-    from server.resources import Resources
+    from arxmcp.ops.retrieval_eval import run_hybrid_against_corpus
+    from arxmcp.server.resources import Resources
 
     monkeypatch.setenv("ARXMCP_BM25_PHASE", "off")
     seen: list[Config] = []

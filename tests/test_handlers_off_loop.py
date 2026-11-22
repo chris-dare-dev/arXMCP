@@ -16,10 +16,10 @@ from typing import Any
 import lancedb
 import pytest
 
-from server.handlers.chunk import handle_get_chunk, read_chunk_in_full
-from server.handlers.lemma import handle_find_lemma_by_name
-from server.handlers.paper import handle_get_paper
-from server.tools import reset_resources_for_tests, set_resources
+from arxmcp.server.handlers.chunk import handle_get_chunk, read_chunk_in_full
+from arxmcp.server.handlers.lemma import handle_find_lemma_by_name
+from arxmcp.server.handlers.paper import handle_get_paper
+from arxmcp.server.tools import reset_resources_for_tests, set_resources
 from tests._graph_helpers import build_synthetic_lancedb
 
 _PAPER = "2401.00001"
@@ -133,7 +133,7 @@ def test_lemma_fallback_reads_off_the_loop(table: _RecordingTable) -> None:
 
 
 def test_lemma_fallback_scans_only_named_rows(tmp_path: Path) -> None:
-    from server.handlers.lemma import _scan_named_rows
+    from arxmcp.server.handlers.lemma import _scan_named_rows
 
     rows = [
         {"chunk_id": f"arxiv:{pid}:{i:016x}", "paper_id": pid, "kind": "stmt",

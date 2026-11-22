@@ -19,7 +19,7 @@ from typing import Any
 import pyarrow as pa
 import pytest
 
-from server.handlers.chunk import handle_get_chunk
+from arxmcp.server.handlers.chunk import handle_get_chunk
 
 # E13_S02 delimiter tags (stable contract).
 _OPEN = "<retrieved_chunk>"
@@ -87,7 +87,7 @@ def res(monkeypatch: pytest.MonkeyPatch):
     """Install a fake Resources whose chunks_table returns a settable
     1-row Arrow table for get_chunk. Reset afterward so other tests are
     not polluted."""
-    from server.tools import reset_resources_for_tests, set_resources
+    from arxmcp.server.tools import reset_resources_for_tests, set_resources
 
     holder: dict[str, Any] = {"arrow": None}
 
@@ -346,8 +346,8 @@ class TestBatchFetch:
         order, and the reply says it was cut."""
         import json
 
-        import server.handlers.chunk as chunk_mod
-        from server.proof_linkage import MAX_REFERENCED, REF_BODY_MAX_CHARS
+        import arxmcp.server.handlers.chunk as chunk_mod
+        from arxmcp.server.proof_linkage import MAX_REFERENCED, REF_BODY_MAX_CHARS
 
         def _full_counterparts(table, row):
             return {
@@ -392,7 +392,7 @@ class TestBatchFetch:
     def test_batch_is_one_query(self, res, monkeypatch):
         """N ids => ONE LanceDB search, not N."""
         calls = {"n": 0}
-        from server.tools import get_resources
+        from arxmcp.server.tools import get_resources
 
         table = get_resources().chunks_table
         orig = table.search

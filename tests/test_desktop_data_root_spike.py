@@ -293,7 +293,7 @@ def test_prepare_preserves_preexisting_probe_names(tmp_path: Path) -> None:
 def test_windows_launcher_state_survives_mineru_scrub(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from ingest import textbook_parser
+    from arxmcp.ingest import textbook_parser
 
     paths = ApplicationPaths.resolve(
         env={"ARXMCP_DATA_DIR": str(tmp_path / "data")},

@@ -37,7 +37,7 @@ invalidation a MUST and asserted the implementation honored it; the
 keying half was real, the invalidation half had no implementation at
 all.
 
-- **NEW: `server/corpus_freshness.py`** — `FreshnessGate` (throttle +
+- **NEW: `src/arxmcp/server/corpus_freshness.py`** — `FreshnessGate` (throttle +
   single-flight, injectable clock) and `read_marker_off_loop`. The
   module docstring is where "who owns corpus agreement" is answered,
   including the boundary it does NOT cover: only the LanceDB dataset
@@ -83,8 +83,8 @@ polling, and read the last 1 KB of stderr on failure — all without
 the daemon's event loop ever blocking. The MCP surface and
 `EXPECTED_TOOL_SCHEMA_SHA256` are unchanged.
 
-- **NEW: `server/ingest_tracker.py`** (~250 LOC) — `IngestTaskTracker`
-  class that spawns `python -m tools.notebook_ingest <slug>` as a
+- **NEW: `src/arxmcp/server/ingest_tracker.py`** (~250 LOC) — `IngestTaskTracker`
+  class that spawns `python -m arxmcp.tools.notebook_ingest <slug>` as a
   subprocess via `asyncio.create_subprocess_exec`, tracks the
   `asyncio.Task` in `_tasks: dict[str, asyncio.Task]` to prevent
   GC, and updates the DB row on completion via a `done_callback`.
@@ -100,7 +100,7 @@ the daemon's event loop ever blocking. The MCP surface and
   → HTML-escape. Pipeline closes both FM-3 (Threat 2 — `<retrieved_chunk>`
   literal escape) and FM-4 (AC #2 — no absolute paths beyond
   `var/arxmcp/` leak into the UI).
-- **NEW: 2 REST routes** in `server/routes/notebooks.py`:
+- **NEW: 2 REST routes** in `src/arxmcp/server/routes/notebooks.py`:
   - `POST /ui/api/notebooks/{slug}/ingest` — 202 Accepted; returns
     an HTML fragment that the htmx UI swaps into `#ingest-status`.
     Sequencing: validate → 409-check → INSERT row → spawn task →
@@ -124,7 +124,7 @@ the daemon's event loop ever blocking. The MCP surface and
   `mark_orphaned_runs_failed` (FM-5 startup-recovery: marks any
   `running` row older than 1 hour as `failed` so a daemon-crash-
   mid-ingest doesn't leave the row stuck in limbo).
-- **EDIT: `server/main.py`** — lifespan opens `IngestTaskTracker`
+- **EDIT: `src/arxmcp/server/main.py`** — lifespan opens `IngestTaskTracker`
   AFTER `NotebooksStore` AND after running orphan-recovery.
   Lifespan finally calls `tracker.shutdown(timeout_seconds=5.0)`
   to cancel in-flight tasks before closing the store.
@@ -170,13 +170,13 @@ are unchanged.
   + source URL (`https://cdn.jsdelivr.net/npm/htmx.org@2.0.10/...`)
   + license. Plus `app.css` — minimal CSS, no external fonts, no
   CDN imports. AC #5 satisfied: zero internet fetches at runtime.
-- **NEW: `server/routes/ui.py`** — `GET /ui/` (landing page;
+- **NEW: `src/arxmcp/server/routes/ui.py`** — `GET /ui/` (landing page;
   notebook list + create form) and `GET /ui/notebooks/{slug}`
   (detail page; paper list + URL-paste form + drag-drop upload
   card). Both routes are wired via `app.include_router(ui_router,
   prefix="/ui")`.
 - **NEW: upload endpoint** — `POST /ui/api/notebooks/{slug}/papers/upload`
-  in `server/routes/notebooks.py`. Accepts multipart with form
+  in `src/arxmcp/server/routes/notebooks.py`. Accepts multipart with form
   fields `paper_id` (validated via `is_valid_paper_id` — m1 rect
   F3 `\Z`-anchor hardening inherited) and `file` (the ar5iv HTML).
   On-disk filename is derived EXCLUSIVELY from `paper_id` (m8 FM-4
@@ -247,7 +247,7 @@ six routes the m8 htmx UI will consume, backed by a new SQLite table
 file. The MCP surface is unchanged — `EXPECTED_TOOL_SCHEMA_SHA256`
 remains pinned, no new MCP tools shipped.
 
-- **NEW: `server/notebooks_store.py`** — `NotebooksStore` class
+- **NEW: `src/arxmcp/server/notebooks_store.py`** — `NotebooksStore` class
   mirroring `cache_sqlite.py::Tier1Store` (asyncio.to_thread +
   asyncio.Lock + WAL mode). Two tables: `notebooks(slug PRIMARY KEY,
   display_name, lancedb_path, created_at)` and
@@ -257,14 +257,14 @@ remains pinned, no new MCP tools shipped.
   (`var/arxmcp/cache/notebooks.db`) — NOT in the existing
   `retrieval.db` — so a schema-version bump on either side doesn't
   trigger the OTHER's DROP-AND-RECREATE migration (FM-6).
-- **NEW: `server/routes/notebooks.py`** — six FastAPI routes mounted
+- **NEW: `src/arxmcp/server/routes/notebooks.py`** — six FastAPI routes mounted
   at `/ui/api` via `app.include_router(notebooks_router,
   prefix="/ui/api")`:
   - `GET /notebooks` — list (ordered by `created_at DESC`)
   - `POST /notebooks` — create (201; 409 on duplicate slug)
   - `DELETE /notebooks/{slug}` — metadata-only (204; on-disk
     `var/arxmcp/notebooks/<slug>/` survives — destructive wipe is
-    `tools/notebook_purge.py`'s job, per the m7 brief deletion
+    `src/arxmcp/tools/notebook_purge.py`'s job, per the m7 brief deletion
     semantics resolved 2026-05-21)
   - `GET /notebooks/{slug}/papers` — list junction rows
   - `POST /notebooks/{slug}/papers` — normalize arxiv URL via new
@@ -277,7 +277,7 @@ remains pinned, no new MCP tools shipped.
 - **NEW: `SecFetchSiteMiddleware` `exempt_prefixes` arg** — path-
   prefix carve-out so the htmx UI's same-origin POSTs to
   `/ui/api/*` pass without 403'ing on `Sec-Fetch-Site: same-origin`.
-  Wired with `exempt_prefixes=("/ui",)` in `server/main.py`. The
+  Wired with `exempt_prefixes=("/ui",)` in `src/arxmcp/server/main.py`. The
   MCP surface (`/mcp`) is NOT in any exempt prefix and continues
   rejecting same-origin (the DNS-rebinding defense from
   `08-security-observability-ops.md` Threat 5 is preserved on the
@@ -312,9 +312,9 @@ m4's job was to verify them, close the BM25 sentinel gap that m6's F2
 closure designed for, and ship a small validator for the per-notebook
 `queries.json` fixtures.
 
-- **New: `tools/validate_notebook_fixtures.py`** — standalone validator
+- **New: `src/arxmcp/tools/validate_notebook_fixtures.py`** — standalone validator
   for the per-notebook `queries.json` schema. Separate from the existing
-  `tools/validate_eval_fixtures.py` (the global eval validator has a
+  `src/arxmcp/tools/validate_eval_fixtures.py` (the global eval validator has a
   closed-schema guard against extra top-level keys, and the notebook
   fixtures use paper-level relevance — `expected_relevant_papers:
   ["<arxiv_id>", ...]` — whereas the global validator expects
@@ -362,7 +362,7 @@ measurable lift; only the cheap filter-wiring half of the pivot has landed.
   envelope (F2 from m1 critique). The `paper_id` value list is capped at
   `MAX_PAPER_ID_FILTER_ITEMS=100` and SQL-escaped via single-quote
   doubling. Trailing-newline rejection in `is_valid_paper_id` (and the
-  parity copy in `ingest/chunker.py` + `tools/validate_eval_fixtures.py`)
+  parity copy in `src/arxmcp/ingest/chunker.py` + `src/arxmcp/tools/validate_eval_fixtures.py`)
   was hardened by replacing the regex `$` anchor with `\Z` (F3 from m1
   critique).
 - **m2** — Filtered responses now carry a `filters_applied` object that
@@ -379,7 +379,7 @@ measurable lift; only the cheap filter-wiring half of the pivot has landed.
   in `tests/test_prompts.py`) was NOT re-pinned: the canonical BP1
   surface measured by `_live_tools_payload` is `{name, description}` per
   tool only and does not include `_meta.tool_schema_version`, so the
-  version bump does not drift this hash. See `server/tools.py::register_all`
+  version bump does not drift this hash. See `src/arxmcp/server/tools.py::register_all`
   (m2 rect F6) for the orchestrator-side `_meta`-strip contract that
   preserves this property.
 - **Out of scope (deferred):** The wider `degraded` / `degraded_reasons`
@@ -407,7 +407,7 @@ measurable lift; only the cheap filter-wiring half of the pivot has landed.
   `tests/test_prompts.py`, and `tests/test_tier_gates_doc.py` for the
   new locations. Dropped the `TestReadmeLinksTierGates` AC since
   TIER-GATES is no longer user-facing.
-- Updated `Makefile` and `tools/validate_eval_fixtures.py` references.
+- Updated `Makefile` and `src/arxmcp/tools/validate_eval_fixtures.py` references.
 - README rewritten to project scope only (what / how / layout); CLAUDE.md
   expanded with the new doc-placement rule and updated paths.
 - New: `CHANGES.md`, `SECURITY.md`, `OWNERS.md`.
@@ -430,12 +430,12 @@ The agent runtime can now traverse the citation graph in 2 MCP rounds.
   INSPIRE owns identifiers + bibliographic refs).
   COALESCE-in-ON-MATCH so a re-MERGE with NULL doesn't clobber
   previously stamped data.
-- **E09_S03** — `server/graph_queries.py::cite_neighbors(chunk_id,
+- **E09_S03** — `src/arxmcp/server/graph_queries.py::cite_neighbors(chunk_id,
   depth, direction)` async library + `CitationNeighbor` dataclass.
   Variable-length Cypher with `relationships(p)` projection;
   Python-side dedup + filter + ordering; LanceDB batched chunk-id
   lookup with `kind="stmt"` priority fallback. Intra-paper `\ref{}`
-  ingest pass (`ingest/intra_paper_refs.py`) populates
+  ingest pass (`src/arxmcp/ingest/intra_paper_refs.py`) populates
   `source="intra-paper"` self-edges.
 - **E09_S04** — Documents and tests the 2-round agent pattern
   (`cite_neighbors` + bulk parallel `get_chunk`). Synthetic 50-paper
@@ -539,9 +539,9 @@ The agent runtime can now traverse the citation graph in 2 MCP rounds.
 ## E01 — Vertical Slice (DONE)
 
 - Repo skeleton + 50-paper math.AG seed corpus
-  (`tools/seed-papers.txt`) + single-paper hand-fetch
-  (`tools/fetch_one_paper.py`) + seed-corpus walk
-  (`tools/fetch_seed.py`). Per-milestone subspecs (S04–S10) were
+  (`src/arxmcp/tools/seed-papers.txt`) + single-paper hand-fetch
+  (`src/arxmcp/tools/fetch_one_paper.py`) + seed-corpus walk
+  (`src/arxmcp/tools/fetch_seed.py`). Per-milestone subspecs (S04–S10) were
   superseded by E02–E06 milestones and are recorded as
   `SUPERSEDED_BY` in
   [`.claude/roadmap/README.md`](.claude/roadmap/README.md).

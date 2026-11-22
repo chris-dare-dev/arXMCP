@@ -27,8 +27,8 @@ from unittest.mock import patch
 
 import pytest
 
-from ingest.bulk_ingest import PaperOutcome
-from ingest.oai_delta import (
+from arxmcp.ingest.bulk_ingest import PaperOutcome
+from arxmcp.ingest.oai_delta import (
     DEFAULT_BUDGET_SECONDS,
     METADATA_PREFIX,
     OAI_PMH_ENDPOINT,
@@ -382,7 +382,7 @@ class TestRunDelta:
     def test_end_to_end_with_mock_records(self, tmp_path):
         fetcher = _MockFetcher([_final_page(["2401.00001", "2401.00002"])])
         with patch(
-            "ingest.oai_delta.ingest_one_paper",
+            "arxmcp.ingest.oai_delta.ingest_one_paper",
             side_effect=lambda pid, **kw: _ok_paper_outcome(pid),
         ):
             summary = run_delta(
@@ -415,14 +415,14 @@ class TestRunDelta:
         state_path = tmp_path / "state.json"
         builds: list = []
         monkeypatch.setattr(
-            "ingest.oai_delta.build_derived_indexes",
+            "arxmcp.ingest.oai_delta.build_derived_indexes",
             lambda path: builds.append(
                 (path, _read_state(state_path).get("last_successful_run_utc"))
             ),
         )
         fetcher = _MockFetcher([_final_page(["2401.00001"])])
         with patch(
-            "ingest.oai_delta.ingest_one_paper",
+            "arxmcp.ingest.oai_delta.ingest_one_paper",
             side_effect=lambda pid, **kw: _ok_paper_outcome(pid),
         ):
             run_delta(
@@ -446,9 +446,9 @@ class TestRunDelta:
     ):
         # The nightly timer's journal gets one "error:" line, not a stack
         # trace, and exit 3 rather than the failure exit 1.
-        import ingest.oai_delta as delta
-        from ingest import sentinel as ingest_sentinel
-        from ingest.store import STALE_CHUNKER_EXIT_CODE, StaleChunkerRowsError
+        import arxmcp.ingest.oai_delta as delta
+        from arxmcp.ingest import sentinel as ingest_sentinel
+        from arxmcp.ingest.store import STALE_CHUNKER_EXIT_CODE, StaleChunkerRowsError
 
         def _refuse(**_k):
             raise StaleChunkerRowsError("rotate it first (make re-embed)")
@@ -472,7 +472,7 @@ class TestRunDelta:
         import lancedb
         import pyarrow as pa
 
-        from ingest.store import StaleChunkerRowsError
+        from arxmcp.ingest.store import StaleChunkerRowsError
 
         staging = tmp_path / "lancedb-staging"
         lancedb.connect(str(staging)).create_table(
@@ -494,7 +494,7 @@ class TestRunDelta:
             raise AssertionError("no record may reach the pipeline")
 
         with (
-            patch("ingest.oai_delta.ingest_one_paper", _never),
+            patch("arxmcp.ingest.oai_delta.ingest_one_paper", _never),
             pytest.raises(StaleChunkerRowsError, match="make notebook-cutover"),
         ):
             run_delta(
@@ -518,7 +518,7 @@ class TestRunDelta:
 
         fetcher = _MockFetcher([_final_page(["2401.00001", "2401.00002"])])
         with patch(
-            "ingest.oai_delta.ingest_one_paper",
+            "arxmcp.ingest.oai_delta.ingest_one_paper",
             side_effect=lambda pid, **kw: _ok_paper_outcome(pid),
         ):
             run_delta(
@@ -553,7 +553,7 @@ class TestRunDelta:
         )
         fetcher = _MockFetcher([mixed])
         with patch(
-            "ingest.oai_delta.ingest_one_paper",
+            "arxmcp.ingest.oai_delta.ingest_one_paper",
             side_effect=lambda pid, **kw: _ok_paper_outcome(pid),
         ):
             summary = run_delta(
@@ -584,7 +584,7 @@ class TestRunDelta:
         body = _wrap_response(_record("2401.00099", deleted=True))
         fetcher = _MockFetcher([body])
         with patch(
-            "ingest.oai_delta.ingest_one_paper",
+            "arxmcp.ingest.oai_delta.ingest_one_paper",
             side_effect=AssertionError("must not be called for deleted records"),
         ):
             summary = run_delta(
@@ -609,9 +609,9 @@ class TestRunDelta:
         import lancedb
         import numpy as np
 
-        from ingest.chunk import CHUNKER_VERSION, EMBEDDING_DIM, ChunkRecord
-        from ingest.schema import EmbedRecord
-        from ingest.store import write_chunks
+        from arxmcp.ingest.chunk import CHUNKER_VERSION, EMBEDDING_DIM, ChunkRecord
+        from arxmcp.ingest.schema import EmbedRecord
+        from arxmcp.ingest.store import write_chunks
 
         staging = tmp_path / "lancedb-staging"
         for n, pid in enumerate(["2401.00099", "2401.00001"]):
@@ -637,10 +637,10 @@ class TestRunDelta:
         body = _wrap_response(_record("2401.00099", deleted=True))
         with (
             patch(
-                "ingest.oai_delta.ingest_one_paper",
+                "arxmcp.ingest.oai_delta.ingest_one_paper",
                 side_effect=AssertionError("must not be called for deleted records"),
             ),
-            patch("ingest.oai_delta.build_derived_indexes"),
+            patch("arxmcp.ingest.oai_delta.build_derived_indexes"),
         ):
             summary = run_delta(
                 sets=("math:math:AG",),
@@ -665,7 +665,7 @@ class TestRunDelta:
     def test_dry_run_does_not_call_pipeline(self, tmp_path, capsys):
         fetcher = _MockFetcher([_final_page(["2401.00001"])])
         with patch(
-            "ingest.oai_delta.ingest_one_paper",
+            "arxmcp.ingest.oai_delta.ingest_one_paper",
             side_effect=AssertionError("dry-run must not call this"),
         ):
             summary = run_delta(
@@ -693,7 +693,7 @@ class TestRunDelta:
         # zero-sleep assumption.
         fetcher = _MockFetcher([_final_page(paper_ids)])
         with patch(
-            "ingest.oai_delta.ingest_one_paper",
+            "arxmcp.ingest.oai_delta.ingest_one_paper",
             side_effect=lambda pid, **kw: _ok_paper_outcome(pid),
         ):
             summary = run_delta(
@@ -723,10 +723,10 @@ class TestRunDelta:
         # deterministically positive on every platform.
         _clock = itertools.count(1.0)
         with patch(
-            "ingest.oai_delta.ingest_one_paper",
+            "arxmcp.ingest.oai_delta.ingest_one_paper",
             side_effect=lambda pid, **kw: _ok_paper_outcome(pid),
         ), patch(
-            "ingest.oai_delta.time.monotonic",
+            "arxmcp.ingest.oai_delta.time.monotonic",
             side_effect=lambda: next(_clock),
         ):
             summary = run_delta(
@@ -754,7 +754,7 @@ class TestRunDelta:
         flag.write_text("{}")  # leftover from a prior breach
         fetcher = _MockFetcher([_final_page(["2401.00001"])])
         with patch(
-            "ingest.oai_delta.ingest_one_paper",
+            "arxmcp.ingest.oai_delta.ingest_one_paper",
             side_effect=lambda pid, **kw: _ok_paper_outcome(pid),
         ):
             run_delta(
@@ -864,7 +864,7 @@ class TestFetchPage503Backoff:
                 )
 
         opener = _Fake503Then200()
-        with patch("ingest.oai_delta.urllib.request.urlopen", opener):
+        with patch("arxmcp.ingest.oai_delta.urllib.request.urlopen", opener):
             body = _fetch_page(
                 OAI_PMH_ENDPOINT,
                 {"verb": "ListRecords"},
@@ -892,7 +892,7 @@ class TestFetchPage503Backoff:
             raise err
 
         with (
-            patch("ingest.oai_delta.urllib.request.urlopen", _err),
+            patch("arxmcp.ingest.oai_delta.urllib.request.urlopen", _err),
             pytest.raises(urllib.error.HTTPError),
         ):
             _fetch_page(
@@ -933,7 +933,7 @@ class TestFetchPage503Backoff:
             clock["now"] += t
 
         with (
-            patch("ingest.oai_delta.urllib.request.urlopen", _always_503),
+            patch("arxmcp.ingest.oai_delta.urllib.request.urlopen", _always_503),
             pytest.raises(RuntimeError, match="retry cap"),
         ):
             _fetch_page(
@@ -952,7 +952,7 @@ class TestFetchPageRedirectPin:
 
     def test_off_host_response_url_rejected(self):
         with patch(
-            "ingest.oai_delta.urllib.request.urlopen",
+            "arxmcp.ingest.oai_delta.urllib.request.urlopen",
             return_value=_FakeUrlOpenResponse(
                 body=b"<ok/>", url="https://evil.example/x"
             ),
@@ -966,7 +966,7 @@ class TestFetchPageRedirectPin:
 
     def test_on_host_response_url_accepted(self):
         with patch(
-            "ingest.oai_delta.urllib.request.urlopen",
+            "arxmcp.ingest.oai_delta.urllib.request.urlopen",
             return_value=_FakeUrlOpenResponse(
                 body=b"<ok/>",
                 url=f"{OAI_PMH_ENDPOINT}?verb=ListRecords",
@@ -1007,7 +1007,7 @@ class TestNoRecordsMatch:
         ).encode()
         fetcher = _MockFetcher([good, quiet, good, good])
         with patch(
-            "ingest.oai_delta.ingest_one_paper",
+            "arxmcp.ingest.oai_delta.ingest_one_paper",
             side_effect=lambda pid, **kw: _ok_paper_outcome(pid),
         ):
             summary = run_delta(
@@ -1045,7 +1045,7 @@ class TestSetAwareTokenRecovery:
         # 4 sets × 1 page each = 4 mock responses.
         fetcher = _MockFetcher([_final_page(["2401.00001"])] * 4)
         with patch(
-            "ingest.oai_delta.ingest_one_paper",
+            "arxmcp.ingest.oai_delta.ingest_one_paper",
             side_effect=lambda pid, **kw: _ok_paper_outcome(pid),
         ):
             run_delta(
@@ -1087,7 +1087,7 @@ class TestSameDayRerun:
     def test_rerun_after_a_successful_run(self, tmp_path):
         today = datetime.now(UTC).date().isoformat()
         with patch(
-            "ingest.oai_delta.ingest_one_paper",
+            "arxmcp.ingest.oai_delta.ingest_one_paper",
             side_effect=lambda pid, **kw: _ok_paper_outcome(pid),
         ):
             self._run(tmp_path, _MockFetcher([_final_page([])] * 4))
@@ -1119,7 +1119,7 @@ class TestSameDayRerun:
             + [_final_page([])] * 3
         )
         with patch(
-            "ingest.oai_delta.ingest_one_paper",
+            "arxmcp.ingest.oai_delta.ingest_one_paper",
             side_effect=lambda pid, **kw: _ok_paper_outcome(pid),
         ):
             summary = self._run(tmp_path, second)
@@ -1180,7 +1180,7 @@ class TestMakeDeltaTarget:
         makefile = Path(__file__).resolve().parent.parent / "Makefile"
         text = makefile.read_text(encoding="utf-8")
         assert "\ndelta:\n" in text
-        assert "ingest.oai_delta" in text
+        assert "arxmcp.ingest.oai_delta" in text
 
 
 class TestShellWrapperHasNoPersonalPath:
@@ -1189,7 +1189,7 @@ class TestShellWrapperHasNoPersonalPath:
     def test_no_personal_path_in_wrapper(self):
         wrapper = (
             Path(__file__).resolve().parent.parent
-            / "ops" / "cron" / "arxmcp-delta.sh"
+            / "src" / "arxmcp" / "ops" / "cron" / "arxmcp-delta.sh"
         )
         text = wrapper.read_text(encoding="utf-8")
         # The wrapper must not embed a workstation-specific UV path.
@@ -1252,13 +1252,13 @@ class TestCLI:
         # root is valid host state, but it is not part of the dry-run parser
         # contract exercised here.
         monkeypatch.setenv("ARXMCP_DATA_DIR", str(tmp_path / "data"))
-        from ingest.oai_delta import DEFAULT_SETS, _cli
+        from arxmcp.ingest.oai_delta import DEFAULT_SETS, _cli
 
         # The CLI walks all DEFAULT_SETS — provide one mock page per set.
         fetcher = _MockFetcher(
             [_final_page(["2401.00001"]) for _ in DEFAULT_SETS]
         )
-        with patch("ingest.oai_delta._fetch_page", fetcher):
+        with patch("arxmcp.ingest.oai_delta._fetch_page", fetcher):
             rc = _cli([
                 "--from", "2026-05-14",
                 "--until", "2026-05-14",

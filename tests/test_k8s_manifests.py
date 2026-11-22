@@ -2,7 +2,7 @@
 
 Mirrors ``tests/test_compose_server.py``: a PyYAML pass that always runs (no
 ``kubectl`` / cluster dependency) asserting the load-bearing invariants of the
-``infra/k8s/`` manifest set, plus an optional ``kubeconform`` schema check gated
+``deploy/k8s/`` manifest set, plus an optional ``kubeconform`` schema check gated
 on that binary being on PATH.
 
 The live ``kubectl apply`` → ``/readyz`` 200 is operator-acceptance (it builds
@@ -27,18 +27,18 @@ import pytest
 import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-K8S_DIR = REPO_ROOT / "infra" / "k8s"
+K8S_DIR = REPO_ROOT / "deploy" / "k8s"
 
 #: The pinned local image tag (imagePullPolicy: Never side-loads it into k3s).
 EXPECTED_IMAGE = "arxmcp-server:dev"
 #: NodePort the Service must publish (stable, so the shim URL is predictable).
 EXPECTED_NODEPORT = 30733
-#: Container port the server listens on (server/config.py DEFAULT_BIND_PORT).
+#: Container port the server listens on (src/arxmcp/server/config.py DEFAULT_BIND_PORT).
 SERVER_PORT = 7733
 
 
 def _load_docs() -> list[dict]:
-    """Every YAML document across infra/k8s/*.yaml (non-recursive — scripts/ is
+    """Every YAML document across deploy/k8s/*.yaml (non-recursive — scripts/ is
     excluded). Each manifest file is single-document, but safe_load_all keeps
     this robust if one ever bundles multiple."""
     docs: list[dict] = []
@@ -101,14 +101,14 @@ def test_configmap_required_env_present() -> None:
 
 
 def test_configmap_arxmcp_keys_are_real_config_fields() -> None:
-    """FM-I: server/config.py uses env_prefix=ARXMCP_ + extra='forbid' — an
+    """FM-I: src/arxmcp/server/config.py uses env_prefix=ARXMCP_ + extra='forbid' — an
     unknown ARXMCP_* var crashes the pod at startup. Every ARXMCP_* ConfigMap
     key must map to a declared Config field. Skips only if the server package
     cannot be imported in this environment (keeps the manifest test hermetic)."""
     try:
-        from server.config import Config
+        from arxmcp.server.config import Config
     except Exception as exc:  # pragma: no cover - import-environment dependent
-        pytest.skip(f"server.config not importable here: {exc}")
+        pytest.skip(f"arxmcp.server.config not importable here: {exc}")
 
     field_names = set(Config.model_fields.keys())
     data = _by_kind("ConfigMap")["data"]

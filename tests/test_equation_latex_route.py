@@ -21,14 +21,14 @@ from __future__ import annotations
 
 import pytest
 
-import server.handlers.equation as eq_handler_mod
-import server.tools as server_tools
-from ingest.mathml_tree import (
+import arxmcp.server.handlers.equation as eq_handler_mod
+import arxmcp.server.tools as server_tools
+from arxmcp.ingest.mathml_tree import (
     looks_like_mathml,
     parse_mathml_to_tree,
     tree_to_json,
 )
-from server.handlers.equation import _convert_latex_to_mathml
+from arxmcp.server.handlers.equation import _convert_latex_to_mathml
 
 from .test_equation_index import (  # reuse the built harness
     _build_chunks_table,
@@ -105,7 +105,7 @@ def _call(latex, tmp_path, monkeypatch, *, table=True, route=True):
         tmp_path=tmp_path,
     )
     _mock_encode_query(monkeypatch)
-    from server.tools import get_resources
+    from arxmcp.server.tools import get_resources
 
     # route is None -> leave the flag UNSET so the handler's getattr
     # default (production default: OFF) governs, exercising the real
@@ -185,7 +185,7 @@ class TestHonestFallback:
     def test_config_default_is_on(self):
         """agent-platform-m3 / W1 flipped the default ON (from m4's
         default-OFF), atomically with the corrected tool description."""
-        from server.config import Config
+        from arxmcp.server.config import Config
 
         assert Config().eq_latex_route is True
 

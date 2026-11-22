@@ -43,15 +43,15 @@ from unittest.mock import patch
 
 import pytest
 
-from server.handlers.citations import handle_cite_neighbors
-from server.handlers.equation import handle_find_equation
-from server.handlers.lemma import handle_find_lemma_by_name
-from server.handlers.search import (
+from arxmcp.server.handlers.citations import handle_cite_neighbors
+from arxmcp.server.handlers.equation import handle_find_equation
+from arxmcp.server.handlers.lemma import handle_find_lemma_by_name
+from arxmcp.server.handlers.search import (
     MAX_FILTER_ITEMS,
     MAX_K,
     handle_search_papers,
 )
-from server.session import (
+from arxmcp.server.session import (
     HOURLY_WINDOW_SECONDS,
     MAX_CALLS_PER_HOUR,
     SessionState,
@@ -169,7 +169,7 @@ class TestNumericParamRejection:
     def test_cite_neighbors_depth_field_constraint_present(self):
         """Reframed from brief's fictional ``dependency_graph(depth=100)``.
         The real depth-constrained tool is ``cite_neighbors`` with
-        ``Field(ge=1, le=2)`` — server.graph_queries.cite_neighbors
+        ``Field(ge=1, le=2)`` — arxmcp.server.graph_queries.cite_neighbors
         accepts only depth 1 or 2, so the advertised input schema must
         cap at 2 (verification-feedback-m1 adversary F1). Threat-4's
         intent — that a cap is PRESENT — is satisfied identically by
@@ -247,7 +247,7 @@ class TestNumericParamRejection:
     def test_cite_neighbors_depth_3_rejected_by_validator(self):
         """verification-feedback-m1 F1 regression guard: depth=3 — a
         value the OLD le=3 schema accepted — must now be rejected at
-        the input boundary. server.graph_queries.cite_neighbors raises
+        the input boundary. arxmcp.server.graph_queries.cite_neighbors raises
         ValueError for any depth outside {1,2}; if the schema ever
         re-widens to le>=3, that library ValueError would surface as an
         uncaught handler-body crash instead of a clean INVALID_PARAMS
@@ -288,7 +288,7 @@ class TestFiltersCapEnforced:
         filters = {f"k{i}": i for i in range(MAX_FILTER_ITEMS)}
         sentinel = "did_not_reach_get_resources"
         with patch(
-            "server.handlers.search.get_resources",
+            "arxmcp.server.handlers.search.get_resources",
             side_effect=RuntimeError(sentinel),
         ):
             with pytest.raises(RuntimeError) as exc:
@@ -307,7 +307,7 @@ class TestFiltersCapEnforced:
         filters = {f"k{i}": i for i in range(MAX_FILTER_ITEMS + 1)}
         sentinel = "resource_layer_was_unexpectedly_reached"
         with patch(
-            "server.handlers.search.get_resources",
+            "arxmcp.server.handlers.search.get_resources",
             side_effect=RuntimeError(sentinel),
         ), pytest.raises(ValueError, match="max allowed is"):
             _run(handle_search_papers(query="x", filters=filters))
@@ -338,14 +338,14 @@ class TestDefinitionsTermCap:
     """
 
     def test_term_at_cap_does_not_raise_value_error(self):
-        from server.handlers.definitions import (
+        from arxmcp.server.handlers.definitions import (
             MAX_TERM_LENGTH,
             handle_get_definitions,
         )
 
         sentinel = "did_not_reach_resources"
         with patch(
-            "server.handlers.definitions._get_definitions_table",
+            "arxmcp.server.handlers.definitions._get_definitions_table",
             side_effect=RuntimeError(sentinel),
         ):
             with pytest.raises(RuntimeError) as exc:
@@ -362,11 +362,11 @@ class TestDefinitionsTermCap:
             )
 
     def test_term_over_cap_rejected_with_value_error(self):
-        from server.handlers.definitions import handle_get_definitions
+        from arxmcp.server.handlers.definitions import handle_get_definitions
 
         sentinel = "resource_layer_unexpectedly_reached"
         with patch(
-            "server.handlers.definitions._get_definitions_table",
+            "arxmcp.server.handlers.definitions._get_definitions_table",
             side_effect=RuntimeError(sentinel),
         ), pytest.raises(ValueError, match="resource-exhaustion cap"):
             _run(
@@ -384,7 +384,7 @@ class TestDefinitionsTermCap:
 
 class TestByteCapEnforcement:
     """The 256 KB byte cap on tool result inline content is enforced
-    by :func:`server.tools.enforce_byte_cap`. Oversized chunk bodies
+    by :func:`arxmcp.server.tools.enforce_byte_cap`. Oversized chunk bodies
     are truncated to 1024 chars and a ``resource_link`` content block
     is returned per the E06_S04 design.
 
@@ -396,7 +396,7 @@ class TestByteCapEnforcement:
 
     def test_under_cap_passes_through_unchanged(self):
         """Payload under the cap: no truncation, no resource_link."""
-        from server.tools import enforce_byte_cap
+        from arxmcp.server.tools import enforce_byte_cap
 
         # Small body — comfortably under the cap.
         payload = {
@@ -408,7 +408,7 @@ class TestByteCapEnforcement:
         # ~1KB so it stays under.
         from unittest.mock import MagicMock
 
-        from server import tools as tools_mod
+        from arxmcp.server import tools as tools_mod
 
         fake_resources = MagicMock()
         fake_resources.config.result_byte_cap = 256 * 1024
@@ -428,10 +428,10 @@ class TestByteCapEnforcement:
         ``body_truncated=True`` set, and a resource_link content
         block is returned.
         """
-        from server.tools import enforce_byte_cap
+        from arxmcp.server.tools import enforce_byte_cap
 
         # Construct a body that, when JSON-serialized + doubled for
-        # wire overhead (factor 2 per server/tools.py), exceeds the
+        # wire overhead (factor 2 per src/arxmcp/server/tools.py), exceeds the
         # cap. With cap=256 KB and wire factor 2, inner content must
         # exceed 128 KB to trip the cap. Use 200 KB to be safely
         # over.
@@ -442,7 +442,7 @@ class TestByteCapEnforcement:
         }
         from unittest.mock import MagicMock
 
-        from server import tools as tools_mod
+        from arxmcp.server import tools as tools_mod
 
         fake_resources = MagicMock()
         fake_resources.config.result_byte_cap = 256 * 1024
@@ -477,7 +477,7 @@ class TestByteCapEnforcement:
 
 class TestHourlyRateLimit:
     """The 1000-calls-per-hour rate limit (E13_S04 Threat 4) is
-    enforced by :func:`server.session.check_hourly_rate_limit`.
+    enforced by :func:`arxmcp.server.session.check_hourly_rate_limit`.
     Sliding-window deque of timestamps; rejected calls do NOT
     consume cap budget.
     """
@@ -586,7 +586,7 @@ class TestRateLimitPayloadShape:
     """
 
     def test_rate_limit_payload_has_distinct_code(self):
-        from server.middleware import _rate_limit_payload, _retrieval_cap_payload
+        from arxmcp.server.middleware import _rate_limit_payload, _retrieval_cap_payload
 
         rate_payload = _rate_limit_payload("search_papers", attempted=1001, limit=1000)
         retrieval_payload = _retrieval_cap_payload(
@@ -602,7 +602,7 @@ class TestRateLimitPayloadShape:
     def test_rate_limit_payload_includes_window_seconds(self):
         """The hourly window length is exposed in the payload so the
         agent knows how long to back off."""
-        from server.middleware import _rate_limit_payload
+        from arxmcp.server.middleware import _rate_limit_payload
 
         payload = _rate_limit_payload("any_tool", attempted=1001, limit=1000)
         assert payload["window_seconds"] == HOURLY_WINDOW_SECONDS == 3600
@@ -610,7 +610,7 @@ class TestRateLimitPayloadShape:
     def test_rate_limit_payload_shape_matches_retrieval_cap(self):
         """Both payload shapes share the same envelope keys so
         consumer code can parse them with one handler."""
-        from server.middleware import _rate_limit_payload, _retrieval_cap_payload
+        from arxmcp.server.middleware import _rate_limit_payload, _retrieval_cap_payload
 
         rate = _rate_limit_payload("search_papers", attempted=1001, limit=1000)
         retrieval = _retrieval_cap_payload("search_papers", attempted=4, limit=3)
@@ -642,7 +642,7 @@ class TestAtomicTwoCapCheck:
         """When the per-tool cap rejects, the hourly timestamp deque
         is NOT mutated.
         """
-        from server.session import MAX_SEARCH_PAPERS_CALLS, check_both_caps
+        from arxmcp.server.session import MAX_SEARCH_PAPERS_CALLS, check_both_caps
 
         state = SessionState(session_id="f1-test-a")
         # Saturate per-tool search cap. Read the constant rather than
@@ -665,7 +665,7 @@ class TestAtomicTwoCapCheck:
         NOT incremented — even though the per-tool cap would have
         allowed the call.
         """
-        from server.session import check_both_caps
+        from arxmcp.server.session import check_both_caps
 
         state = SessionState(session_id="f1-test-b")
         # Per-tool well under cap (search_count=0).
@@ -684,7 +684,7 @@ class TestAtomicTwoCapCheck:
 
     def test_both_pass_commits_both_atomically(self):
         """When both caps pass, both counters are mutated."""
-        from server.session import check_both_caps
+        from arxmcp.server.session import check_both_caps
 
         state = SessionState(session_id="f1-test-c")
         verdict, count, limit = _run(check_both_caps(state, "search_papers"))
@@ -699,7 +699,7 @@ class TestAtomicTwoCapCheck:
         ``find_lemma_by_name``) have no per-tool cap. Only the
         hourly cap applies.
         """
-        from server.session import check_both_caps
+        from arxmcp.server.session import check_both_caps
 
         state = SessionState(session_id="f1-test-d")
         verdict, count, limit = _run(check_both_caps(state, "get_paper"))
@@ -735,8 +735,8 @@ class TestHourlyCapMiddlewareIntegration:
         """
         import json
 
-        from server.middleware import SessionCapMiddleware
-        from server.session import (
+        from arxmcp.server.middleware import SessionCapMiddleware
+        from arxmcp.server.session import (
             _SESSIONS,
             reset_session_state_for_tests,
         )
@@ -837,7 +837,7 @@ class TestHourlyCapMiddlewareIntegration:
 
 class TestE13S04bCapExtension:
     """Each of the 5 newly-covered handlers now defines a private
-    ``_cap`` helper that wraps :func:`server.tools.enforce_byte_cap`.
+    ``_cap`` helper that wraps :func:`arxmcp.server.tools.enforce_byte_cap`.
     The helpers are tested directly here — they are tiny pure
     functions on dict, decoupled from LanceDB / Resources / async
     machinery, so the tests can assert the cap mechanism without
@@ -875,10 +875,10 @@ class TestE13S04bCapExtension:
     @pytest.mark.parametrize(
         "module_name",
         [
-            "server.handlers.search",
-            "server.handlers.equation",
-            "server.handlers.lemma",
-            "server.handlers.paper",
+            "arxmcp.server.handlers.search",
+            "arxmcp.server.handlers.equation",
+            "arxmcp.server.handlers.lemma",
+            "arxmcp.server.handlers.paper",
         ],
     )
     def test_multi_result_cap_passes_under_cap_unchanged(
@@ -889,7 +889,7 @@ class TestE13S04bCapExtension:
         """
         import importlib
 
-        from server import tools as tools_mod
+        from arxmcp.server import tools as tools_mod
 
         module = importlib.import_module(module_name)
         small_payload = {
@@ -911,10 +911,10 @@ class TestE13S04bCapExtension:
     @pytest.mark.parametrize(
         "module_name,oversized_field",
         [
-            ("server.handlers.search", "results"),
-            ("server.handlers.equation", "results"),
-            ("server.handlers.lemma", "matches"),
-            ("server.handlers.paper", "paper"),
+            ("arxmcp.server.handlers.search", "results"),
+            ("arxmcp.server.handlers.equation", "results"),
+            ("arxmcp.server.handlers.lemma", "matches"),
+            ("arxmcp.server.handlers.paper", "paper"),
         ],
     )
     def test_multi_result_cap_fires_on_over_cap(
@@ -933,7 +933,7 @@ class TestE13S04bCapExtension:
         import importlib
         import json
 
-        from server import tools as tools_mod
+        from arxmcp.server import tools as tools_mod
 
         module = importlib.import_module(module_name)
         cap_bytes = 256 * 1024
@@ -1003,9 +1003,9 @@ class TestE13S04bCapExtension:
     @pytest.mark.parametrize(
         "module_name,list_key",
         [
-            ("server.handlers.search", "results"),
-            ("server.handlers.equation", "results"),
-            ("server.handlers.lemma", "matches"),
+            ("arxmcp.server.handlers.search", "results"),
+            ("arxmcp.server.handlers.equation", "results"),
+            ("arxmcp.server.handlers.lemma", "matches"),
         ],
     )
     def test_multi_result_cap_trims_trailing_rows(
@@ -1026,7 +1026,7 @@ class TestE13S04bCapExtension:
         import importlib
         import json
 
-        from server import tools as tools_mod
+        from arxmcp.server import tools as tools_mod
 
         module = importlib.import_module(module_name)
         cap_bytes = 256 * 1024
@@ -1086,8 +1086,8 @@ class TestE13S04bCapExtension:
         argument. An under-cap payload (here, an empty neighbor list)
         routes through unchanged.
         """
-        from server import tools as tools_mod
-        from server.handlers.citations import _cap
+        from arxmcp.server import tools as tools_mod
+        from arxmcp.server.handlers.citations import _cap
 
         small_payload = {
             "chunk_id": "arxiv:2412.00001:abc1234567890abc",
@@ -1117,8 +1117,8 @@ class TestE13S04bCapExtension:
         """
         import json
 
-        from server import tools as tools_mod
-        from server.handlers.citations import _cap
+        from arxmcp.server import tools as tools_mod
+        from arxmcp.server.handlers.citations import _cap
 
         cap_bytes = 256 * 1024
         filler = "x" * (200 * 1024)
@@ -1156,18 +1156,18 @@ class TestE13S04bCapExtension:
     @pytest.mark.parametrize(
         "module_name",
         [
-            "server.handlers.search",
-            "server.handlers.equation",
-            "server.handlers.lemma",
-            "server.handlers.paper",
-            "server.handlers.citations",
+            "arxmcp.server.handlers.search",
+            "arxmcp.server.handlers.equation",
+            "arxmcp.server.handlers.lemma",
+            "arxmcp.server.handlers.paper",
+            "arxmcp.server.handlers.citations",
         ],
     )
     def test_handler_module_imports_enforce_byte_cap(
         self, module_name: str
     ):
         """Static check: every newly-covered handler's ``_cap``
-        helper calls into the ``server.tools`` byte-cap
+        helper calls into the ``arxmcp.server.tools`` byte-cap
         infrastructure — either :func:`enforce_byte_cap`
         (single-result envelopes like ``get_paper``) or
         :func:`cap_result_list` (multi-result aggregates like
@@ -1183,14 +1183,14 @@ class TestE13S04bCapExtension:
         """
         import inspect
 
-        from server import tools as tools_mod
+        from arxmcp.server import tools as tools_mod
 
         module = __import__(module_name, fromlist=["_cap"])
         # _cap must be a function (not a stub) in every covered
         # module.
         assert callable(getattr(module, "_cap", None)), (
             f"{module_name} must define a `_cap` helper that wraps "
-            f"server.tools.enforce_byte_cap or server.tools.cap_result_list "
+            f"arxmcp.server.tools.enforce_byte_cap or arxmcp.server.tools.cap_result_list "
             f"(E13_S04b contract)"
         )
         # And the helper must call one of the two byte-cap entry
@@ -1200,17 +1200,17 @@ class TestE13S04bCapExtension:
         assert ("enforce_byte_cap" in source) or (
             "cap_result_list" in source
         ), (
-            f"{module_name}._cap must call server.tools.enforce_byte_cap "
-            f"or server.tools.cap_result_list; current source references "
+            f"{module_name}._cap must call arxmcp.server.tools.enforce_byte_cap "
+            f"or arxmcp.server.tools.cap_result_list; current source references "
             f"neither"
         )
         # And the chosen helper must exist as a module-level symbol
-        # in server.tools (defensive against shadow imports).
+        # in arxmcp.server.tools (defensive against shadow imports).
         assert hasattr(tools_mod, "enforce_byte_cap"), (
-            "server.tools.enforce_byte_cap must exist as a module-level "
+            "arxmcp.server.tools.enforce_byte_cap must exist as a module-level "
             "symbol"
         )
         assert hasattr(tools_mod, "cap_result_list"), (
-            "server.tools.cap_result_list must exist as a module-level "
+            "arxmcp.server.tools.cap_result_list must exist as a module-level "
             "symbol (E13_S04b F1 rectification)"
         )

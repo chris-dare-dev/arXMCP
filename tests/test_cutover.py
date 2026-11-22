@@ -13,7 +13,7 @@ from unittest.mock import patch
 
 import pytest
 
-from ops.cutover import (
+from arxmcp.ops.cutover import (
     NDCG5_MIN,
     CriterionResult,
     CutoverError,
@@ -165,7 +165,7 @@ class TestCriterion4RestoreDrill:
     def test_missing_flag_fails(self, tmp_path):
         r = check_criterion_4_restore_drill(tmp_path / "missing.flag")
         assert r.ok is False
-        assert "ops/restore_drill.sh" in r.reason
+        assert "src/arxmcp/ops/restore_drill.sh" in r.reason
 
     def test_passed_flag_passes(self, tmp_path):
         flag = tmp_path / "drill.flag"
@@ -459,7 +459,7 @@ class TestRunCutover:
         _write_drill_flag(drill)
 
         with patch(
-            "ops.cutover.verify_lancedb_integrity",
+            "arxmcp.ops.cutover.verify_lancedb_integrity",
             return_value=CriterionResult(
                 "LanceDB integrity (staging)", True, "synthetic stub"
             ),
@@ -488,7 +488,7 @@ class TestRunCutover:
         # Aggregate is MISSING → C1 fails.
 
         with patch(
-            "ops.cutover.verify_lancedb_integrity",
+            "arxmcp.ops.cutover.verify_lancedb_integrity",
             return_value=CriterionResult(
                 "LanceDB integrity (staging)", True, "stub"
             ),
@@ -524,13 +524,13 @@ class TestRunCutover:
 
         with (
             patch(
-                "ops.cutover.verify_lancedb_integrity",
+                "arxmcp.ops.cutover.verify_lancedb_integrity",
                 return_value=CriterionResult(
                     "LanceDB integrity (staging)", True, "stub"
                 ),
             ),
             patch(
-                "ops.cutover.wait_for_promoted_server",
+                "arxmcp.ops.cutover.wait_for_promoted_server",
                 return_value=(True, 42),
             ) as wait,
         ):
@@ -564,7 +564,7 @@ class TestRunCutover:
 
 
 class TestCutoverShellWrapper:
-    wrapper = REPO_ROOT / "ops" / "cutover.sh"
+    wrapper = REPO_ROOT / "src" / "arxmcp" / "ops" / "cutover.sh"
 
     def test_wrapper_exists_and_executable(self):
         assert self.wrapper.is_file()
@@ -598,7 +598,7 @@ class TestMakefileCutoverTarget:
     def test_cutover_target_present(self):
         text = (REPO_ROOT / "Makefile").read_text(encoding="utf-8")
         assert "\ncutover:\n" in text
-        assert "ops.cutover" in text
+        assert "arxmcp.ops.cutover" in text
 
     def test_cutover_carries_args_note(self):
         text = (REPO_ROOT / "Makefile").read_text(encoding="utf-8")
@@ -619,7 +619,7 @@ class TestCutoverShellWrapperFlock:
     missing."""
 
     def test_wrapper_acquires_flock(self):
-        text = (REPO_ROOT / "ops" / "cutover.sh").read_text(
+        text = (REPO_ROOT / "src" / "arxmcp" / "ops" / "cutover.sh").read_text(
             encoding="utf-8"
         )
         assert "flock -n" in text
@@ -652,10 +652,10 @@ class TestCrossFilesystemSwapRefused:
                 return _S()
             return real
 
-        from ops.cutover import perform_directory_swap
+        from arxmcp.ops.cutover import perform_directory_swap
 
         with (
-            patch("ops.cutover.os.stat", side_effect=_fake_stat),
+            patch("arxmcp.ops.cutover.os.stat", side_effect=_fake_stat),
             pytest.raises(CutoverError, match="cross-filesystem"),
         ):
             perform_directory_swap(
@@ -671,7 +671,7 @@ class TestPostActivationAbsoluteFloor:
     regression."""
 
     def test_subprocess_ok_but_low_ndcg_fails(self, tmp_path):
-        from ops.cutover import run_post_activation_watchdog
+        from arxmcp.ops.cutover import run_post_activation_watchdog
 
         # Write a synthetic watchdog report with ndcg below the
         # floor but alert_triggered=false (regression within
@@ -708,7 +708,7 @@ class TestPostActivationAbsoluteFloor:
         assert "0.7500" in r.reason or "< 0.8" in r.reason
 
     def test_subprocess_ok_and_high_ndcg_passes(self, tmp_path):
-        from ops.cutover import run_post_activation_watchdog
+        from arxmcp.ops.cutover import run_post_activation_watchdog
 
         report_dir = tmp_path / "eval-reports"
         report_dir.mkdir()
@@ -741,7 +741,7 @@ class TestPostActivationAbsoluteFloor:
         assert r.ok is True
 
     def test_subprocess_nonzero_fails(self, tmp_path):
-        from ops.cutover import run_post_activation_watchdog
+        from arxmcp.ops.cutover import run_post_activation_watchdog
 
         class _FakeCompleted:
             returncode = 1
@@ -761,7 +761,7 @@ class TestPostActivationAbsoluteFloor:
         """When the fixture is too small, the watchdog report has
         ndcg5_mean=null + underpowered=true. AC5 passes by skip
         (not a real measurement)."""
-        from ops.cutover import run_post_activation_watchdog
+        from arxmcp.ops.cutover import run_post_activation_watchdog
 
         report_dir = tmp_path / "eval-reports"
         report_dir.mkdir()
@@ -800,7 +800,7 @@ class TestPostActivationAbsoluteFloor:
 class TestBackupWrapperRectifications:
     """Closes F4+IS2, F5+IS3, IS4 patches to the backup wrapper."""
 
-    wrapper = REPO_ROOT / "ops" / "cron" / "arxmcp-backup.sh"
+    wrapper = REPO_ROOT / "src" / "arxmcp" / "ops" / "cron" / "arxmcp-backup.sh"
 
     def test_two_phase_sentinel(self):
         text = self.wrapper.read_text(encoding="utf-8")
@@ -811,7 +811,7 @@ class TestBackupWrapperRectifications:
         # arXMCP#202 re-pointed this token: it used to be the ad-hoc
         # string "backup_complete_forget_pending", which no consumer
         # state matched. It is now the shared vocabulary's `running`
-        # (ops/cron/backup-status-lib.sh + server/backup_status.py).
+        # (src/arxmcp/ops/cron/backup-status-lib.sh + src/arxmcp/server/backup_status.py).
         assert '"status": "${ARXMCP_BACKUP_STATE_RUNNING}"' in text
         # The write must still precede the forget invocation.
         assert text.index('"${ARXMCP_BACKUP_STATE_RUNNING}"') < text.index(
@@ -882,7 +882,7 @@ class _Clock:
 
 class TestWaitForPromotedServer:
     def test_a_server_still_on_the_old_corpus_does_not_pass(self):
-        from ops.cutover import wait_for_promoted_server
+        from arxmcp.ops.cutover import wait_for_promoted_server
 
         clock = _Clock()
         ok, seen = wait_for_promoted_server(
@@ -896,7 +896,7 @@ class TestWaitForPromotedServer:
         assert (ok, seen) == (False, 7)
 
     def test_passes_once_the_restarted_server_reports_the_promoted_version(self):
-        from ops.cutover import wait_for_promoted_server
+        from arxmcp.ops.cutover import wait_for_promoted_server
 
         clock = _Clock()
         ok, seen = wait_for_promoted_server(
@@ -927,16 +927,16 @@ class TestWaitForPromotedServer:
 
         with (
             patch(
-                "ops.cutover.verify_lancedb_integrity",
+                "arxmcp.ops.cutover.verify_lancedb_integrity",
                 return_value=CriterionResult(
                     "LanceDB integrity (staging)", True, "stub"
                 ),
             ),
             patch(
-                "ops.cutover.wait_for_promoted_server",
+                "arxmcp.ops.cutover.wait_for_promoted_server",
                 return_value=(False, 7),
             ),
-            patch("ops.cutover.run_post_activation_watchdog") as post,
+            patch("arxmcp.ops.cutover.run_post_activation_watchdog") as post,
         ):
             rc = run_cutover(
                 active_path=active,
@@ -970,7 +970,7 @@ class TestPostActivationReadsItsOwnReport:
         stderr = ""
 
     def test_a_report_written_before_the_run_is_not_used(self, tmp_path):
-        from ops.cutover import run_post_activation_watchdog
+        from arxmcp.ops.cutover import run_post_activation_watchdog
 
         report_dir = tmp_path / "eval-reports"
         report_dir.mkdir()
@@ -988,7 +988,7 @@ class TestPostActivationReadsItsOwnReport:
         assert "wrote no report for corpus_v42" in r.reason
 
     def test_a_report_for_another_version_is_not_used(self, tmp_path):
-        from ops.cutover import run_post_activation_watchdog
+        from arxmcp.ops.cutover import run_post_activation_watchdog
 
         report_dir = tmp_path / "eval-reports"
         report_dir.mkdir()
@@ -1009,14 +1009,14 @@ class TestPostActivationReadsItsOwnReport:
 
 class TestRestoreDrillFreshness:
     def test_a_drill_from_last_week_passes(self, tmp_path):
-        from ops.cutover import check_criterion_4_restore_drill
+        from arxmcp.ops.cutover import check_criterion_4_restore_drill
 
         flag = tmp_path / "restore-drill-passed.flag"
         _write_drill_flag(flag, days_ago=7)
         assert check_criterion_4_restore_drill(flag).ok is True
 
     def test_a_drill_older_than_a_quarter_fails(self, tmp_path):
-        from ops.cutover import check_criterion_4_restore_drill
+        from arxmcp.ops.cutover import check_criterion_4_restore_drill
 
         flag = tmp_path / "restore-drill-passed.flag"
         _write_drill_flag(flag, days_ago=400)
@@ -1025,7 +1025,7 @@ class TestRestoreDrillFreshness:
         assert "400 days ago" in r.reason
 
     def test_a_flag_without_a_timestamp_fails(self, tmp_path):
-        from ops.cutover import check_criterion_4_restore_drill
+        from arxmcp.ops.cutover import check_criterion_4_restore_drill
 
         flag = tmp_path / "restore-drill-passed.flag"
         flag.write_text(json.dumps({"smoke_check": "passed"}))
@@ -1041,7 +1041,7 @@ class TestRestoreDrillFreshness:
 
 def _staging_chunks(paper_id: str, *, stmt: int, proof: int = 0):
     """``stmt`` stmt chunks then ``proof`` proof chunks for ``paper_id``."""
-    from ingest.chunk import CHUNKER_VERSION, ChunkRecord
+    from arxmcp.ingest.chunk import CHUNKER_VERSION, ChunkRecord
 
     kinds = ["stmt"] * stmt + ["proof"] * proof
     return [
@@ -1065,9 +1065,9 @@ def _write_staging(path: Path, chunks, *, build_indices: bool, seed: int = 0) ->
     """Write ``chunks`` into a real staging LanceDB (marker included)."""
     import numpy as np
 
-    from ingest.embedder import EMBEDDER_VERSION, EMBEDDING_DIM
-    from ingest.schema import EmbedRecord
-    from ingest.store import write_chunks
+    from arxmcp.ingest.embedder import EMBEDDER_VERSION, EMBEDDING_DIM
+    from arxmcp.ingest.schema import EmbedRecord
+    from arxmcp.ingest.store import write_chunks
 
     rng = np.random.default_rng(seed)
 
@@ -1090,7 +1090,7 @@ def _write_staging(path: Path, chunks, *, build_indices: bool, seed: int = 0) ->
 
 
 def _index_names(path: Path) -> set[str]:
-    from ingest.corpus import open_chunks_table, read_corpus_version
+    from arxmcp.ingest.corpus import open_chunks_table, read_corpus_version
 
     info = read_corpus_version(lancedb_path=path)
     table = open_chunks_table(lancedb_path=path, version=info.version)
@@ -1098,13 +1098,13 @@ def _index_names(path: Path) -> set[str]:
 
 
 class TestStagingVectorIndexCoverage:
-    """``ingest.re_embed`` writes staging with ``build_indices=False`` and
+    """``arxmcp.ingest.re_embed`` writes staging with ``build_indices=False`` and
     builds the indexes once at the end; C3 accepts ``complete_with_failures``.
     The integrity probe is where cutover must refuse a staging table whose
     vector columns are not fully indexed, or search silently scans flat."""
 
     def test_unindexed_staging_is_refused(self, tmp_path):
-        from ops.cutover import verify_lancedb_integrity
+        from arxmcp.ops.cutover import verify_lancedb_integrity
 
         staging = tmp_path / "lancedb-staging"
         _write_staging(
@@ -1120,7 +1120,7 @@ class TestStagingVectorIndexCoverage:
         assert "embedding_proof holds 2 vectors but has no index" in r.reason
 
     def test_fully_indexed_staging_passes(self, tmp_path):
-        from ops.cutover import verify_lancedb_integrity
+        from arxmcp.ops.cutover import verify_lancedb_integrity
 
         staging = tmp_path / "lancedb-staging"
         _write_staging(
@@ -1135,7 +1135,7 @@ class TestStagingVectorIndexCoverage:
         assert r.reason == "chunks=6; vector indexes cover every row"
 
     def test_all_null_proof_column_needs_no_index(self, tmp_path):
-        from ops.cutover import verify_lancedb_integrity
+        from arxmcp.ops.cutover import verify_lancedb_integrity
 
         staging = tmp_path / "lancedb-staging"
         _write_staging(
@@ -1151,7 +1151,7 @@ class TestStagingVectorIndexCoverage:
         assert r.ok is True, r.reason
 
     def test_rows_outside_the_index_are_refused(self, tmp_path):
-        from ops.cutover import verify_lancedb_integrity
+        from arxmcp.ops.cutover import verify_lancedb_integrity
 
         staging = tmp_path / "lancedb-staging"
         _write_staging(
@@ -1174,7 +1174,7 @@ class TestStagingVectorIndexCoverage:
     def test_index_without_stats_fails_closed(self):
         from types import SimpleNamespace
 
-        from ops.cutover import vector_index_gaps
+        from arxmcp.ops.cutover import vector_index_gaps
 
         table = SimpleNamespace(
             list_indices=lambda: [
@@ -1191,8 +1191,8 @@ class TestStagingVectorIndexCoverage:
     ):
         """The reviewed scenario end to end: every other criterion passes,
         the re-embed ended ``complete_with_failures``, staging is unindexed."""
-        from ingest.corpus import read_corpus_version
-        from ingest.store import CORPUS_VERSION_MARKER_NAME
+        from arxmcp.ingest.corpus import read_corpus_version
+        from arxmcp.ingest.store import CORPUS_VERSION_MARKER_NAME
 
         active = tmp_path / "lancedb"
         _write_marker(active, version=7)
@@ -1214,7 +1214,7 @@ class TestStagingVectorIndexCoverage:
         # The readiness wait is stubbed so a gate that wrongly passes fails
         # here on the swap, not after a 60 s wait for the server.
         with patch(
-            "ops.cutover.wait_for_promoted_server",
+            "arxmcp.ops.cutover.wait_for_promoted_server",
             return_value=(True, staging_version),
         ):
             rc = run_cutover(

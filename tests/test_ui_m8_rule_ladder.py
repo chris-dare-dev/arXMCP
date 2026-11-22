@@ -39,9 +39,9 @@ TOKENS_CSS: str = TOKENS_CSS_PATH.read_text(encoding="utf-8")
 TOKENS_NO_COMMENTS: str = _re.sub(r"/\*.*?\*/", "", TOKENS_CSS, flags=_re.S)
 COMBINED_NO_COMMENTS: str = APP_CSS_NO_COMMENTS + "\n" + TOKENS_NO_COMMENTS
 
-_TEMPLATES = REPO_ROOT / "server" / "frontend" / "templates"
+_TEMPLATES = REPO_ROOT / "src" / "arxmcp" / "server" / "frontend" / "templates"
 TEMPLATE_PATHS = sorted(_TEMPLATES.glob("*.html"))
-_ROUTES = REPO_ROOT / "server" / "routes"
+_ROUTES = REPO_ROOT / "src" / "arxmcp" / "server" / "routes"
 ROUTE_PATHS = sorted(_ROUTES.glob("*.py"))
 
 BASE_RAW, DARK_RAW = load_raw_tokens()
@@ -183,7 +183,7 @@ class TestCardPrimitiveIsGone:
 
     def test_no_fragment_builder_emits_the_card_class(self) -> None:
         """The Jinja templates were never the only emitter of markup — the
-        htmx fragment builders in ``server/routes/`` emit class attributes
+        htmx fragment builders in ``src/arxmcp/server/routes/`` emit class attributes
         too, and a class re-introduced there would be invisible to the
         template check above."""
         assert ROUTE_PATHS, "no route modules found — the glob is wrong"

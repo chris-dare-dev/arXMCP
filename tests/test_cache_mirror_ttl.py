@@ -31,13 +31,13 @@ import asyncio
 
 import pytest
 
-from server.cache import (
+from arxmcp.server.cache import (
     TIER1_TTL_SECONDS,
     RetrievalCache,
     reset_cache_for_tests,
 )
-from server.cache_sqlite import Tier1Store, derive_tier1_key
-from server.metrics import reset_cache_metrics_for_tests
+from arxmcp.server.cache_sqlite import Tier1Store, derive_tier1_key
+from arxmcp.server.metrics import reset_cache_metrics_for_tests
 
 SHARED = 101
 
@@ -112,7 +112,7 @@ class TestMirrorInheritsRowExpiry:
         reading observable, so the assertion below is decided by the
         code's structure rather than by scheduling luck.
 
-        Both ``server.cache`` and ``server.cache_sqlite`` do ``import
+        Both ``arxmcp.server.cache`` and ``arxmcp.server.cache_sqlite`` do ``import
         time`` and call ``time.time()``, so patching the module
         attribute covers the pair.
         """

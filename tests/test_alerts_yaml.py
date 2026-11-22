@@ -19,7 +19,7 @@ import yaml
 
 ALERTS_PATH = (
     pathlib.Path(__file__).resolve().parents[1]
-    / "infra"
+    / "deploy"
     / "prometheus"
     / "alerts.yml"
 )
@@ -193,10 +193,10 @@ def test_corpus_integrity_alert_durations():
 def test_disk_full_threshold_matches_implementation():
     """The Prometheus expression ``arxmcp_disk_free_bytes < 10737418240``
     must match the implementation's
-    ``server.health.DISK_PAUSE_THRESHOLD_BYTES``. Drift here
+    ``arxmcp.server.health.DISK_PAUSE_THRESHOLD_BYTES``. Drift here
     creates an operator surprise: the alert fires but ingest
     isn't paused, or vice versa."""
-    from server.health import DISK_PAUSE_THRESHOLD_BYTES  # noqa: PLC0415
+    from arxmcp.server.health import DISK_PAUSE_THRESHOLD_BYTES  # noqa: PLC0415
 
     spec = yaml.safe_load(ALERTS_PATH.read_text(encoding="utf-8"))
     for group in spec["groups"]:

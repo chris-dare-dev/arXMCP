@@ -44,18 +44,18 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.testclient import TestClient
 
-from ingest import notebooks as _notebook_common
-from server.notebooks_store import NotebooksStore
-from server.routes import notebooks as notebooks_module
-from server.routes.notebooks import (
+from arxmcp.ingest import notebooks as _notebook_common
+from arxmcp.server.notebooks_store import NotebooksStore
+from arxmcp.server.routes import notebooks as notebooks_module
+from arxmcp.server.routes.notebooks import (
     _display_name_fragment,
     _ingest_status_fragment,
 )
-from server.routes.ui import router as ui_router
+from arxmcp.server.routes.ui import router as ui_router
 
 REPO_ROOT: Path = Path(__file__).resolve().parents[1]
-FRONTEND_STATIC: Path = REPO_ROOT / "server" / "frontend" / "static"
-FRONTEND_TEMPLATES: Path = REPO_ROOT / "server" / "frontend" / "templates"
+FRONTEND_STATIC: Path = REPO_ROOT / "src" / "arxmcp" / "server" / "frontend" / "static"
+FRONTEND_TEMPLATES: Path = REPO_ROOT / "src" / "arxmcp" / "server" / "frontend" / "templates"
 
 APP_CSS: str = (FRONTEND_STATIC / "app.css").read_text(encoding="utf-8")
 BASE_HTML: str = (FRONTEND_TEMPLATES / "base.html").read_text(encoding="utf-8")

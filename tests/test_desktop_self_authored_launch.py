@@ -38,14 +38,14 @@ from pathlib import Path
 
 import pytest
 
-from ingest.application_paths import _platform_data_root
-from server.desktop_child import COMPONENT as _DESKTOP_CHILD_COMPONENT
+from arxmcp.ingest.application_paths import _platform_data_root
+from arxmcp.server.desktop_child import COMPONENT as _DESKTOP_CHILD_COMPONENT
 
 
 def _desktop_package_module():
     """Load the PyInstaller packaging driver by path.
 
-    It lives outside any importable package (`apps/desktop/pyinstaller/`), so
+    It lives outside any importable package (`src/desktop/pyinstaller/`), so
     `tests/test_desktop_package.py` already loads it this way; reuse the shape
     rather than re-declaring its constants here.
     """
@@ -53,7 +53,7 @@ def _desktop_package_module():
 
     path = (
         Path(__file__).resolve().parents[1]
-        / "apps"
+        / "src"
         / "desktop"
         / "pyinstaller"
         / "desktop_package.py"
@@ -90,7 +90,7 @@ CHILD_PAYLOAD_DIR = _desktop_package_module().BUNDLE_NAME
 #: payload the production resolver would call incomplete (#484) — the same
 #: reason CHILD_PAYLOAD_DIR is derived rather than re-declared.
 PROBE_PAYLOAD_NAME = "arxmcp-desktop-probe"
-#: `server/desktop_child.py::COMPONENT` — what the frozen child calls itself,
+#: `src/arxmcp/server/desktop_child.py::COMPONENT` — what the frozen child calls itself,
 #: and therefore what the self-authored plan must name. Imported for the same
 #: reason.
 CHILD_COMPONENT = _DESKTOP_CHILD_COMPONENT
@@ -98,7 +98,7 @@ CHILD_COMPONENT = _DESKTOP_CHILD_COMPONENT
 #: REMOVAL is the RED state these tests discriminate against.
 PRE_M10_FAILURE = "ARXMCP_DESKTOP_LAUNCH_PLAN is required"
 _SUPERVISOR_MAIN_RS = (
-    REPO_ROOT / "apps" / "desktop" / "crates" / "supervisor" / "src" / "main.rs"
+    REPO_ROOT / "src" / "desktop" / "crates" / "supervisor" / "src" / "main.rs"
 )
 _HEX64 = re.compile(rb"(?<![0-9a-fA-F])[0-9a-f]{64}(?![0-9a-fA-F])")
 _LAUNCH_TIMEOUT = 180.0
@@ -530,7 +530,7 @@ def test_rust_layout_constants_match_their_python_sources() -> None:
 
     m10 critique H4/M4/M5/M6: `CHILD_PAYLOAD_DIR` and `CHILD_COMPONENT` were
     literals in Rust, duplicated again in this module, with nothing tying
-    them to `desktop_package.BUNDLE_NAME` or `server.desktop_child.COMPONENT`.
+    them to `desktop_package.BUNDLE_NAME` or `arxmcp.server.desktop_child.COMPONENT`.
     Renaming either broke the shipped double-click path at spawn or at
     bound-identity while `make test`, `make desktop-conformance` and
     `make desktop-package-check` all stayed green, because the end-to-end arm
@@ -552,12 +552,12 @@ def test_supervisor_crate_version_matches_the_python_package_version() -> None:
     CHILD's expected executable-identity version.
 
     m10 critique H1/H3: `lifecycle.rs` puts `plan.version` in the launch
-    frame's `ExecutableIdentity`, and `server/desktop_child.py` refuses the
+    frame's `ExecutableIdentity`, and `src/arxmcp/server/desktop_child.py` refuses the
     launch when it differs from its own `importlib.metadata.version("arxmcp")`.
     Those are two unrelated version lines that happened to be equal. Equal by
     assertion now: bump one without the other and the suite goes red, instead
     of shipping a double-click that dies at bound-identity."""
-    workspace = (REPO_ROOT / "apps" / "desktop" / "Cargo.toml").read_text(
+    workspace = (REPO_ROOT / "src" / "desktop" / "Cargo.toml").read_text(
         encoding="utf-8"
     )
     crate = re.search(r'^version = "([^"]+)"', workspace, re.MULTILINE)

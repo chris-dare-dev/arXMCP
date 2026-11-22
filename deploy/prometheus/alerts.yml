@@ -1,0 +1,242 @@
+# arXMCP Prometheus alerting rules (E14_S05).
+#
+# Install:
+#   1. Mount this file into the operator's Prometheus deployment
+#      (out of scope here — Phoenix is the OTel sidecar, not a
+#      Prometheus scraper; the operator runs Prometheus + Grafana
+#      separately, landing in E14_S09).
+#   2. Reference from prometheus.yml:
+#        rule_files: [ "/etc/prometheus/arxmcp-alerts.yml" ]
+#   3. Validate locally: `promtool check rules
+#      deploy/prometheus/alerts.yml` (smoke-tested at
+#      tests/test_alerts_yaml.py with skipif-not-on-PATH).
+#
+# Each rule surfaces one of the server's failure or degraded modes.
+
+groups:
+  - name: arxmcp
+    interval: 30s
+    rules:
+      # Failure mode 7: Disk full.
+      # E14_S05 D4 — the server self-emits arxmcp_disk_free_bytes
+      # via shutil.disk_usage() in a scrape-time refresh hook.
+      # No node_exporter required.
+      - alert: ArXMCPDiskFull
+        expr: arxmcp_disk_free_bytes < 10737418240
+        for: 5m
+        labels:
+          severity: critical
+          component: storage
+        annotations:
+          summary: "arXMCP free disk space < 10 GB"
+          description: |
+            arxmcp_disk_free_bytes is below the 10 GB threshold on
+            path {{ $labels.path }}. Ingestion is auto-paused via
+            the var/arxmcp/ops/ingest-paused sentinel; reads
+            continue. Free disk and the sentinel auto-clears at
+            15 GB free (hysteresis).
+          runbook_url: "https://github.com/chris-dare-dev/arXMCP/blob/main/docs/ops/failure-modes.md#disk-full"
+
+      # Failure modes 1 + 2: hosted-embedder outage / LanceDB
+      # corruption (any failure-mode degradation surfaces here).
+      # The {reason} label is one of corpus_corruption,
+      # hosted_embedder_outage. E14_S05 D2 + D6.
+      - alert: ArXMCPDegradedMode
+        expr: arxmcp_degraded_mode_active == 1
+        for: 1m
+        labels:
+          severity: warning
+          component: server
+        annotations:
+          summary: "arXMCP running degraded ({{ $labels.reason }})"
+          description: |
+            The server is serving requests via a fallback path
+            (reason={{ $labels.reason }}). Investigate and
+            recover per the runbook.
+          runbook_url: "https://github.com/chris-dare-dev/arXMCP/blob/main/docs/ops/failure-modes.md#degraded-modes"
+
+      # Backup overdue. E11_S05 already emits the timestamp gauge;
+      # this rule alerts when no successful backup has completed in
+      # 48 hours.
+      - alert: ArXMCPBackupStale
+        expr: (time() - arxmcp_backup_last_success_timestamp_seconds) > 172800
+        for: 10m
+        labels:
+          severity: warning
+          component: backup
+        annotations:
+          summary: "no successful restic backup in > 48h"
+          description: |
+            arxmcp_backup_last_success_timestamp_seconds is older
+            than 48 hours. Inspect the most-recent
+            var/arxmcp/ops/backup-status.json and the journalctl
+            log for arxmcp-backup.service.
+          runbook_url: "https://github.com/chris-dare-dev/arXMCP/blob/main/docs/ops/backup-restore.md"
+
+      # Backup outcome. chris-dare-dev/arXMCP#203 — before these rules
+      # the ONLY backup alert was ArXMCPBackupStale above, which reads
+      # the freshness gauge. Nothing anywhere referenced
+      # arxmcp_backup_status, so the state cells were emitted and never
+      # consumed: a backup could fail every night and, because the
+      # wrapper stamped finished_at regardless, the freshness gauge kept
+      # advancing and no rule fired at all. These three close that gap
+      # by alerting on the status metric itself. The state vocabulary is
+      # the shared one in src/arxmcp/server/backup_status.py +
+      # src/arxmcp/ops/cron/backup-status-lib.sh.
+      - alert: ArXMCPBackupFailed
+        expr: arxmcp_backup_status{state="failed"} == 1
+        for: 5m
+        labels:
+          severity: critical
+          component: backup
+        annotations:
+          summary: "last restic backup run produced no usable snapshot"
+          description: |
+            The most recent nightly run exited without a snapshot.
+            Data written since the last good backup is unprotected.
+            Read var/arxmcp/ops/backup-status.json (restic_backup_exit)
+            and `journalctl -u arxmcp-backup` for the restic error.
+          runbook_url: "https://github.com/chris-dare-dev/arXMCP/blob/main/docs/ops/backup-restore.md"
+
+      # `partial` means a snapshot EXISTS but the run was not clean:
+      # restic exit 3 (unreadable files), a degraded notebooks.db WAL
+      # checkpoint, or a failed retention pass. Warning, not critical —
+      # recoverable data was captured. It does NOT advance the
+      # last-success clock, so a run of partials also trips
+      # ArXMCPBackupStale after 48h, which is the intended escalation.
+      - alert: ArXMCPBackupPartial
+        expr: arxmcp_backup_status{state="partial"} == 1
+        for: 5m
+        labels:
+          severity: warning
+          component: backup
+        annotations:
+          summary: "last restic backup completed partial (snapshot not clean)"
+          description: |
+            A snapshot was taken but the run was not fully clean.
+            Read the backup_status and forget_status fields of
+            var/arxmcp/ops/backup-status.json to see which phase
+            degraded. A degraded notebooks.db WAL checkpoint means the
+            captured DB may be stale or corrupt-on-restore; the -wal
+            and -shm sidecars were included so the set can recover.
+          runbook_url: "https://github.com/chris-dare-dev/arXMCP/blob/main/docs/ops/backup-restore.md"
+
+      # Producer/consumer vocabulary drift tripwire. The `unknown` cell
+      # lights up only when the wrapper writes a status token the server
+      # does not recognise — i.e. a regression of arXMCP#202 itself,
+      # where the emitted vocabulary and the consumed enum were
+      # disjoint and every backup, including a perfect one, classified
+      # as unknown. Also fires on a corrupted sentinel.
+      - alert: ArXMCPBackupStatusUnknown
+        expr: arxmcp_backup_status{state="unknown"} == 1
+        for: 15m
+        labels:
+          severity: warning
+          component: backup
+        annotations:
+          summary: "backup sentinel reports an unrecognised status token"
+          description: |
+            var/arxmcp/ops/backup-status.json carries a `status` value
+            outside the shared vocabulary, so the real outcome of the
+            backup is UNKNOWN and the ok/partial/failed rules are all
+            silent. Grep the server log for "reports unknown state" to
+            see the offending token, then reconcile
+            src/arxmcp/ops/cron/backup-status-lib.sh with
+            src/arxmcp/server/backup_status.py.
+          runbook_url: "https://github.com/chris-dare-dev/arXMCP/blob/main/docs/ops/backup-restore.md"
+
+      # Eval-quarantine sentinel (E11_S04). Surfaces the watchdog's
+      # regression-detected state to Prometheus.
+      - alert: ArXMCPEvalQuarantine
+        expr: arxmcp_eval_quarantine_active == 1
+        for: 1m
+        labels:
+          severity: warning
+          component: eval
+        annotations:
+          summary: "drift watchdog detected eval regression (cutover blocked)"
+          description: |
+            The drift watchdog set the eval-quarantine flag.
+            Cutover is blocked. Review the watchdog report under
+            var/arxmcp/ops/eval-reports/ and either fix the
+            regression or override the flag manually.
+          runbook_url: "https://github.com/chris-dare-dev/arXMCP/blob/main/docs/ops/drift-watchdog.md"
+
+      # LaTeXML version drift (E10_S04). Fires when the daily drift
+      # check found any fixture diverging from its expected MathML.
+      - alert: ArXMCPLatexmlDrift
+        expr: arxmcp_latexml_drift_fixtures > 0
+        for: 1m
+        labels:
+          severity: warning
+          component: latexml
+        annotations:
+          summary: "LaTeXML version drift detected"
+          description: |
+            {{ $value }} fixture(s) have drifted from their
+            expected MathML output. The corpus may need
+            re-rendering. See the runbook for the recovery
+            procedure.
+          runbook_url: "https://github.com/chris-dare-dev/arXMCP/blob/main/docs/ops/latexml-drift-runbook.md"
+
+      # corpus-integrity-completion-m1 — `count_rows()` startup
+      # failure sentinel. The m2 gauge sets
+      # arxmcp_corpus_chunk_count_actual = -1 ONLY when
+      # `chunks_table.count_rows()` raises at startup (an empty
+      # table returns 0, not -1, so cold-clone deployments before
+      # the first ingest do NOT trip this rule). The 10m `for:`
+      # suppresses one-shot startup hiccups; 20 scrapes at the
+      # 30s group interval. Critical because the marker-vs-actual
+      # reconciliation in `/readyz` is unreliable as long as the
+      # gauge reports -1. The above-tolerance drift case (gauge
+      # >= 0 but differs from the marker) is already covered by
+      # `ArXMCPDegradedMode` via `DegradedState('chunk_count_diverged')`;
+      # no duplicate rule is added here per the
+      # corpus-integrity-observability scout's CAND-1 challenger
+      # MINOR resolution (final-report §3 Rank 1).
+      - alert: ArXMCPCorpusCountRowsFailed
+        expr: arxmcp_corpus_chunk_count_actual == -1
+        for: 10m
+        labels:
+          severity: critical
+          component: corpus
+        annotations:
+          summary: "arXMCP corpus count_rows() failed at startup"
+          description: |
+            arxmcp_corpus_chunk_count_actual has reported -1
+            (count_rows() raised at startup) for 10 minutes.
+            The marker-vs-actual reconciliation surfaced by
+            /readyz is unreliable until this resolves. Inspect
+            the LanceDB dataset at the path the server is
+            pointing at, and run the reconcile CLI per the
+            runbook.
+          runbook_url: "https://github.com/chris-dare-dev/arXMCP/blob/main/docs/ops/corpus-drift-runbook.md"
+
+      # corpus-integrity-completion-m1 — HNSW unindexed-rows
+      # tripwire. The m3 gauge surfaces any rows committed to the
+      # chunks table without a successful HNSW index rebuild;
+      # `_create_indices` runs synchronously inside `write_chunks`
+      # so in normal operation the gauge is 0. A non-zero value
+      # is ALWAYS abnormal: ANN brute-forces those rows
+      # (silent perf degradation, NOT a correctness regression —
+      # hence severity:warning per the m3 "WARN+gauge when results
+      # remain correct" pattern). The 1h `for:` filters any
+      # transient startup + rebuild window. The `-1` "unknown"
+      # sentinel does NOT trip this rule (`-1 > 0` is false) — that
+      # case is covered by `ArXMCPDegradedMode`.
+      - alert: ArXMCPCorpusUnindexedRows
+        expr: arxmcp_corpus_unindexed_rows > 0
+        for: 1h
+        labels:
+          severity: warning
+          component: corpus
+        annotations:
+          summary: "arXMCP HNSW ANN index has unindexed rows"
+          description: |
+            arxmcp_corpus_unindexed_rows = {{ $value }} (>0)
+            for 1 hour. One or more rows were committed to the
+            chunks table without a successful HNSW index rebuild.
+            ANN queries brute-force those rows; results stay
+            correct but get slower. Re-run ingest to rebuild
+            the index per the runbook.
+          runbook_url: "https://github.com/chris-dare-dev/arXMCP/blob/main/docs/ops/corpus-drift-runbook.md"

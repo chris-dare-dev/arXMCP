@@ -2,7 +2,7 @@
 
 The test runs against a real Kùzu database (in ``tmp_path``) but mocks
 the OpenAlex HTTP layer via ``monkeypatch.setattr`` on
-``ingest.graph_ingest._fetch_openalex_work``. There is no live network
+``arxmcp.ingest.graph_ingest._fetch_openalex_work``. There is no live network
 in CI; AC#8 ("integration test passes with mocked OpenAlex API")
 requires this discipline.
 """
@@ -19,7 +19,7 @@ from typing import Any
 import kuzu
 import pytest
 
-from ingest import graph_ingest, kuzudb_schema
+from arxmcp.ingest import graph_ingest, kuzudb_schema
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -609,7 +609,7 @@ class TestPolitePool:
         """A configured address is optional contact on the app identity."""
         # build_user_agent is the helper we delegate to. Invoke directly
         # to confirm the format string is the one the AC pins.
-        from ingest.arxiv_fetch import build_user_agent
+        from arxmcp.ingest.arxiv_fetch import build_user_agent
 
         ua = build_user_agent("operator@example.com")
         assert ua.startswith(
@@ -842,7 +842,7 @@ class TestRectificationGuards:
         anything > 10 MB is a misroute, not a real response."""
         assert graph_ingest.OPENALEX_MAX_RESPONSE_BYTES <= 10 * 1024 * 1024
         # The arXiv tarball cap should NOT be the value we use for OpenAlex.
-        from ingest.arxiv_fetch import MAX_RESPONSE_BYTES as ARXIV_CAP
+        from arxmcp.ingest.arxiv_fetch import MAX_RESPONSE_BYTES as ARXIV_CAP
 
         assert graph_ingest.OPENALEX_MAX_RESPONSE_BYTES < ARXIV_CAP
 
@@ -963,7 +963,7 @@ class TestRectificationGuards:
 
         monkeypatch.setattr(graph_ingest, "_fetch_openalex_work", _stub)
 
-        with caplog.at_level("WARNING", logger="ingest.graph_ingest"):
+        with caplog.at_level("WARNING", logger="arxmcp.ingest.graph_ingest"):
             graph_ingest.ingest(
                 seed_ids=[P1, P2],
                 db_path=db_path,
@@ -979,10 +979,10 @@ class TestRectificationGuards:
 
     def test_f5_seed_reader_uses_shared_helper(self):
         """F5: ``graph_ingest`` no longer carries its own seed-list parser;
-        it imports ``read_seed_list`` from ``tools.fetch_seed`` so future
+        it imports ``read_seed_list`` from ``arxmcp.tools.fetch_seed`` so future
         parser changes (e.g. BOM handling) take effect everywhere."""
         # Module attribute presence + identity check.
-        from tools.fetch_seed import read_seed_list as canonical
+        from arxmcp.tools.fetch_seed import read_seed_list as canonical
 
         assert graph_ingest.read_seed_list is canonical
 

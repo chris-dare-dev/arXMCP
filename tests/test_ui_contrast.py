@@ -158,7 +158,7 @@ _META_WHY = (
 # THE HAND-MAINTAINED HALF: which pairs render.
 # (mode, site, foreground, background, floor)
 # Sourced from a full read of app.css plus every Jinja2 template and every
-# HTML-fragment builder in server/routes/{ui,notebooks}.py.
+# HTML-fragment builder in src/arxmcp/server/routes/{ui,notebooks}.py.
 # ---------------------------------------------------------------------------
 PAIRS: list[tuple[str, str, object, object, float]] = []
 
@@ -264,7 +264,7 @@ _p("dark", ".display-name #c9d1d9", "#c9d1d9", "--bg", TEXT)
 # -- status pills. Light --down uses the tokens, so it moves with them; the
 #    other 3 light and all 4 dark pills are v1 literals.
 #    ui-uplift-m10 corrects what this note used to say. The
-#    <small class="status-badge__remediation"> emitted by server/routes/ui.py
+#    <small class="status-badge__remediation"> emitted by src/arxmcp/server/routes/ui.py
 #    was described here as having "no rule of its own", inheriting the active
 #    modifier's colour at the same ratio. That is no longer true: m10 gave it
 #    --fg-muted (AC#5 / discovery H1), so it is now a DIFFERENT pair on the
@@ -710,7 +710,7 @@ def test_no_hardcoded_durations_remain_on_animation_rules() -> None:
 def test_dur_fast_stays_coupled_to_the_hx_swap_modifier() -> None:
     """row-fade-out must stay numerically in sync with index.html's
     hx-swap="outerHTML swap:200ms" modifier."""
-    index = (REPO_ROOT / "server" / "frontend" / "templates" / "index.html").read_text(
+    index = (REPO_ROOT / "src/arxmcp/server" / "frontend" / "templates" / "index.html").read_text(
         encoding="utf-8"
     )
     m = re.search(r"swap:(\d+)ms", index)

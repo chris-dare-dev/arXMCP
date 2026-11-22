@@ -11,7 +11,7 @@ Regression guards from Phase 3 critique:
   ``TestF5FreshProcessDeterminism``
 * Leftover .tmp files are removed by the next successful run:
   ``TestFailedRechunkKeepsPreviousSet``
-* F7, F8 (LOW) — docstring drift: see ``ingest/chunker.py`` and
+* F7, F8 (LOW) — docstring drift: see ``src/arxmcp/ingest/chunker.py`` and
   ``ingest/chunker_types.py`` updated docstrings.
 
 Coverage map (acceptance criteria → test):
@@ -46,8 +46,8 @@ from unittest.mock import patch
 
 import pytest
 
-from ingest.chunk import CHUNKER_VERSION
-from ingest.chunker import _compute_chunk_id, chunk_paper
+from arxmcp.ingest.chunk import CHUNKER_VERSION
+from arxmcp.ingest.chunker import _compute_chunk_id, chunk_paper
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures" / "chunker"
 
@@ -76,9 +76,9 @@ def _run_no_preamble(tmp_path: Path, paper_id: str, fixture_name: str = None):
     chunk_id hash uses an empty-string preamble fallback (F3 path)."""
     parsed_dir, chunks_dir = _stage(tmp_path, paper_id, fixture_name)
     with (
-        patch("ingest.chunker.PARSED_DIR", parsed_dir),
-        patch("ingest.chunker.CHUNKS_DIR", chunks_dir),
-        patch("ingest.chunker._resolve_preamble_doc", return_value=None),
+        patch("arxmcp.ingest.chunker.PARSED_DIR", parsed_dir),
+        patch("arxmcp.ingest.chunker.CHUNKS_DIR", chunks_dir),
+        patch("arxmcp.ingest.chunker._resolve_preamble_doc", return_value=None),
     ):
         return chunk_paper(paper_id)
 
@@ -218,7 +218,7 @@ class TestChunkIDDeterminism:
 
 
 def _preamble_doc(paper_id: str, text: str):
-    from ingest.preamble_types import PreambleDoc
+    from arxmcp.ingest.preamble_types import PreambleDoc
 
     return PreambleDoc(
         paper_id=paper_id,
@@ -232,9 +232,9 @@ def _preamble_doc(paper_id: str, text: str):
 def _run_with_preamble(tmp_path: Path, paper_id: str, doc):
     parsed_dir, chunks_dir = _stage(tmp_path, paper_id)
     with (
-        patch("ingest.chunker.PARSED_DIR", parsed_dir),
-        patch("ingest.chunker.CHUNKS_DIR", chunks_dir),
-        patch("ingest.chunker._resolve_preamble_doc", return_value=doc),
+        patch("arxmcp.ingest.chunker.PARSED_DIR", parsed_dir),
+        patch("arxmcp.ingest.chunker.CHUNKS_DIR", chunks_dir),
+        patch("arxmcp.ingest.chunker._resolve_preamble_doc", return_value=doc),
     ):
         return chunk_paper(paper_id)
 
@@ -321,7 +321,7 @@ class _WordTokenizer:
 def _tex_chunks(tmp_path: Path, monkeypatch, paper_id: str = "1309.5035"):
     from types import SimpleNamespace
 
-    from ingest import chunker, tex_formal_chunker
+    from arxmcp.ingest import chunker, tex_formal_chunker
 
     tex = tmp_path / "main.tex"
     tex.write_text(TEX_SOURCE, encoding="utf-8")
@@ -372,7 +372,7 @@ class TestTexPositionValue:
     ):
         # The public entry point writes TeX ids as-is for a TeX-owned
         # paper; the HTML body-only post-pass never sees them.
-        from ingest import chunker
+        from arxmcp.ingest import chunker
 
         expected = [c.chunk_id for c in _tex_chunks(tmp_path, monkeypatch)]
         monkeypatch.setattr(chunker, "CHUNKS_DIR", tmp_path / "chunks")
@@ -400,7 +400,7 @@ class TestChunkerVersionConstant:
     def test_dataclass_default_uses_constant(self):
         # Construct without explicit chunker_version arg — default flows
         # from CHUNKER_VERSION.
-        from ingest.chunk import ChunkRecord
+        from arxmcp.ingest.chunk import ChunkRecord
         rec = ChunkRecord(
             chunk_id="test",
             paper_id="2307.00001",
@@ -546,10 +546,10 @@ class TestSingleVersionDefinition:
         # doesn't require touching this test's allowed-count map.
         # Future modules that hard-code either literal instead of
         # importing the relevant constant will fail this check.
-        from ingest.chunk import CHUNKER_VERSION
-        from ingest.tokenizer import TOKENIZER_VERSION
+        from arxmcp.ingest.chunk import CHUNKER_VERSION
+        from arxmcp.ingest.tokenizer import TOKENIZER_VERSION
 
-        ingest_dir = Path(__file__).parent.parent / "ingest"
+        ingest_dir = Path(__file__).parent.parent / "src" / "arxmcp" / "ingest"
         canonical_literals = {
             "chunk.py": CHUNKER_VERSION,
             "tokenizer.py": TOKENIZER_VERSION,
@@ -570,7 +570,7 @@ class TestSingleVersionDefinition:
                         f"{py_file.name}: has {total} occurrence(s) of "
                         f"{lit!r} literal (allowed: {allowed}). Import "
                         "the relevant *_VERSION constant from "
-                        "ingest.chunk or tokenizer."
+                        "arxmcp.ingest.chunk or tokenizer."
                     )
         assert not violations, (
             "single-source-of-truth violation:\n  " + "\n  ".join(violations)
@@ -608,9 +608,9 @@ class TestFailedRechunkKeepsPreviousSet:
 
     def _rerun(self, tmp_path: Path, parsed_dir: Path, failure_patch) -> list:
         with (
-            patch("ingest.chunker.PARSED_DIR", parsed_dir),
-            patch("ingest.chunker.CHUNKS_DIR", tmp_path / "chunks"),
-            patch("ingest.chunker._resolve_preamble_doc", return_value=None),
+            patch("arxmcp.ingest.chunker.PARSED_DIR", parsed_dir),
+            patch("arxmcp.ingest.chunker.CHUNKS_DIR", tmp_path / "chunks"),
+            patch("arxmcp.ingest.chunker._resolve_preamble_doc", return_value=None),
             failure_patch,
         ):
             return chunk_paper(self.PAPER_ID)
@@ -623,7 +623,7 @@ class TestFailedRechunkKeepsPreviousSet:
 
         result = self._rerun(
             tmp_path, parsed_dir,
-            patch("ingest.chunker._compute_chunk_id", side_effect=collide),
+            patch("arxmcp.ingest.chunker._compute_chunk_id", side_effect=collide),
         )
 
         assert result == []
@@ -636,7 +636,7 @@ class TestFailedRechunkKeepsPreviousSet:
         result = self._rerun(
             tmp_path, parsed_dir,
             patch(
-                "ingest.chunker._write_chunk_manifest",
+                "arxmcp.ingest.chunker._write_chunk_manifest",
                 side_effect=OSError("disk full"),
             ),
         )
@@ -688,7 +688,7 @@ class TestF2DuplicateContentDeduped:
         # Build a fixture with two identical theorem environments.
         # Each emits a stmt chunk with the same body_text → same
         # chunk_id → must de-dupe rather than crash.
-        from ingest.chunker import _compute_chunk_id
+        from arxmcp.ingest.chunker import _compute_chunk_id
 
         # Two chunk_ids identical when the bodies match.
         a = _compute_chunk_id("2307.00001", "duplicated body")
@@ -721,9 +721,9 @@ class TestF2DuplicateContentDeduped:
         paper_parsed.mkdir(parents=True)
         (paper_parsed / "index.html").write_text(html, encoding="utf-8")
         with (
-            patch("ingest.chunker.PARSED_DIR", parsed_dir),
-            patch("ingest.chunker.CHUNKS_DIR", chunks_dir),
-            patch("ingest.chunker._resolve_preamble_doc", return_value=None),
+            patch("arxmcp.ingest.chunker.PARSED_DIR", parsed_dir),
+            patch("arxmcp.ingest.chunker.CHUNKS_DIR", chunks_dir),
+            patch("arxmcp.ingest.chunker._resolve_preamble_doc", return_value=None),
         ):
             chunks = chunk_paper(paper_id)
         # Filter to chunks whose body_text exactly matches what
@@ -750,7 +750,7 @@ class TestF2CollisionRaises:
     de-dupes silently."""
 
     def test_collision_path_raises_with_precise_message(self, tmp_path):
-        from ingest.chunker import _resolve_preamble_doc  # noqa: F401
+        from arxmcp.ingest.chunker import _resolve_preamble_doc  # noqa: F401
 
         paper_id = "2307.99003"
         # Two chunks with DIFFERENT body_text but a forced same chunk_id.
@@ -766,10 +766,10 @@ class TestF2CollisionRaises:
             paper_parsed / "index.html",
         )
         with (
-            patch("ingest.chunker.PARSED_DIR", parsed_dir),
-            patch("ingest.chunker.CHUNKS_DIR", tmp_path / "chunks"),
-            patch("ingest.chunker._resolve_preamble_doc", return_value=None),
-            patch("ingest.chunker._compute_chunk_id", return_value=canned_id),
+            patch("arxmcp.ingest.chunker.PARSED_DIR", parsed_dir),
+            patch("arxmcp.ingest.chunker.CHUNKS_DIR", tmp_path / "chunks"),
+            patch("arxmcp.ingest.chunker._resolve_preamble_doc", return_value=None),
+            patch("arxmcp.ingest.chunker._compute_chunk_id", return_value=canned_id),
         ):
             # Multiple distinct body_texts → all map to canned_id →
             # collision raise on the second one.
@@ -808,7 +808,7 @@ class TestF5FreshProcessDeterminism:
             # escaping — a bare Windows path would inject invalid \U / \P
             # escape sequences into the -c source and SyntaxError the child.
             "sys.path.insert(0, " + repr(str(repo_root)) + "); "
-            "from ingest.chunker import _compute_chunk_id; "
+            "from arxmcp.ingest.chunker import _compute_chunk_id; "
             "body = 'Theorem 3.4. Let X be a smooth projective variety.'; "
             "ids = [_compute_chunk_id('2307.00001', body) for _ in range(3)]; "
             "print(json.dumps(ids))"

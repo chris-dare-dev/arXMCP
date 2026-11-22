@@ -38,9 +38,9 @@ from pathlib import Path
 
 import pytest
 
-from server.cache import RetrievalCache, reset_cache_for_tests
-from server.cache_sqlite import derive_tier1_key
-from server.metrics import TIER_1, reset_cache_metrics_for_tests
+from arxmcp.server.cache import RetrievalCache, reset_cache_for_tests
+from arxmcp.server.cache_sqlite import derive_tier1_key
+from arxmcp.server.metrics import TIER_1, reset_cache_metrics_for_tests
 
 #: The shared/process-wide corpus version every cache below is opened at.
 SHARED = 101
@@ -309,7 +309,7 @@ class TestPurgeSemanticsArePinned:
                 await old.close()
 
             # Corpus bumps; reopen at the new version with the purge on,
-            # exactly as server/resources.py does on a rebind.
+            # exactly as src/arxmcp/server/resources.py does on a rebind.
             new = await RetrievalCache.open(
                 db, corpus_version=SHARED + 1, purge_other_versions=True)
             try:

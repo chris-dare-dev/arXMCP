@@ -27,8 +27,8 @@ from pathlib import Path
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-DRIVER_PATH = REPO_ROOT / "apps" / "desktop" / "pyinstaller" / "desktop_package.py"
-DESKTOP_CHILD = REPO_ROOT / "server" / "desktop_child.py"
+DRIVER_PATH = REPO_ROOT / "src" / "desktop" / "pyinstaller" / "desktop_package.py"
+DESKTOP_CHILD = REPO_ROOT / "src" / "arxmcp" / "server" / "desktop_child.py"
 
 #: AC1's pinned exception-set size, mirrored here so widening the set needs an
 #: edit in BOTH files (EXPECTED_TOOL_SCHEMA_SHA256 re-pin discipline). The set
@@ -384,9 +384,11 @@ def test_all_three_launch_validators_forbid_the_same_environment():
     the other refuses."""
     modules = [
         _load_module("arxmcp_probe_entry_env", DRIVER_PATH.parent / "probe_entry.py"),
-        _load_module("arxmcp_model_probe_env", REPO_ROOT / "tools" / "desktop_model_probe.py"),
         _load_module(
-            "arxmcp_sidecar_spike_env", REPO_ROOT / "tools" / "desktop_sidecar_spike.py"
+            "arxmcp_model_probe_env", REPO_ROOT / "src/arxmcp/tools" / "desktop_model_probe.py"
+        ),
+        _load_module(
+            "arxmcp_sidecar_spike_env", REPO_ROOT / "src/arxmcp/tools" / "desktop_sidecar_spike.py"
         ),
     ]
     first = modules[0]
@@ -675,7 +677,7 @@ def test_bundle_carries_no_build_machine_paths(packaged):
 
 
 def _package_data_top_level() -> set[str]:
-    """Top-level package names declaring wheel package-data, read from
+    """Box packages (``arxmcp.<box>``) declaring wheel package-data, read from
     ``pyproject.toml`` so the freeze-side guard cannot drift from the wheel's
     own declaration."""
     import tomllib
@@ -683,14 +685,14 @@ def _package_data_top_level() -> set[str]:
     table = tomllib.loads(
         (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
     )["tool"]["setuptools"]["package-data"]
-    return {name.split(".")[0] for name in table}
+    return {".".join(name.split(".")[:2]) for name in table}
 
 
 def test_package_data_declaration_is_readable_and_covers_server():
     """The derived gate below is only as good as this list; a table that stops
     parsing (or loses ``server``) would make it vacuously green."""
     packages = _package_data_top_level()
-    assert "server" in packages
+    assert "arxmcp.server" in packages
     assert len(packages) >= 2, packages
 
 
@@ -715,8 +717,8 @@ def test_bundle_ships_every_wheel_data_file_of_every_frozen_package(packaged):
     not_frozen: list[str] = []
     missing: dict[str, list[str]] = {}
     for package in sorted(_package_data_top_level()):
-        installed = installed_root / package
-        frozen = frozen_root / package
+        installed = installed_root.joinpath(*package.split("."))
+        frozen = frozen_root.joinpath(*package.split("."))
         if not frozen.is_dir():
             not_frozen.append(package)
             continue
@@ -731,7 +733,7 @@ def test_bundle_ships_every_wheel_data_file_of_every_frozen_package(packaged):
             missing[package] = absent
         checked.append(package)
     assert missing == {}, f"wheel data files absent from the bundle: {missing}"
-    assert "server" in checked, f"server was not frozen; not_frozen={not_frozen}"
+    assert "arxmcp.server" in checked, f"server was not frozen; not_frozen={not_frozen}"
 
 
 def _run_omp_probe(bundle_dir: Path, dp, tmp_path: Path) -> subprocess.CompletedProcess:
@@ -889,8 +891,8 @@ def test_frozen_child_boots_without_any_model_weights(packaged, tmp_path):
     """
     from dataclasses import replace
 
-    from server.desktop_child import COMPONENT
-    from server.desktop_contract import (
+    from arxmcp.server.desktop_child import COMPONENT
+    from arxmcp.server.desktop_contract import (
         Bound,
         encode_frame,
         generate_startup_token,

@@ -11,8 +11,8 @@ import asyncio
 
 import pytest
 
-from server.metadata_enrich import enrich_rows_with_titles
-from server.paper_metadata_store import PaperMetadataRecord, PaperMetadataStore
+from arxmcp.server.metadata_enrich import enrich_rows_with_titles
+from arxmcp.server.paper_metadata_store import PaperMetadataRecord, PaperMetadataStore
 
 
 def _run(coro):
@@ -143,7 +143,7 @@ class TestNormalizationRobustness:
         assert rows[0]["title"] is None
 
     def test_textbook_id_not_version_mangled(self):
-        from server.metadata_enrich import _normalize_paper_id
+        from arxmcp.server.metadata_enrich import _normalize_paper_id
         # a slug ending in -v2 must NOT be truncated to -v -> -
         assert _normalize_paper_id("textbook:linear-algebra-v2") == \
             "textbook:linear-algebra-v2"

@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+# Quarterly restore-drill reminder wrapper (E14_S04).
+#
+# Runs daily; the underlying src/arxmcp/tools/quarterly_drill_reminder.sh
+# short-circuits unless we're within 7 days of the next quarter
+# mark. When in-range, writes a flag to
+# var/arxmcp/ops/reminders/quarterly-drill-<YYYY>-Q<N>.flag.
+#
+# Usage:
+#   src/arxmcp/ops/cron/arxmcp-quarterly-drill.sh
+#   src/arxmcp/ops/cron/arxmcp-quarterly-drill.sh --dry-run
+#
+# Crontab entry (daily at 00:00 UTC):
+#   0 0 * * *  /path/to/arxmcp/ops/cron/arxmcp-quarterly-drill.sh
+#
+# systemd unit: see src/arxmcp/ops/systemd/arxmcp-quarterly-drill.{service,timer}.
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../../../.." && pwd)"
+cd "${REPO_ROOT}"
+
+# IS3 rectification (E14_S04 infra-safety critique): flock is
+# treated as mandatory for consistency with the other ops
+# wrappers, even though the underlying reminder is itself
+# idempotent (refuses to overwrite an existing flag). Operators
+# on macOS without `brew install flock` will see the same
+# exit-1-with-actionable-error here as for the other ops
+# wrappers — uniformity wins over per-wrapper exceptions.
+if ! command -v flock >/dev/null 2>&1; then
+    echo "ERROR: flock not found on PATH. flock(1) is part of " \
+         "util-linux:" >&2
+    echo "  macOS: brew install flock  (or: brew install util-linux)" >&2
+    echo "  Linux: pre-installed via util-linux (apt/dnf/pacman)" >&2
+    exit 1
+fi
+
+LOCK_PATH="${REPO_ROOT}/var/arxmcp/ops/.quarterly-drill.lock"
+mkdir -p "$(dirname "${LOCK_PATH}")"
+
+exec flock -n "${LOCK_PATH}" \
+    "${REPO_ROOT}/tools/quarterly_drill_reminder.sh" "$@"

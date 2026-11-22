@@ -14,7 +14,7 @@ from unittest.mock import patch
 
 import pytest
 
-from ops.restore_drill_check import (
+from arxmcp.ops.restore_drill_check import (
     run_check,
     smoke_check_kuzu,
     smoke_check_lancedb,
@@ -123,11 +123,11 @@ class TestSmokeCheckLancedb:
 
         with (
             patch(
-                "ingest.corpus.read_corpus_version",
+                "arxmcp.ingest.corpus.read_corpus_version",
                 return_value=_FakeInfo(),
             ),
             patch(
-                "ingest.corpus.open_chunks_table",
+                "arxmcp.ingest.corpus.open_chunks_table",
                 return_value=_FakeTable(),
             ),
         ):
@@ -151,11 +151,11 @@ class TestSmokeCheckLancedb:
 
         with (
             patch(
-                "ingest.corpus.read_corpus_version",
+                "arxmcp.ingest.corpus.read_corpus_version",
                 return_value=_FakeInfo(),
             ),
             patch(
-                "ingest.corpus.open_chunks_table",
+                "arxmcp.ingest.corpus.open_chunks_table",
                 return_value=_FakeTable(),
             ),
             pytest.raises(RuntimeError, match="zero rows"),
@@ -193,11 +193,11 @@ class TestSmokeCheckLancedb:
 
         with (
             patch(
-                "ingest.corpus.read_corpus_version",
+                "arxmcp.ingest.corpus.read_corpus_version",
                 return_value=_FakeInfo(),
             ),
             patch(
-                "ingest.corpus.open_chunks_table",
+                "arxmcp.ingest.corpus.open_chunks_table",
                 return_value=_FakeTable(),
             ),
         ):
@@ -297,11 +297,11 @@ class TestRunCheck:
 
         with (
             patch(
-                "ingest.corpus.read_corpus_version",
+                "arxmcp.ingest.corpus.read_corpus_version",
                 return_value=_FakeInfo(),
             ),
             patch(
-                "ingest.corpus.open_chunks_table",
+                "arxmcp.ingest.corpus.open_chunks_table",
                 return_value=_FakeTable(),
             ),
         ):
@@ -348,9 +348,9 @@ class TestRunCheck:
                 return 7
 
         with (
-            patch("ingest.corpus.read_corpus_version",
+            patch("arxmcp.ingest.corpus.read_corpus_version",
                   return_value=_FakeInfo()),
-            patch("ingest.corpus.open_chunks_table",
+            patch("arxmcp.ingest.corpus.open_chunks_table",
                   return_value=_FakeTable()),
         ):
             flag = tmp_path / "drill.flag"
@@ -371,7 +371,7 @@ class TestRunCheck:
 
 
 class TestRestoreDrillScript:
-    script = REPO_ROOT / "ops" / "restore_drill.sh"
+    script = REPO_ROOT / "src" / "arxmcp" / "ops" / "restore_drill.sh"
 
     def test_script_exists_and_executable(self):
         assert self.script.is_file()
@@ -391,7 +391,7 @@ class TestRestoreDrillScript:
 
     def test_invokes_restore_drill_check(self):
         text = self.script.read_text(encoding="utf-8")
-        assert "ops.restore_drill_check" in text
+        assert "arxmcp.ops.restore_drill_check" in text
 
     def test_runs_read_data_subset_check(self):
         """notebook-ops-hardening-m1: the drill verifies pack-file
@@ -455,7 +455,7 @@ class TestResticNotebookRoundTrip:
 
         # 2. WAL checkpoint BEFORE capturing the baseline sha (mirrors the
         #    backup wrapper; the -wal/-shm sidecars are NOT backed up).
-        from ops.checkpoint_notebooks_db import checkpoint
+        from arxmcp.ops.checkpoint_notebooks_db import checkpoint
         assert checkpoint(db) in ("ok", "no-wal")
         pdf_sha = hashlib.sha256(pdf.read_bytes()).hexdigest()
         db_sha = hashlib.sha256(db.read_bytes()).hexdigest()
@@ -481,7 +481,7 @@ class TestResticNotebookRoundTrip:
                 env=env, check=True, capture_output=True, text=True)
 
         # 6. Byte-for-byte assertions via the rglob smoke check helpers.
-        from ops.restore_drill_check import _locate_notebooks_db
+        from arxmcp.ops.restore_drill_check import _locate_notebooks_db
         restored_db = _locate_notebooks_db(restore)
         assert restored_db is not None
         assert hashlib.sha256(restored_db.read_bytes()).hexdigest() == db_sha

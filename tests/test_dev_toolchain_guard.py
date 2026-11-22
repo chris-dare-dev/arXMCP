@@ -175,7 +175,7 @@ class TestUvRunNotInvokedFromTests:
             "fails outright on the locked arxmcp-shim.exe when an MCP "
             "session is connected.\nUse `sys.executable` for a fresh "
             "interpreter (set PYTHONPATH=REPO_ROOT so the repo imports), "
-            "or drive the real thing through tools/wheel_install_check.py, "
+            "or drive the real thing through src/arxmcp/tools/wheel_install_check.py, "
             "which builds into a throwaway venv and never touches .venv."
         )
 

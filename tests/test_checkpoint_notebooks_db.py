@@ -13,7 +13,7 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-from ops.checkpoint_notebooks_db import CLEAN_STATUSES, checkpoint
+from arxmcp.ops.checkpoint_notebooks_db import CLEAN_STATUSES, checkpoint
 
 
 def _wal_db_with_frames(path: Path) -> None:
@@ -157,7 +157,7 @@ class TestBackupSet:
     not only notebooks.db."""
 
     def test_checkpoints_every_backed_up_database(self, tmp_path, capsys):
-        from ops.checkpoint_notebooks_db import main
+        from arxmcp.ops.checkpoint_notebooks_db import main
 
         var = tmp_path / "var" / "arxmcp"
         backed_up = [
@@ -194,7 +194,7 @@ class TestBackupSet:
                 conn.close()
 
     def test_missing_notebooks_db_reports_absent(self, tmp_path, capsys):
-        from ops.checkpoint_notebooks_db import main
+        from arxmcp.ops.checkpoint_notebooks_db import main
 
         var = tmp_path / "var" / "arxmcp"
         assert main(["checkpoint", "--backup-set", str(var)]) == 0
