@@ -402,7 +402,10 @@ class TestHitPath:
         assert "resolved=3" in tokens  # source_span resolved=3 (all HIT)
         assert "null=0" in tokens
         # printed_number: 2 numbered (stmt+proof), 1 not_attempted (section).
-        assert "numbered=2" in tokens
+        # printed_number: the chunker already wrote "1.1" on stmt + proof,
+        # so both are kept; the section is not attempted.
+        assert "kept_stored=2" in tokens
+        assert "numbered=0" in tokens
         assert "not_attempted=1" in tokens
 
 
@@ -435,7 +438,8 @@ class TestAbstention:
             # But the span + printed_number abstain.
             assert row["source_span"] is None
             assert row["printed_number"] is None
-        # truncated fallback: proof -> False; stmt(short) -> False.
+        # truncated: ingest stored False on both rows, and a stored flag
+        # stands (TestNonDestructiveWrite covers the NULL-row recount).
         assert all(row["truncated"] is False for row in rows.values())
 
         tokens = capsys.readouterr().out.split()
@@ -808,8 +812,8 @@ class TestRerunFailedAbstention:
     ``_rechunk_paper`` through its ``PER_PAPER_FAILURE_EXCEPTIONS`` envelope by
     making a structural-extraction pass raise, so the re-chunk returns
     ``status="rerun_failed"`` for a registered paper: source_span abstains with
-    reason chunker_rerun_failed while truncated is still populated via the
-    safe-direction fallback."""
+    reason chunker_rerun_failed while each row keeps its stored truncated
+    flag."""
 
     def test_rerun_failed_abstains(self, tmp_path):
         base = tmp_path / "notebooks"
@@ -846,8 +850,8 @@ class TestRerunFailedAbstention:
             # A miss keeps the stored printed_number (the
             # chunker wrote it at ingest) instead of nulling it.
             assert r["printed_number"] == stored_pn[cid]
-            assert r["truncated"] is not None  # fallback still populates it
-        assert report.pn_kept_on_miss == sum(
+            assert r["truncated"] is not None  # the stored flag stands
+        assert report.pn_kept_stored == sum(
             1 for v in stored_pn.values() if v is not None
         )
         assert report.pn_numbered == 0  # nothing was freshly computed
@@ -1029,20 +1033,238 @@ class TestPrintedNumberKeptOnMiss:
         assert rows[bare.chunk_id]["printed_number"] is None
         assert all(r["source_span"] is None for r in rows.values())  # both MISS
         tokens = capsys.readouterr().out.split()
-        assert "kept_on_miss=1" in tokens
+        assert "kept_stored=1" in tokens
         assert "numbered=0" in tokens
 
-    def test_hit_still_takes_the_fresh_value(self, tmp_path):
+    def test_hit_fills_a_null_stored_value(self, tmp_path):
+        # A pre-v2 row (or one whose number was never written) is NULL;
+        # the re-chunk's value fills it.
         base = tmp_path / "notebooks"
         parsed = _parsed_root(tmp_path, {PAPER: HTML})
         _build_table_from_html(tmp_path, base, parsed, PAPER, seed=72)
         _register(base, [_doc(PAPER)])
+        stmt_id = next(
+            cid for cid, r in _read_rows(base).items() if r["kind"] == "stmt"
+        )
+        _set_column(base, stmt_id, "printed_number", None)
 
         report = _patch(base, parsed)
 
-        assert report.pn_kept_on_miss == 0
-        rows = _read_rows(base)
-        assert {r["printed_number"] for r in rows.values()} == {"1.1", None}
+        assert _read_rows(base)[stmt_id]["printed_number"] == "1.1"
+        assert report.pn_numbered == 1
+        assert report.pn_kept_stored == 1  # the proof's stored "1.1"
+
+
+def _set_column(base: Path, chunk_id: str, column: str, value) -> None:
+    """Overwrite one stored value, to stage a row the chunker wrote
+    differently from what the backfill's re-chunk would compute."""
+    table = lancedb.connect(str(_lancedb_dir(base))).open_table("chunks")
+    if value is None:
+        table.update(where=f"chunk_id = '{chunk_id}'", values_sql={column: "NULL"})
+    else:
+        table.update(where=f"chunk_id = '{chunk_id}'", values={column: value})
+
+
+def _index_coverage(base: Path) -> dict[str, int]:
+    """Index name -> rows that index does NOT cover."""
+    table = lancedb.connect(str(_lancedb_dir(base))).open_table("chunks")
+    return {
+        index.name: table.index_stats(index.name).num_unindexed_rows
+        for index in table.list_indices()
+    }
+
+
+class TestNonDestructiveWrite:
+    """A whole-row rewrite drops the vector indices even when it hydrates
+    nothing, and the backfill's re-chunk only approximates the chunker's
+    ``truncated`` and ``printed_number``. So the backfill writes only its
+    own five columns, only on rows whose values change, and never replaces
+    a stored chunker-native value."""
+
+    def test_vector_indices_survive_a_full_hydration(self, tmp_path):
+        base = tmp_path / "notebooks"
+        parsed = _parsed_root(tmp_path, {PAPER: HTML})
+        _build_table_from_html(tmp_path, base, parsed, PAPER, seed=91)
+        _register(base, [_doc(PAPER)])
+        before = _index_coverage(base)
+        assert set(before) == {"embedding_stmt_idx", "embedding_proof_idx", "paper_id_idx"}
+
+        report = _patch(base, parsed)
+
+        assert report.patched_rows == 3  # every row gained registry values
+        assert _index_coverage(base) == {name: 0 for name in before}
+
+    def test_nothing_is_written_when_nothing_changes(self, tmp_path, capsys):
+        # No registry rows, and the chunker already wrote truncated /
+        # printed_number at ingest.
+        base = tmp_path / "notebooks"
+        parsed = _parsed_root(tmp_path, {PAPER: HTML})
+        _build_table_from_html(tmp_path, base, parsed, PAPER, seed=92)
+        table = lancedb.connect(str(_lancedb_dir(base))).open_table("chunks")
+        version_before = table.version
+
+        assert _run(base, parsed) == 0
+
+        table = lancedb.connect(str(_lancedb_dir(base))).open_table("chunks")
+        assert table.version == version_before
+        tokens = capsys.readouterr().out.split()
+        assert "patched=0" in tokens
+        assert "unchanged_rows=3" in tokens
+        assert "registry_missing=3" in tokens
+
+    def test_a_hit_keeps_the_stored_printed_number(self, tmp_path):
+        # The real chunker numbers some chunks the backfill's re-chunk
+        # cannot (proofs inheriting a statement's number, labeled results).
+        base = tmp_path / "notebooks"
+        parsed = _parsed_root(tmp_path, {PAPER: HTML})
+        _build_table_from_html(tmp_path, base, parsed, PAPER, seed=93)
+        _register(base, [_doc(PAPER)])
+        section_id = next(
+            cid for cid, r in _read_rows(base).items() if r["kind"] == "section"
+        )
+        _set_column(base, section_id, "printed_number", "3.2")
+
+        report = _patch(base, parsed)
+
+        assert _read_rows(base)[section_id]["printed_number"] == "3.2"
+        assert report.source_span_resolved == 3  # every row was a hit
+        assert report.pn_kept_stored == 3
+
+    def test_a_miss_keeps_the_stored_truncated_flag(self, tmp_path, monkeypatch):
+        # A full-size lossless part re-counts at the token limit, so the
+        # miss-path fallback calls it truncated. The stored flag stands.
+        base = tmp_path / "notebooks"
+        parsed = _parsed_root(tmp_path, {PAPER: HTML})
+        part = _make_fixed_chunk(PAPER, "stmt", "a full-size window", "8" * 16)
+        write_chunks([part], _synth_embeddings([part], seed=94), lancedb_path=_lancedb_dir(base))
+        _register(base, [_doc(PAPER)])
+        monkeypatch.setattr(backfill, "_truncated_fallback", lambda *_a, **_k: True)
+
+        report = _patch(base, parsed)
+
+        assert _read_rows(base)[part.chunk_id]["truncated"] is False
+        assert report.truncated_filled == 0
+
+    def test_a_hit_keeps_the_stored_truncated_flag(self, tmp_path, monkeypatch):
+        base = tmp_path / "notebooks"
+        parsed = _parsed_root(tmp_path, {PAPER: HTML})
+        _build_table_from_html(tmp_path, base, parsed, PAPER, seed=95)
+        _register(base, [_doc(PAPER)])
+        real = backfill._rechunk_paper
+
+        def _rechunk_says_truncated(*args, **kwargs):
+            result = real(*args, **kwargs)
+            for record in result.records.values():
+                record.truncated = True
+            return result
+
+        monkeypatch.setattr(backfill, "_rechunk_paper", _rechunk_says_truncated)
+
+        _patch(base, parsed)
+
+        assert all(r["truncated"] is False for r in _read_rows(base).values())
+
+    def test_a_null_truncated_is_filled_from_the_rechunk_on_a_hit(
+        self, tmp_path, monkeypatch
+    ):
+        # A pre-v2 row has no stored flag; a hit takes the re-chunk's.
+        base = tmp_path / "notebooks"
+        parsed = _parsed_root(tmp_path, {PAPER: HTML})
+        _build_table_from_html(tmp_path, base, parsed, PAPER, seed=97)
+        _register(base, [_doc(PAPER)])
+        for cid in _read_rows(base):
+            _set_column(base, cid, "truncated", None)
+        real = backfill._rechunk_paper
+
+        def _rechunk_says_truncated(*args, **kwargs):
+            result = real(*args, **kwargs)
+            for record in result.records.values():
+                record.truncated = True
+            return result
+
+        monkeypatch.setattr(backfill, "_rechunk_paper", _rechunk_says_truncated)
+
+        report = _patch(base, parsed)
+
+        assert all(r["truncated"] is True for r in _read_rows(base).values())
+        assert report.truncated_filled == 3
+
+    def test_a_null_truncated_falls_back_to_a_recount_on_a_miss(
+        self, tmp_path, monkeypatch
+    ):
+        base = tmp_path / "notebooks"
+        parsed = _parsed_root(tmp_path, {PAPER: HTML})
+        row = _make_fixed_chunk(PAPER, "stmt", "a long statement", "9" * 16)
+        write_chunks([row], _synth_embeddings([row], seed=98), lancedb_path=_lancedb_dir(base))
+        _register(base, [_doc(PAPER)])
+        _set_column(base, row.chunk_id, "truncated", None)
+        monkeypatch.setattr(backfill, "_truncated_fallback", lambda *_a, **_k: True)
+
+        report = _patch(base, parsed)
+
+        assert _read_rows(base)[row.chunk_id]["truncated"] is True
+        assert report.truncated_filled == 1
+
+    def test_a_write_that_drops_an_index_is_rolled_back(self, tmp_path, monkeypatch):
+        # Guard against a LanceDB change bringing the full-row damage back:
+        # if any index is gone after the write, restore and refuse.
+        base = tmp_path / "notebooks"
+        parsed = _parsed_root(tmp_path, {PAPER: HTML})
+        _build_table_from_html(tmp_path, base, parsed, PAPER, seed=96)
+        _register(base, [_doc(PAPER)])
+        before_rows = _read_rows(base)
+        before_indices = _index_coverage(base)
+        monkeypatch.setattr(backfill, "_write_patches", _full_row_write)
+
+        with pytest.raises(backfill.NotebookError, match="restored"):
+            _patch(base, parsed)
+
+        assert _index_coverage(base) == before_indices
+        after_rows = _read_rows(base)
+        for cid, row in after_rows.items():
+            assert row["source_revision_id"] == before_rows[cid]["source_revision_id"]
+
+    def test_a_write_that_shrinks_index_coverage_is_rolled_back(
+        self, tmp_path, monkeypatch
+    ):
+        # The subtler form: rewrite only some rows in full, so every index
+        # keeps its name but no longer covers those rows.
+        base = tmp_path / "notebooks"
+        parsed = _parsed_root(tmp_path, {PAPER: HTML, F2_PAPER: F2_HTML})
+        _build_table_from_html(tmp_path, base, parsed, PAPER, seed=99)
+        _build_table_from_html(tmp_path, base, parsed, F2_PAPER, seed=100)
+        _register(base, [_doc(PAPER)])  # only PAPER's rows will change
+        before_indices = _index_coverage(base)
+        assert all(unindexed == 0 for unindexed in before_indices.values())
+        monkeypatch.setattr(backfill, "_write_patches", _full_row_write)
+
+        with pytest.raises(backfill.NotebookError, match="restored"):
+            _patch(base, parsed)
+
+        assert _index_coverage(base) == before_indices
+        assert all(r["source_revision_id"] is None for r in _read_rows(base).values())
+
+
+def _full_row_write(table, updates):
+    """A whole-row write, embeddings included: what the backfill must not do."""
+    by_id = {u["chunk_id"]: u for u in updates}
+    rows = [
+        {**r, **by_id[r["chunk_id"]]}
+        for r in table.to_arrow().to_pylist()
+        if r["chunk_id"] in by_id
+    ]
+    batch = pa.Table.from_pylist(rows, schema=table.schema)
+    table.merge_insert("chunk_id").when_matched_update_all().execute(batch)
+
+
+def test_index_damage_names_dropped_and_shrunk_indices():
+    before = {"embedding_stmt_idx": 0, "embedding_proof_idx": 0, "paper_id_idx": 2}
+    after = {"embedding_proof_idx": 5, "paper_id_idx": 2}
+    assert backfill._index_damage(before, after) == [
+        "embedding_proof_idx misses 5 rows, was 0",
+        "embedding_stmt_idx dropped",
+    ]
+    assert backfill._index_damage(before, dict(before)) == []
 
 
 class TestStaleChunkerRefusal:

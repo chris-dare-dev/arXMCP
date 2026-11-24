@@ -14,12 +14,31 @@ table, WITHOUT re-embedding a single chunk. Per paper it:
   ``DocumentsStore.all_records()`` on ``work_id`` and matching the chunk's
   (already version-stripped) ``paper_id``,
 
-then patches the five columns onto the in-memory row dicts and writes them back
-with ONE ``merge_insert("chunk_id").when_matched_update_all()
-.when_not_matched_insert_all()`` per notebook — a full-row read-modify-write
-that leaves every other column (crucially ``embedding_stmt`` /
-``embedding_proof``) byte-identical. This mirrors the shipped
-``src/arxmcp/ingest/embed_equations.py`` write mechanism.
+then writes back ONLY the five columns, ONLY on rows whose values change, with
+ONE ``merge_insert("chunk_id").when_matched_update_all()`` per notebook whose
+source batch carries ``chunk_id`` plus those five columns and nothing else.
+
+**Why only five columns.** LanceDB 0.30 treats a whole-row update as
+rewriting the indexed vector columns: once every row is rewritten it drops
+both vector indices from the table, and the ``paper_id`` scalar index covers
+none of the rewritten rows, even when no value changed. A partial-column
+batch updates only the columns it names and leaves every index fully
+covering (``tests/test_notebook_chunks_backfill.py::TestNonDestructiveWrite``).
+After any write the driver re-reads
+every index's coverage; if an index is gone or covers fewer rows than before
+the run, it restores the pre-run version and refuses, so a future LanceDB
+change cannot bring the damage back quietly.
+
+**Stored chunker values win.** ``truncated`` and ``printed_number`` are
+chunker-native: ingest writes them with the full chunker, which this driver's
+re-chunk only approximates (it has no proof-number inheritance, no TeX
+supplement, no labeled-result recovery, and its miss-path ``truncated``
+recount flags a full-size lossless part as truncated). So the driver fills
+them only where the stored value is NULL (a pre-v2 table) and otherwise
+leaves them exactly as stored. The three registry-derived columns
+(``source_revision_id`` / ``source_span`` / ``license_ref``) are this driver's
+own and are recomputed for every paper the run does not skip (a fully
+hydrated paper is skipped; see **Idempotency**).
 
 **0-re-embed is STRUCTURAL, not incidental.** This driver never imports
 ``arxmcp.ingest.store`` (its ``_build_arrow_table`` hard-requires an embedding per
@@ -38,13 +57,11 @@ current chunker does not reproduce (or whose paper's re-chunk raised, or whose
 parsed HTML is missing, or whose paper is unregistered / multi-row in the
 registry) gets ``source_span=null``, counted AND listed by reason code in a
 per-notebook report, never a best-guess anchor and never a silent null. Its
-``printed_number`` keeps whatever the row already stored (the chunker wrote it
-at ingest): a miss means this run could not recompute it, not that it is
-wrong, so overwriting it with null would destroy data. A
-miss on a row with no stored value stays null. ``truncated`` is the
-one column with no null path: exact on a chunk-id hit, else a safe-direction
-token recount (``kind="proof"`` is always False; every other kind is
-``token_count >= STMT_MAX_TOKENS``).
+``printed_number`` keeps whatever the row already stored, as on a hit; a miss
+on a row with no stored value stays null. ``truncated`` is the one column
+with no null path: the stored value when there is one; else exact on a
+chunk-id hit, else a safe-direction token recount (``kind="proof"`` is always
+False; every other kind is ``token_count >= STMT_MAX_TOKENS``).
 
 **Idempotency.** A re-run skips a paper only when it is FULLY hydrated: every
 row already carries BOTH a non-null ``source_revision_id`` AND a non-null
@@ -53,11 +70,11 @@ the row). A registry HIT whose ``source_span`` is still null on some row — a
 chunk-id MISS a later chunker upgrade may reproduce — is RE-attempted, never
 frozen at null (keying the skip on ``source_revision_id`` alone is the bug m2
 rect M4 closes). A paper whose registry abstains (unregistered / multi-row)
-keeps a null ``source_revision_id`` and is re-chunked every run, but the WRITE is
-a value-level no-op: its ``truncated`` / ``printed_number`` were already written
-at ingest and are reproduced identically, and the three registry-derived columns
-stay null. Skipped rows are excluded from the ``merge_insert`` batch, so a
-skipped paper's bytes (embeddings included) are never rewritten.
+keeps a null ``source_revision_id`` and is re-chunked every run, but nothing is
+written for it: its stored ``truncated`` / ``printed_number`` stand and the
+three registry-derived columns stay null, so no value changes. Only rows whose
+five values change enter the ``merge_insert`` batch; a run that changes nothing
+writes no new table version.
 
 **The ``source_span`` ``id`` field.** The JSON ``id`` (a non-authoritative
 debug hint, never a resolution key — spike-3) is emitted as ``""`` because a
@@ -87,7 +104,9 @@ Usage:
 
 Exit codes:
     0 — completed (abstentions are a success state, surfaced in the report)
-    1 — slug validation failed or the notebook has no ``chunks`` table
+    1 — slug validation failed, the notebook has no ``chunks`` table, the
+        table holds another chunker version's rows, or the write lost an
+        index and was rolled back
 """
 
 from __future__ import annotations
@@ -423,10 +442,15 @@ class _NotebookReport:
     slug: str = ""
     total_rows: int = 0
     total_papers: int = 0
+    # Rows written (some value changed) vs processed but left as they were.
     patched_rows: int = 0
+    unchanged_rows: int = 0
     skipped_papers: int = 0
     skipped_rows: int = 0
     columns_added: list[str] = field(default_factory=list)
+    # Table version before and after the run; equal when nothing was written.
+    version_before: int | None = None
+    version_after: int | None = None
 
     source_span_resolved: int = 0
     source_span_null: int = 0
@@ -439,10 +463,13 @@ class _NotebookReport:
     pn_unnumbered_f1: int = 0
     pn_uncomputable: int = 0
     pn_not_attempted: int = 0
-    pn_kept_on_miss: int = 0
+    # A stored non-null value kept as is (hit or miss): the chunker wrote it.
+    pn_kept_stored: int = 0
 
     truncated_true: int = 0
     truncated_false: int = 0
+    # Rows whose stored ``truncated`` was NULL and this run computed it.
+    truncated_filled: int = 0
 
     rev_resolved: int = 0
     rev_null: int = 0
@@ -459,9 +486,11 @@ def _print_report(report: _NotebookReport) -> None:
         f"chunks-backfill slug={report.slug} "
         f"rows={report.total_rows} papers={report.total_papers} "
         f"patched={report.patched_rows} "
+        f"unchanged_rows={report.unchanged_rows} "
         f"skipped_papers={report.skipped_papers} "
         f"skipped_rows={report.skipped_rows} "
-        f"columns_added={len(report.columns_added)}"
+        f"columns_added={len(report.columns_added)} "
+        f"table_version={report.version_before}->{report.version_after}"
     )
     r = report.source_span_null_reasons
     print(
@@ -479,12 +508,13 @@ def _print_report(report: _NotebookReport) -> None:
         f"unnumbered_f1={report.pn_unnumbered_f1} "
         f"uncomputable={report.pn_uncomputable} "
         f"not_attempted={report.pn_not_attempted} "
-        f"kept_on_miss={report.pn_kept_on_miss}"
+        f"kept_stored={report.pn_kept_stored}"
     )
     print(
         "truncated: "
         f"true={report.truncated_true} false={report.truncated_false} "
-        f"total={report.truncated_true + report.truncated_false}"
+        f"total={report.truncated_true + report.truncated_false} "
+        f"filled={report.truncated_filled}"
     )
     rr = report.rev_null_reasons
     print(
@@ -576,9 +606,9 @@ def _patch_notebook(
 ) -> _NotebookReport:
     """Hydrate the five v2 columns on the notebook's chunks table.
 
-    Full-row read-modify-write via a single per-notebook ``merge_insert`` that
-    preserves every non-patched column (embeddings included). Returns the
-    abstention report.
+    One per-notebook ``merge_insert`` of ``chunk_id`` plus the five columns,
+    for the rows whose values change (``_write_patches``); every other column
+    and every index is left as it was. Returns the abstention report.
     """
     db = lancedb.connect(str(lancedb_dir))
     tables_obj = db.list_tables()
@@ -596,6 +626,10 @@ def _patch_notebook(
     _refuse_stale_chunker_rows(rows, lancedb_dir=lancedb_dir, slug=slug)
 
     report = _NotebookReport(slug=slug)
+    report.version_before = table.version
+    # Taken before any write, the schema migration included, so the check
+    # after the run covers every version this run adds.
+    coverage_before = _index_coverage(table)
     report.columns_added = _ensure_v2_columns(table)
     if report.columns_added:
         # Re-read so every row dict carries the columns just added.
@@ -609,7 +643,7 @@ def _patch_notebook(
         by_paper[row["paper_id"]].append(row)
     report.total_papers = len(by_paper)
 
-    patched_rows: list[dict] = []
+    updates: list[dict] = []
     for paper_id, paper_rows in by_paper.items():
         # Idempotency skip-gate. Skip a paper only when it is FULLY hydrated:
         # every row already carries BOTH a non-null ``source_revision_id`` (the
@@ -672,26 +706,35 @@ def _patch_notebook(
             body_text = row["body_text"]
             hit = rr.status == "ok" and cid in rr.records
 
-            # truncated — never null.
-            if hit:
-                truncated = bool(rr.records[cid].truncated)
+            # truncated — never null. A stored value is the chunker's and
+            # stands; only a NULL (pre-v2 table) is computed here.
+            stored_truncated = row.get("truncated")
+            if stored_truncated is not None:
+                truncated = bool(stored_truncated)
             else:
-                truncated = _truncated_fallback(kind, body_text)
+                if hit:
+                    truncated = bool(rr.records[cid].truncated)
+                else:
+                    truncated = _truncated_fallback(kind, body_text)
+                report.truncated_filled += 1
             if truncated:
                 report.truncated_true += 1
             else:
                 report.truncated_false += 1
 
-            # printed_number — from the fresh record on a hit. On a miss this
-            # run cannot recompute it, so the stored value (written by the
-            # chunker at ingest) stands; nulling it would destroy data the
-            # re-chunk merely failed to reproduce.
-            if hit:
+            # printed_number — a stored value is the chunker's and stands,
+            # hit or miss: this re-chunk lacks parts of the chunker's
+            # numbering (proof inheritance, labeled results), so its value
+            # may be NULL where the stored one is right. Only a NULL is
+            # filled, from the fresh record on a hit.
+            stored_pn = row.get("printed_number")
+            if stored_pn is not None:
+                printed_number = stored_pn
+                report.pn_kept_stored += 1
+            elif hit:
                 printed_number = rr.records[cid].printed_number
             else:
-                printed_number = row.get("printed_number")
-                if printed_number is not None:
-                    report.pn_kept_on_miss += 1
+                printed_number = None
 
             # source_span — only when the revision resolved AND we reproduced
             # the chunk_id; otherwise a counted, reason-coded abstention.
@@ -712,11 +755,12 @@ def _patch_notebook(
                 report.source_span_null_reasons[reason] += 1
                 report.source_span_null_list.append((cid, reason))
 
-            # printed_number classification for the report. A value kept on a
-            # miss was counted in pn_kept_on_miss above, not as numbered.
-            if printed_number is not None:
-                if hit:
-                    report.pn_numbered += 1
+            # printed_number classification for the report. A kept stored
+            # value was counted in pn_kept_stored above, not as numbered.
+            if stored_pn is not None:
+                pass
+            elif printed_number is not None:
+                report.pn_numbered += 1
             elif kind in ("proof", "section"):
                 report.pn_not_attempted += 1
             elif not hit:
@@ -732,31 +776,83 @@ def _patch_notebook(
                 report.rev_null += 1
                 report.rev_null_reasons[rev_null_reason] += 1
 
-            # Patch the five columns onto the in-memory row dict; every other
-            # key (embeddings included) is left exactly as read.
-            row["truncated"] = truncated
-            row["printed_number"] = printed_number
-            row["source_span"] = source_span
-            row["source_revision_id"] = source_revision_id
-            row["license_ref"] = license_ref
-            patched_rows.append(row)
+            # Queue the five columns, and only when one of them changes; no
+            # other column (embeddings included) is ever sent to LanceDB.
+            values = {
+                "truncated": truncated,
+                "printed_number": printed_number,
+                "source_span": source_span,
+                "source_revision_id": source_revision_id,
+                "license_ref": license_ref,
+            }
+            if any(row.get(name) != value for name, value in values.items()):
+                updates.append({"chunk_id": cid, **values})
+            else:
+                report.unchanged_rows += 1
 
-    report.patched_rows = len(patched_rows)
+    report.patched_rows = len(updates)
 
-    if patched_rows:
-        # Build the batch against the LIVE table schema (post add_columns) so
-        # the fixed-size-list embedding columns round-trip losslessly and the
-        # boolean/utf8 v2 columns carry the right types. ONE merge_insert per
-        # notebook, mirroring embed_equations.py.
-        batch = pa.Table.from_pylist(patched_rows, schema=table.schema)
-        (
-            table.merge_insert("chunk_id")
-            .when_matched_update_all()
-            .when_not_matched_insert_all()
-            .execute(batch)
-        )
+    if updates:
+        _write_patches(table, updates)
 
+    report.version_after = table.version
+    if report.version_after != report.version_before:
+        damage = _index_damage(coverage_before, _index_coverage(table))
+        if damage:
+            # A run must never cost index coverage (see the module
+            # docstring). Put the table back as it was and refuse.
+            table.restore(report.version_before)
+            raise NotebookError(
+                f"notebook {slug!r}: the backfill damaged indices in "
+                f"{lancedb_dir} ({'; '.join(damage)}), so the table was "
+                f"restored to version {report.version_before}. Nothing was "
+                "hydrated. Check how this LanceDB version handles a "
+                "partial-column merge_insert before re-running."
+            )
     return report
+
+
+def _index_coverage(table) -> dict[str, int]:
+    """Index name -> number of rows that index does not cover."""
+    coverage: dict[str, int] = {}
+    for index in table.list_indices():
+        stats = table.index_stats(index.name)
+        coverage[index.name] = 0 if stats is None else stats.num_unindexed_rows
+    return coverage
+
+
+def _index_damage(before: dict[str, int], after: dict[str, int]) -> list[str]:
+    """Describe every index that is gone, or covers fewer rows, after a run.
+
+    Rows outside an index are still found, by a flat scan, so lost coverage
+    costs speed rather than data; it is still damage this driver must not
+    cause. The table's row count does not change during a run, so more
+    unindexed rows means less coverage.
+    """
+    damage: list[str] = []
+    for name, unindexed_before in sorted(before.items()):
+        if name not in after:
+            damage.append(f"{name} dropped")
+        elif after[name] > unindexed_before:
+            damage.append(
+                f"{name} misses {after[name]} rows, was {unindexed_before}"
+            )
+    return damage
+
+
+def _write_patches(table, updates: list[dict]) -> None:
+    """Write ``updates`` (``chunk_id`` + the five backfill columns) in place.
+
+    The source batch carries those six columns only, typed from the live
+    table schema, so LanceDB updates just the five named columns on the
+    matched rows and leaves the rest of each row, and every index, as it
+    was. There is deliberately no insert arm: every update is for a row read
+    from this table, and a partial row must never be inserted.
+    """
+    names = ("chunk_id", *_V2_COLUMN_DEFAULTS)
+    schema = pa.schema([table.schema.field(name) for name in names])
+    batch = pa.Table.from_pylist(updates, schema=schema)
+    table.merge_insert("chunk_id").when_matched_update_all().execute(batch)
 
 
 # ---------------------------------------------------------------------------
