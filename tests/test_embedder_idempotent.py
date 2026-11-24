@@ -39,14 +39,13 @@ import numpy as np
 import pytest
 
 import arxmcp.ingest.embedder as embedder_mod
-from arxmcp.ingest.chunk import CHUNKER_VERSION, reuse_identity
+from arxmcp.corpus.chunk import CHUNKER_VERSION, reuse_identity
+from arxmcp.corpus.embedding import EMBEDDINGS_MANIFEST_NAME, read_embeddings_manifest
 from arxmcp.ingest.embedder import (
     EMBED_INPUT_POLICY_VERSION,
     EMBEDDER_VERSION,
     EMBEDDING_DIM,
-    EMBEDDINGS_MANIFEST_NAME,
     EXPECTED_CHUNKER_VERSION,
-    _read_embeddings_manifest,
     _write_embeddings_manifest,
     _write_embeddings_npz,
     embed_corpus,
@@ -889,12 +888,12 @@ class TestReuseIdentitySkip:
 
 class TestSidecarReadHelpers:
     def test_read_returns_none_for_missing(self, tmp_path):
-        assert _read_embeddings_manifest(tmp_path / "absent.json") is None
+        assert read_embeddings_manifest(tmp_path / "absent.json") is None
 
     def test_read_returns_none_for_corrupt(self, tmp_path):
         path = tmp_path / "corrupt.json"
         path.write_text("{not valid json", encoding="utf-8")
-        assert _read_embeddings_manifest(path) is None
+        assert read_embeddings_manifest(path) is None
 
     def test_round_trip(self, tmp_path):
         path = tmp_path / "ok.json"
@@ -905,7 +904,7 @@ class TestSidecarReadHelpers:
                 {"chunk_id": "arxiv:2307.00180:" + "0" * 16, "kind": "stmt"}
             ],
         )
-        data = _read_embeddings_manifest(path)
+        data = read_embeddings_manifest(path)
         assert data is not None
         assert data["paper_id"] == "2307.00180"
         assert data["chunker_version"] == EXPECTED_CHUNKER_VERSION

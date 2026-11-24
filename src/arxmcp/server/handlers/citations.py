@@ -39,7 +39,7 @@ from typing import Annotated, Any, Literal
 
 from pydantic import Field
 
-from arxmcp.ingest.identifiers import is_valid_chunk_id
+from arxmcp.corpus import is_valid_chunk_id
 from arxmcp.server.graph_queries import cite_neighbors
 from arxmcp.server.handlers.corpus_route import (
     NOTEBOOK_ARG_DESCRIPTION,

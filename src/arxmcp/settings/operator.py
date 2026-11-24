@@ -372,7 +372,7 @@ def get_contact_email(
 
     Importable directly by ``ingest/`` modules
     (``src/arxmcp/ingest/inspire_ingest.py``, ``src/arxmcp/ingest/graph_ingest.py``) without
-    requiring the ``arxmcp.ingest.notebooks`` import path — avoids the
+    requiring the ``arxmcp.corpus.notebooks`` import path — avoids the
     ``ingest/ → tools/`` cross-package import direction the m2
     synthesis §3 D3 flagged."""
     return get_setting("contact_email", db_path)

@@ -666,6 +666,15 @@ def _row_from_sql(row: tuple) -> TheoremRow:
     )
 
 
+def theorem_names_db_path(lancedb_path: str | Path) -> Path:
+    """Where the theorem-name index of the dataset at ``lancedb_path`` lives:
+    inside the dataset, so cutover and rollback move it with the chunks it
+    indexes. The server derives the same path."""
+    from arxmcp.settings import derived_index_path
+
+    return derived_index_path(Path(lancedb_path).resolve(), "theorem_names.db")
+
+
 __all__ = [
     "DEFAULT_JACCARD_THRESHOLD",
     "JACCARD_CAPPED_CANDIDATES",
@@ -679,6 +688,7 @@ __all__ = [
     "fts5_phrase_quote",
     "normalize_name",
     "serialize_section_path",
+    "theorem_names_db_path",
     "trigram_jaccard",
     "trigrams",
 ]

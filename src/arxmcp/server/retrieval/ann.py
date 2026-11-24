@@ -30,7 +30,7 @@ empty cases:
 1. ``bm25_candidates == []`` (highly symbolic queries with no
    body-token matches): fuse only the two ANN lists. AC #1.
 2. ``embedding_proof`` column has no rows OR no HNSW index built
-   (seed corpus, all stmt-kind chunks; ``src/arxmcp/ingest/store.py:411-435``
+   (seed corpus, all stmt-kind chunks; ``src/arxmcp/corpus/store.py:411-435``
    skips index build when ``_count_non_null == 0``): fuse
    ``bm25`` + ``stmt`` only. Brief risk note.
 3. All three empty (degenerate / new corpus): return ``[]``.

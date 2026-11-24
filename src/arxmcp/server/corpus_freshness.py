@@ -1,7 +1,7 @@
 """Corpus-freshness seam — who owns "is the served corpus still the
 corpus on disk?" (issue #207).
 
-Before this module existed, nothing did. :mod:`arxmcp.ingest.corpus`'s
+Before this module existed, nothing did. :mod:`arxmcp.corpus.reader`'s
 module docstring declared cache invalidation on a corpus-version
 change a MUST and asserted the implementation honored it; the
 implementation did not. Concretely, at the time #207 was filed:
@@ -99,7 +99,7 @@ from typing import TYPE_CHECKING, Any, TypeVar
 from arxmcp.settings import DEFAULT_FRESHNESS_INTERVAL_SECONDS
 
 if TYPE_CHECKING:  # pragma: no cover
-    from arxmcp.ingest.corpus import CorpusVersionInfo
+    from arxmcp.corpus import CorpusVersionInfo
 
 logger = logging.getLogger(__name__)
 
@@ -241,7 +241,7 @@ async def read_marker_off_loop(
 ) -> CorpusVersionInfo | None:
     """Read ``corpus-version.json`` in the default executor.
 
-    Returns the parsed :class:`arxmcp.ingest.corpus.CorpusVersionInfo`, or
+    Returns the parsed :class:`arxmcp.corpus.reader.CorpusVersionInfo`, or
     ``None`` when the marker is absent, unreadable, or malformed.
 
     **Every failure collapses to ``None`` on purpose.** This runs on
@@ -254,7 +254,7 @@ async def read_marker_off_loop(
     ``Resources.startup`` on the next restart and by ``/readyz``.
 
     ``reader`` is injected (rather than importing
-    :func:`arxmcp.ingest.corpus.read_corpus_version` here) so the caller's own
+    :func:`arxmcp.corpus.reader.read_corpus_version` here) so the caller's own
     module-level binding is the one exercised — that keeps the existing
     ``monkeypatch.setattr(arxmcp.server.resources, "read_corpus_version", ...)``
     test idiom effective through this helper.

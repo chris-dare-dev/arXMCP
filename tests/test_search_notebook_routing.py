@@ -191,7 +191,7 @@ class TestNotebookTableRegistry:
     def patched_open(self, monkeypatch, tmp_path):
         """Patch the path helper + corpus reader + table opener so no
         real lancedb is needed; keep the REAL ``validate_slug``."""
-        import arxmcp.ingest.notebooks as nc
+        import arxmcp.corpus.notebooks as nc
         import arxmcp.server.resources as res_mod
 
         monkeypatch.setattr(
@@ -221,7 +221,7 @@ class TestNotebookTableRegistry:
     def test_traversal_slug_rejected(self, patched_open) -> None:
         """Threat-1 (m2 FM-4): a path-traversal slug raises NotebookError
         BEFORE any path use (real validate_slug)."""
-        from arxmcp.ingest.notebooks import NotebookError
+        from arxmcp.corpus.notebooks import NotebookError
 
         res = self._make_resources()
         for bad in ("../etc", "a/b", "ABC", "x"):

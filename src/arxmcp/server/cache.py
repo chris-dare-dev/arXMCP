@@ -440,7 +440,7 @@ class RetrievalCache:
         to a different ``corpus_version`` BEFORE the rehydrate — issue
         #207. This is the call site
         :meth:`arxmcp.server.cache_sqlite.Tier1Store.purge_other_corpus_versions`
-        never had: ``src/arxmcp/ingest/corpus.py``'s cache-invalidation contract
+        never had: ``src/arxmcp/corpus/reader.py``'s cache-invalidation contract
         declared that a corpus-version bump MUST clear caches keyed on
         the old version, and the purge method existed to serve that
         contract with zero callers anywhere in the repo.

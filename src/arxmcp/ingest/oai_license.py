@@ -11,12 +11,12 @@ signal (``<header status="deleted">``) that rides the same fetch.
 ``src/arxmcp/ingest/oai_delta.py::_fetch_page`` already solves the identical
 503/``Retry-After``/backoff/redirect-pin problem and is critique-hardened
 — but importing it pulls in ``arxmcp.ingest.bulk_ingest``, which imports the
-BGE-M3 embedder and ``arxmcp.ingest.store`` (``src/arxmcp/ingest/bulk_ingest.py:66-68``).
+BGE-M3 embedder and ``arxmcp.corpus.store`` (``src/arxmcp/ingest/bulk_ingest.py:66-68``).
 The documents backfill's "0 chunks re-embedded" guarantee is STRUCTURAL:
 it must never even import the embedder. So the 503/backoff/redirect-pin
 logic and its constants are RE-MIRRORED here (a deliberate ~60-line
 duplication) to keep this module's import graph clean: stdlib +
-``defusedxml`` + ``arxmcp.ingest.arxiv_fetch`` + ``arxmcp.ingest.identifiers`` only.
+``defusedxml`` + ``arxmcp.ingest.arxiv_fetch`` + ``arxmcp.corpus.identifiers`` only.
 
 **Parsing** uses ``defusedxml.ElementTree`` (XXE / entity-expansion
 safe — the response is untrusted external data, Threat 7), matching
@@ -49,9 +49,9 @@ from dataclasses import dataclass
 
 import defusedxml.ElementTree as DET
 
+from arxmcp.corpus import is_valid_arxiv_paper_id
 from arxmcp.ingest.arxiv_api import strip_id_version
 from arxmcp.ingest.arxiv_fetch import POLITENESS_SLEEP_SECONDS
-from arxmcp.ingest.identifiers import is_valid_arxiv_paper_id
 
 logger = logging.getLogger("oai_license")
 
@@ -201,7 +201,7 @@ def build_getrecord_url(
     Strips any trailing ``vN`` (OAI-PMH identifiers name the WORK, not a
     version snapshot; a versioned identifier is not expected to resolve),
     validates the version-stripped id with
-    :func:`arxmcp.ingest.identifiers.is_valid_arxiv_paper_id`, and joins it to
+    :func:`arxmcp.corpus.identifiers.is_valid_arxiv_paper_id`, and joins it to
     ``oai:arXiv.org:``. The old-style archive prefix + its literal ``/``
     are preserved. ``:`` and ``/`` are kept unescaped (``safe=":/"``,
     mirroring ``arxiv_api.build_id_list_url``'s convention and the

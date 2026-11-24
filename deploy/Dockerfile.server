@@ -165,7 +165,7 @@ COPY src/arxmcp/ops/ ./src/arxmcp/ops/
 # Every shipped package must resolve from the venv, never from /app.
 RUN python -c "import importlib.util, sys; \
 bad = {n: importlib.util.find_spec(n).origin \
-       for n in ('arxmcp', 'arxmcp.settings', 'arxmcp.server', 'arxmcp.ingest', 'arxmcp.tools', 'arxmcp.shim', 'arxmcp.ops') \
+       for n in ('arxmcp', 'arxmcp.settings', 'arxmcp.corpus', 'arxmcp.server', 'arxmcp.ingest', 'arxmcp.tools', 'arxmcp.shim', 'arxmcp.ops') \
        if not (importlib.util.find_spec(n).origin or '').startswith('/opt/venv/')}; \
 sys.exit(f'imports resolve outside /opt/venv: {bad}' if bad else 0)"
 

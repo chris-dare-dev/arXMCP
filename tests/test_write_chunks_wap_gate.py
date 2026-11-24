@@ -1,7 +1,7 @@
 """WAP-gate write-time correctness tests (corpus-integrity-completion-e1).
 
 This file exercises the Write-Audit-Publish gate added to
-``src/arxmcp/ingest/store.py::write_chunks`` per the binding spike-1 decision at
+``src/arxmcp/corpus/store.py::write_chunks`` per the binding spike-1 decision at
 ``.claude/notes/milestones/corpus-integrity-completion-spike-1/decision.md``.
 
 The gate is placed AFTER the existing best-effort marker-write
@@ -30,7 +30,7 @@ silently shipping a stale marker.
   must pass cleanly on the happy path.
 
 - ``test_mutation_A_wrong_value_marker`` — monkeypatch
-  ``arxmcp.ingest.store.write_corpus_version_marker`` to inject
+  ``arxmcp.corpus.store.write_corpus_version_marker`` to inject
   ``chunk_count=1``; assert ``RuntimeError`` with the count-mismatch
   error text. Copies the rect-F4-corrected pattern from
   ``tests/test_server_startup_integration.py:265-278``.
@@ -73,7 +73,7 @@ import logging
 
 import pytest
 
-import arxmcp.ingest.store as store_mod
+import arxmcp.corpus.store as store_mod
 from tests._corpus_helpers import seed_corpus_multi_paper
 
 
@@ -213,7 +213,7 @@ def test_mutation_B_missing_marker(tmp_path, monkeypatch, caplog):
     )
 
     with (
-        caplog.at_level(logging.ERROR, logger="arxmcp.ingest.store"),
+        caplog.at_level(logging.ERROR, logger="arxmcp.corpus.store"),
         pytest.raises(RuntimeError, match="is absent after"),
     ):
         seed_corpus_multi_paper(
@@ -231,7 +231,7 @@ def test_mutation_B_missing_marker(tmp_path, monkeypatch, caplog):
         "swallow warning 'could not write corpus-version.json marker' "
         "not found in caplog; the WAP gate's error message references "
         "this log line as the operator discriminator. If this fails, "
-        "the existing swallow at src/arxmcp/ingest/store.py:970-977 may have "
+        "the existing swallow at src/arxmcp/corpus/store.py:970-977 may have "
         "moved or its log message changed — re-pin the gate's error "
         "text in lockstep."
     )
@@ -244,7 +244,7 @@ def test_mutation_C_malformed_marker(tmp_path, monkeypatch):
     ``except ValueError → raise RuntimeError`` arm catches it (FM-3
     truncated atomic rename scenario).
     """
-    from arxmcp.ingest.store import CORPUS_VERSION_MARKER_NAME
+    from arxmcp.corpus.store import CORPUS_VERSION_MARKER_NAME
 
     lancedb_path = tmp_path / "lancedb"
 
@@ -318,7 +318,7 @@ def test_mutation_D_stale_marker_swallow(tmp_path, monkeypatch, caplog):
     # stays stale at 20 → COUNT-MISMATCH arm raises on the third
     # write_chunks call).
     with (
-        caplog.at_level(logging.ERROR, logger="arxmcp.ingest.store"),
+        caplog.at_level(logging.ERROR, logger="arxmcp.corpus.store"),
         pytest.raises(RuntimeError, match="reports chunk_count=") as excinfo,
     ):
         seed_corpus_multi_paper(
@@ -356,7 +356,7 @@ def test_mutation_D_stale_marker_swallow(tmp_path, monkeypatch, caplog):
         if "could not write corpus-version.json marker" in rec.message
     ]
     assert swallow_records, (
-        "the existing best-effort swallow at src/arxmcp/ingest/store.py:970-977 "
+        "the existing best-effort swallow at src/arxmcp/corpus/store.py:970-977 "
         "did NOT log the discriminator warning on the third call's "
         "failing marker write. Either the swallow has been removed or "
         "its log message has changed — both invalidate the gate's "
@@ -382,7 +382,7 @@ def test_mutation_E_audit_row_lands_on_gate_failure_path(
     """
     import json
 
-    from arxmcp.ingest.store import STORE_STATS_PATH
+    from arxmcp.corpus.store import STORE_STATS_PATH
 
     # Snapshot the audit log so we can identify rows from THIS test.
     pre_existing_rows = 0

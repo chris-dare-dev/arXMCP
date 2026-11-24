@@ -26,7 +26,7 @@ from pathlib import Path
 
 import pytest
 
-from arxmcp.ingest import notebooks as _notebook_common
+from arxmcp.corpus import notebooks as _notebook_common
 from arxmcp.tools import validate_notebook_fixtures
 from arxmcp.tools.validate_notebook_fixtures import (
     MIN_NOTEBOOK_QUERIES,

@@ -304,6 +304,6 @@ class TestColdReopen:
         LanceDB / corpus / chunks-table / embedder imports."""
         source = inspect.getsource(store_mod)
         assert "import lancedb" not in source
-        assert "arxmcp.ingest.corpus" not in source
+        assert "arxmcp.corpus.reader" not in source
         assert "chunks_table" not in source
         assert "embedder" not in source

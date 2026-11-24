@@ -313,7 +313,7 @@ def _ui_client(
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
 
-    from arxmcp.ingest import notebooks as _notebook_common
+    from arxmcp.corpus import notebooks as _notebook_common
     from arxmcp.server.notebooks_store import NotebooksStore
     from arxmcp.server.routes import notebooks as notebooks_module
     from arxmcp.server.routes.notebooks import router as notebooks_router

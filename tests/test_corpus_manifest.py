@@ -31,8 +31,8 @@ from pathlib import Path
 import pytest
 from mcp.server.fastmcp import FastMCP
 
-from arxmcp.ingest import notebooks as _notebook_common
-from arxmcp.ingest.notebooks import (
+from arxmcp.corpus import notebooks as _notebook_common
+from arxmcp.corpus.notebooks import (
     CORPUS_PARSED_DIR,
     CORPUS_RAW_DIR,
     notebook_dir,

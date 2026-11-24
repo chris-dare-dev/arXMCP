@@ -22,7 +22,7 @@ from pathlib import Path
 
 import pytest
 
-from arxmcp.ingest.identifiers import (
+from arxmcp.corpus.identifiers import (
     SOURCE_KIND_ARXIV,
     SOURCE_KIND_TEXTBOOK,
     is_valid_paper_id,

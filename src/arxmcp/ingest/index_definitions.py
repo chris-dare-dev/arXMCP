@@ -40,7 +40,7 @@ table; this module is the writer half of that contract.
 
 **CONCURRENCY:** :func:`index_definitions_for_paper` and
 :func:`index_definitions_for_corpus` run under the dataset write lock
-(:mod:`arxmcp.ingest.write_lock`), so a second writer of the dataset is
+(:mod:`arxmcp.corpus.write_lock`), so a second writer of the dataset is
 refused. Without it the
 delete-then-insert pair is two separate LanceDB MVCC commits, so two
 concurrent runs for the same paper could interleave as
@@ -58,14 +58,15 @@ from typing import TYPE_CHECKING, Any
 
 import pyarrow as pa
 
-from arxmcp.ingest.preamble import load_preamble
-from arxmcp.ingest.schema import (
+from arxmcp.corpus import (
     DEFINITIONS_SCHEMA_V1,
     DEFINITIONS_TABLE_NAME,
     LANCE_STORAGE_OPTIONS,
     add_missing_columns,
+    exits_when_write_locked,
+    holds_dataset_write_lock,
 )
-from arxmcp.ingest.write_lock import exits_when_write_locked, holds_dataset_write_lock
+from arxmcp.ingest.preamble import load_preamble
 
 if TYPE_CHECKING:
     from arxmcp.ingest.preamble_types import PreambleDoc
@@ -237,7 +238,7 @@ def _content_address(paper_id: str, symbol: str, expansion: str) -> str:
     """Compute the content-addressable ``definition_id``.
 
     The recipe mirrors the chunk-id discipline in
-    :mod:`arxmcp.ingest.identifiers`: a 16-hex-character truncation of
+    :mod:`arxmcp.corpus.identifiers`: a 16-hex-character truncation of
     ``sha256(canonical_bytes)`` is enough to make collisions
     astronomically unlikely at corpus scale (≪ 2^32 definitions) while
     keeping the column short enough for human inspection in logs.
@@ -306,7 +307,7 @@ def open_or_create_definitions_table(
     any column :data:`DEFINITIONS_SCHEMA_V1` has that it lacks.
 
     Returns a LanceDB ``Table`` handle. The path is resolved exactly
-    like the chunks-table path in :mod:`arxmcp.ingest.corpus`; callers should
+    like the chunks-table path in :mod:`arxmcp.corpus.reader`; callers should
     pass the same ``lancedb_path`` they use for the chunks table.
 
     Lazy import of ``lancedb`` keeps the test surface lean: a test
@@ -335,7 +336,7 @@ def open_or_create_definitions_table(
         tbl = db.open_table(DEFINITIONS_TABLE_NAME)
     except (ValueError, FileNotFoundError):
         # storage_options pins the on-disk Lance format (m2). See
-        # arxmcp.ingest.schema.LANCE_STORAGE_OPTIONS for the rationale.
+        # arxmcp.corpus.schema.LANCE_STORAGE_OPTIONS for the rationale.
         return db.create_table(
             DEFINITIONS_TABLE_NAME,
             schema=DEFINITIONS_SCHEMA_V1,
@@ -470,7 +471,7 @@ def index_definitions_for_corpus(
 def _cli(argv: list[str]) -> int:
     import argparse
 
-    from arxmcp.ingest.store import DEFAULT_LANCEDB_PATH
+    from arxmcp.corpus import DEFAULT_LANCEDB_PATH
 
     parser = argparse.ArgumentParser(
         prog="python -m arxmcp.ingest.index_definitions",

@@ -7,9 +7,9 @@ limits work to chunks whose embedding input actually changed.
 
 * **Reuse identity:** a stored vector is
   copied onto a freshly chunked chunk only when the chunk's reuse
-  identity (:func:`arxmcp.ingest.chunk.reuse_identity` under the TARGET
+  identity (:func:`arxmcp.corpus.chunk.reuse_identity` under the TARGET
   embedder version) equals a stored row's
-  (:func:`arxmcp.ingest.chunk.stored_reuse_identity`): same embedding input,
+  (:func:`arxmcp.corpus.chunk.stored_reuse_identity`): same embedding input,
   embedder version, embedding input policy and route. The chunk id
   plays no part, so a chunk whose kind moved it to the other route, a
   row from another embedder and a row under a legacy or NULL policy all
@@ -56,32 +56,29 @@ from pathlib import Path
 
 import numpy as np
 
-from arxmcp.ingest.bulk_ingest import DEFAULT_LANCEDB_STAGING_PATH
-from arxmcp.ingest.chunk import (
+from arxmcp.corpus import (
     CHUNKER_VERSION,
+    CHUNKS_TABLE_NAME,
+    CORPUS_VERSION_MARKER_NAME,
+    DEFAULT_LANCEDB_PATH,
     EMBED_INPUT_POLICY_VERSION,
     EMBEDDING_DIM,
     ChunkRecord,
+    EmbedRecord,
+    exits_when_write_locked,
+    holds_dataset_write_lock,
+    is_valid_paper_id,
+    load_embed_record,
     reusable_vectors,
     reuse_identity,
     route,
     stored_reuse_identity,
+    write_chunks,
 )
+from arxmcp.ingest.bulk_ingest import DEFAULT_LANCEDB_STAGING_PATH
 from arxmcp.ingest.chunker import chunk_paper
 from arxmcp.ingest.derived_indexes import build_derived_indexes
 from arxmcp.ingest.embedder import EMBEDDER_VERSION, embed_paper
-from arxmcp.ingest.identifiers import is_valid_paper_id
-from arxmcp.ingest.schema import (
-    CHUNKS_TABLE_NAME,
-    EmbedRecord,
-)
-from arxmcp.ingest.store import (
-    CORPUS_VERSION_MARKER_NAME,
-    DEFAULT_LANCEDB_PATH,
-    load_embed_record,
-    write_chunks,
-)
-from arxmcp.ingest.write_lock import exits_when_write_locked, holds_dataset_write_lock
 from arxmcp.settings import ApplicationPaths
 
 logger = logging.getLogger(__name__)
@@ -758,7 +755,7 @@ def run_re_embed(
     if paper_ids is not None:
         work_papers = paper_ids
     elif notebook_slug is not None:
-        from arxmcp.ingest.notebooks import read_paper_ids_from_papers_txt
+        from arxmcp.corpus import read_paper_ids_from_papers_txt
         from arxmcp.ingest.textbook_chunker import _resolve_notebook_dir
         notebook = _resolve_notebook_dir(notebook_slug)
         seeded = read_paper_ids_from_papers_txt(notebook / "papers.txt")
@@ -1079,7 +1076,7 @@ def _cli(argv: list[str]) -> int:
         # Late import: tools/ depends on ingest/, not the other way round
         # at module load. notebook_dir validates the slug and refuses a
         # symlinked or escaping notebook dir (Threat-1).
-        from arxmcp.ingest.notebooks import notebook_dir  # noqa: PLC0415
+        from arxmcp.corpus import notebook_dir  # noqa: PLC0415
 
         nb = notebook_dir(args.notebook)
         active_path = active_path or nb / "lancedb"

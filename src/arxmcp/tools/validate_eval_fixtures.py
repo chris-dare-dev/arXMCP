@@ -44,7 +44,7 @@ because curation is all-or-nothing. This catches accidental
 half-merges of in-progress curation work.
 
 **Single source of truth for ``CHUNKER_VERSION``.** The validator
-imports ``CHUNKER_VERSION`` from :mod:`arxmcp.ingest.chunk` rather
+imports ``CHUNKER_VERSION`` from :mod:`arxmcp.corpus.chunk` rather
 than literalizing the version string. The fixture header's ``chunker_version``
 field is the curator's commit; the validator's job is to confirm it
 matches the running chunker. Hardcoding the literal would silently
@@ -79,7 +79,7 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from arxmcp.ingest.chunk import CHUNKER_VERSION  # noqa: E402
+from arxmcp.corpus import CHUNKER_VERSION  # noqa: E402
 
 #: Default fixture path; the validator is callable with an override path.
 DEFAULT_FIXTURE_PATH = REPO_ROOT / "tests" / "eval" / "fixtures" / "queries.json"
@@ -98,10 +98,8 @@ TARGET_QUERY_COUNT = 20
 #: ``kind="stmt"`` chunks AND ≥ 5 reference ``kind="proof"``").
 MIN_QUERIES_BY_KIND = {"stmt": 5, "proof": 5}
 
-#: Mirrors :data:`arxmcp.ingest.chunker._PAPER_ID_RE` exactly. Duplicated
-#: rather than imported to keep the validator zero-dep on the chunker
-#: module (which carries LaTeXML-shaped imports). Lockstep with
-#: ``arxmcp.ingest.chunker._PAPER_ID_RE`` is locked by
+#: Mirrors :data:`arxmcp.corpus.identifiers.PAPER_ID_RE`, the regex the
+#: chunker validates with, exactly. Lockstep is locked by
 #: ``tests/eval/test_fixtures.py::test_paper_id_regex_matches_chunker``.
 #:
 #: **Deliberate asymmetry with ``_CHUNK_ID_RE`` below (m1 rect F5).**
@@ -118,7 +116,7 @@ MIN_QUERIES_BY_KIND = {"stmt": 5, "proof": 5}
 #: accordingly.
 _PAPER_ID_RE = re.compile(
     # F3 closure from m1 critique: ``\Z`` not ``$`` — see
-    # src/arxmcp/ingest/identifiers.py for the canonical pattern definition + rationale.
+    # src/arxmcp/corpus/identifiers.py for the canonical pattern definition + rationale.
     # textbook-ingest-m1: third alternative added in lockstep with the
     # canonical pattern. The eval-fixture validator never sees textbook
     # paper_ids in m1 (eval fixtures are arXiv-only); the lockstep is
@@ -130,7 +128,7 @@ _PAPER_ID_RE = re.compile(
 
 #: ``arxiv:<paper_id>:<16-hex>``. Validates the full chunk_id shape
 #: for EVAL FIXTURES ONLY (which are arXiv-only). Distinct from the
-#: dual-prefix ``arxmcp.ingest.identifiers.CHUNK_ID_RE`` that ships with
+#: dual-prefix ``arxmcp.corpus.identifiers.CHUNK_ID_RE`` that ships with
 #: textbook-ingest-m1; the validator does not currently accept
 #: textbook chunk-ids because no eval fixtures are textbook-shaped.
 #: See ``_PAPER_ID_RE`` docstring above for the deliberate asymmetry
@@ -224,7 +222,7 @@ def _iter_chunk_manifest_paths(chunks_dir: Path) -> list[Path]:
     against :data:`_PAPER_ID_RE` so a malformed directory (e.g. one
     introduced by a buggy chunker or a manual mkdir) cannot contribute
     chunk_ids to the validator's index. The chunker's own writer
-    enforces ``_validate_paper_id`` at write time; this filter is
+    enforces ``validate_paper_id`` at write time; this filter is
     defense-in-depth at read time.
     """
     if not chunks_dir.is_dir():
@@ -372,7 +370,7 @@ def _validate_header(data: dict, fixture_path: Path) -> None:
         # chunker constant. A mismatch means chunk_ids are stale.
         raise FixtureValidationError(
             f"fixture {fixture_path}: chunker_version must equal "
-            f"arxmcp.ingest.chunk.CHUNKER_VERSION ({CHUNKER_VERSION!r}), "
+            f"arxmcp.corpus.chunk.CHUNKER_VERSION ({CHUNKER_VERSION!r}), "
             f"got {data['chunker_version']!r}. Re-curate the fixture "
             f"or revert the CHUNKER_VERSION bump."
         )

@@ -2,7 +2,7 @@
 
 Extracted from ``src/arxmcp/tools/curate_seed.py`` so the m3 notebook-discovery driver
 and the curate-seed CLI share ONE arXiv-query surface. Mirrors the
-``src/arxmcp/ingest/notebooks.py`` shared-module pattern: a leading-underscore
+``src/arxmcp/corpus/notebooks.py`` shared-module pattern: a leading-underscore
 internal helper module, ``from __future__ import annotations``, an
 ``__all__`` export list, and ``if … raise`` validation (never ``assert`` —
 ``-O`` strips them, CLAUDE.md §4.7).
@@ -42,11 +42,11 @@ from datetime import datetime
 
 import defusedxml.ElementTree as DET
 
+from arxmcp.corpus import ARXIV_PAPER_ID_RE
 from arxmcp.ingest.arxiv_fetch import (
     POLITENESS_SLEEP_SECONDS,
     build_user_agent,
 )
-from arxmcp.ingest.identifiers import ARXIV_PAPER_ID_RE
 
 ARXIV_API_URL = "https://export.arxiv.org/api/query"
 ATOM_NS = {
@@ -313,7 +313,7 @@ def build_id_list_url(
 
     Guards:
 
-    - Every id must match ``arxmcp.ingest.identifiers.ARXIV_PAPER_ID_RE``
+    - Every id must match ``arxmcp.corpus.identifiers.ARXIV_PAPER_ID_RE``
       (versioned ids allowed — the API demonstrates them). One
       malformed id turns the WHOLE response into an HTTP-200 error
       feed, so pre-validation here protects the batch.

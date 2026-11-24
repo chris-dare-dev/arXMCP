@@ -5,8 +5,8 @@ from __future__ import annotations
 import re
 import subprocess
 
-from arxmcp.ingest.chunk import ChunkRecord, _compute_textbook_chunk_id
-from arxmcp.ingest.chunker import STMT_MAX_TOKENS, _validate_paper_id, _window_text_spans
+from arxmcp.corpus import ChunkRecord, compute_textbook_chunk_id, validate_paper_id
+from arxmcp.ingest.chunker import STMT_MAX_TOKENS, _window_text_spans
 from arxmcp.ingest.textbook_chunker import _resolve_notebook_dir
 from arxmcp.ingest.tokenizer import tokenize_body
 
@@ -22,7 +22,7 @@ _PROOF = re.compile(r"^\s*Proof\b[.:]?", re.IGNORECASE)
 
 def chunk_textbook_pdf(slug: str, paper_id: str) -> list[ChunkRecord]:
     """Emit complete text plus isolated formal results, retaining PDF pages."""
-    _validate_paper_id(paper_id)
+    validate_paper_id(paper_id)
     if not paper_id.startswith("textbook:"):
         raise ValueError("PDF textbook chunker requires a textbook: paper ID")
     notebook = _resolve_notebook_dir(slug)
@@ -65,7 +65,7 @@ def chunk_textbook_pdf(slug: str, paper_id: str) -> list[ChunkRecord]:
             )
             windows = _window_text_spans(body, STMT_MAX_TOKENS)
             for part_index, (window, local_start, local_end) in enumerate(windows, 1):
-                chunk_id = _compute_textbook_chunk_id(
+                chunk_id = compute_textbook_chunk_id(
                     slug, f"{paper_id}:page:{page_number}:offset:{start + local_start}", window
                 )
                 if chunk_id in seen:

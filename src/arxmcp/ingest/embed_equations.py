@@ -17,7 +17,7 @@ Same batch size (``EMBED_BATCH_DEFAULT = 32``), same dtype
 
 **Concurrency.** LanceDB merge_insert against the same table from two
 processes can interleave, so :func:`embed_pending_equations` runs under
-the dataset write lock (:mod:`arxmcp.ingest.write_lock`).
+the dataset write lock (:mod:`arxmcp.corpus.write_lock`).
 """
 
 from __future__ import annotations
@@ -28,10 +28,9 @@ from typing import Any
 
 import pyarrow as pa
 
+from arxmcp.corpus import EQUATIONS_SCHEMA_V1, exits_when_write_locked, holds_dataset_write_lock
 from arxmcp.ingest.embedder import EMBED_BATCH_DEFAULT, _encode_batch
 from arxmcp.ingest.index_equations import open_or_create_equations_table
-from arxmcp.ingest.schema import EQUATIONS_SCHEMA_V1
-from arxmcp.ingest.write_lock import exits_when_write_locked, holds_dataset_write_lock
 from arxmcp.settings import ApplicationPaths
 
 logger = logging.getLogger(__name__)

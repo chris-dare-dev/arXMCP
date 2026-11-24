@@ -46,17 +46,14 @@ import unicodedata
 import uuid
 from pathlib import Path
 
+# Reuse the corpus paper_id validator + log-field sanitiser to avoid
+# duplicating the regex and to inherit its security guarantees (Threat 1).
+from arxmcp.corpus import sanitize_log_field, validate_paper_id
+
 # Reuse the existing root-tex heuristic from the fetcher tooling rather than
 # re-implementing it. The function lives in src/arxmcp/ingest/arxiv_fetch.py and the
 # project's package layout puts both `tools/` and `ingest/` on sys.path.
 from arxmcp.ingest.arxiv_fetch import find_main_tex
-
-# Reuse the chunker's paper_id validator + log-field sanitiser to avoid
-# duplicating the regex and to inherit its security guarantees (Threat 1).
-from arxmcp.ingest.chunker import (
-    _sanitize_log_field,
-    _validate_paper_id,
-)
 from arxmcp.ingest.preamble_types import PreambleDoc
 from arxmcp.settings import ApplicationPaths
 
@@ -324,7 +321,7 @@ def extract_preamble(paper_id: str) -> PreambleDoc:
     decision belongs to the batch driver (mirrors the contract that
     ``src/arxmcp/tools/fetch_seed.py`` uses around ``src/arxmcp/tools/fetch_one_paper.py``).
     """
-    _validate_paper_id(paper_id)
+    validate_paper_id(paper_id)
 
     start = time.monotonic()
     try:
@@ -456,7 +453,7 @@ def load_preamble(paper_id: str) -> PreambleDoc | None:
     extraction; callers that want extract-or-cache semantics should call
     ``extract_preamble`` directly.
     """
-    _validate_paper_id(paper_id)
+    validate_paper_id(paper_id)
     out_path = PREAMBLE_DIR / paper_id / "preamble.json"
     return _read_existing_preamble(out_path)
 
@@ -469,8 +466,8 @@ def load_preamble(paper_id: str) -> PreambleDoc | None:
 def _log_preamble_failure(paper_id: str, elapsed_s: float, message: str) -> None:
     PREAMBLE_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
     row = (
-        f"{_sanitize_log_field(paper_id)}\tfail\t{elapsed_s:.1f}\t"
-        f"{_sanitize_log_field(message)}\n"
+        f"{sanitize_log_field(paper_id)}\tfail\t{elapsed_s:.1f}\t"
+        f"{sanitize_log_field(message)}\n"
     )
     try:
         with PREAMBLE_LOG_PATH.open("a", encoding="utf-8") as fh:

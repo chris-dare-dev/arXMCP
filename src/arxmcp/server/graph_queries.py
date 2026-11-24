@@ -49,7 +49,7 @@ from typing import Any, Literal
 
 import kuzu
 
-from arxmcp.ingest.identifiers import paper_id_from_chunk_id
+from arxmcp.corpus import paper_id_from_chunk_id
 from arxmcp.server.graph_types import CitationNeighbor
 
 logger = logging.getLogger(__name__)
@@ -275,7 +275,7 @@ def _lookup_chunk_ids_for_papers(
 
         # Local import to avoid pulling lancedb / pyarrow on the cold
         # path (e.g. tests that don't need the chunk-id lookup).
-        from arxmcp.ingest.corpus import open_chunks_table
+        from arxmcp.corpus import open_chunks_table
 
         try:
             table = open_chunks_table(lancedb_path=str(path), version=None)
@@ -346,7 +346,7 @@ async def cite_neighbors(
 
     Args:
         chunk_id: arXiv chunk_id; the source ``paper_id`` is parsed
-            via ``arxmcp.ingest.identifiers.paper_id_from_chunk_id``. Raises
+            via ``arxmcp.corpus.identifiers.paper_id_from_chunk_id``. Raises
             ``ValueError`` for malformed input.
         depth: 1 or 2.
         direction: ``"cites"`` (outgoing), ``"cited_by"`` (incoming),
@@ -382,7 +382,7 @@ async def cite_neighbors(
         critique flagged this as a HIGH-severity contract risk;
         the project pattern is to keep library functions trusting
         and lock the contract at the tool-input boundary (mirrors
-        ``arxmcp.ingest.corpus.open_chunks_table``'s warning).
+        ``arxmcp.corpus.reader.open_chunks_table``'s warning).
     """
     if max_results <= 0:
         return []

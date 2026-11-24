@@ -11,7 +11,7 @@ This is the operator-run cleanup::
 **What it keeps.**
 
 - The version ``corpus-version.json`` pins. Readers open that one.
-- The version before it: :func:`arxmcp.ingest.corpus.open_chunks_table_with_fallback`
+- The version before it: :func:`arxmcp.corpus.reader.open_chunks_table_with_fallback`
   reopens it when the pinned version fails to open.
 - Every later version, and every version younger than ``--keep-days``
   (default 7, LanceDB's own default), which covers a reader still pinned
@@ -29,7 +29,7 @@ next write moves the marker and a later prune drops the old ones. A run
 with nothing to remove does not call ``optimize``.
 
 **When to run it.** It commits to the dataset, so it takes the dataset
-write lock (:mod:`arxmcp.ingest.write_lock`) and is refused beside an ingest,
+write lock (:mod:`arxmcp.corpus.write_lock`) and is refused beside an ingest,
 re-embed or delta harvest on the same dataset. A cutover does not take
 the lock: never prune during one. A server started before the last write and
 not restarted is pinned to an older version, which survives only while
@@ -45,7 +45,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from arxmcp.ingest.write_lock import exits_when_write_locked, holds_dataset_write_lock
+from arxmcp.corpus import exits_when_write_locked, holds_dataset_write_lock
 
 #: Versions younger than this are kept whatever they are.
 DEFAULT_KEEP_DAYS = 7.0
@@ -84,7 +84,7 @@ class PruneResult:
 def _open(lancedb_path: Path):
     import lancedb
 
-    from arxmcp.ingest.schema import CHUNKS_TABLE_NAME
+    from arxmcp.corpus import CHUNKS_TABLE_NAME
 
     if not (lancedb_path / f"{CHUNKS_TABLE_NAME}.lance").is_dir():
         raise PruneRefused(f"no chunks table at {lancedb_path}")
@@ -108,7 +108,7 @@ def plan_prune(
     now: datetime | None = None,
 ) -> PrunePlan:
     """Work out which versions a prune of ``lancedb_path`` would remove."""
-    from arxmcp.ingest.corpus import read_corpus_version
+    from arxmcp.corpus import read_corpus_version
 
     if keep_days < 0:
         raise ValueError(f"keep_days must be >= 0; got {keep_days}")
@@ -188,7 +188,7 @@ def prune_versions(
 
 @exits_when_write_locked
 def _cli(argv: list[str]) -> int:
-    from arxmcp.ingest.store import DEFAULT_LANCEDB_PATH
+    from arxmcp.corpus import DEFAULT_LANCEDB_PATH
 
     parser = argparse.ArgumentParser(
         prog="python -m arxmcp.ops.prune_versions",

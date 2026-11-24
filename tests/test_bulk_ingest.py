@@ -453,7 +453,7 @@ class TestActiveCorpusVersionUntouched:
     """
 
     def test_dry_run_doesnt_touch_active_marker(self, tmp_path):
-        from arxmcp.ingest.store import DEFAULT_LANCEDB_PATH
+        from arxmcp.corpus.store import DEFAULT_LANCEDB_PATH
 
         active_marker = DEFAULT_LANCEDB_PATH / "corpus-version.json"
         before = active_marker.read_bytes() if active_marker.is_file() else None
@@ -657,7 +657,7 @@ class TestPerPaperIsolation:
         )
 
     def test_a_wap_gate_failure_stops_the_run(self, tmp_path):
-        from arxmcp.ingest.store import WapGateError
+        from arxmcp.corpus.store import WapGateError
 
         with pytest.raises(WapGateError):
             self._run(tmp_path, WapGateError("marker disagrees with table"))
@@ -672,11 +672,11 @@ class TestOneIndexBuildPerRun:
         import lancedb
         import numpy as np
 
-        import arxmcp.ingest.store as store_mod
+        import arxmcp.corpus.store as store_mod
+        from arxmcp.corpus.chunk import CHUNKER_VERSION, EMBEDDING_DIM
+        from arxmcp.corpus.schema import EmbedRecord
         from arxmcp.ingest.ar5iv_fetch import Ar5ivResult
-        from arxmcp.ingest.chunk import CHUNKER_VERSION, EMBEDDING_DIM
         from arxmcp.ingest.embedder import EmbedStats
-        from arxmcp.ingest.schema import EmbedRecord
 
         ids = ["2401.00001", "2401.00002", "2401.00003"]
         parsed_dir = tmp_path / "parsed"
@@ -924,7 +924,7 @@ class TestDiagnoseEmptyRender:
 
 
 def _row_chunk(paper_id: str, suffix: str, version: str, body: str = "body"):
-    from arxmcp.ingest.chunk import ChunkRecord
+    from arxmcp.corpus.chunk import ChunkRecord
 
     return ChunkRecord(
         chunk_id=f"arxiv:{paper_id}:{suffix}",
@@ -942,9 +942,9 @@ def _row_chunk(paper_id: str, suffix: str, version: str, body: str = "body"):
 def _write(path, chunks):
     import numpy as np
 
-    from arxmcp.ingest.chunk import EMBEDDING_DIM
-    from arxmcp.ingest.schema import EmbedRecord
-    from arxmcp.ingest.store import write_chunks
+    from arxmcp.corpus.chunk import EMBEDDING_DIM
+    from arxmcp.corpus.schema import EmbedRecord
+    from arxmcp.corpus.store import write_chunks
 
     rng = np.random.default_rng(0)
     vectors = rng.standard_normal((len(chunks), EMBEDDING_DIM)).astype(np.float32)
@@ -1001,7 +1001,7 @@ class TestChunkerVersionGuard:
         # A refusal is not a crash: one "error:" line, no traceback, and
         # exit 3 rather than the failure exit 1.
         import arxmcp.ingest.bulk_ingest as bulk
-        from arxmcp.ingest.store import STALE_CHUNKER_EXIT_CODE, StaleChunkerRowsError
+        from arxmcp.corpus.store import STALE_CHUNKER_EXIT_CODE, StaleChunkerRowsError
 
         ids = tmp_path / "ids.txt"
         ids.write_text("2401.00001\n", encoding="utf-8")
@@ -1028,7 +1028,7 @@ class TestChunkerVersionGuard:
         assert _count(path) == 2
 
     def test_refuses_a_target_holding_another_versions_arxiv_rows(self, tmp_path):
-        from arxmcp.ingest.store import StaleChunkerRowsError
+        from arxmcp.corpus.store import StaleChunkerRowsError
 
         path = tmp_path / "lancedb"
         _write(path, [_row_chunk("2401.00001", "a" * 16, "v1.2")])
@@ -1049,8 +1049,8 @@ class TestChunkerVersionGuard:
     def test_reads_the_rows_not_the_marker(self, tmp_path):
         # A textbook ingest restamps corpus-version.json with this code's
         # chunker version without touching an arXiv row.
-        from arxmcp.ingest.chunk import CHUNKER_VERSION
-        from arxmcp.ingest.store import (
+        from arxmcp.corpus.chunk import CHUNKER_VERSION
+        from arxmcp.corpus.store import (
             StaleChunkerRowsError,
             refuse_stale_chunker_rows,
             write_corpus_version_marker,
@@ -1064,7 +1064,7 @@ class TestChunkerVersionGuard:
 
     @pytest.mark.parametrize("state", ["missing", "empty", "current"])
     def test_allows_a_fresh_empty_or_current_target(self, tmp_path, state):
-        from arxmcp.ingest.chunk import CHUNKER_VERSION, CHUNKS_SCHEMA_V1
+        from arxmcp.corpus.chunk import CHUNKER_VERSION, CHUNKS_SCHEMA_V1
 
         path = tmp_path / "lancedb"
         if state == "empty":
@@ -1087,8 +1087,8 @@ class TestChunkerVersionGuard:
         assert summary.papers_succeeded == 1
 
     def test_textbook_rows_are_not_checked(self, tmp_path):
-        from arxmcp.ingest.chunk import CHUNKER_VERSION
-        from arxmcp.ingest.store import refuse_stale_chunker_rows
+        from arxmcp.corpus.chunk import CHUNKER_VERSION
+        from arxmcp.corpus.store import refuse_stale_chunker_rows
 
         path = tmp_path / "lancedb"
         _minimal_table(
@@ -1099,7 +1099,7 @@ class TestChunkerVersionGuard:
         refuse_stale_chunker_rows(path)  # no raise
 
     def test_a_null_chunker_version_counts_as_stale(self, tmp_path):
-        from arxmcp.ingest.store import StaleChunkerRowsError, refuse_stale_chunker_rows
+        from arxmcp.corpus.store import StaleChunkerRowsError, refuse_stale_chunker_rows
 
         path = tmp_path / "lancedb"
         _minimal_table(path, [("arxiv:2401.00001:" + "e" * 16, None)])

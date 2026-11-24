@@ -54,7 +54,7 @@ record", never a silently-dropped column.
   column exists for m2 to populate; m1 stores NULL rather than inventing
   a value.
 - ``parser_used`` is NULL in m1: ``ChunkRecord.parser_used`` exists in
-  ``src/arxmcp/ingest/chunk.py`` but is not promoted to a queryable column
+  ``src/arxmcp/corpus/chunk.py`` but is not promoted to a queryable column
   until m2, so there is no per-paper on-disk signal to read. NULL, not a
   guess.
 """

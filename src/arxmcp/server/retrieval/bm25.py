@@ -38,7 +38,7 @@ loads it. The build is idempotent-skip if both files already exist
 **Filter handling.** The brief lists ``categories``, ``year_min``,
 ``year_max``, ``authors``, ``include_withdrawn`` as filter keys.
 NONE of those columns exist on the ``chunks`` LanceDB table
-(verified in ``src/arxmcp/ingest/schema.py:69-118``). The ``papers`` metadata
+(verified in ``src/arxmcp/corpus/schema.py:69-118``). The ``papers`` metadata
 table planned in E06_S03 brief 1 has not been built. For Tier-1 v1,
 this module honors ``paper_id`` (a real chunks column) and surfaces
 all other keys as ``filter_warnings`` strings — same precedent as
@@ -106,7 +106,7 @@ DEFAULT_TOP_N: int = 200
 OVER_FETCH_FACTOR: int = 4
 
 #: Filter keys the chunks table CAN honor. The chunks schema
-#: (``src/arxmcp/ingest/schema.py:69-118``) carries ``paper_id``, ``kind``,
+#: (``src/arxmcp/corpus/schema.py:69-118``) carries ``paper_id``, ``kind``,
 #: ``chunker_version``, ``embedder_version``, ``preamble_ref``,
 #: ``source_kind``. We honor ``paper_id`` and ``source_kind`` (m9 /
 #: e4) — the others are unlikely in agent queries and a precise

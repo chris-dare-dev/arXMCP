@@ -31,9 +31,9 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from arxmcp.ingest.chunk import CHUNKER_VERSION, ChunkRecord
+from arxmcp.corpus.chunk import CHUNKER_VERSION, ChunkRecord
+from arxmcp.corpus.schema import CHUNKS_TABLE_NAME, LANCE_STORAGE_OPTIONS, EmbedRecord
 from arxmcp.ingest.embedder import EMBEDDER_VERSION, EMBEDDING_DIM
-from arxmcp.ingest.schema import CHUNKS_TABLE_NAME, LANCE_STORAGE_OPTIONS, EmbedRecord
 from arxmcp.server.notebooks_store import NotebooksStore
 
 # SQLite PRAGMA synchronous integer codes: OFF=0, NORMAL=1, FULL=2, EXTRA=3.
@@ -295,7 +295,7 @@ class TestLanceFormatPin:
 
         chunks = _make_minimal_corpus(2)
         embeddings = _make_embeddings(chunks)
-        from arxmcp.ingest.store import write_chunks
+        from arxmcp.corpus.store import write_chunks
 
         write_chunks(chunks, embeddings, lancedb_path=tmp_path / "lancedb")
 
@@ -307,7 +307,7 @@ class TestLanceFormatPin:
         """The pin must not break writes: a pinned table reads back."""
         chunks = _make_minimal_corpus(2)
         embeddings = _make_embeddings(chunks)
-        from arxmcp.ingest.store import write_chunks
+        from arxmcp.corpus.store import write_chunks
 
         write_chunks(chunks, embeddings, lancedb_path=tmp_path / "lancedb")
         import lancedb
@@ -319,7 +319,7 @@ class TestLanceFormatPin:
     @pytest.mark.parametrize(
         "src_path",
         [
-            "src/arxmcp/ingest/store.py",
+            "src/arxmcp/corpus/store.py",
             "src/arxmcp/ingest/index_equations.py",
             "src/arxmcp/ingest/index_definitions.py",
         ],

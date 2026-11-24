@@ -130,7 +130,7 @@ class Config(BaseSettings):
     # --- Storage ---------------------------------------------------------
 
     #: Repo-relative or absolute path to the LanceDB dataset root.
-    #: Defaults match :data:`arxmcp.ingest.store.DEFAULT_LANCEDB_PATH` (the
+    #: Defaults match :data:`arxmcp.corpus.store.DEFAULT_LANCEDB_PATH` (the
     #: writer-side default), so a single-machine dev setup needs zero
     #: config to point reader-side at the same dataset the ingest
     #: pipeline wrote.
@@ -160,7 +160,7 @@ class Config(BaseSettings):
     #: that corpus is empty). The eventual per-call multi-notebook
     #: mode (``filters.notebook=<slug>``, fork A) layers on top and
     #: reuses the same
-    #: :func:`arxmcp.ingest.notebooks.notebook_lancedb_path` helper.
+    #: :func:`arxmcp.corpus.notebooks.notebook_lancedb_path` helper.
     notebook: str | None = Field(
         default=None,
         description=(

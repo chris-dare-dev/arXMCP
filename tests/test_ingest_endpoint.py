@@ -28,7 +28,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from arxmcp.ingest import notebooks as _notebook_common
+from arxmcp.corpus import notebooks as _notebook_common
 from arxmcp.server.ingest_tracker import (
     STDERR_TAIL_MAX_BYTES,
     IngestTaskTracker,

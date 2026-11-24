@@ -217,7 +217,7 @@ class TestMakeInit:
 
 
 class TestResolveContactEmail:
-    """``arxmcp.ingest.notebooks.resolve_contact_email`` is the
+    """``arxmcp.corpus.notebooks.resolve_contact_email`` is the
     priority chain: explicit arg → SQLite operator_settings →
     ARXMCP_CONTACT_EMAIL env var → ``None`` when no address is set. Tested against an isolated
     tmp_path SQLite to avoid polluting the shared notebooks.db.

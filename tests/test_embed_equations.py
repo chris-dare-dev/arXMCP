@@ -26,10 +26,10 @@ import numpy as np
 import pyarrow as pa
 import pytest
 
+from arxmcp.corpus.schema import EQUATIONS_SCHEMA_V1
 from arxmcp.ingest.embed_equations import embed_pending_equations
 from arxmcp.ingest.embedder import EMBEDDING_DIM
 from arxmcp.ingest.index_equations import open_or_create_equations_table
-from arxmcp.ingest.schema import EQUATIONS_SCHEMA_V1
 
 
 def _empty_lancedb_path(tmp_path: Path) -> Path:

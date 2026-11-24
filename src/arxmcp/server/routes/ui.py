@@ -37,10 +37,10 @@ from fastapi.responses import HTMLResponse, Response
 from fastapi.templating import Jinja2Templates
 from markupsafe import Markup
 
-from arxmcp.ingest.identifiers import is_valid_arxiv_paper_id
-from arxmcp.ingest.notebooks import (
+from arxmcp.corpus import (
     CORPUS_PARSED_DIR,
     NotebookError,
+    is_valid_arxiv_paper_id,
     notebook_dir,
     validate_slug,
 )

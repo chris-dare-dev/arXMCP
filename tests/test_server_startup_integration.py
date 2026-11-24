@@ -54,10 +54,10 @@ Design decisions (resolved at synthesis time):
     NOT used here — see rect F1.
   - BGE-M3 is mocked via ``patch_bge_m3_model``.
   - Monkeypatch target for the mutation test:
-    ``arxmcp.ingest.store.write_corpus_version_marker`` — the module's own
+    ``arxmcp.corpus.store.write_corpus_version_marker`` — the module's own
     namespace (since ``write_chunks`` calls it by bare name at module
-    scope per ``src/arxmcp/ingest/store.py:946``). **Coverage scope (rect F2):**
-    this monkeypatch intercepts ONLY the ``arxmcp.ingest.store`` write path.
+    scope per ``src/arxmcp/corpus/store.py:946``). **Coverage scope (rect F2):**
+    this monkeypatch intercepts ONLY the ``arxmcp.corpus.store`` write path.
     It does NOT intercept ``src/arxmcp/server/routes/notebooks._rewrite_corpus_version_marker``
     or ``src/arxmcp/tools/notebook_reconcile_marker.py`` — those are parallel
     marker-write paths that mirror the schema but bypass the
@@ -204,7 +204,7 @@ def test_pre_m1_bug_shape_is_caught_by_integration(tmp_path, monkeypatch):
 
     **e1 disposition note.** Before
     ``corpus-integrity-completion-e1`` shipped the WAP gate at
-    ``src/arxmcp/ingest/store.py::write_chunks``, this test could
+    ``src/arxmcp/corpus/store.py::write_chunks``, this test could
     ``monkeypatch.setattr(store_mod, "write_corpus_version_marker",
     ...)`` to inject the pre-m1 bug shape DURING the ingest, run
     ``seed_corpus_multi_paper`` cleanly, and then expect ``/readyz``
@@ -254,7 +254,7 @@ def test_pre_m1_bug_shape_is_caught_by_integration(tmp_path, monkeypatch):
     regresses), the read-side defence-in-depth contract is broken
     even though e1's write-side may still hold.
     """
-    from arxmcp.ingest.store import CORPUS_VERSION_MARKER_NAME
+    from arxmcp.corpus.store import CORPUS_VERSION_MARKER_NAME
 
     patch_bge_m3_model(monkeypatch)
     lancedb_path = tmp_path / "lancedb"

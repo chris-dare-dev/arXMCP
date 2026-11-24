@@ -26,7 +26,7 @@ import numpy as np
 import pyarrow as pa
 import pytest
 
-from arxmcp.ingest.chunk import (
+from arxmcp.corpus.chunk import (
     CHUNKER_VERSION,
     CHUNKS_SCHEMA_V1,
     EMBED_INPUT_POLICY_VERSION,
@@ -35,6 +35,13 @@ from arxmcp.ingest.chunk import (
     route,
     to_row,
 )
+from arxmcp.corpus.schema import (
+    CHUNKS_TABLE_NAME,
+    EMBEDDING_DIM,
+    LANCE_STORAGE_OPTIONS,
+    EmbedRecord,
+)
+from arxmcp.corpus.store import CORPUS_VERSION_MARKER_NAME, write_chunks
 from arxmcp.ingest.embedder import EMBEDDER_VERSION
 from arxmcp.ingest.re_embed import (
     _read_old_embedder_version,
@@ -42,13 +49,6 @@ from arxmcp.ingest.re_embed import (
     compute_diff,
     run_re_embed,
 )
-from arxmcp.ingest.schema import (
-    CHUNKS_TABLE_NAME,
-    EMBEDDING_DIM,
-    LANCE_STORAGE_OPTIONS,
-    EmbedRecord,
-)
-from arxmcp.ingest.store import CORPUS_VERSION_MARKER_NAME, write_chunks
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -716,7 +716,7 @@ class TestMakefileReEmbedTarget:
 
 class TestChunkerVersionFreeze:
     """Closes Landmine A + adversary F4: any change to
-    ``_compute_chunk_id`` rotates every chunk_id. We pin the literal
+    ``compute_chunk_id`` rotates every chunk_id. We pin the literal
     SHA of the function's source bytes so a future PR edit fails this
     test loudly, forcing the contributor to either revert OR bump
     ``CHUNKER_VERSION`` and re-pin in the same PR.
@@ -726,39 +726,39 @@ class TestChunkerVersionFreeze:
     rotation is a staging copy plus a cutover, not a re-embed.
     """
 
-    #: SHA-256 of `inspect.getsource(_compute_chunk_id)` as of the
+    #: SHA-256 of `inspect.getsource(compute_chunk_id)` as of the
     #: v1.3 rotation. ANY edit to the function body
     #: (whitespace, docstring, algorithm) breaks this hash.
     #:
     #: To re-pin after a deliberate change:
     #: ``uv run python -c "import hashlib, inspect; from
-    #: arxmcp.ingest.chunk import _compute_chunk_id; print(hashlib.sha256(
-    #: inspect.getsource(_compute_chunk_id).encode()).hexdigest())"``
+    #: arxmcp.corpus.chunk import compute_chunk_id; print(hashlib.sha256(
+    #: inspect.getsource(compute_chunk_id).encode()).hexdigest())"``
     EXPECTED_COMPUTE_CHUNK_ID_SHA256 = (
-        "101d8d8855d0df8040c7f7d11fcb2dbe27d1f19006f093c76bdeb7e22d2f3088"
+        "886311363de83dc79d6a403d36a9becdbbb6e8dd29de13561c5d9f82bce96cc9"
     )
 
     def test_compute_chunk_id_source_is_pinned(self):
         import hashlib
         import inspect
 
-        from arxmcp.ingest.chunker import _compute_chunk_id
+        from arxmcp.ingest.chunker import compute_chunk_id
 
-        src = inspect.getsource(_compute_chunk_id)
+        src = inspect.getsource(compute_chunk_id)
         actual = hashlib.sha256(src.encode("utf-8")).hexdigest()
         assert actual == self.EXPECTED_COMPUTE_CHUNK_ID_SHA256, (
-            f"_compute_chunk_id source bytes changed.\n"
+            f"compute_chunk_id source bytes changed.\n"
             f"  expected SHA: {self.EXPECTED_COMPUTE_CHUNK_ID_SHA256}\n"
             f"  actual SHA:   {actual}\n\n"
             f"An edit to the id function rotates chunk ids: a SCHEMA "
             f"migration. Either revert the edit OR (1) bump "
-            f"arxmcp.ingest.chunk.CHUNKER_VERSION, (2) update "
+            f"arxmcp.corpus.chunk.CHUNKER_VERSION, (2) update "
             f"EXPECTED_COMPUTE_CHUNK_ID_SHA256 in this test, and "
             f"(3) rotate existing tables through staging, per notebook: "
             f"make re-embed ARGS=\"--notebook=<slug>\", then "
             f"make notebook-cutover ARGS=\"--notebook=<slug> --force\" "
             f"(the schema-migration constraint on CHUNKER_VERSION in "
-            f"src/arxmcp/ingest/chunk.py)."
+            f"src/arxmcp/corpus/chunk.py)."
         )
 
     def test_contract_strings_present(self):
@@ -768,13 +768,13 @@ class TestChunkerVersionFreeze:
         unless a caller names a position."""
         import inspect
 
-        from arxmcp.ingest.chunker import _compute_chunk_id
+        from arxmcp.ingest.chunker import compute_chunk_id
 
-        src = inspect.getsource(_compute_chunk_id)
+        src = inspect.getsource(compute_chunk_id)
         assert "unicodedata.normalize" in src
         assert "NFC" in src
         assert "sha256" in src
-        params = inspect.signature(_compute_chunk_id).parameters
+        params = inspect.signature(compute_chunk_id).parameters
         assert list(params) == ["paper_id", "body_text", "position"]
         assert params["position"].kind is inspect.Parameter.KEYWORD_ONLY
         assert params["position"].default == ""
@@ -937,7 +937,7 @@ class TestCliNotebook:
     ``--notebook``; a dataset holding textbook papers raises without a slug."""
 
     def _capture(self, monkeypatch, tmp_path):
-        import arxmcp.ingest.notebooks as common
+        import arxmcp.corpus.notebooks as common
         from arxmcp.ingest import re_embed
         from arxmcp.ingest.re_embed import ReEmbedSummary
 
@@ -991,9 +991,9 @@ class TestCliNotebook:
         assert call["notebook_slug"] == "demo-nb"
 
     def test_without_notebook_the_shared_defaults_hold(self, monkeypatch, tmp_path):
+        from arxmcp.corpus.store import DEFAULT_LANCEDB_PATH
         from arxmcp.ingest.bulk_ingest import DEFAULT_LANCEDB_STAGING_PATH
         from arxmcp.ingest.re_embed import DEFAULT_STATE_PATH
-        from arxmcp.ingest.store import DEFAULT_LANCEDB_PATH
 
         re_embed, calls = self._capture(monkeypatch, tmp_path)
 
@@ -1006,7 +1006,7 @@ class TestCliNotebook:
         assert call["state_path"] == DEFAULT_STATE_PATH
 
     def test_a_bad_slug_is_refused(self, monkeypatch, tmp_path):
-        from arxmcp.ingest.notebooks import NotebookError
+        from arxmcp.corpus.notebooks import NotebookError
 
         re_embed, calls = self._capture(monkeypatch, tmp_path)
         with pytest.raises(NotebookError):
@@ -1228,7 +1228,7 @@ class TestOneTimeIdRotation:
     def test_cutover_promotes_the_rotation_and_drops_version_keyed_caches(
         self, tmp_path
     ):
-        from arxmcp.ingest.corpus import read_corpus_version
+        from arxmcp.corpus.reader import read_corpus_version
         from arxmcp.tools import notebook_cutover as nc
 
         corpus, active, stored = self._setup(tmp_path)

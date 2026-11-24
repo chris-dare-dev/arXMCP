@@ -118,7 +118,7 @@ class TestSnippetShape:
             )
 
     def test_chunk_id_present_and_well_formed(self, warm_app):
-        from arxmcp.ingest.identifiers import is_valid_chunk_id
+        from arxmcp.corpus.identifiers import is_valid_chunk_id
 
         body = _search(warm_app)
         rows = body["result"]["structuredContent"]["results"]
@@ -296,20 +296,20 @@ class TestSchemaConformance:
 
 class TestRegexSourceOfTruth:
     """F1 close: the schema's chunk_id pattern must equal
-    ``arxmcp.ingest.identifiers.CHUNK_ID_PATTERN`` byte-for-byte. E06_S03
+    ``arxmcp.corpus.identifiers.CHUNK_ID_PATTERN`` byte-for-byte. E06_S03
     F11 collapsed the regex to a single source of truth; this test
     ensures the JSON Schema file does not silently re-introduce the
     drift surface.
     """
 
     def test_schema_chunk_id_pattern_matches_canonical(self):
-        from arxmcp.ingest.identifiers import CHUNK_ID_PATTERN
+        from arxmcp.corpus.identifiers import CHUNK_ID_PATTERN
 
         schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
         pat = schema["properties"]["results"]["items"]["properties"]["chunk_id"]["pattern"]
         assert pat == f"^{CHUNK_ID_PATTERN}$", (
             f"schema chunk_id pattern drifted from "
-            f"arxmcp.ingest.identifiers.CHUNK_ID_PATTERN; see E06_S03 F11. "
+            f"arxmcp.corpus.identifiers.CHUNK_ID_PATTERN; see E06_S03 F11. "
             f"schema={pat!r}, expected=^{CHUNK_ID_PATTERN}$"
         )
 

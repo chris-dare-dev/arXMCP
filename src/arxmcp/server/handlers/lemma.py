@@ -1,7 +1,7 @@
 """``find_lemma_by_name`` handler — FTS5 + Jaccard fallback (E10_S02).
 
 Three-step lookup against the SQLite-backed
-:class:`arxmcp.ingest.theorem_names_store.TheoremNamesStore`:
+:class:`arxmcp.corpus.theorem_names_store.TheoremNamesStore`:
 
 1. **Exact match** on the normalized form
    (``retrieval_mode="fts5_exact"``).
@@ -15,7 +15,7 @@ Three-step lookup against the SQLite-backed
    substrings of the indexed ``"riemannroch"``. The Jaccard step
    scores by trigram-set overlap which tolerates inner-character
    typos.
-   Past :data:`arxmcp.ingest.theorem_names_store.JACCARD_ROW_CEILING` rows
+   Past :data:`arxmcp.corpus.theorem_names_store.JACCARD_ROW_CEILING` rows
    it scores only the FTS5 trigram candidates instead of every row
    (``retrieval_mode="fts5_trigram_capped"``).
 
@@ -43,7 +43,7 @@ from typing import Annotated, Any
 
 from pydantic import Field
 
-from arxmcp.ingest.theorem_names_store import (
+from arxmcp.corpus import (
     TheoremNamesStore,
     TheoremRow,
     dedup_key,

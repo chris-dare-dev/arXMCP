@@ -25,8 +25,9 @@ from pathlib import Path
 
 import pytest
 
+from arxmcp.corpus import notebooks as _notebook_common
 from arxmcp.ingest import bulk_ingest
-from arxmcp.ingest import notebooks as _notebook_common
+from arxmcp.ingest import notebooks as _ingest_notebooks
 from arxmcp.settings import VENDORED_ARXIV_CA_BUNDLE
 from arxmcp.tools import (
     fetch_one_paper,
@@ -81,7 +82,7 @@ def _drive_recover_preambles(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
 
 
 def _drive_notebook_raw_tex(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    _notebook_common.fetch_raw_tex_if_missing(PAPER_ID, tmp_path / "raw")
+    _ingest_notebooks.fetch_raw_tex_if_missing(PAPER_ID, tmp_path / "raw")
 
 
 ENTRY_POINTS: dict[str, Callable[[Path, pytest.MonkeyPatch], None]] = {

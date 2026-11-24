@@ -51,7 +51,7 @@ Pydantic constraint). No sentence tokenization at v1.
 **Concurrency.** The delete-then-insert pair (per-paper sweep) is two
 separate MVCC commits that concurrent runs could interleave, orphaning
 rows, so :func:`extract_equations_for_paper` runs under the dataset
-write lock (:mod:`arxmcp.ingest.write_lock`).
+write lock (:mod:`arxmcp.corpus.write_lock`).
 """
 
 from __future__ import annotations
@@ -66,10 +66,14 @@ from typing import Any, NamedTuple
 import pyarrow as pa
 from bs4 import BeautifulSoup, Tag
 
-from arxmcp.ingest.identifiers import is_valid_arxiv_paper_id
+from arxmcp.corpus import (
+    CHUNKS_TABLE_NAME,
+    EQUATIONS_SCHEMA_V1,
+    exits_when_write_locked,
+    holds_dataset_write_lock,
+    is_valid_arxiv_paper_id,
+)
 from arxmcp.ingest.index_equations import open_or_create_equations_table
-from arxmcp.ingest.schema import CHUNKS_TABLE_NAME, EQUATIONS_SCHEMA_V1
-from arxmcp.ingest.write_lock import exits_when_write_locked, holds_dataset_write_lock
 from arxmcp.settings import ApplicationPaths
 
 logger = logging.getLogger(__name__)

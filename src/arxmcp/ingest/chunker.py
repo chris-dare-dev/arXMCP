@@ -6,7 +6,7 @@ chunk_paper(paper_id: str, *, parsed_dir: Path | None = None) -> list[ChunkRecor
     Walk ``<parsed_dir>/<paper_id>/index.html`` (``parsed_dir`` defaults to
     ``var/arxmcp/corpus/parsed``), extract all
     theorem, proof, definition, section, and similar environments, and return
-    a list of :class:`~arxmcp.ingest.chunk.ChunkRecord` objects.  Output
+    a list of :class:`~arxmcp.corpus.chunk.ChunkRecord` objects.  Output
     JSON files are written to ``var/arxmcp/corpus/chunks/<paper_id>/``.
 
 Token budgets
@@ -32,7 +32,7 @@ corrupt paper does not abort the ingestion loop.
 Determinism (BP1)
 -----------------
 *Output bytes are reproducible.*  Dict keys are sorted before JSON
-serialisation (see :meth:`~arxmcp.ingest.chunk.ChunkRecord.to_dict`).
+serialisation (see :meth:`~arxmcp.corpus.chunk.ChunkRecord.to_dict`).
 No timestamps, no random content. Chunk IDs are content-addressable
 ``arxiv:<paper_id>:<sha256(NFC(body_text))[:16]>`` (the body only; the
 paper preamble is not hashed). The hash input
@@ -59,11 +59,17 @@ from typing import TYPE_CHECKING
 
 from bs4 import BeautifulSoup, NavigableString, Tag
 
-# The record, its version and the chunk-id hash live in arxmcp.ingest.chunk. The id
+# The record, its version and the chunk-id hash live in arxmcp.corpus.chunk. The id
 # function is imported under its bare name so ``_chunk_paper_impl`` resolves
-# it in this module's namespace (tests patch ``arxmcp.ingest.chunker._compute_chunk_id``
+# it in this module's namespace (tests patch ``arxmcp.ingest.chunker.compute_chunk_id``
 # and ``TestChunkerVersionFreeze`` pins its source through this re-export).
-from arxmcp.ingest.chunk import CHUNKER_VERSION, ChunkRecord, _compute_chunk_id
+from arxmcp.corpus import (
+    CHUNKER_VERSION,
+    ChunkRecord,
+    compute_chunk_id,
+    sanitize_log_field,
+    validate_paper_id,
+)
 from arxmcp.ingest.hidden_text import count_by_kind, scan_hidden_text
 from arxmcp.ingest.tokenizer import tokenize_body
 from arxmcp.settings import ApplicationPaths
@@ -129,42 +135,6 @@ _PAREN_NAME_RE = re.compile(r"\(([^)]+)\)")
 # id "A2.ThmThm1" can disagree with the rendered prefix "B.1"; the rendered
 # text is the only reliable source).
 _PRINTED_NUMBER_RE = re.compile(r"(?:^|[\s(\[])([A-Za-z]?\.?\d+(?:\.\d+)*)[\s.]*$")
-
-# Closes F2: paper_id must match new-style YYMM.NNNNN[N][vN] or old-style
-# subject/NNNNNNN[vN] or textbook:<slug> (textbook-ingest-m1); everything
-# else is rejected before any path concat (Threat 1). Byte-equality with
-# src/arxmcp/ingest/identifiers.py::_PAPER_ID_FULL_PATTERN is enforced by
-# tests/test_identifiers.py::test_chunker_pattern_equals_canonical.
-_PAPER_ID_RE = re.compile(
-    # F3 closure from m1 critique: ``\Z`` not ``$`` — see
-    # src/arxmcp/ingest/identifiers.py for the canonical pattern definition + rationale.
-    # textbook-ingest-m1: third alternative ``textbook:<slug>`` added in
-    # lockstep with the canonical pattern. The chunker never PRODUCES
-    # textbook paper_ids in m1 (no schema for textbook chunks yet), but
-    # the lockstep is required by the byte-equality test.
-    r"^\d{4}\.\d{4,5}(v\d+)?\Z"
-    r"|^[a-z][a-z\-]*/\d{7}(v\d+)?\Z"
-    r"|^textbook:[a-z][a-z0-9-]{2,30}\Z"
-)
-
-
-class InvalidPaperIDError(ValueError):
-    """Raised when a paper_id fails the validation regex."""
-
-
-def _validate_paper_id(paper_id: str) -> None:
-    """Reject paper_ids that could enable path traversal or log injection."""
-    if not isinstance(paper_id, str) or not _PAPER_ID_RE.match(paper_id):
-        raise InvalidPaperIDError(
-            f"paper_id {paper_id!r} does not match new-style YYMM.NNNNN[vN] "
-            "or old-style subject/NNNNNNN[vN]"
-        )
-
-
-def _sanitize_log_field(s: str) -> str:
-    """Strip TSV-breaking characters (tab, newline, carriage return)."""
-    return s.replace("\t", " ").replace("\n", " ").replace("\r", " ")
-
 
 # Closes F8: targeted exception envelope for per-paper failures, mirroring
 # src/arxmcp/ingest/arxiv_fetch.py's PER_PAPER_FAILURE_EXCEPTIONS pattern (commits
@@ -240,7 +210,7 @@ _THEOREM_ENV_KINDS = {
     # Short-form aliases observed in real arXiv papers (math.AG corpus
     # April 2026 — IntroThm/IntroCor/Df/Lm/Rmk style class names from
     # LaTeXML). Without these the fallback would emit raw env_name
-    # which arxmcp.ingest.chunk.ALLOWED_KINDS rejects.
+    # which arxmcp.corpus.chunk.ALLOWED_KINDS rejects.
     "lm": "lemma",
     "df": "definition",
     "rmk": "remark",
@@ -583,7 +553,7 @@ def _env_kind(env_name: str) -> str:
     bulk-ingest crash when papers used custom theorem environments
     not in ``_THEOREM_ENV_KINDS`` (e.g. an author's ``\\newtheorem
     {weirdthm}``) because the resulting chunk's ``kind`` is rejected
-    by ``arxmcp.ingest.chunk.ALLOWED_KINDS``.
+    by ``arxmcp.corpus.chunk.ALLOWED_KINDS``.
     """
     return _THEOREM_ENV_KINDS.get(env_name.lower(), "stmt")
 
@@ -1145,7 +1115,7 @@ def _extract_body_fallback_chunks(
     into ``STMT_MAX_TOKENS``-bounded chunks, and emits ``kind="section"``
     records with an empty ``section_path``. Placeholder ids are assigned
     here; :func:`_chunk_paper_impl`'s post-pass replaces them with the
-    content-addressable :func:`_compute_chunk_id` hash and applies the same
+    content-addressable :func:`compute_chunk_id` hash and applies the same
     dedup rule, so fallback chunks inherit determinism and collision-safety
     unchanged.
 
@@ -1278,7 +1248,7 @@ def chunk_paper(
     # Validation runs OUTSIDE the per-paper exception envelope so an invalid
     # paper_id surfaces to the caller rather than being silently logged with
     # itself as the offending field.
-    _validate_paper_id(paper_id)
+    validate_paper_id(paper_id)
 
     start = time.monotonic()
     try:
@@ -1404,7 +1374,7 @@ def _chunk_paper_impl(paper_id: str, parsed_dir: Path | None) -> list[ChunkRecor
     # hybrid papers lose their ``tex-offset`` ids here and take the same
     # body-only id; only a TeX-chunker-owned paper (the early return at the
     # top of this function) keeps its position value. See
-    # ``_compute_chunk_id`` for the NFC discipline. The hash must be
+    # ``compute_chunk_id`` for the NFC discipline. The hash must be
     # assigned in a SEPARATE pass that runs AFTER ``preamble_ref`` and
     # ``body_tokens`` are populated so the tokenizer wire-in cannot
     # accidentally feed normalized bytes into the chunk_id input (it
@@ -1423,7 +1393,7 @@ def _chunk_paper_impl(paper_id: str, parsed_dir: Path | None) -> list[ChunkRecor
     seen: dict[str, str] = {}  # chunk_id -> body_text fingerprint
     deduped_chunks: list[ChunkRecord] = []
     for chunk in all_chunks:
-        chunk.chunk_id = _compute_chunk_id(paper_id, chunk.body_text)
+        chunk.chunk_id = compute_chunk_id(paper_id, chunk.body_text)
         if chunk.chunk_id in seen:
             if seen[chunk.chunk_id] == chunk.body_text:
                 # Legitimate duplicate content — drop the second copy.
@@ -1590,8 +1560,8 @@ def _log_chunk_failure(paper_id: str, elapsed_s: float, message: str) -> None:
     """
     CHUNK_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
     row = (
-        f"{_sanitize_log_field(paper_id)}\tfail\t{elapsed_s:.1f}\t"
-        f"{_sanitize_log_field(message)}\n"
+        f"{sanitize_log_field(paper_id)}\tfail\t{elapsed_s:.1f}\t"
+        f"{sanitize_log_field(message)}\n"
     )
     try:
         with CHUNK_LOG_PATH.open("a", encoding="utf-8") as fh:

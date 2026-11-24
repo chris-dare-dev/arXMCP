@@ -641,14 +641,14 @@ class TestLatencyBudgetPin:
 class TestColumnNamesSourceOfTruth:
     def test_test_module_uses_imported_constant(self):
         """Closes F3: ``EMBEDDING_COLUMN_NAMES`` is exported from
-        ``arxmcp.ingest.schema``; the eval harness imports it rather than
+        ``arxmcp.corpus.schema``; the eval harness imports it rather than
         literalizing the column-name strings."""
-        from arxmcp.ingest.schema import EMBEDDING_COLUMN_NAMES
+        from arxmcp.corpus.schema import EMBEDDING_COLUMN_NAMES
         from tests.eval.test_retrieval_quality import EMBEDDING_COLUMNS
 
         assert EMBEDDING_COLUMNS is EMBEDDING_COLUMN_NAMES
         # Sanity: the actual schema column list contains both names.
-        from arxmcp.ingest.schema import CHUNKS_SCHEMA_V1
+        from arxmcp.corpus.schema import CHUNKS_SCHEMA_V1
 
         schema_field_names = {f.name for f in CHUNKS_SCHEMA_V1}
         for col in EMBEDDING_COLUMN_NAMES:

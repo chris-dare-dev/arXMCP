@@ -86,7 +86,7 @@ dependencies = [
     #   this dependency is installed and the repo ships safetensors files.
     "safetensors>=0.4",
     # numpy: NPZ-store backing for the per-paper embedding vectors written
-    #   by ``src/arxmcp/ingest/embedder.py``. Read by E04_S01's ``src/arxmcp/ingest/store.py``
+    #   by ``src/arxmcp/ingest/embedder.py``. Read by E04_S01's ``src/arxmcp/corpus/store.py``
     #   when assembling LanceDB rows.
     "numpy>=1.24",
     # lancedb: vector store for the chunks table (E04_S01). Embedded
@@ -95,7 +95,7 @@ dependencies = [
     #   On-disk format pin (notebook-ops-hardening-m2): every
     #   ``db.create_table`` passes
     #   ``storage_options={"new_table_data_storage_version": "stable"}``
-    #   (see ``arxmcp.ingest.schema.LANCE_STORAGE_OPTIONS``) so a version bump
+    #   (see ``arxmcp.corpus.schema.LANCE_STORAGE_OPTIONS``) so a version bump
     #   here can't silently migrate the on-disk format under a pinned
     #   reader.
     #
@@ -124,7 +124,7 @@ dependencies = [
     #   re-running the suite against the candidate, not editing this number.
     #
     #   FLOOR CORRECTED 2026-07-31 (issue #206): it was ``>=0.6``, which the
-    #   code cannot actually run against. ``src/arxmcp/ingest/schema.py:112`` documents
+    #   code cannot actually run against. ``src/arxmcp/corpus/schema.py:112`` documents
     #   that the modern kwarg is
     #   ``storage_options={"new_table_data_storage_version": "stable"}`` and
     #   that the older bare ``data_storage_version="stable"`` was accepted
@@ -135,7 +135,7 @@ dependencies = [
     "lancedb>=0.30.2,<0.35",
     # pyarrow: schema definition for the LanceDB ``chunks`` table
     #   (E04_S01). The single source of truth for all downstream readers
-    #   lives in ``src/arxmcp/ingest/schema.py`` as a ``pa.schema(...)`` object.
+    #   lives in ``src/arxmcp/corpus/schema.py`` as a ``pa.schema(...)`` object.
     #   Floor raised 16.0 and capped below 25 (issue #206): the schema
     #   object is the contract between ingest and every reader, and pyarrow
     #   has removed deprecated schema//type APIs at major boundaries before.
@@ -382,14 +382,15 @@ include_external_packages = false
 
 [[tool.importlinter.contracts]]
 # Invariant: a box imports only the boxes below it. ops and tools sit on top,
-# then server, then ingest, with settings at the base. The exceptions list
-# only shrinks.
+# then server, then ingest, then corpus, with settings at the base. The
+# exceptions list only shrinks.
 name = "Boxes import downward only"
 type = "layers"
 layers = [
     "arxmcp.ops | arxmcp.tools",
     "arxmcp.server",
     "arxmcp.ingest",
+    "arxmcp.corpus",
     "arxmcp.settings",
 ]
 ignore_imports = [
@@ -408,5 +409,6 @@ name = "The shim imports no other box"
 type = "forbidden"
 source_modules = ["arxmcp.shim"]
 forbidden_modules = [
-    "arxmcp.server", "arxmcp.ingest", "arxmcp.ops", "arxmcp.settings", "arxmcp.tools",
+    "arxmcp.server", "arxmcp.ingest", "arxmcp.corpus", "arxmcp.ops", "arxmcp.settings",
+    "arxmcp.tools",
 ]

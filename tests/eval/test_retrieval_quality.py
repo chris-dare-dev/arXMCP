@@ -47,7 +47,7 @@ skip-on-cold-start protocol keeps cycle time fast.
 - ``src/arxmcp/ops/eval_metrics.py`` — pure ``ndcg_at_k`` / ``recall_at_k`` /
   ``assert_threshold`` (unit-tested in ``tests/eval/test_metrics.py``).
 - ``src/arxmcp/server/query_encoder.py`` — async ``encode_query`` (E03_S03).
-- ``src/arxmcp/ingest/corpus.py`` — ``open_chunks_table`` + ``read_corpus_version``
+- ``src/arxmcp/corpus/reader.py`` — ``open_chunks_table`` + ``read_corpus_version``
   (E04_S02 + E04_S03).
 - ``src/arxmcp/tools/validate_eval_fixtures.py`` — fixture validator (E05_S01).
 """
@@ -64,7 +64,7 @@ from pathlib import Path
 
 import pytest
 
-from arxmcp.ingest.schema import EMBEDDING_COLUMN_NAMES
+from arxmcp.corpus.schema import EMBEDDING_COLUMN_NAMES
 from arxmcp.ops.eval_metrics import (
     _mean,
     assert_threshold,
@@ -97,7 +97,7 @@ EVAL_OPS_DIR = REPO_ROOT / "var" / "arxmcp" / "ops" / "eval"
 PER_COLUMN_TOP_K = 10
 
 #: The two embedding columns to search. Imported from
-#: :data:`arxmcp.ingest.schema.EMBEDDING_COLUMN_NAMES` per F3 of the E05_S02
+#: :data:`arxmcp.corpus.schema.EMBEDDING_COLUMN_NAMES` per F3 of the E05_S02
 #: critique — the column-name strings live in exactly one place
 #: (single-source-of-truth: a future schema rename touches one constant).
 EMBEDDING_COLUMNS = EMBEDDING_COLUMN_NAMES
@@ -148,7 +148,7 @@ def test_retrieval_quality(
     # Import deferred so a fully-cold dev box (no LanceDB installed)
     # does not import-error here. Skipping is the right signal.
     try:
-        from arxmcp.ingest.corpus import open_chunks_table, read_corpus_version
+        from arxmcp.corpus.reader import open_chunks_table, read_corpus_version
         from arxmcp.server.query_encoder import encode_query
     except ImportError as exc:
         pytest.skip(

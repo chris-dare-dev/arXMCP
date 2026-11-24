@@ -31,12 +31,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from arxmcp.ingest.notebooks import (
-    NOTEBOOKS_BASE,
-    NotebookError,
-    notebook_lancedb_path,
-    validate_slug,
-)
+from arxmcp.corpus import NOTEBOOKS_BASE, NotebookError, notebook_lancedb_path, validate_slug
 
 logger = logging.getLogger("notebook_repair_registry")
 
@@ -51,7 +46,7 @@ def _read_marker_safely(
     server-down path produces the same response classification as the
     server-up REST endpoint.
     """
-    from arxmcp.ingest.corpus import read_corpus_version  # local
+    from arxmcp.corpus import read_corpus_version
 
     try:
         info = read_corpus_version(notebook_lance_path)
@@ -172,7 +167,7 @@ def main(
     Tests pass ``db_path`` + ``notebooks_base`` explicitly to scope to a
     ``tmp_path``-scoped fixture; production callers pass ``None`` and the
     defaults resolve to ``var/arxmcp/cache/notebooks.db`` +
-    :data:`arxmcp.ingest.notebooks.NOTEBOOKS_BASE`.
+    :data:`arxmcp.corpus.notebooks.NOTEBOOKS_BASE`.
     """
     del argv  # accepted for symmetry with other tools/notebook_*.py mains
 

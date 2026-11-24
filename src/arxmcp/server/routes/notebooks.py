@@ -22,9 +22,9 @@ The implementation enforces this by ONLY calling
 :meth:`NotebooksStore.delete_notebook`; no filesystem mutation.
 
 **Slug + URL validation** delegate to existing project helpers:
-- ``arxmcp.ingest.notebooks.validate_slug`` (m6 F1/F3 path-traversal
+- ``arxmcp.corpus.notebooks.validate_slug`` (m6 F1/F3 path-traversal
   + symlink defense)
-- ``arxmcp.ingest.identifiers.is_valid_paper_id`` (m1 rect F3 \\Z-anchor
+- ``arxmcp.corpus.identifiers.is_valid_paper_id`` (m1 rect F3 \\Z-anchor
   hardening against trailing-newline classes)
 
 No re-implementation of either regex — both are shared with the
@@ -66,10 +66,11 @@ from fastapi import (
 from fastapi.responses import HTMLResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
-from arxmcp.ingest.identifiers import is_valid_arxiv_paper_id, is_valid_paper_id
-from arxmcp.ingest.notebooks import (
+from arxmcp.corpus import (
     NOTEBOOKS_BASE,
     NotebookError,
+    is_valid_arxiv_paper_id,
+    is_valid_paper_id,
     notebook_dir,
     notebook_lancedb_path,
     validate_slug,
@@ -144,7 +145,7 @@ def _arxiv_url_to_paper_id(url: str) -> str | None:
       - ``ar5iv.labs.arxiv.org/abs/...`` (wrong prefix for that host)
       - Any host outside :data:`_ACCEPTED_HOSTS`
       - Trailing newlines / whitespace (rejected via
-        :func:`arxmcp.ingest.identifiers.is_valid_paper_id` \\Z anchor)
+        :func:`arxmcp.corpus.identifiers.is_valid_paper_id` \\Z anchor)
     """
     if not isinstance(url, str) or not url:
         return None
@@ -201,12 +202,12 @@ def get_application_paths(request: Request) -> ApplicationPaths:
     # Isolated router tests and third-party embeddings may mount this router
     # without ``arxmcp.server.main.create_app``. Preserve that supported seam while
     # production always takes the Config branch above.
-    from arxmcp.ingest import notebooks as common  # noqa: PLC0415
+    from arxmcp.corpus import CORPUS_PARSED_DIR  # noqa: PLC0415
 
     return replace(
         ApplicationPaths.resolve(),
         notebooks=NOTEBOOKS_BASE,
-        corpus=common.CORPUS_PARSED_DIR.parent,
+        corpus=CORPUS_PARSED_DIR.parent,
     )
 
 
@@ -1153,7 +1154,7 @@ def _read_marker_safely(
     the walk loop in ``repair_registry`` keeps going across the
     remaining dirs.
     """
-    from arxmcp.ingest.corpus import read_corpus_version  # local
+    from arxmcp.corpus import read_corpus_version
 
     try:
         info = read_corpus_version(notebook_lance_path)
@@ -1176,7 +1177,7 @@ def _recount_notebook_lancedb(
     snapshot — m3 synthesis FM-1 / FM-2: concurrent-ingest-safe) and
     return ``(chunk_count, distinct_paper_count)``.
 
-    Uses ``arxmcp.ingest.corpus.open_chunks_table(...)`` which calls
+    Uses ``arxmcp.corpus.reader.open_chunks_table(...)`` which calls
     ``tbl.checkout(version)`` in-place — confirmed snapshot-consistent
     by ``tests/test_mvcc.py::TestVersionPinning``. The handle is
     read-only after checkout; concurrent ``tbl.add()`` from an
@@ -1189,7 +1190,7 @@ def _recount_notebook_lancedb(
     """
     import pyarrow.compute as pc  # noqa: PLC0415
 
-    from arxmcp.ingest.corpus import open_chunks_table, project_columns  # local
+    from arxmcp.corpus import open_chunks_table, project_columns
 
     tbl = open_chunks_table(notebook_lance_path, version=version)
     chunk_count = tbl.count_rows()
@@ -1216,7 +1217,7 @@ def _write_marker_atomically(
     notebook_lance_path: Path, info: object
 ) -> None:
     """Rewrite ``corpus-version.json`` atomically — mirrors
-    ``src/arxmcp/ingest/store.py::write_corpus_version_marker`` verbatim (m3
+    ``src/arxmcp/corpus/store.py::write_corpus_version_marker`` verbatim (m3
     synthesis §2 — load-bearing facts).
 
     POSIX-atomic ``os.replace`` requires the tmp file to be co-located
@@ -1234,7 +1235,7 @@ def _write_marker_atomically(
     out_path.parent.mkdir(parents=True, exist_ok=True)
     # ``info`` is a ``CorpusVersionInfo``; we use its alphabetical-key
     # ``to_dict`` to match the existing marker's byte-shape. The
-    # serializer arguments mirror ``src/arxmcp/ingest/store.py::write_corpus_version_marker``
+    # serializer arguments mirror ``src/arxmcp/corpus/store.py::write_corpus_version_marker``
     # VERBATIM (sort_keys=True, ensure_ascii=False, default
     # separators, trailing "\n"). Diverging here would break the
     # byte-identical idempotency contract from m3 synthesis §3 D4
@@ -1439,7 +1440,7 @@ async def reconcile_marker(
     ``version`` field — NEVER ``version=None``. MVCC checkout-at-version
     provides a snapshot-consistent recount even if a concurrent ingest
     is producing v+1. The marker rewrite uses the canonical
-    ``src/arxmcp/ingest/store.py`` atomic pattern (tmp co-located + ``os.replace``).
+    ``src/arxmcp/corpus/store.py`` atomic pattern (tmp co-located + ``os.replace``).
 
     ``created_at`` is preserved from the existing marker so a repeated
     ``make reconcile`` is **byte-identical** (m3 synthesis §3 D4 / FM-10).

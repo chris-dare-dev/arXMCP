@@ -65,11 +65,11 @@ import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
-from arxmcp.ingest.corpus import read_corpus_version
-from arxmcp.ingest.notebooks import (
+from arxmcp.corpus import (
     NOTEBOOKS_BASE,
     NotebookError,
     notebook_dir,
+    read_corpus_version,
     validate_slug,
 )
 

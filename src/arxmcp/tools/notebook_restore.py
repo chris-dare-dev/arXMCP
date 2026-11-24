@@ -55,12 +55,7 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Final
 
-from arxmcp.ingest.notebooks import (
-    NOTEBOOKS_BASE,
-    NotebookError,
-    notebook_dir,
-    validate_slug,
-)
+from arxmcp.corpus import NOTEBOOKS_BASE, NotebookError, notebook_dir, validate_slug
 from arxmcp.server.notebooks_store import open_sync
 
 logger = logging.getLogger(__name__)

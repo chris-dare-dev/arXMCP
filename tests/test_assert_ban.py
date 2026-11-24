@@ -40,6 +40,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 #: ``[tool.setuptools.packages.find]`` in ``pyproject.toml`` declares.
 SHIPPED_TREES: tuple[str, ...] = (
     "src/arxmcp/settings",
+    "src/arxmcp/corpus",
     "src/arxmcp/server",
     "src/arxmcp/ingest",
     "src/arxmcp/tools",

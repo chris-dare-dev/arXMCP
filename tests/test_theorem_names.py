@@ -31,15 +31,11 @@ from typing import Any
 import pyarrow as pa
 import pytest
 
-import arxmcp.ingest.theorem_names_store as store_mod
+import arxmcp.corpus.theorem_names_store as store_mod
 import arxmcp.server.handlers.lemma as lemma_handler_mod
 import arxmcp.server.tools as server_tools
-from arxmcp.ingest.index_theorem_names import (
-    build_rows_from_chunks_for_paper,
-    index_theorem_names_for_paper,
-)
-from arxmcp.ingest.schema import CHUNKS_SCHEMA_V1
-from arxmcp.ingest.theorem_names_store import (
+from arxmcp.corpus.schema import CHUNKS_SCHEMA_V1
+from arxmcp.corpus.theorem_names_store import (
     DEFAULT_JACCARD_THRESHOLD,
     SCHEMA_VERSION,
     TheoremNamesStore,
@@ -50,6 +46,10 @@ from arxmcp.ingest.theorem_names_store import (
     serialize_section_path,
     trigram_jaccard,
     trigrams,
+)
+from arxmcp.ingest.index_theorem_names import (
+    build_rows_from_chunks_for_paper,
+    index_theorem_names_for_paper,
 )
 
 

@@ -38,7 +38,7 @@ is NOT advanced; activation is E11_S05's atomic cutover.
   touched; a manual server restart is the mechanism.
 - D12: ``<header status="deleted">`` records are not chunked or
   embedded; the paper is removed from the staging dataset
-  (:func:`arxmcp.ingest.store.delete_paper`), so the next cutover stops
+  (:func:`arxmcp.corpus.store.delete_paper`), so the next cutover stops
   serving it.
 - D13: ``papers``-table metadata upsert is deferred (no
   ``papers`` table populated at v1 of the project).
@@ -67,6 +67,17 @@ import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from arxmcp.corpus import (
+    CORPUS_VERSION_MARKER_NAME,
+    STALE_CHUNKER_EXIT_CODE,
+    StaleChunkerRowsError,
+    delete_paper,
+    exits_when_write_locked,
+    holds_dataset_write_lock,
+    is_valid_arxiv_paper_id,
+    refresh_indices,
+    refuse_stale_chunker_rows,
+)
 from arxmcp.ingest.ar5iv_fetch import DEFAULT_AR5IV_CACHE_DIR, DEFAULT_PARSED_DIR
 from arxmcp.ingest.bulk_ingest import (
     DEFAULT_LANCEDB_STAGING_PATH,
@@ -75,17 +86,7 @@ from arxmcp.ingest.bulk_ingest import (
     ingest_one_paper,
 )
 from arxmcp.ingest.derived_indexes import build_derived_indexes
-from arxmcp.ingest.identifiers import is_valid_arxiv_paper_id
 from arxmcp.ingest.index_equations import index_equation_trees
-from arxmcp.ingest.store import (
-    CORPUS_VERSION_MARKER_NAME,
-    STALE_CHUNKER_EXIT_CODE,
-    StaleChunkerRowsError,
-    delete_paper,
-    refresh_indices,
-    refuse_stale_chunker_rows,
-)
-from arxmcp.ingest.write_lock import exits_when_write_locked, holds_dataset_write_lock
 from arxmcp.settings import ApplicationPaths
 
 logger = logging.getLogger(__name__)
@@ -914,14 +915,14 @@ def _cli(argv: list[str]) -> int:
     # invocations (``python -m arxmcp.ingest.oai_delta``) also honor the
     # pause so an operator pausing for maintenance doesn't get
     # surprised by their own ad-hoc invocation later.
-    from arxmcp.ingest import sentinel as ingest_sentinel  # noqa: PLC0415
+    from arxmcp.corpus import is_paused  # noqa: PLC0415
 
-    record = ingest_sentinel.is_paused()
+    record = is_paused()
     if record is not None:
         reason = record.get("reason", "unknown")
         print(
             f"INFO: ingest paused (reason={reason}); skipping delta "
-            f"run. Clear with: python -m arxmcp.ingest.sentinel clear",
+            f"run. Clear with: python -m arxmcp.corpus.sentinel clear",
             file=sys.stderr,
         )
         return 0

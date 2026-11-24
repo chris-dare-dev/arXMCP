@@ -35,10 +35,10 @@ from typing import Any
 import numpy as np
 import pytest
 
-from arxmcp.ingest.chunk import CHUNKER_VERSION, ChunkRecord
+from arxmcp.corpus.chunk import CHUNKER_VERSION, ChunkRecord
+from arxmcp.corpus.schema import EmbedRecord
+from arxmcp.corpus.store import write_chunks
 from arxmcp.ingest.embedder import EMBEDDER_VERSION, EMBEDDING_DIM
-from arxmcp.ingest.schema import EmbedRecord
-from arxmcp.ingest.store import write_chunks
 from arxmcp.server.resources import Singleflight
 from arxmcp.server.retrieval.rerank import (
     BGE_RERANKER_COMMIT_SHA,
@@ -132,7 +132,7 @@ def _seeded_lancedb(tmp_path) -> tuple[Path, int]:
 
 
 def _open_chunks_table(lancedb_path: Path, version: int) -> Any:
-    from arxmcp.ingest.corpus import open_chunks_table
+    from arxmcp.corpus.reader import open_chunks_table
 
     return open_chunks_table(lancedb_path, version=version)
 

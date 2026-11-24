@@ -56,7 +56,7 @@ from arxmcp.settings import Config
 def _make_corpus_version_info(version: int = 1, chunk_count: int = 10):
     """Return a CorpusVersionInfo-compatible namespace for tests that need
     a marker without writing real LanceDB data."""
-    from arxmcp.ingest.corpus import CorpusVersionInfo
+    from arxmcp.corpus.reader import CorpusVersionInfo
 
     return CorpusVersionInfo(
         version=version,
@@ -953,7 +953,7 @@ def _make_fake_table():
     """
     import pyarrow as pa
 
-    from arxmcp.ingest.schema import EMBEDDING_DIM
+    from arxmcp.corpus.schema import EMBEDDING_DIM
 
     fake_table = MagicMock()
     fake_table.count_rows.return_value = 10

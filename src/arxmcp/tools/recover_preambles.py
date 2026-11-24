@@ -51,12 +51,12 @@ import urllib.error
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from arxmcp.ingest.identifiers import is_valid_arxiv_paper_id
-from arxmcp.ingest.notebooks import (
+from arxmcp.corpus import (
     CORPUS_PARSED_DIR,
     CORPUS_RAW_DIR,
     NOTEBOOKS_BASE,
     NotebookError,
+    is_valid_arxiv_paper_id,
     read_paper_ids_from_papers_txt,
     validate_slug,
 )
@@ -121,7 +121,7 @@ def _fetch_raw_tex_with_503_backoff(paper_id: str) -> str:
     (disk), or ``tarfile.TarError`` (malformed archive) would
     propagate and abort the entire back-fill mid-loop, contradicting
     ``run()``'s docstring contract. The envelope is now the same
-    superset the per-paper helper uses (``src/arxmcp/ingest/notebooks.py``).
+    superset the per-paper helper uses (``src/arxmcp/corpus/notebooks.py``).
 
     The notebook `fetch_raw_tex_if_missing` helper swallows 503
     (logs and returns False); for the back-fill we want explicit

@@ -30,6 +30,9 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from arxmcp.corpus.chunk import CHUNKER_VERSION, ChunkRecord
+from arxmcp.corpus.schema import EmbedRecord
+from arxmcp.corpus.store import write_chunks
 from arxmcp.ingest.bm25_indexer import (
     BM25_CHUNK_IDS_NAME,
     BM25_INDEX_NAME,
@@ -38,10 +41,7 @@ from arxmcp.ingest.bm25_indexer import (
     build_bm25_index,
     resolve_bm25_root,
 )
-from arxmcp.ingest.chunk import CHUNKER_VERSION, ChunkRecord
 from arxmcp.ingest.embedder import EMBEDDER_VERSION, EMBEDDING_DIM
-from arxmcp.ingest.schema import EmbedRecord
-from arxmcp.ingest.store import write_chunks
 from arxmcp.server.retrieval.bm25 import (
     DEFAULT_TOP_N,
     DEFERRED_FILTER_KEYS,
@@ -266,7 +266,7 @@ class TestKnownGoodQueries:
     ):
         """Every returned chunk_id must exist in the LanceDB chunks
         table — closes the brief AC literally."""
-        from arxmcp.ingest.corpus import open_chunks_table
+        from arxmcp.corpus.reader import open_chunks_table
 
         lancedb_path, version = _seeded_lancedb
         tbl = open_chunks_table(lancedb_path, version=version)
@@ -742,7 +742,7 @@ class TestChunkIdsLiveCrossCheck:
         )
 
         # Build live_chunk_ids from the actual table.
-        from arxmcp.ingest.corpus import open_chunks_table
+        from arxmcp.corpus.reader import open_chunks_table
 
         tbl = open_chunks_table(lancedb_path, version=version)
         live_ids = set(tbl.to_arrow().column("chunk_id").to_pylist())

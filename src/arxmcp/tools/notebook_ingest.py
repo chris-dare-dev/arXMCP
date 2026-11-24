@@ -40,16 +40,17 @@ import logging
 import sys
 from pathlib import Path
 
-from arxmcp.ingest.bm25_indexer import resolve_bm25_root
-from arxmcp.ingest.bulk_ingest import run_bulk_ingest
-from arxmcp.ingest.notebooks import (
+from arxmcp.corpus import (
+    STALE_CHUNKER_EXIT_CODE,
     NotebookError,
+    StaleChunkerRowsError,
+    exits_when_write_locked,
     notebook_dir,
     read_paper_ids_from_papers_txt,
     validate_slug,
 )
-from arxmcp.ingest.store import STALE_CHUNKER_EXIT_CODE, StaleChunkerRowsError
-from arxmcp.ingest.write_lock import exits_when_write_locked
+from arxmcp.ingest.bm25_indexer import resolve_bm25_root
+from arxmcp.ingest.bulk_ingest import run_bulk_ingest
 from arxmcp.tools import notebook_metadata_backfill
 
 logger = logging.getLogger("notebook_ingest")
@@ -57,7 +58,8 @@ logger = logging.getLogger("notebook_ingest")
 
 def runtime_paths_report() -> dict[str, str]:
     """Return every mutable default reached by the ingest child boundary."""
-    from arxmcp.ingest import ar5iv_fetch, bulk_ingest, chunker, embedder, store
+    from arxmcp.corpus import DEFAULT_LANCEDB_PATH, STORE_STATS_PATH
+    from arxmcp.ingest import ar5iv_fetch, bulk_ingest, chunker, embedder
     from arxmcp.settings import ApplicationPaths
 
     paths = ApplicationPaths.resolve()
@@ -74,8 +76,8 @@ def runtime_paths_report() -> dict[str, str]:
         "embeddings": str(embedder.EMBEDDINGS_DIR),
         "embed_stats": str(embedder.EMBED_STATS_PATH),
         "embed_log": str(embedder.EMBED_LOG_PATH),
-        "lancedb": str(store.DEFAULT_LANCEDB_PATH),
-        "store_stats": str(store.STORE_STATS_PATH),
+        "lancedb": str(DEFAULT_LANCEDB_PATH),
+        "store_stats": str(STORE_STATS_PATH),
         "lancedb_staging": str(bulk_ingest.DEFAULT_LANCEDB_STAGING_PATH),
         "parser_failures": str(bulk_ingest.DEFAULT_PARSER_FAILURES_PATH),
         "ingestion_log": str(bulk_ingest.DEFAULT_INGESTION_LOG_PATH),

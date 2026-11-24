@@ -24,7 +24,7 @@ LIFECYCLE_RS: str = (SUP / "lifecycle.rs").read_text(encoding="utf-8")
 
 
 RESOURCES_PY: str = (REPO_ROOT / "src/arxmcp/server" / "resources.py").read_text(encoding="utf-8")
-CORPUS_PY: str = (REPO_ROOT / "src" / "arxmcp" / "ingest" / "corpus.py").read_text(encoding="utf-8")
+CORPUS_PY: str = (REPO_ROOT / "src" / "arxmcp" / "corpus" / "reader.py").read_text(encoding="utf-8")
 HEALTH_PY: str = (REPO_ROOT / "src" / "arxmcp" / "server" / "health.py").read_text(encoding="utf-8")
 CHILD_PY: str = (REPO_ROOT / "src/arxmcp/server" / "desktop_child.py").read_text(encoding="utf-8")
 

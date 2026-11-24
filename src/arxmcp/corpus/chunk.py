@@ -7,8 +7,8 @@ else:
 - the row of the LanceDB ``chunks`` table (:data:`CHUNKS_SCHEMA_V1`,
   :func:`to_row`, :func:`to_arrow_table`, :func:`from_row`) and the
   write-time domains a row is checked against;
-- chunk-id computation for arXiv (:func:`_compute_chunk_id`) and textbook
-  (:func:`_compute_textbook_chunk_id`) chunks;
+- chunk-id computation for arXiv (:func:`compute_chunk_id`) and textbook
+  (:func:`compute_textbook_chunk_id`) chunks;
 - the route of a kind (:func:`route`) and which vector column it fills;
 - the embedding input (:func:`embedding_input`) and its policy
   (:data:`EMBED_INPUT_POLICY_VERSION`);
@@ -42,7 +42,7 @@ import pyarrow as pa
 # to detect stale rows.
 #
 # **Schema-migration constraint.** The CANONICAL-BYTES
-# function :func:`_compute_chunk_id` below —
+# function :func:`compute_chunk_id` below —
 # ``sha256(position + NFC(body_text))[:16]``, with ``position`` empty
 # for every arXiv chunk except a TeX-chunker-owned paper's — must remain
 # byte-stable across CHUNKER_VERSION bumps: an edit rotates every
@@ -56,12 +56,12 @@ import pyarrow as pa
 # v1.3: arXiv ids stopped hashing the paper preamble, so an id hashes
 # the body only. A table chunked by another version must be rotated
 # through staging and cutover, never re-ingested in place
-# (``arxmcp.ingest.store.refuse_stale_chunker_rows``).
+# (``arxmcp.corpus.store.refuse_stale_chunker_rows``).
 CHUNKER_VERSION = "v1.3"
 
 # BGE-M3's hidden size (XLM-RoBERTa-large backbone): the width of every
 # vector column in the chunks table. ``arxmcp.ingest.embedder`` and
-# ``arxmcp.ingest.schema`` re-export it.
+# ``arxmcp.corpus.schema`` re-export it.
 EMBEDDING_DIM = 1024
 
 # The named, versioned rule that turns a chunk into its embedding input.
@@ -253,12 +253,12 @@ class ChunkRecord:
 # chunker ``<paper_id>:page:<n>:offset:<m>``. Normalising or harmonising
 # any of them rotates every affected id.
 #
-# ``_compute_chunk_id`` is source-pinned by
+# ``compute_chunk_id`` is source-pinned by
 # ``tests/test_re_embed.py::TestChunkerVersionFreeze`` (through its
 # ``arxmcp.ingest.chunker`` re-export): keep it byte-identical, docstring included.
 
 
-def _compute_chunk_id(paper_id: str, body_text: str, *, position: str = "") -> str:
+def compute_chunk_id(paper_id: str, body_text: str, *, position: str = "") -> str:
     """Return ``arxiv:<paper_id>:<sha256(position + NFC(body_text))[:16]>``.
 
     An arXiv chunk id hashes the body only, so ``position``
@@ -288,14 +288,14 @@ def _compute_chunk_id(paper_id: str, body_text: str, *, position: str = "") -> s
     return f"arxiv:{paper_id}:{digest}"
 
 
-def _compute_textbook_chunk_id(
+def compute_textbook_chunk_id(
     slug: str, preamble_text: str, body_text: str
 ) -> str:
     """Return ``textbook:<slug>:<sha256(preamble_text + NFC(body_text))[:16]>``.
 
-    Identical hash discipline to :func:`_compute_chunk_id` (NFC-normalize
+    Identical hash discipline to :func:`compute_chunk_id` (NFC-normalize
     body, UTF-8 encode, 16-hex prefix) but emits the ``textbook:`` prefix
-    so the id round-trips through ``arxmcp.ingest.identifiers.CHUNK_ID_PATTERN``.
+    so the id round-trips through ``arxmcp.corpus.identifiers.CHUNK_ID_PATTERN``.
     ``preamble_text`` is the caller's position value: identical text
     recurs at different places in one textbook.
     """
@@ -312,7 +312,7 @@ def _compute_textbook_chunk_id(
 
 #: Names of the two dual-encoding vector columns, in canonical search
 #: order (stmt first, proof second, as declared in
-#: :data:`CHUNKS_SCHEMA_V1`). ``arxmcp.ingest.schema`` re-exports this, so
+#: :data:`CHUNKS_SCHEMA_V1`). ``arxmcp.corpus.schema`` re-exports this, so
 #: readers that enumerate the searchable vector columns import it
 #: rather than literalize the names.
 EMBEDDING_COLUMN_NAMES = ("embedding_stmt", "embedding_proof")
@@ -550,7 +550,7 @@ CHUNKS_SCHEMA_V1 = pa.schema(
         # All five declared nullable=True: a freshly-created table
         # accepts writes that leave the registry-derived columns NULL,
         # and the in-place migration gives pre-v2 rows NULL in each
-        # (:func:`arxmcp.ingest.schema.add_missing_columns`).
+        # (:func:`arxmcp.corpus.schema.add_missing_columns`).
         #
         # ``source_revision_id`` — the authoritative pointer to the
         # per-revision documents-registry row, stored
@@ -608,7 +608,7 @@ CHUNKS_SCHEMA_V1 = pa.schema(
 #: :func:`to_row` refuses a typo (``"theroem"``) that would otherwise
 #: land and break routing. The serving side derives its proof-route
 #: exclusion list from this set (``src/arxmcp/server/handlers/search.py`` via the
-#: ``arxmcp.ingest.store.ALLOWED_KINDS`` re-export).
+#: ``arxmcp.corpus.store.ALLOWED_KINDS`` re-export).
 ALLOWED_KINDS: frozenset[str] = frozenset(
     {
         "stmt",

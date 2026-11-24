@@ -25,7 +25,7 @@ Producers + consumers:
   below 10 GB free; :func:`clear_pause` once free climbs back above 15
   GB (hysteresis).
 - **Producer (manual):** the operator can run
-  ``python -m arxmcp.ingest.sentinel write --reason=maintenance``
+  ``python -m arxmcp.corpus.sentinel write --reason=maintenance``
   before manual maintenance.
 - **Consumer (cron):** ``src/arxmcp/ops/cron/arxmcp-delta.sh`` checks for the
   file and exits 0.
@@ -189,7 +189,7 @@ def is_paused(path: pathlib.Path | None = None) -> dict | None:
 
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(
-        prog="arxmcp.ingest.sentinel",
+        prog="arxmcp.corpus.sentinel",
         description=(
             "Manage the var/arxmcp/ops/ingest-paused sentinel. "
             "When present, the delta cron wrapper and "

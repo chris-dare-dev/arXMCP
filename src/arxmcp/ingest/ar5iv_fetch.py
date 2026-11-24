@@ -54,9 +54,9 @@ import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 
+from arxmcp.corpus import is_valid_arxiv_paper_id
 from arxmcp.ingest.arxiv_fetch import parse_retry_after
 from arxmcp.ingest.chunker import STRUCTURE_SIGNAL_CLASSES
-from arxmcp.ingest.identifiers import is_valid_arxiv_paper_id
 from arxmcp.settings import ApplicationPaths
 
 logger = logging.getLogger(__name__)

@@ -67,9 +67,8 @@ from typing import Any
 import kuzu
 from bs4 import BeautifulSoup
 
+from arxmcp.corpus import apply_schema, is_valid_arxiv_paper_id
 from arxmcp.ingest.graph_ingest import _merge_cite, save_checkpoint
-from arxmcp.ingest.identifiers import is_valid_arxiv_paper_id
-from arxmcp.ingest.kuzudb_schema import apply_schema
 from arxmcp.settings import ApplicationPaths
 
 logger = logging.getLogger(__name__)
@@ -87,7 +86,7 @@ DEFAULT_PARSED_DIR = _APPLICATION_PATHS.corpus / "parsed"
 #: the brief's ``kuzudb/`` is documented drift (synthesis § 3).
 DEFAULT_KUZUDB_PATH = _APPLICATION_PATHS.kuzu
 
-#: Default LanceDB chunks-table path; mirrors ``arxmcp.ingest.store``.
+#: Default LanceDB chunks-table path; mirrors ``arxmcp.corpus.store``.
 DEFAULT_LANCEDB_PATH = _APPLICATION_PATHS.lancedb
 
 #: Atomic-write checkpoint location.
@@ -245,7 +244,7 @@ def _open_chunks_table_or_none(lancedb_path: Path) -> Any | None:
     """
     if not Path(lancedb_path).exists():
         return None
-    from arxmcp.ingest.corpus import open_chunks_table
+    from arxmcp.corpus import open_chunks_table
 
     try:
         return open_chunks_table(lancedb_path=str(lancedb_path), version=None)
@@ -427,7 +426,7 @@ def _list_paper_ids_from_lancedb(lancedb_path: Path) -> list[str]:
     """
     if not lancedb_path.exists():
         return []
-    from arxmcp.ingest.corpus import open_chunks_table
+    from arxmcp.corpus import open_chunks_table
 
     try:
         table = open_chunks_table(lancedb_path=str(lancedb_path), version=None)

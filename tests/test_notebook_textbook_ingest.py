@@ -21,9 +21,9 @@ import numpy as np
 import pyarrow as pa
 import pytest
 
-from arxmcp.ingest.chunk import ChunkRecord
+from arxmcp.corpus.chunk import ChunkRecord
+from arxmcp.corpus.schema import CHUNKS_TABLE_NAME
 from arxmcp.ingest.embedder import EMBEDDING_DIM
-from arxmcp.ingest.schema import CHUNKS_TABLE_NAME
 from arxmcp.ingest.textbook_chunker import TEXTBOOK_CHUNKER_VERSION
 from arxmcp.tools import notebook_textbook_ingest as driver
 
@@ -206,7 +206,7 @@ class TestIngestTextbookPaper:
     def test_write_targets_notebook_path_not_global_corpus(self, wired) -> None:
         """m12 FM-3: write_chunks MUST receive the per-notebook lancedb path,
         never the global DEFAULT_LANCEDB_PATH (corpus pollution)."""
-        from arxmcp.ingest.store import DEFAULT_LANCEDB_PATH
+        from arxmcp.corpus.store import DEFAULT_LANCEDB_PATH
 
         driver.ingest_textbook_paper(
             _SLUG, f"textbook:{_SLUG}", encoder=_synthetic_encoder(seed=3),

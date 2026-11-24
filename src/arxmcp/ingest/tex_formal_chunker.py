@@ -5,8 +5,8 @@ from __future__ import annotations
 import re
 from bisect import bisect_left
 
+from arxmcp.corpus import CHUNKER_VERSION, ChunkRecord, compute_chunk_id
 from arxmcp.ingest.arxiv_fetch import find_main_tex
-from arxmcp.ingest.chunk import CHUNKER_VERSION, ChunkRecord, _compute_chunk_id
 from arxmcp.ingest.chunker import STMT_MAX_TOKENS, _window_text_spans
 from arxmcp.ingest.tokenizer import tokenize_body
 from arxmcp.settings import ApplicationPaths
@@ -96,7 +96,7 @@ def chunk_tex_formals(paper_id: str) -> list[ChunkRecord]:
             # TeX offset in the identity so dedup cannot erase either one.
             # This is a position value, not the preamble, so dropping the
             # preamble from arXiv ids left these ids unchanged.
-            chunk_id = _compute_chunk_id(
+            chunk_id = compute_chunk_id(
                 paper_id, window, position=f"tex-offset:{begin.end() + local_start}"
             )
             if chunk_id in seen:
@@ -127,7 +127,7 @@ def chunk_tex_formals(paper_id: str) -> list[ChunkRecord]:
                 windows = _window_text_spans(prose, STMT_MAX_TOKENS)
                 for part_index, (window, local_start, local_end) in enumerate(windows, 1):
                     source_start = cursor + local_start
-                    chunk_id = _compute_chunk_id(
+                    chunk_id = compute_chunk_id(
                         paper_id, window, position=f"tex-offset:{source_start}"
                     )
                     if chunk_id in seen:

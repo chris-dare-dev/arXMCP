@@ -9,8 +9,8 @@ from pathlib import Path
 
 import numpy as np
 
+from arxmcp.corpus import EMBED_INPUT_POLICY_VERSION, stored_vector
 from arxmcp.ingest.arxiv_fetch import find_main_tex
-from arxmcp.ingest.chunk import EMBED_INPUT_POLICY_VERSION, stored_vector
 from arxmcp.ingest.embedder import EMBEDDER_VERSION
 from arxmcp.settings import ApplicationPaths
 

@@ -33,7 +33,8 @@ from typing import Any
 import kuzu
 import pytest
 
-from arxmcp.ingest import graph_ingest, inspire_ingest, kuzudb_schema
+from arxmcp.corpus import kuzudb_schema
+from arxmcp.ingest import graph_ingest, inspire_ingest
 
 # ---------------------------------------------------------------------------
 # Fixtures

@@ -37,7 +37,7 @@ from pathlib import Path
 import pytest
 
 import arxmcp.tools.notebook_cutover as nc
-from arxmcp.ingest.notebooks import NotebookError
+from arxmcp.corpus.notebooks import NotebookError
 
 
 def _write_lancedb(d: Path, version: int, chunk_count: int = 10) -> None:
@@ -62,12 +62,12 @@ def _write_lancedb(d: Path, version: int, chunk_count: int = 10) -> None:
 def nb_base(tmp_path: Path, monkeypatch) -> Path:
     """A notebooks-base dir; redirect the module-level NOTEBOOKS_BASE so
     main()/discover_promotable resolve here."""
-    import arxmcp.ingest.notebooks as _nc_common
+    import arxmcp.corpus.notebooks as _nc_common
 
     base = tmp_path / "notebooks"
     base.mkdir()
     # discover_promotable() reads nc.NOTEBOOKS_BASE; notebook_dir(slug,
-    # base=None) — the path main() takes — reads arxmcp.ingest.notebooks.NOTEBOOKS_BASE.
+    # base=None) — the path main() takes — reads arxmcp.corpus.notebooks.NOTEBOOKS_BASE.
     # Patch BOTH so the main()-level (all-notebooks) tests resolve to tmp.
     monkeypatch.setattr(nc, "NOTEBOOKS_BASE", base)
     monkeypatch.setattr(_nc_common, "NOTEBOOKS_BASE", base)

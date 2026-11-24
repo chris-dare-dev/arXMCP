@@ -22,7 +22,7 @@ from pathlib import Path
 import pytest
 from mcp.server.fastmcp import FastMCP
 
-from arxmcp.ingest import notebooks as _notebook_common
+from arxmcp.corpus import notebooks as _notebook_common
 from arxmcp.server.mcp_resources import (
     register_resources,
     reset_notebooks_store_for_tests,

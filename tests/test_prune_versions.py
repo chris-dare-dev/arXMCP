@@ -11,9 +11,9 @@ import numpy as np
 import pytest
 
 import arxmcp.ops.prune_versions as prune_mod
-from arxmcp.ingest.chunk import CHUNKER_VERSION, EMBEDDING_DIM, ChunkRecord
-from arxmcp.ingest.schema import CHUNKS_TABLE_NAME, EmbedRecord
-from arxmcp.ingest.store import _build_arrow_table, write_chunks, write_corpus_version_marker
+from arxmcp.corpus.chunk import CHUNKER_VERSION, EMBEDDING_DIM, ChunkRecord
+from arxmcp.corpus.schema import CHUNKS_TABLE_NAME, EmbedRecord
+from arxmcp.corpus.store import _build_arrow_table, write_chunks, write_corpus_version_marker
 from arxmcp.ops.prune_versions import PruneRefused, _cli, plan_prune, prune_versions
 
 #: Old versions are this much older than the ones the prune must keep.

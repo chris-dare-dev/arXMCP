@@ -34,11 +34,7 @@ source kind meets, and it is what stops that one from re-landing as a
 
 from __future__ import annotations
 
-from arxmcp.ingest.identifiers import (
-    SOURCE_KIND_ARXIV,
-    SOURCE_KIND_TEXTBOOK,
-    paper_id_source_kind,
-)
+from arxmcp.corpus import SOURCE_KIND_ARXIV, SOURCE_KIND_TEXTBOOK, paper_id_source_kind
 
 #: The epistemic outcome for "well-formed, but not a kind this tool serves".
 #: Named exactly as CLAUDE.md §4.9 rule 2 and

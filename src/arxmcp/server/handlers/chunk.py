@@ -34,7 +34,7 @@ from typing import Annotated, Any
 
 from pydantic import Field
 
-from arxmcp.ingest.identifiers import is_valid_chunk_id
+from arxmcp.corpus import is_valid_chunk_id
 from arxmcp.server.handlers.corpus_route import (
     NOTEBOOK_ARG_DESCRIPTION,
     CorpusRoute,
@@ -295,7 +295,7 @@ def _build_chunk_result(
         "theorem_label": row["theorem_label"],
         "theorem_name": row["theorem_name"],
         # source-truth-m5: INGEST-time provenance — was the STORED body
-        # token-capped to STMT_MAX_TOKENS at chunk time (src/arxmcp/ingest/schema.py).
+        # token-capped to STMT_MAX_TOKENS at chunk time (src/arxmcp/corpus/schema.py).
         # DISTINCT from the SERVING-time completeness flag: whether the
         # RETURNED text is complete is governed solely by the top-level
         # (absent-when-false) ``body_truncated`` (the size-based byte-cap).

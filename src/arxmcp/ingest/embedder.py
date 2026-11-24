@@ -3,7 +3,7 @@
 Reads per-paper chunks written by the structural chunker
 (``arxmcp.ingest.chunker``) from
 ``var/arxmcp/corpus/chunks/<paper_id>/``, encodes each chunk's
-embedding input (:func:`arxmcp.ingest.chunk.embedding_input`, policy
+embedding input (:func:`arxmcp.corpus.chunk.embedding_input`, policy
 ``body-first-v1``: the NFC body) through ``BAAI/bge-m3``
 pinned at :data:`BGE_M3_COMMIT_SHA`, and writes the 1024-dim L2-normalized
 vectors to a parallel per-paper NPZ store at
@@ -11,10 +11,10 @@ vectors to a parallel per-paper NPZ store at
 
 **Why NPZ-first, not direct LanceDB.** Embedding and the LanceDB store
 depend on each other, so neither can block on the other. The NPZ store
-breaks the cycle: ``src/arxmcp/ingest/store.py`` reads the NPZ alongside the chunk
+breaks the cycle: ``src/arxmcp/corpus/store.py`` reads the NPZ alongside the chunk
 manifests when building the LanceDB rows.
 
-**Routing.** :func:`arxmcp.ingest.chunk.route`: ``kind == "proof"`` →
+**Routing.** :func:`arxmcp.corpus.chunk.route`: ``kind == "proof"`` →
 ``embedding_proof``; everything else (``stmt``, ``section``,
 ``definition``, ``lemma``, ``proposition``, ...) → ``embedding_stmt``.
 The third column ``embedding_eq`` is reserved for
@@ -28,7 +28,7 @@ weights are pulled in safetensors format (enforced via the
 between runs would invalidate cached embeddings without a version bump.
 
 **BP1.** The embedding input is
-NFC-normalised (:func:`arxmcp.ingest.chunk.embedding_input`) and the embedder
+NFC-normalised (:func:`arxmcp.corpus.chunk.embedding_input`) and the embedder
 calls ``model.eval()`` to disable XLM-RoBERTa dropout, ensuring
 byte-stable vectors across runs.
 
@@ -63,7 +63,7 @@ identical input.
 
 The "MVCC handshake" the brief describes is implemented as the
 ``chunker_version`` field in the sidecar: a ``CHUNKER_VERSION`` bump
-in ``src/arxmcp/ingest/chunk.py`` automatically forces re-embed
+in ``src/arxmcp/corpus/chunk.py`` automatically forces re-embed
 because :data:`EXPECTED_CHUNKER_VERSION` is an alias for that
 constant (see D2 of the E03_S02 research synthesis).
 """
@@ -80,26 +80,28 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 # Alias rather than redefine. ``CHUNKER_VERSION`` lives in
-# ``arxmcp.ingest.chunk`` as the SINGLE source of truth (locked by
+# ``arxmcp.corpus.chunk`` as the SINGLE source of truth (locked by
 # ``tests/test_chunker_ids.py::TestSingleVersionDefinition``). Defining
 # ``EXPECTED_CHUNKER_VERSION`` as a fresh string literal here would
 # either fail that regression check or, if exempted, drift on the next
 # bump. ``EMBED_INPUT_POLICY_VERSION`` and ``EMBEDDING_DIM`` are chunk facts
 # too; this module re-exports them for its existing importers.
-from arxmcp.ingest.chunk import CHUNKER_VERSION as EXPECTED_CHUNKER_VERSION
-from arxmcp.ingest.chunk import (
+from arxmcp.corpus import CHUNKER_VERSION as EXPECTED_CHUNKER_VERSION
+
+# The corpus paper_id validator + log-field sanitiser carry the Threat 1
+# guarantees every writer shares.
+from arxmcp.corpus import (
     EMBED_INPUT_POLICY_VERSION,
     EMBEDDING_DIM,
+    EMBEDDINGS_DIR,
+    EMBEDDINGS_MANIFEST_NAME,
+    EMBEDDINGS_NPZ_NAME,
     embedding_input,
+    read_embeddings_manifest,
     reuse_identity,
     route,
-)
-
-# Reuse the chunker's paper_id validator + log-field sanitiser to inherit
-# its security guarantees (Threat 1) and avoid duplicating the regex.
-from arxmcp.ingest.chunker import (
-    _sanitize_log_field,
-    _validate_paper_id,
+    sanitize_log_field,
+    validate_paper_id,
 )
 from arxmcp.settings import ApplicationPaths
 
@@ -142,7 +144,7 @@ BGE_M3_COMMIT_SHA = "5617a9f61b028005a4858fdac845db406aefb181"
 
 # Convenience formatter used for stats logs and the LanceDB
 # ``embedder_version`` column. Same short-and-sortable style as
-# ``chunker_version`` (single source of truth in ``arxmcp.ingest.chunk``). It names
+# ``chunker_version`` (single source of truth in ``arxmcp.corpus.chunk``). It names
 # the model weights only: a change to pooling, normalisation or tokenizer
 # arguments in ``_encode_batch`` must bump it (or the embedding input
 # policy), because reuse matches on it.
@@ -170,7 +172,6 @@ EMBED_BATCH_DEFAULT = 2 if EMBED_DEVICE == "cuda" else 8
 
 _APPLICATION_PATHS = ApplicationPaths.resolve()
 CHUNKS_DIR = _APPLICATION_PATHS.corpus / "chunks"
-EMBEDDINGS_DIR = _APPLICATION_PATHS.corpus / "embeddings"
 EMBED_STATS_PATH = _APPLICATION_PATHS.ops / "embed-stats.jsonl"
 EMBED_LOG_PATH = _APPLICATION_PATHS.ops / "parser-failures" / "embed.log"
 
@@ -531,20 +532,11 @@ def _write_embeddings_npz(
 # E03_S02: per-paper embeddings sidecar (idempotent re-embed handshake)
 # ---------------------------------------------------------------------------
 
-# Constant filename for the NPZ + sidecar — co-located under
-# ``var/arxmcp/corpus/embeddings/<paper_id>/``. The naming mirrors
-# ``chunk_manifest.json`` so a future maintainer immediately understands
-# the role from the path alone. Closes F14 from the E03_S02 critique by
-# extracting the NPZ filename from three string-literal sites.
-EMBEDDINGS_NPZ_NAME = "embeddings.npz"
-EMBEDDINGS_MANIFEST_NAME = "embeddings_manifest.json"
-
-
 class _SidecarCorruptError(ValueError):
     """A sidecar exists on disk but contains malformed entries.
 
     Distinct from "absent or unparseable JSON" (which
-    :func:`_read_embeddings_manifest` swallows and returns ``None`` for,
+    :func:`read_embeddings_manifest` swallows and returns ``None`` for,
     forcing a self-healing re-embed). This exception is raised when the
     JSON parses but contains entries that violate the schema contract —
     e.g. an ``embedded_chunks`` entry that is a dict but missing
@@ -579,7 +571,7 @@ def _write_embeddings_manifest(
           "paper_id": "2307.01156"
         }
 
-    ``reuse_identity`` is :func:`arxmcp.ingest.chunk.reuse_identity` of the
+    ``reuse_identity`` is :func:`arxmcp.corpus.chunk.reuse_identity` of the
     entry's chunk under this sidecar's embedder version and policy. The
     sidecar holds no chunk bodies, so the identity is stored here
     instead of recomputed.
@@ -619,28 +611,11 @@ def _write_embeddings_manifest(
             tmp.unlink(missing_ok=True)
 
 
-def _read_embeddings_manifest(out_path: Path) -> dict | None:
-    """Return the sidecar dict, or ``None`` if absent / corrupt.
-
-    A corrupt sidecar (any exception during read or parse) is treated
-    as absent — the paper will be re-embedded, regenerating a clean
-    sidecar in the process. This is the same self-healing discipline
-    ``preamble._read_existing_preamble`` uses (see preamble.py F2 fix).
-    """
-    if not out_path.exists():
-        return None
-    try:
-        return json.loads(out_path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError, UnicodeDecodeError):
-        # Corrupt sidecar => re-embed (regenerates a clean sidecar).
-        return None
-
-
 def _paper_is_up_to_date(paper_id: str, current: dict[str, str]) -> bool:
     """Return True iff the paper's stored vectors can be reused as they are.
 
     ``current`` maps each current chunk's ``chunk_id`` to its reuse
-    identity under :data:`EMBEDDER_VERSION` (:func:`arxmcp.ingest.chunk.reuse_identity`).
+    identity under :data:`EMBEDDER_VERSION` (:func:`arxmcp.corpus.chunk.reuse_identity`).
     The paper is up to date iff ALL of the following hold:
 
     1. the sidecar exists at
@@ -673,11 +648,11 @@ def _paper_is_up_to_date(paper_id: str, current: dict[str, str]) -> bool:
     entry that is not a dict or has no string ``chunk_id``) is not up to
     date, so the paper gets a clean re-embed that regenerates it.
     """
-    _validate_paper_id(paper_id)
+    validate_paper_id(paper_id)
     paper_dir = EMBEDDINGS_DIR / paper_id
     sidecar_path = paper_dir / EMBEDDINGS_MANIFEST_NAME
     npz_path = paper_dir / EMBEDDINGS_NPZ_NAME
-    sidecar = _read_embeddings_manifest(sidecar_path)
+    sidecar = read_embeddings_manifest(sidecar_path)
     if sidecar is None:
         return False
     # Closes F1: the NPZ companion file must also exist. Without this
@@ -798,8 +773,8 @@ def _log_embed_failure(paper_id: str, elapsed_s: float, message: str) -> None:
     """Append a TSV row to ``embed.log`` (mirrors chunk.log/preamble.log)."""
     EMBED_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
     row = (
-        f"{_sanitize_log_field(paper_id)}\tfail\t{elapsed_s:.1f}\t"
-        f"{_sanitize_log_field(message)}\n"
+        f"{sanitize_log_field(paper_id)}\tfail\t{elapsed_s:.1f}\t"
+        f"{sanitize_log_field(message)}\n"
     )
     try:
         with EMBED_LOG_PATH.open("a", encoding="utf-8") as fh:
@@ -817,7 +792,7 @@ def embed_paper(paper_id: str, batch_size: int = EMBED_BATCH_DEFAULT) -> EmbedSt
     """Encode every chunk for ``paper_id`` and write the per-paper NPZ.
 
     Looks up the chunks under ``var/arxmcp/corpus/chunks/<paper_id>/``,
-    builds each chunk's embedding input (:func:`arxmcp.ingest.chunk.embedding_input`),
+    builds each chunk's embedding input (:func:`arxmcp.corpus.chunk.embedding_input`),
     encodes in batches of ``batch_size``, and writes the
     L2-normalized vectors to
     ``var/arxmcp/corpus/embeddings/<paper_id>/embeddings.npz``.
@@ -827,7 +802,7 @@ def embed_paper(paper_id: str, batch_size: int = EMBED_BATCH_DEFAULT) -> EmbedSt
     ``status="fail"`` rather than aborting the corpus-wide batch.
     Programmer bugs propagate.
     """
-    _validate_paper_id(paper_id)
+    validate_paper_id(paper_id)
     start = time.monotonic()
     try:
         return _embed_paper_impl(paper_id, batch_size)
@@ -922,7 +897,7 @@ def _embed_paper_impl(paper_id: str, batch_size: int) -> EmbedStats:
     # route. We carry parallel index lists so we can reassemble the
     # per-column outputs after batched encoding.
     embed_inputs: list[str] = []
-    routes: list[str] = []  # "stmt" | "proof" (arxmcp.ingest.chunk.route)
+    routes: list[str] = []  # "stmt" | "proof" (arxmcp.corpus.chunk.route)
     chunk_ids_in_order: list[str] = []
     for chunk in chunks:
         embed_inputs.append(embedding_input(chunk["body_text"]))
@@ -1076,7 +1051,7 @@ def embed_corpus(
         # therefore in PER_PAPER_FAILURE_EXCEPTIONS. We log it as a
         # malformed-input failure rather than aborting.
         try:
-            _validate_paper_id(paper_id)
+            validate_paper_id(paper_id)
         except ValueError:
             logger.warning(
                 "embed_corpus: skipping non-paper directory %r under %s",

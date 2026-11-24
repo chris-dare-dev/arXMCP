@@ -13,11 +13,11 @@ from unittest.mock import patch
 import lancedb
 import pyarrow as pa
 
+from arxmcp.corpus.schema import CHUNKS_SCHEMA_V1, EQUATIONS_SCHEMA_V1
 from arxmcp.ingest import index_definitions
 from arxmcp.ingest.index_equations import open_or_create_equations_table
 from arxmcp.ingest.mathml_tree import MATHML_TREE_NORMALIZER_VERSION
 from arxmcp.ingest.preamble import PreambleDoc
-from arxmcp.ingest.schema import CHUNKS_SCHEMA_V1, EQUATIONS_SCHEMA_V1
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 

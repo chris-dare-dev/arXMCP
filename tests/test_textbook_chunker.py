@@ -17,16 +17,16 @@ from unittest.mock import patch
 
 import pytest
 
-from arxmcp.ingest.identifiers import is_valid_chunk_id
+from arxmcp.corpus.identifiers import is_valid_chunk_id
 from arxmcp.ingest.textbook_chunker import (
     TEXTBOOK_CHUNKER_VERSION,
     _collect_chapter_titles,
-    _compute_textbook_chunk_id,
     _flat_paper_id,
     _resolve_notebook_dir,
     _textbook_chunks_dir,
     _textbook_html_path,
     chunk_textbook,
+    compute_textbook_chunk_id,
 )
 from tests._symlink_support import requires_symlink
 
@@ -90,32 +90,32 @@ class TestPathBuilders:
 
 class TestComputeTextbookChunkId:
     def test_prefix_is_textbook(self) -> None:
-        cid = _compute_textbook_chunk_id("my-book", "", "some body")
+        cid = compute_textbook_chunk_id("my-book", "", "some body")
         assert cid.startswith("textbook:my-book:")
 
     def test_round_trips_through_validator(self) -> None:
-        cid = _compute_textbook_chunk_id("my-book", "", "theorem body")
+        cid = compute_textbook_chunk_id("my-book", "", "theorem body")
         assert is_valid_chunk_id(cid), f"{cid} failed is_valid_chunk_id"
 
     def test_deterministic(self) -> None:
-        a = _compute_textbook_chunk_id("b", "pre", "body")
-        c = _compute_textbook_chunk_id("b", "pre", "body")
+        a = compute_textbook_chunk_id("b", "pre", "body")
+        c = compute_textbook_chunk_id("b", "pre", "body")
         assert a == c
 
     def test_body_change_changes_id(self) -> None:
-        a = _compute_textbook_chunk_id("b", "", "body one")
-        c = _compute_textbook_chunk_id("b", "", "body two")
+        a = compute_textbook_chunk_id("b", "", "body one")
+        c = compute_textbook_chunk_id("b", "", "body two")
         assert a != c
 
     def test_nfc_normalization_matches_arxiv_discipline(self) -> None:
         # NFC vs NFD of the same logical string must hash identically
-        # (the arXiv _compute_chunk_id applies NFC to body before hashing).
+        # (the arXiv compute_chunk_id applies NFC to body before hashing).
         import unicodedata
         nfc = unicodedata.normalize("NFC", "café")  # é as single codepoint
         nfd = unicodedata.normalize("NFD", "café")  # e + combining accent
         assert nfc != nfd  # different byte sequences
-        assert _compute_textbook_chunk_id("b", "", nfc) == \
-            _compute_textbook_chunk_id("b", "", nfd)
+        assert compute_textbook_chunk_id("b", "", nfc) == \
+            compute_textbook_chunk_id("b", "", nfd)
 
 
 # ---------------------------------------------------------------------------
@@ -378,7 +378,7 @@ class TestResilience:
             chunk_textbook("UPPER", "textbook:upper")
 
     def test_invalid_paper_id_raises(self, tmp_path: Path) -> None:
-        # _validate_paper_id raises InvalidPaperIDError (a ValueError).
+        # validate_paper_id raises InvalidPaperIDError (a ValueError).
         with pytest.raises(ValueError):
             chunk_textbook("good-slug", "not a valid paper id")
 

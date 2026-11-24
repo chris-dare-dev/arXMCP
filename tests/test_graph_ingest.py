@@ -19,7 +19,8 @@ from typing import Any
 import kuzu
 import pytest
 
-from arxmcp.ingest import graph_ingest, kuzudb_schema
+from arxmcp.corpus import kuzudb_schema
+from arxmcp.ingest import graph_ingest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 

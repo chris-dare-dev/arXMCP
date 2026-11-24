@@ -50,8 +50,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from arxmcp.ingest.identifiers import is_valid_paper_id
-from arxmcp.ingest.notebooks import NotebookError, notebook_dir, validate_slug
+from arxmcp.corpus import NotebookError, is_valid_paper_id, notebook_dir, validate_slug
 from arxmcp.ingest.textbook_parser import (
     _TIMEOUT_MAX_S,
     _TIMEOUT_MIN_S,

@@ -8,8 +8,8 @@ from types import SimpleNamespace
 import pytest
 from bs4 import BeautifulSoup
 
+from arxmcp.corpus.chunk import embedding_input
 from arxmcp.ingest import chunker, embedder, tex_formal_chunker, textbook_pdf_chunker
-from arxmcp.ingest.chunk import embedding_input
 
 
 def test_windows_cover_exact_source_characters(monkeypatch):

@@ -446,14 +446,14 @@ class TestRunDelta:
     ):
         # The nightly timer's journal gets one "error:" line, not a stack
         # trace, and exit 3 rather than the failure exit 1.
+        import arxmcp.corpus as corpus
         import arxmcp.ingest.oai_delta as delta
-        from arxmcp.ingest import sentinel as ingest_sentinel
-        from arxmcp.ingest.store import STALE_CHUNKER_EXIT_CODE, StaleChunkerRowsError
+        from arxmcp.corpus.store import STALE_CHUNKER_EXIT_CODE, StaleChunkerRowsError
 
         def _refuse(**_k):
             raise StaleChunkerRowsError("rotate it first (make re-embed)")
 
-        monkeypatch.setattr(ingest_sentinel, "is_paused", lambda: None)
+        monkeypatch.setattr(corpus, "is_paused", lambda: None)
         monkeypatch.setattr(delta, "run_delta", _refuse)
         code = delta._cli([
             "--lancedb-staging-path", str(tmp_path / "lancedb-staging"),
@@ -472,7 +472,7 @@ class TestRunDelta:
         import lancedb
         import pyarrow as pa
 
-        from arxmcp.ingest.store import StaleChunkerRowsError
+        from arxmcp.corpus.store import StaleChunkerRowsError
 
         staging = tmp_path / "lancedb-staging"
         lancedb.connect(str(staging)).create_table(
@@ -609,9 +609,9 @@ class TestRunDelta:
         import lancedb
         import numpy as np
 
-        from arxmcp.ingest.chunk import CHUNKER_VERSION, EMBEDDING_DIM, ChunkRecord
-        from arxmcp.ingest.schema import EmbedRecord
-        from arxmcp.ingest.store import write_chunks
+        from arxmcp.corpus.chunk import CHUNKER_VERSION, EMBEDDING_DIM, ChunkRecord
+        from arxmcp.corpus.schema import EmbedRecord
+        from arxmcp.corpus.store import write_chunks
 
         staging = tmp_path / "lancedb-staging"
         for n, pid in enumerate(["2401.00099", "2401.00001"]):

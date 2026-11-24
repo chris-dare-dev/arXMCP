@@ -66,7 +66,7 @@ def write_ingest_summary(
         Papers that produced zero chunks (parse/embed failure).
     chunks_written_this_run:
         Sum of ``rows_inserted + rows_updated`` across all
-        :class:`arxmcp.ingest.store.WriteStats` in this run.
+        :class:`arxmcp.corpus.store.WriteStats` in this run.
     total_rows_after_commit:
         ``tbl.count_rows()`` as of the last write in this run.
     elapsed_seconds:

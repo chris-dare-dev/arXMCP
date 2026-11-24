@@ -17,7 +17,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-from arxmcp.ingest.write_lock import exits_when_write_locked, holds_dataset_write_lock
+from arxmcp.corpus import exits_when_write_locked, holds_dataset_write_lock
 
 logger = logging.getLogger(__name__)
 
@@ -39,8 +39,8 @@ def build_derived_indexes(lancedb_path: str | Path) -> DerivedIndexSummary:
     and written inside the dataset. Rebuilding is safe: BM25 skips a
     version it already holds, and the other two replace their rows.
     """
+    from arxmcp.corpus import read_corpus_version
     from arxmcp.ingest.bm25_indexer import build_bm25_index
-    from arxmcp.ingest.corpus import read_corpus_version
     from arxmcp.ingest.index_definitions import index_definitions_for_corpus
     from arxmcp.ingest.index_theorem_names import build_theorem_names_index
 

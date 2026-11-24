@@ -15,7 +15,7 @@ raised. Measured: 90 zeroed fragments, ``count_rows()`` still 4279.
 "last paper wins" marker bug under-reported by ~40x, so a good corpus sat at
 ``degraded(chunk_count_diverged)`` on every boot and the one signal that
 would catch a REAL divergence was noise. The writer itself was already fixed
-by ``corpus-integrity-observability-m1`` (``src/arxmcp/ingest/store.py`` now counts off
+by ``corpus-integrity-observability-m1`` (``src/arxmcp/corpus/store.py`` now counts off
 the committed table); what remained was the remediation advice, which told
 operators to re-run ingest — hours — when ``make reconcile`` does it in
 seconds.
@@ -36,11 +36,11 @@ from pathlib import Path
 import pytest
 
 REPO_ROOT: Path = Path(__file__).resolve().parents[1]
-CORPUS_PY: str = (REPO_ROOT / "src" / "arxmcp" / "ingest" / "corpus.py").read_text(encoding="utf-8")
+CORPUS_PY: str = (REPO_ROOT / "src" / "arxmcp" / "corpus" / "reader.py").read_text(encoding="utf-8")
 RESOURCES_PY: str = (REPO_ROOT / "src/arxmcp/server" / "resources.py").read_text(encoding="utf-8")
 
 
-STORE_PY: str = (REPO_ROOT / "src" / "arxmcp" / "ingest" / "store.py").read_text(encoding="utf-8")
+STORE_PY: str = (REPO_ROOT / "src" / "arxmcp" / "corpus" / "store.py").read_text(encoding="utf-8")
 
 
 def _function_body(func: object) -> str:
@@ -93,10 +93,10 @@ def _enclosing_call(source: str, needle: str) -> str:
 def test_the_table_open_path_reads_a_row() -> None:
     """A manifest that parses is not a corpus that answers."""
     assert "def _smoke_read(" in CORPUS_PY, (
-        "src/arxmcp/ingest/corpus.py must prove the table is READABLE, not merely "
+        "src/arxmcp/corpus/reader.py must prove the table is READABLE, not merely "
         "openable (#428)"
     )
-    from arxmcp.ingest.corpus import _smoke_read
+    from arxmcp.corpus.reader import _smoke_read
 
     body = _function_body(_smoke_read)
     assert ".limit(1)" in body, "the probe must stay bounded to one row"
@@ -114,7 +114,7 @@ def test_the_smoke_read_arms_the_existing_fallback() -> None:
     because nothing in the open path touched the data. The probe has to sit
     INSIDE the try for the corruption handler to see it.
     """
-    from arxmcp.ingest.corpus import open_chunks_table_with_fallback
+    from arxmcp.corpus.reader import open_chunks_table_with_fallback
 
     source = inspect.getsource(open_chunks_table_with_fallback)
     primary = source.index("tbl = open_chunks_table(lancedb_path, version=version)")
@@ -128,7 +128,7 @@ def test_the_smoke_read_arms_the_existing_fallback() -> None:
 
 def test_the_fallback_target_is_proved_too() -> None:
     """Falling back to a second unreadable version relocates the lie."""
-    from arxmcp.ingest.corpus import open_chunks_table_with_fallback
+    from arxmcp.corpus.reader import open_chunks_table_with_fallback
 
     source = inspect.getsource(open_chunks_table_with_fallback)
     assert source.count("_smoke_read(") == 2, (
@@ -142,7 +142,7 @@ def test_an_empty_table_is_not_treated_as_corruption() -> None:
     Conflating "no rows" with "cannot read rows" would refuse to start on
     exactly the first-run corpus #426 exists to make bootable.
     """
-    from arxmcp.ingest.corpus import _smoke_read
+    from arxmcp.corpus.reader import _smoke_read
 
     doc = _smoke_read.__doc__ or ""
     assert "EMPTY table is not a failure" in doc, (
@@ -322,8 +322,8 @@ def test_a_cacheless_boot_says_cacheless_and_not_warm(
     import arxmcp.server.cache as cache_mod
     import arxmcp.server.query_encoder as qe_mod
     import arxmcp.server.resources as res_mod
+    from arxmcp.corpus.schema import CHUNKS_SCHEMA_V1
     from arxmcp.ingest.embedder import EMBEDDER_VERSION
-    from arxmcp.ingest.schema import CHUNKS_SCHEMA_V1
     from arxmcp.server.resources import Resources
     from arxmcp.server.retrieval import BM25Phase
     from arxmcp.settings import Config

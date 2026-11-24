@@ -35,12 +35,12 @@ import numpy as np
 import pyarrow as pa
 import pytest
 
-from arxmcp.ingest.chunk import ChunkRecord
+from arxmcp.corpus.chunk import ChunkRecord
+from arxmcp.corpus.schema import CHUNKS_SCHEMA_V1, EmbedRecord
+from arxmcp.corpus.store import write_chunks
 from arxmcp.ingest.chunker import chunk_paper
 from arxmcp.ingest.embedder import EMBEDDER_VERSION, EMBEDDING_DIM
 from arxmcp.ingest.preamble_types import PreambleDoc
-from arxmcp.ingest.schema import CHUNKS_SCHEMA_V1, EmbedRecord
-from arxmcp.ingest.store import write_chunks
 from arxmcp.server.documents_store import (
     DOCUMENTS_DB_FILENAME,
     DocumentRecord,
@@ -319,7 +319,7 @@ class TestZeroReEmbed:
             line for line in source.splitlines()
             if line.strip().startswith(("import ", "from "))
         )
-        assert "arxmcp.ingest.store" not in import_block
+        assert "arxmcp.corpus.store" not in import_block
         assert "arxmcp.ingest.embedder" not in import_block
         assert "write_chunks" not in source
         # It DOES connect to LanceDB directly (the intended mechanism).
@@ -559,7 +559,7 @@ class TestHardErrors:
     def test_missing_chunks_table_raises(self, tmp_path):
         base = tmp_path / "notebooks"
         (base / SLUG).mkdir(parents=True)  # notebook dir but no lancedb table
-        from arxmcp.ingest.notebooks import NotebookError
+        from arxmcp.corpus.notebooks import NotebookError
 
         with pytest.raises(NotebookError, match="no 'chunks'"):
             backfill.run(SLUG, base=base, corpus_parsed_dir=tmp_path / "parsed")
@@ -567,7 +567,7 @@ class TestHardErrors:
     def test_main_returns_1_on_notebook_error(self, monkeypatch, capsys):
         """``main`` translates a NotebookError (bad slug, no table) into exit 1
         with a message on stderr, never a traceback."""
-        from arxmcp.ingest.notebooks import NotebookError
+        from arxmcp.corpus.notebooks import NotebookError
 
         def _raise(_slug):
             raise NotebookError("boom")
@@ -935,7 +935,7 @@ def test_v2_defaults_match_store():
     """``backfill._V2_COLUMN_DEFAULTS`` re-states, to keep the embedder out
     of the driver's import graph, what the store's migration gives the
     five schema-v2 columns: NULL of the column's type."""
-    from arxmcp.ingest.schema import CHUNKS_TABLE_NAME, PRE_COLUMN_VALUES
+    from arxmcp.corpus.schema import CHUNKS_TABLE_NAME, PRE_COLUMN_VALUES
 
     sql_types = {pa.utf8(): "string", pa.bool_(): "boolean"}
     v2 = backfill._V2_COLUMN_DEFAULTS

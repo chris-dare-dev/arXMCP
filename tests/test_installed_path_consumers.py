@@ -15,7 +15,8 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from mcp.server.fastmcp import FastMCP
 
-from arxmcp.ingest import notebooks as _notebook_common
+import arxmcp.corpus
+from arxmcp.corpus import notebooks as _notebook_common
 from arxmcp.server.ingest_tracker import IngestTaskTracker
 from arxmcp.server.mcp_resources import (
     CORPUS_MANIFEST_URI,
@@ -104,7 +105,7 @@ def test_per_notebook_retrieval_uses_configured_base(
         return (base or tmp_path / "wrong") / slug / "lancedb"
 
     monkeypatch.setattr(
-        _notebook_common, "notebook_lancedb_path", fake_notebook_path
+        arxmcp.corpus, "notebook_lancedb_path", fake_notebook_path
     )
     monkeypatch.setattr(
         resources_module,
